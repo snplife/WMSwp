@@ -152,28 +152,51 @@ function App() {
 
   const tableConfig = getTableConfig(selectedTable);
 
+  const fetchAllRows = async (table, config) => {
+    const pageSize = 1000;
+    let from = 0;
+    let collected = [];
+
+    while (true) {
+      let query = supabase.from(table).select("*").range(from, from + pageSize - 1);
+
+      if (config.orderBy) {
+        query = query.order(config.orderBy, { ascending: Boolean(config.orderAsc) });
+      }
+
+      const { data, error: queryError } = await query;
+
+      if (queryError) {
+        throw queryError;
+      }
+
+      const chunk = data || [];
+      collected = collected.concat(chunk);
+
+      if (chunk.length < pageSize) {
+        break;
+      }
+
+      from += pageSize;
+    }
+
+    return collected;
+  };
+
   const loadRows = async (table) => {
     setLoading(true);
     setError("");
 
-    const config = getTableConfig(table);
-    let query = supabase.from(table).select("*").limit(300);
-
-    if (config.orderBy) {
-      query = query.order(config.orderBy, { ascending: Boolean(config.orderAsc) });
-    }
-
-    const { data, error: queryError } = await query;
-
-    if (queryError) {
-      setError(queryError.message);
+    try {
+      const config = getTableConfig(table);
+      const data = await fetchAllRows(table, config);
+      setRows(data || []);
+    } catch (queryError) {
+      setError(queryError?.message || "Nepodarilo sa načítať dáta.");
       setRows([]);
+    } finally {
       setLoading(false);
-      return;
     }
-
-    setRows(data || []);
-    setLoading(false);
   };
 
   useEffect(() => {

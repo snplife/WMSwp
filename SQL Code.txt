@@ -1,0 +1,91 @@
+ create table if not exists public.stock (
+    position text not null,
+    material_code text not null,
+    quantity integer not null default 1,
+    constraint stock_pk primary key (position, material_code)
+  );
+
+  -- 2) HISTÓRIA (kto čo spravil)
+  create table if not exists public.stock_history (
+    event_key text primary key,
+    action text not null,           -- RECEIVE | ISSUE | MOVE_ALL | UNDO
+    position text not null,
+    material_code text not null,
+    note text not null default '',  -- napr. "Pouzivatel: Jan", "Cieľ: B202 | Používateľ: Jan"
+    created_at_ms bigint not null
+  );
+
+  create index if not exists idx_stock_history_created_at_ms
+    on public.stock_history (created_at_ms desc);
+
+  create index if not exists idx_stock_history_material
+    on public.stock_history (material_code);
+
+  create index if not exists idx_stock_history_position
+    on public.stock_history (position);
+
+  -- 3) RLS zapnúť
+  alter table public.stock enable row level security;
+  alter table public.stock_history enable row level security;
+
+  -- 4) Vymaž staré policy (aby nevznikol konflikt názvov)
+  drop policy if exists "stock_select_anon" on public.stock;
+  drop policy if exists "stock_insert_anon" on public.stock;
+  drop policy if exists "stock_update_anon" on public.stock;
+  drop policy if exists "stock_delete_anon" on public.stock;
+
+  drop policy if exists "stock_history_select_anon" on public.stock_history;
+  drop policy if exists "stock_history_insert_anon" on public.stock_history;
+  drop policy if exists "stock_history_update_anon" on public.stock_history;
+  drop policy if exists "stock_history_delete_anon" on public.stock_history;
+
+  -- 5) Policy pre anon key (mobilná app)
+  create policy "stock_select_anon"
+  on public.stock
+  for select
+  to anon
+  using (true);
+
+  create policy "stock_insert_anon"
+  on public.stock
+  for insert
+  to anon
+  with check (true);
+
+  create policy "stock_update_anon"
+  on public.stock
+  for update
+  to anon
+  using (true)
+  with check (true);
+
+  create policy "stock_delete_anon"
+  on public.stock
+  for delete
+  to anon
+  using (true);
+
+  create policy "stock_history_select_anon"
+  on public.stock_history
+  for select
+  to anon
+  using (true);
+
+  create policy "stock_history_insert_anon"
+  on public.stock_history
+  for insert
+  to anon
+  with check (true);
+
+  create policy "stock_history_update_anon"
+  on public.stock_history
+  for update
+  to anon
+  using (true)
+  with check (true);
+
+  create policy "stock_history_delete_anon"
+  on public.stock_history
+  for delete
+  to anon
+  using (true);

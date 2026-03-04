@@ -1,0 +1,3 @@
+VITE_SUPABASE_URL=https://wxjwahoeklbqiksnwvpb.supabase.co
+VITE_SUPABASE_ANON_KEY=sb_publishable_GYy_yzhdquED_gEM7Moirg_-v0U4Q0n
+VITE_SUPABASE_TABLES=stock,stock_history

@@ -1431,8 +1431,14 @@ function App() {
       return;
     }
 
+    try {
+      await supabase.removeAllChannels();
+    } catch {
+      // Ignore realtime cleanup failures before post-login reload.
+    }
     setAuthSubmitting(false);
     setAuthPassword("");
+    window.location.reload();
   };
 
   const handleSignOut = async () => {

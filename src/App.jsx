@@ -1,7 +1,7 @@
 ﻿import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import StatusPill from "./components/StatusPill";
-import { supabase, supabaseAnonKey, supabaseUrl, tableNames } from "./supabaseClient";
+import { noStoreFetch, supabase, supabaseAnonKey, supabaseUrl, tableNames } from "./supabaseClient";
 import logo from "../logo.png";
 
 const TABLE_CONFIG = {
@@ -316,6 +316,9 @@ function App() {
   const userCreatorClient = useMemo(
     () =>
       createClient(supabaseUrl, supabaseAnonKey, {
+        global: {
+          fetch: noStoreFetch
+        },
         auth: {
           persistSession: false,
           autoRefreshToken: false,

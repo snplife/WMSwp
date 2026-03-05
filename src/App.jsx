@@ -1347,22 +1347,6 @@ function App() {
     }
     return usage;
   }, [rows, selectedTable, isMaster, selectedCompanyId, companyNameById]);
-  const sharedPositionsCount = useMemo(
-    () => Object.values(positionUsageMap).filter((count) => count > 1).length,
-    [positionUsageMap]
-  );
-  const maxItemsInOnePosition = useMemo(
-    () => Object.values(positionUsageMap).reduce((max, count) => Math.max(max, Number(count || 0)), 0),
-    [positionUsageMap]
-  );
-  const topSharedPositions = useMemo(
-    () =>
-      Object.entries(positionUsageMap)
-        .filter(([, count]) => count > 1)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 4),
-    [positionUsageMap]
-  );
   const occupiedPositions = useMemo(() => {
     if (selectedTable !== "stock") {
       return 0;
@@ -2090,13 +2074,6 @@ function App() {
             <strong>{new Intl.NumberFormat("sk-SK").format(freePositions)}</strong>
           </article>
         )}
-        {selectedTable === "stock" && (
-          <article className={`card ${maxItemsInOnePosition >= 5 ? "card-shared-strong" : "card-shared"}`}>
-            <p>Zdieľané pozície</p>
-            <strong>{new Intl.NumberFormat("sk-SK").format(sharedPositionsCount)}</strong>
-            <p className="occupancy-meta">{`Max na 1 pozícii: ${maxItemsInOnePosition}`}</p>
-          </article>
-        )}
       </section>
 
       <section className="panel">
@@ -2109,12 +2086,6 @@ function App() {
             {selectedTable === "stock" && deadStockCount > 0 && (
               <p className="dead-stock-meta">
                 Alert: {deadStockCount} položiek bez pohybu aspoň {deadStockDays} dní.
-              </p>
-            )}
-            {selectedTable === "stock" && topSharedPositions.length > 0 && (
-              <p className="shared-position-meta">
-                Zdieľané pozície:
-                {` ${topSharedPositions.map(([position, count]) => `${position} (${count}x)`).join(", ")}`}
               </p>
             )}
           </div>

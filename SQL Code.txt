@@ -145,10 +145,38 @@ begin
 end;
 $$;
 
+create or replace function public.fill_company_id_from_auth_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.company_id is null then
+    select au.company_id
+      into new.company_id
+    from public.app_users au
+    where au.user_id = auth.uid()
+    limit 1;
+  end if;
+  return new;
+end;
+$$;
+
 drop trigger if exists trg_touch_app_users_updated_at on public.app_users;
 create trigger trg_touch_app_users_updated_at
 before update on public.app_users
 for each row execute function public.touch_app_users_updated_at();
+
+drop trigger if exists trg_fill_stock_company_id on public.stock;
+create trigger trg_fill_stock_company_id
+before insert on public.stock
+for each row execute function public.fill_company_id_from_auth_user();
+
+drop trigger if exists trg_fill_stock_history_company_id on public.stock_history;
+create trigger trg_fill_stock_history_company_id
+before insert on public.stock_history
+for each row execute function public.fill_company_id_from_auth_user();
 
 create or replace function public.is_master(uid uuid default auth.uid())
 returns boolean

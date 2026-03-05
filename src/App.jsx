@@ -402,13 +402,6 @@ function App() {
   const [authError, setAuthError] = useState("");
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [signOutSubmitting, setSignOutSubmitting] = useState(false);
-  const [diagOpen, setDiagOpen] = useState(false);
-  const [diagRunning, setDiagRunning] = useState(false);
-  const [diagResult, setDiagResult] = useState(null);
-  const [lastDataLoadAt, setLastDataLoadAt] = useState(null);
-  const [lastLoadError, setLastLoadError] = useState("");
-  const [lastAuthEvent, setLastAuthEvent] = useState("init");
-  const [lastAuthEventAt, setLastAuthEventAt] = useState(null);
   const [managedUsers, setManagedUsers] = useState([]);
   const [managedUsersLoading, setManagedUsersLoading] = useState(false);
   const [managedUsersError, setManagedUsersError] = useState("");
@@ -1108,8 +1101,6 @@ function App() {
       } else {
         setOccupancySeries([]);
       }
-      setLastDataLoadAt(Date.now());
-      setLastLoadError("");
     } catch (queryError) {
       const loadErrorMessage = queryError?.message || "Nepodarilo sa načítať dáta.";
       setError(loadErrorMessage);
@@ -1117,7 +1108,6 @@ function App() {
       setDeadStockByKey({});
       setStockAgeStats({ avgDays: null, sampleCount: 0 });
       setOccupancySeries([]);
-      setLastLoadError(loadErrorMessage);
     } finally {
       setLoading(false);
     }
@@ -1227,8 +1217,6 @@ function App() {
       data: { subscription }
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       try {
-        setLastAuthEvent(String(event || "unknown"));
-        setLastAuthEventAt(Date.now());
         await hydrateFromSession(session || null);
       } catch (stateError) {
         if (!mounted) {
@@ -1549,104 +1537,6 @@ function App() {
     setExpandedPositions((prev) => ({ ...prev, [position]: !prev[position] }));
   };
 
-  const runDiagnostics = async () => {
-    setDiagRunning(true);
-    setDiagResult(null);
-    try {
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      const sessionUser = sessionData?.session?.user || null;
-      const uid = sessionUser?.id || authUser?.id || null;
-
-      const [masterRpc, companyRpc, ownUserRow, companyRows, stockSample] = await Promise.all([
-        uid ? supabase.rpc("is_master", { uid }) : Promise.resolve({ data: null, error: null }),
-        uid ? supabase.rpc("user_company_id", { uid }) : Promise.resolve({ data: null, error: null }),
-        uid
-          ? supabase.from(ROLE_TABLE).select("user_id,role,company_id,username,email").eq("user_id", uid).maybeSingle()
-          : Promise.resolve({ data: null, error: null }),
-        supabase.from("companies").select("id,name").order("name", { ascending: true }).limit(10),
-        supabase.from("stock").select("company_id,position,material_code").limit(1)
-      ]);
-
-      setDiagResult({
-        at: new Date().toISOString(),
-        appBuildId: APP_BUILD_ID,
-        authState: {
-          authReady,
-          isLoggedIn,
-          authUserId: authUser?.id || null,
-          authUserEmail: authUser?.email || null,
-          authUsername,
-          userRole,
-          userCompanyId,
-          selectedCompanyId,
-          lastAuthEvent,
-          lastAuthEventAt: lastAuthEventAt ? new Date(lastAuthEventAt).toISOString() : null
-        },
-        lastDataLoadAt: lastDataLoadAt ? new Date(lastDataLoadAt).toISOString() : null,
-        rowsInView: rows.length,
-        lastLoadError,
-        browser: {
-          online: typeof navigator !== "undefined" ? navigator.onLine : true,
-          url: typeof window !== "undefined" ? window.location.href : ""
-        },
-        checks: {
-          session: {
-            ok: !sessionError,
-            error: sessionError?.message || null,
-            uid: sessionUser?.id || null,
-            email: sessionUser?.email || null
-          },
-          rpcIsMaster: { ok: !masterRpc.error, data: masterRpc.data ?? null, error: masterRpc.error?.message || null },
-          rpcUserCompanyId: {
-            ok: !companyRpc.error,
-            data: companyRpc.data ?? null,
-            error: companyRpc.error?.message || null
-          },
-          ownUserRow: { ok: !ownUserRow.error, data: ownUserRow.data ?? null, error: ownUserRow.error?.message || null },
-          companiesSelect: {
-            ok: !companyRows.error,
-            count: Array.isArray(companyRows.data) ? companyRows.data.length : 0,
-            sample: companyRows.data || [],
-            error: companyRows.error?.message || null
-          },
-          stockSelect: {
-            ok: !stockSample.error,
-            sample: stockSample.data || [],
-            error: stockSample.error?.message || null
-          }
-        }
-      });
-    } catch (diagError) {
-      setDiagResult({
-        at: new Date().toISOString(),
-        fatal: diagError?.message || "Diagnostic run failed."
-      });
-    } finally {
-      setDiagRunning(false);
-    }
-  };
-
-  const handleLocalAuthCacheReset = () => {
-    try {
-      const localKeys = Object.keys(window.localStorage);
-      localKeys.forEach((key) => {
-        if (key.startsWith("wms_") || key.toLowerCase().includes("supabase")) {
-          window.localStorage.removeItem(key);
-        }
-      });
-
-      const sessionKeys = Object.keys(window.sessionStorage);
-      sessionKeys.forEach((key) => {
-        if (key.startsWith("wms_") || key.toLowerCase().includes("supabase")) {
-          window.sessionStorage.removeItem(key);
-        }
-      });
-    } catch {
-      // Ignore storage cleanup errors.
-    }
-    window.location.reload();
-  };
-
   const exportToExcel = () => {
     const headers = tableConfig.columns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join("");
     const body = filteredRows
@@ -1879,9 +1769,6 @@ function App() {
             <button type="button" onClick={exportToExcel} className="export-btn">
               Export do Excelu
             </button>
-            <button type="button" onClick={() => setDiagOpen((prev) => !prev)} className="refresh-btn">
-              {diagOpen ? "Skryť diagnostiku" : "Diagnostika"}
-            </button>
             <button type="button" onClick={() => loadRows(selectedTable)} className="refresh-btn">
               Obnoviť
             </button>
@@ -1891,42 +1778,6 @@ function App() {
           </div>
         </div>
       </section>
-
-      {diagOpen && (
-        <section className="panel">
-          <div className="panel-head">
-            <div>
-              <h2>Troubleshooting</h2>
-              <p className="panel-meta">Rýchla diagnostika relácie a SQL prístupu</p>
-            </div>
-            <div className="master-head-actions">
-              <button type="button" className="refresh-btn" onClick={runDiagnostics} disabled={diagRunning}>
-                {diagRunning ? "Beží..." : "Spustiť test"}
-              </button>
-              <button
-                type="button"
-                className="refresh-btn"
-                onClick={async () => {
-                  await supabase.auth.getSession();
-                  await loadRows(selectedTable);
-                }}
-              >
-                Force reload
-              </button>
-              <button type="button" className="logout-btn" onClick={handleLocalAuthCacheReset}>
-                Reset local cache
-              </button>
-            </div>
-          </div>
-          <p className="panel-meta">
-            Posledný auth event: {lastAuthEvent} | Posledné načítanie: {lastDataLoadAt ? formatDate(lastDataLoadAt) : "-"}
-          </p>
-          {lastLoadError && <p className="error">{`Load error: ${lastLoadError}`}</p>}
-          <div className="table-wrap">
-            <pre className="debug-json">{JSON.stringify(diagResult || { info: "Klikni na Spustiť test" }, null, 2)}</pre>
-          </div>
-        </section>
-      )}
 
       {isMaster && (
         <section className="panel master-panel">

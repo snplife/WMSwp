@@ -57,6 +57,8 @@ const SIMPLE_LOGIN_USER = (import.meta.env.VITE_LOGIN_USER || "admin").trim();
 const SIMPLE_LOGIN_PASSWORD = import.meta.env.VITE_LOGIN_PASSWORD || "admin123";
 const ENV_DEFAULT_DEAD_STOCK_DAYS = Math.max(1, Number(import.meta.env.VITE_DEAD_STOCK_DAYS || 30));
 const ENV_DEFAULT_MAX_POSITIONS = Math.max(1, Number(import.meta.env.VITE_MAX_POSITIONS || 100));
+const DAY_MS = 24 * 60 * 60 * 1000;
+const INBOUND_ACTIONS = new Set(["RECEIVE", "MOVE", "MOVE_ALL", "ADJUST"]);
 const LANDING_FEATURES = [
   "Online prehľad zásob a pohybov v reálnom čase",
   "Rýchly export dát do Excelu pre operatívu",
@@ -169,6 +171,7 @@ function App() {
   const [stockViewMode, setStockViewMode] = useState("table");
   const [expandedPositions, setExpandedPositions] = useState({});
   const [deadStockByKey, setDeadStockByKey] = useState({});
+  const [stockAgeStats, setStockAgeStats] = useState({ avgDays: null, sampleCount: 0 });
   const [showDeadStockOnly, setShowDeadStockOnly] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [deadStockDays, setDeadStockDays] = useState(() => {
@@ -235,6 +238,7 @@ function App() {
 
       if (table !== "stock") {
         setDeadStockByKey({});
+        setStockAgeStats({ avgDays: null, sampleCount: 0 });
         return;
       }
 
@@ -242,6 +246,8 @@ function App() {
       const now = Date.now();
       const deadStockMs = deadStockDays * 24 * 60 * 60 * 1000;
       const latestMovementMsByKey = {};
+      const latestInboundMsByKey = {};
+      const latestAnyMsByKey = {};
 
       for (const historyRow of historyRows) {
         const key = makeStockKey(historyRow.position, historyRow.material_code);
@@ -258,9 +264,23 @@ function App() {
         if (!Number.isFinite(latest) || createdAtMs > latest) {
           latestMovementMsByKey[key] = createdAtMs;
         }
+
+        const latestAny = latestAnyMsByKey[key];
+        if (!Number.isFinite(latestAny) || createdAtMs > latestAny) {
+          latestAnyMsByKey[key] = createdAtMs;
+        }
+
+        if (INBOUND_ACTIONS.has(String(historyRow.action || "").toUpperCase())) {
+          const latestInbound = latestInboundMsByKey[key];
+          if (!Number.isFinite(latestInbound) || createdAtMs > latestInbound) {
+            latestInboundMsByKey[key] = createdAtMs;
+          }
+        }
       }
 
       const deadMap = {};
+      let ageTotalMs = 0;
+      let ageSamples = 0;
       for (const stockRow of data || []) {
         const quantity = Number(stockRow.quantity || 0);
         if (!(quantity > 0)) {
@@ -275,15 +295,26 @@ function App() {
         }
 
         deadMap[key] = {
-          inactiveDays: Number.isFinite(inactiveMs) ? Math.floor(inactiveMs / (24 * 60 * 60 * 1000)) : null,
+          inactiveDays: Number.isFinite(inactiveMs) ? Math.floor(inactiveMs / DAY_MS) : null,
           lastMoveMs: Number.isFinite(lastMoveMs) ? lastMoveMs : null
         };
+
+        const referenceMs = latestInboundMsByKey[key] ?? latestAnyMsByKey[key];
+        if (Number.isFinite(referenceMs) && now >= referenceMs) {
+          ageTotalMs += now - referenceMs;
+          ageSamples += 1;
+        }
       }
       setDeadStockByKey(deadMap);
+      setStockAgeStats({
+        avgDays: ageSamples > 0 ? ageTotalMs / ageSamples / DAY_MS : null,
+        sampleCount: ageSamples
+      });
     } catch (queryError) {
       setError(queryError?.message || "Nepodarilo sa načítať dáta.");
       setRows([]);
       setDeadStockByKey({});
+      setStockAgeStats({ avgDays: null, sampleCount: 0 });
     } finally {
       setLoading(false);
     }
@@ -691,6 +722,17 @@ function App() {
           <article className={`card ${deadStockCount > 0 ? "card-alert" : ""}`}>
             <p>Dead stock ({deadStockDays} dní)</p>
             <strong>{new Intl.NumberFormat("sk-SK").format(deadStockCount)}</strong>
+          </article>
+        )}
+        {selectedTable === "stock" && (
+          <article className="card">
+            <p>Priemerný čas na sklade</p>
+            <strong>
+              {stockAgeStats.avgDays === null
+                ? "-"
+                : `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(stockAgeStats.avgDays)} dní`}
+            </strong>
+            <p className="occupancy-meta">{`Vzorka: ${stockAgeStats.sampleCount} položiek`}</p>
           </article>
         )}
         {selectedTable === "stock" && (

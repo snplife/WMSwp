@@ -313,6 +313,59 @@ function App() {
     return String(roleRow?.role || "user").toLowerCase() === "master" ? "master" : "user";
   };
 
+  const fetchOwnCompanyIdViaRpc = async (userId) => {
+    if (!userId) {
+      return null;
+    }
+    try {
+      const { data, error } = await supabase.rpc("user_company_id", { uid: userId });
+      if (error) {
+        return null;
+      }
+      return data || null;
+    } catch {
+      return null;
+    }
+  };
+
+  const fetchDbMasterFlagViaRpc = async (userId) => {
+    if (!userId) {
+      return false;
+    }
+    try {
+      const { data, error } = await supabase.rpc("is_master", { uid: userId });
+      if (error) {
+        return false;
+      }
+      return Boolean(data);
+    } catch {
+      return false;
+    }
+  };
+
+  const fetchOwnRoleRow = async (userId, retries = 2) => {
+    if (!userId) {
+      return null;
+    }
+
+    for (let attempt = 0; attempt <= retries; attempt += 1) {
+      const { data } = await supabase
+        .from(ROLE_TABLE)
+        .select("username,email,company_id")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (data) {
+        return data;
+      }
+      if (attempt < retries) {
+        await new Promise((resolve) => window.setTimeout(resolve, 250 * (attempt + 1)));
+      }
+    }
+
+    return null;
+  };
+
   const userCreatorClient = useMemo(
     () =>
       createClient(supabaseUrl, supabaseAnonKey, {
@@ -647,7 +700,17 @@ function App() {
     setError("");
 
     try {
-      const companyScope = isMaster ? selectedCompanyId : userCompanyId;
+      let effectiveUserCompanyId = userCompanyId;
+      if (!isMaster && !effectiveUserCompanyId && authUser?.id) {
+        const resolvedCompanyId = await fetchOwnCompanyIdViaRpc(authUser.id);
+        if (resolvedCompanyId) {
+          effectiveUserCompanyId = resolvedCompanyId;
+          setUserCompanyId(resolvedCompanyId);
+          setSelectedCompanyId(resolvedCompanyId);
+        }
+      }
+
+      const companyScope = isMaster ? selectedCompanyId : effectiveUserCompanyId;
       const scopedCompanyId = companyScope && companyScope !== "all" ? companyScope : null;
       if (!isMaster && !scopedCompanyId) {
         setRows([]);
@@ -788,25 +851,29 @@ function App() {
         setUserCompanyId(null);
         setSelectedCompanyId("all");
       } else {
-        const role = await resolveUserRole(user);
+        const [resolvedRole, dbMasterFlag, companyFromRpc] = await Promise.all([
+          resolveUserRole(user),
+          fetchDbMasterFlagViaRpc(user.id),
+          fetchOwnCompanyIdViaRpc(user.id)
+        ]);
         if (!mounted) {
           return;
         }
+        const role = resolvedRole === "master" || dbMasterFlag ? "master" : "user";
         setUserRole(role);
-        await ensureOwnRoleRow(user, role);
-        const { data: ownRow } = await supabase
-          .from(ROLE_TABLE)
-          .select("username,email,company_id")
-          .eq("user_id", user.id)
-          .maybeSingle();
+        if (role === "master") {
+          await ensureOwnRoleRow(user, role);
+        }
+        const ownRow = await fetchOwnRoleRow(user.id);
         if (!mounted) {
           return;
         }
         const fallbackUsername = usernameFromInternalEmail(user.email);
         setAuthUsername(String(ownRow?.username || usernameFromInternalEmail(ownRow?.email) || fallbackUsername || ""));
-        setUserCompanyId(ownRow?.company_id || null);
+        const resolvedCompanyId = ownRow?.company_id || companyFromRpc || null;
+        setUserCompanyId(resolvedCompanyId);
         if (role !== "master") {
-          setSelectedCompanyId(ownRow?.company_id || "");
+          setSelectedCompanyId(resolvedCompanyId || "");
         }
       }
       setAuthReady(true);

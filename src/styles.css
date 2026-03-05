@@ -522,6 +522,18 @@ select {
   border-radius: 14px;
 }
 
+.debug-json {
+  margin: 0;
+  padding: 0.85rem;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  background: #0f1720;
+  color: #d7e1ed;
+  min-height: 160px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .position-groups {
   display: grid;
   gap: 0.55rem;

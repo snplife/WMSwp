@@ -220,6 +220,17 @@ function translateStatusLabel(status) {
   return statusLabels[normalized] || status;
 }
 
+function maskSecret(value) {
+  const raw = String(value || "");
+  if (!raw) {
+    return "-";
+  }
+  if (raw.length <= 10) {
+    return raw;
+  }
+  return `${raw.slice(0, 6)}...${raw.slice(-4)}`;
+}
+
 function App() {
   const [selectedTable, setSelectedTable] = useState(tableNames[0]);
   const [rows, setRows] = useState([]);
@@ -411,7 +422,7 @@ function App() {
     setManagedUsersError("");
     const { data, error: usersError } = await supabase
       .from(ROLE_TABLE)
-      .select("user_id,username,email,role,company_id,created_at,updated_at,created_by")
+      .select("user_id,username,email,role,company_id,db_url,db_anon_key,created_at,updated_at,created_by")
       .order("created_at", { ascending: false });
 
     if (usersError) {
@@ -421,7 +432,26 @@ function App() {
       return;
     }
 
-    setManagedUsers(data || []);
+    const users = data || [];
+    const usersMissingCreds = users.filter((row) => !row.db_url || !row.db_anon_key);
+    if (usersMissingCreds.length > 0 && DEFAULT_DB_URL && DEFAULT_DB_ANON_KEY) {
+      await Promise.all(
+        usersMissingCreds.map((row) =>
+          supabase
+            .from(ROLE_TABLE)
+            .update({ db_url: DEFAULT_DB_URL, db_anon_key: DEFAULT_DB_ANON_KEY })
+            .eq("user_id", row.user_id)
+        )
+      );
+    }
+
+    setManagedUsers(
+      users.map((row) => ({
+        ...row,
+        db_url: row.db_url || DEFAULT_DB_URL || null,
+        db_anon_key: row.db_anon_key || DEFAULT_DB_ANON_KEY || null
+      }))
+    );
     setManagedUsersLoading(false);
   };
 
@@ -1774,6 +1804,7 @@ function App() {
                   <th>Login</th>
                   <th>Rola</th>
                   <th>Firma</th>
+                  <th>Supabase</th>
                   <th>Vytvorené</th>
                   <th>Zmena role</th>
                 </tr>
@@ -1803,6 +1834,10 @@ function App() {
                           ))}
                         </select>
                       )}
+                    </td>
+                    <td>
+                      <div className="master-user-email">{row.db_url || "-"}</div>
+                      <div className="master-user-email">{`anon: ${maskSecret(row.db_anon_key)}`}</div>
                     </td>
                     <td>{formatDate(row.created_at)}</td>
                     <td>

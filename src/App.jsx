@@ -57,6 +57,9 @@ const DEFAULT_CONFIG = {
 const ROLE_TABLE = (import.meta.env.VITE_USER_ROLES_TABLE || "app_users").trim();
 const MASTER_EMAIL = (import.meta.env.VITE_MASTER_EMAIL || "").trim().toLowerCase();
 const INTERNAL_LOGIN_DOMAIN = (import.meta.env.VITE_INTERNAL_LOGIN_DOMAIN || "wms.local").trim().toLowerCase();
+const APP_BUILD_ID = typeof __APP_BUILD_ID__ === "undefined" ? "dev" : String(__APP_BUILD_ID__);
+const CACHE_BUILD_KEY = "wms_app_build_id";
+const CACHE_RELOAD_GUARD_KEY = "wms_app_build_reload_guard";
 const MIN_MANAGED_PASSWORD_LENGTH = 8;
 const ENV_DEFAULT_DEAD_STOCK_DAYS = Math.max(1, Number(import.meta.env.VITE_DEAD_STOCK_DAYS || 30));
 const ENV_DEFAULT_MAX_POSITIONS = Math.max(1, Number(import.meta.env.VITE_MAX_POSITIONS || 100));
@@ -255,6 +258,34 @@ function App() {
   const [updateCompanySubmitting, setUpdateCompanySubmitting] = useState(false);
   const [deleteCompanySubmitting, setDeleteCompanySubmitting] = useState(false);
   const [createUserSubmitting, setCreateUserSubmitting] = useState(false);
+
+  useEffect(() => {
+    try {
+      const previousBuildId = window.localStorage.getItem(CACHE_BUILD_KEY);
+      const reloadGuard = window.sessionStorage.getItem(CACHE_RELOAD_GUARD_KEY);
+
+      if (previousBuildId && previousBuildId !== APP_BUILD_ID && reloadGuard !== APP_BUILD_ID) {
+        window.localStorage.setItem(CACHE_BUILD_KEY, APP_BUILD_ID);
+        window.sessionStorage.setItem(CACHE_RELOAD_GUARD_KEY, APP_BUILD_ID);
+        if ("serviceWorker" in navigator) {
+          navigator.serviceWorker.getRegistrations().then((registrations) => {
+            registrations.forEach((registration) => registration.unregister());
+          });
+        }
+        const url = new URL(window.location.href);
+        url.searchParams.set("v", APP_BUILD_ID);
+        window.location.replace(url.toString());
+        return;
+      }
+
+      window.localStorage.setItem(CACHE_BUILD_KEY, APP_BUILD_ID);
+      if (reloadGuard === APP_BUILD_ID) {
+        window.sessionStorage.removeItem(CACHE_RELOAD_GUARD_KEY);
+      }
+    } catch {
+      // Ignore storage errors and continue app initialization.
+    }
+  }, []);
 
   const tableConfig = getTableConfig(selectedTable);
   const isMaster = userRole === "master";

@@ -60,6 +60,8 @@ const INTERNAL_LOGIN_DOMAIN = (import.meta.env.VITE_INTERNAL_LOGIN_DOMAIN || "wm
 const MIN_MANAGED_PASSWORD_LENGTH = 8;
 const ENV_DEFAULT_DEAD_STOCK_DAYS = Math.max(1, Number(import.meta.env.VITE_DEAD_STOCK_DAYS || 30));
 const ENV_DEFAULT_MAX_POSITIONS = Math.max(1, Number(import.meta.env.VITE_MAX_POSITIONS || 100));
+const HISTORY_ANALYTICS_LOOKBACK_DAYS = Math.max(30, Number(import.meta.env.VITE_HISTORY_LOOKBACK_DAYS || 365));
+const AUTO_REFRESH_MS = Math.max(60 * 1000, Number(import.meta.env.VITE_AUTO_REFRESH_MS || 5 * 60 * 1000));
 const DAY_MS = 24 * 60 * 60 * 1000;
 const INBOUND_ACTIONS = new Set(["RECEIVE", "MOVE", "MOVE_ALL", "ADJUST"]);
 const LANDING_FEATURES = [
@@ -489,15 +491,19 @@ function App() {
     await loadManagedUsers();
   };
 
-  const fetchAllRows = async (table, config, scopedCompanyId = null) => {
+  const fetchAllRows = async (table, config, options = {}) => {
+    const { scopedCompanyId = null, selectClause = "*", historyFromMs = null } = options;
     const pageSize = 1000;
     let from = 0;
     let collected = [];
 
     while (true) {
-      let query = supabase.from(table).select("*").range(from, from + pageSize - 1);
+      let query = supabase.from(table).select(selectClause).range(from, from + pageSize - 1);
       if (scopedCompanyId && (table === "stock" || table === "stock_history")) {
         query = query.eq("company_id", scopedCompanyId);
+      }
+      if (historyFromMs && table === "stock_history") {
+        query = query.gte("created_at_ms", historyFromMs);
       }
 
       if (config.orderBy) {
@@ -539,7 +545,13 @@ function App() {
       }
 
       const config = getTableConfig(table);
-      const data = await fetchAllRows(table, config, scopedCompanyId);
+      const data =
+        table === "stock"
+          ? await fetchAllRows(table, config, {
+              scopedCompanyId,
+              selectClause: "company_id,position,material_code,quantity"
+            })
+          : await fetchAllRows(table, config, { scopedCompanyId });
       setRows(data || []);
 
       if (table !== "stock") {
@@ -548,7 +560,11 @@ function App() {
         return;
       }
 
-      const historyRows = await fetchAllRows("stock_history", getTableConfig("stock_history"), scopedCompanyId);
+      const historyRows = await fetchAllRows("stock_history", getTableConfig("stock_history"), {
+        scopedCompanyId,
+        selectClause: "company_id,action,position,material_code,created_at_ms",
+        historyFromMs: Date.now() - HISTORY_ANALYTICS_LOOKBACK_DAYS * DAY_MS
+      });
       const now = Date.now();
       const deadStockMs = deadStockDays * 24 * 60 * 60 * 1000;
       const latestMovementMsByKey = {};
@@ -747,15 +763,25 @@ function App() {
     setShowDeadStockOnly(false);
     setExpandedPositions({});
     loadRows(selectedTable);
+    let reloadTimer = null;
+    const scheduleReload = () => {
+      if (reloadTimer) {
+        window.clearTimeout(reloadTimer);
+      }
+      reloadTimer = window.setTimeout(() => loadRows(selectedTable), 350);
+    };
 
-    const channel = supabase
-      .channel(`monitor-${selectedTable}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: selectedTable }, () => {
-        loadRows(selectedTable);
-      })
-      .subscribe();
+    const channel = supabase.channel(`monitor-${selectedTable}`);
+    channel.on("postgres_changes", { event: "*", schema: "public", table: selectedTable }, scheduleReload);
+    if (selectedTable === "stock") {
+      channel.on("postgres_changes", { event: "*", schema: "public", table: "stock_history" }, scheduleReload);
+    }
+    channel.subscribe();
 
     return () => {
+      if (reloadTimer) {
+        window.clearTimeout(reloadTimer);
+      }
       supabase.removeChannel(channel);
     };
   }, [selectedTable, isLoggedIn, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster]);
@@ -767,7 +793,7 @@ function App() {
 
     const intervalId = window.setInterval(() => {
       loadRows(selectedTable);
-    }, 60 * 1000);
+    }, AUTO_REFRESH_MS);
 
     return () => {
       window.clearInterval(intervalId);

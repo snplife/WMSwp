@@ -20,6 +20,8 @@ Create `.env.local` from `.env.example` and fill values:
 - `VITE_INTERNAL_LOGIN_DOMAIN` (optional, default `wms.local`, used for generated internal emails from username)
 - `VITE_DEAD_STOCK_DAYS` (optional, default `30`)
 - `VITE_MAX_POSITIONS` (optional, default `100`)
+- `VITE_HISTORY_LOOKBACK_DAYS` (optional, default `365`, history window used for stock analytics)
+- `VITE_AUTO_REFRESH_MS` (optional, default `300000` = 5 min)
 
 Dead stock threshold and max number of positions can also be changed directly in the web UI (`Nastavenia`) and are saved in browser `localStorage`.
 Settings button is visible only for `master` account.

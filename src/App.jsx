@@ -74,6 +74,11 @@ const TRANSACTION_TABLE_ALIASES = Array.from(
   new Set([TRANSACTIONS_TABLE, "stock_history", "stock_transactions"].filter(Boolean))
 );
 const INBOUND_ACTIONS = new Set(["RECEIVE", "MOVE", "MOVE_ALL", "ADJUST"]);
+const OCCUPANCY_RANGE_CONFIG = {
+  day: { label: "Deň", bucketMs: 60 * 60 * 1000, points: 24 },
+  week: { label: "Týždeň", bucketMs: 24 * 60 * 60 * 1000, points: 7 },
+  month: { label: "Mesiac", bucketMs: 24 * 60 * 60 * 1000, points: 30 }
+};
 const LANDING_FEATURES = [
   "Online prehľad zásob a pohybov v reálnom čase",
   "Rýchly export dát do Excelu pre operatívu",
@@ -232,6 +237,109 @@ function decodeJwtClaims(accessToken) {
   }
 }
 
+function movementDeltaFromAction(action) {
+  const normalized = String(action || "").toUpperCase();
+  if (normalized === "RECEIVE") {
+    return 1;
+  }
+  if (normalized === "ISSUE") {
+    return -1;
+  }
+  return 0;
+}
+
+function buildOccupancySeries(historyRows, options) {
+  const { range = "week", maxPositions = 1, isMaster = false, selectedCompanyId = "all" } = options;
+  const cfg = OCCUPANCY_RANGE_CONFIG[range] || OCCUPANCY_RANGE_CONFIG.week;
+  const now = Date.now();
+  const windowStart = now - (cfg.points - 1) * cfg.bucketMs;
+  const rows = [...(historyRows || [])]
+    .filter((row) => Number.isFinite(Number(row.created_at_ms)))
+    .sort((a, b) => Number(a.created_at_ms) - Number(b.created_at_ms));
+
+  const qtyByMaterialKey = new Map();
+  const activeMaterialsPerPosition = new Map();
+  let occupiedPositions = 0;
+
+  const positionKeyForRow = (row) => {
+    const position = String(row.position || "").trim();
+    if (!position) {
+      return "";
+    }
+    const includeCompany = isMaster && selectedCompanyId === "all";
+    return includeCompany ? `${String(row.company_id || "").trim()}::${position}` : position;
+  };
+
+  const materialKeyForRow = (row) => {
+    const positionKey = positionKeyForRow(row);
+    const material = String(row.material_code || "").trim();
+    if (!positionKey || !material) {
+      return "";
+    }
+    return `${positionKey}::${material}`;
+  };
+
+  const applyEvent = (row) => {
+    const delta = movementDeltaFromAction(row.action);
+    if (delta === 0) {
+      return;
+    }
+
+    const positionKey = positionKeyForRow(row);
+    const materialKey = materialKeyForRow(row);
+    if (!positionKey || !materialKey) {
+      return;
+    }
+
+    const prevQty = qtyByMaterialKey.get(materialKey) || 0;
+    const nextQty = Math.max(0, prevQty + delta);
+    const positionMaterialCount = activeMaterialsPerPosition.get(positionKey) || 0;
+
+    if (prevQty <= 0 && nextQty > 0) {
+      const nextCount = positionMaterialCount + 1;
+      activeMaterialsPerPosition.set(positionKey, nextCount);
+      if (positionMaterialCount === 0) {
+        occupiedPositions += 1;
+      }
+    } else if (prevQty > 0 && nextQty <= 0) {
+      const nextCount = Math.max(0, positionMaterialCount - 1);
+      if (nextCount === 0) {
+        activeMaterialsPerPosition.delete(positionKey);
+        occupiedPositions = Math.max(0, occupiedPositions - 1);
+      } else {
+        activeMaterialsPerPosition.set(positionKey, nextCount);
+      }
+    }
+
+    if (nextQty <= 0) {
+      qtyByMaterialKey.delete(materialKey);
+    } else {
+      qtyByMaterialKey.set(materialKey, nextQty);
+    }
+  };
+
+  let eventIndex = 0;
+  const denominator = Math.max(1, Number(maxPositions || 1));
+  const series = [];
+  for (let i = 0; i < cfg.points; i += 1) {
+    const bucketTs = windowStart + i * cfg.bucketMs;
+    while (eventIndex < rows.length && Number(rows[eventIndex].created_at_ms) <= bucketTs) {
+      applyEvent(rows[eventIndex]);
+      eventIndex += 1;
+    }
+
+    const percent = (occupiedPositions / denominator) * 100;
+    const date = new Date(bucketTs);
+    const label =
+      range === "day"
+        ? date.toLocaleTimeString("sk-SK", { hour: "2-digit", minute: "2-digit" })
+        : date.toLocaleDateString("sk-SK", { day: "2-digit", month: "2-digit" });
+    series.push({ ts: bucketTs, label, percent, occupied: occupiedPositions });
+  }
+
+  return series;
+}
+
 function translateStatusLabel(status) {
   const normalized = String(status || "").toLowerCase();
   const statusLabels = {
@@ -319,6 +427,8 @@ function App() {
   const [deleteUserSubmitting, setDeleteUserSubmitting] = useState(false);
   const [masterUserSearch, setMasterUserSearch] = useState("");
   const [masterUserCompanyFilter, setMasterUserCompanyFilter] = useState("all");
+  const [occupancyChartRange, setOccupancyChartRange] = useState("week");
+  const [occupancySeries, setOccupancySeries] = useState([]);
 
   useEffect(() => {
     try {
@@ -898,6 +1008,7 @@ function App() {
       if (table !== "stock") {
         setDeadStockByKey({});
         setStockAgeStats({ avgDays: null, sampleCount: 0 });
+        setOccupancySeries([]);
         return;
       }
 
@@ -973,6 +1084,17 @@ function App() {
         avgDays: ageSamples > 0 ? ageTotalMs / ageSamples / DAY_MS : null,
         sampleCount: ageSamples
       });
+      if (!isMaster) {
+        const chartSeries = buildOccupancySeries(historyRows, {
+          range: occupancyChartRange,
+          maxPositions,
+          isMaster,
+          selectedCompanyId
+        });
+        setOccupancySeries(chartSeries);
+      } else {
+        setOccupancySeries([]);
+      }
       setLastDataLoadAt(Date.now());
       setLastLoadError("");
     } catch (queryError) {
@@ -981,6 +1103,7 @@ function App() {
       setRows([]);
       setDeadStockByKey({});
       setStockAgeStats({ avgDays: null, sampleCount: 0 });
+      setOccupancySeries([]);
       setLastLoadError(loadErrorMessage);
     } finally {
       setLoading(false);
@@ -1147,7 +1270,7 @@ function App() {
       }
       supabase.removeChannel(channel);
     };
-  }, [selectedTable, isLoggedIn, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id]);
+  }, [selectedTable, isLoggedIn, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id, occupancyChartRange, maxPositions]);
 
   useEffect(() => {
     if (!authReady || !isLoggedIn) {
@@ -1161,7 +1284,7 @@ function App() {
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [isLoggedIn, selectedTable, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id]);
+  }, [isLoggedIn, selectedTable, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id, occupancyChartRange, maxPositions]);
 
   useEffect(() => {
     if (!authReady || !isLoggedIn) {
@@ -1375,6 +1498,25 @@ function App() {
     return "critical";
   }, [occupancyPercent]);
   const occupancyLabel = occupancyLevel === "ok" ? "Nízke" : occupancyLevel === "warn" ? "Stredné" : "Vysoké";
+  const occupancyChartMaxPercent = useMemo(() => {
+    const maxInSeries = occupancySeries.reduce((max, point) => Math.max(max, Number(point.percent || 0)), 0);
+    return Math.max(100, Math.ceil(maxInSeries / 10) * 10);
+  }, [occupancySeries]);
+  const occupancyChartPolyline = useMemo(() => {
+    if (occupancySeries.length === 0) {
+      return "";
+    }
+    const width = 100;
+    const height = 100;
+    return occupancySeries
+      .map((point, index) => {
+        const x = occupancySeries.length === 1 ? 0 : (index / (occupancySeries.length - 1)) * width;
+        const normalized = Math.min(occupancyChartMaxPercent, Math.max(0, Number(point.percent || 0)));
+        const y = height - (normalized / occupancyChartMaxPercent) * height;
+        return `${x},${y}`;
+      })
+      .join(" ");
+  }, [occupancySeries, occupancyChartMaxPercent]);
   const hasActiveFilters =
     statusFilter !== "all" || searchTerm.trim().length > 0 || (selectedTable === "stock" && showDeadStockOnly);
   const currentCompanyLabel = useMemo(() => {
@@ -2075,6 +2217,51 @@ function App() {
           </article>
         )}
       </section>
+
+      {selectedTable === "stock" && !isMaster && (
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <h2>Graf zaplnenia skladu</h2>
+              <p className="panel-meta">Prehľad podľa transakcií (deň / týždeň / mesiac)</p>
+            </div>
+            <div className="stock-view-switch">
+              {Object.entries(OCCUPANCY_RANGE_CONFIG).map(([rangeKey, rangeCfg]) => (
+                <button
+                  key={rangeKey}
+                  type="button"
+                  className={`clear-btn ${occupancyChartRange === rangeKey ? "stock-view-btn-active" : ""}`}
+                  onClick={() => setOccupancyChartRange(rangeKey)}
+                >
+                  {rangeCfg.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {occupancySeries.length === 0 ? (
+            <p className="hint">Zatiaľ nie sú dáta pre graf.</p>
+          ) : (
+            <div className="occupancy-chart-wrap">
+              <svg viewBox="0 0 100 100" className="occupancy-chart" preserveAspectRatio="none" role="img" aria-label="Graf zaplnenia skladu">
+                <line x1="0" y1="100" x2="100" y2="100" className="occupancy-chart-axis" />
+                <line
+                  x1="0"
+                  y1={100 - (100 / occupancyChartMaxPercent) * 100}
+                  x2="100"
+                  y2={100 - (100 / occupancyChartMaxPercent) * 100}
+                  className="occupancy-chart-baseline"
+                />
+                <polyline points={occupancyChartPolyline} className="occupancy-chart-line" />
+              </svg>
+              <div className="occupancy-chart-labels">
+                <span>{occupancySeries[0]?.label || "-"}</span>
+                <span>{occupancySeries[Math.floor((occupancySeries.length - 1) / 2)]?.label || "-"}</span>
+                <span>{occupancySeries[occupancySeries.length - 1]?.label || "-"}</span>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
 
       <section className="panel">
         <div className="panel-head">

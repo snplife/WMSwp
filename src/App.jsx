@@ -675,8 +675,27 @@ function App() {
     };
 
     const init = async () => {
-      const { data } = await supabase.auth.getSession();
-      await hydrateFromSession(data?.session || null);
+      try {
+        const { data, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) {
+          throw sessionError;
+        }
+        await hydrateFromSession(data?.session || null);
+      } catch (initError) {
+        if (!mounted) {
+          return;
+        }
+        setIsLoggedIn(false);
+        setAuthUser(null);
+        setUserRole("user");
+        setAuthUsername("");
+        setAuthReady(true);
+        setAuthError(
+          `Auth init failed: ${
+            initError?.message || "Skontroluj VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY vo Verceli."
+          }`
+        );
+      }
     };
 
     init();
@@ -684,7 +703,15 @@ function App() {
     const {
       data: { subscription }
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      await hydrateFromSession(session || null);
+      try {
+        await hydrateFromSession(session || null);
+      } catch (stateError) {
+        if (!mounted) {
+          return;
+        }
+        setAuthReady(true);
+        setAuthError(`Auth state error: ${stateError?.message || "neznáma chyba"}`);
+      }
     });
 
     return () => {

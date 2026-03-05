@@ -937,6 +937,13 @@ function App() {
     await loadManagedUsers();
   };
 
+  const handleCompanyScopeChange = (nextCompanyId) => {
+    if (!isMaster) {
+      return;
+    }
+    setSelectedCompanyId(nextCompanyId || "all");
+  };
+
   const fetchAllRows = async (table, config, options = {}) => {
     const { scopedCompanyId = null, selectClause = "*", historyFromMs = null } = options;
     const pageSize = 1000;
@@ -1843,7 +1850,7 @@ function App() {
 
           <div className="action-buttons">
             {isMaster && (
-              <select value={selectedCompanyId} onChange={(event) => setSelectedCompanyId(event.target.value)}>
+              <select value={selectedCompanyId} onChange={(event) => handleCompanyScopeChange(event.target.value)}>
                 <option value="all">Všetky firmy</option>
                 {companies.map((company) => (
                   <option key={company.id} value={company.id}>

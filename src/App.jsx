@@ -647,10 +647,12 @@ function App() {
       </section>
 
       <section className="stats-grid">
-        <article className="card">
-          <p>Počet riadkov</p>
-          <strong>{rows.length}</strong>
-        </article>
+        {selectedTable !== "stock" && (
+          <article className="card">
+            <p>Počet riadkov</p>
+            <strong>{rows.length}</strong>
+          </article>
+        )}
         <article className="card">
           <p>{tableConfig.metricLabel}</p>
           <strong>{new Intl.NumberFormat("sk-SK").format(metricValue)}</strong>

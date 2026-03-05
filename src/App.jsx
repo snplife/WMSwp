@@ -55,6 +55,8 @@ const DEFAULT_CONFIG = {
 
 const SIMPLE_LOGIN_USER = (import.meta.env.VITE_LOGIN_USER || "admin").trim();
 const SIMPLE_LOGIN_PASSWORD = import.meta.env.VITE_LOGIN_PASSWORD || "admin123";
+const ENV_DEFAULT_DEAD_STOCK_DAYS = Math.max(1, Number(import.meta.env.VITE_DEAD_STOCK_DAYS || 30));
+const ENV_DEFAULT_MAX_POSITIONS = Math.max(1, Number(import.meta.env.VITE_MAX_POSITIONS || 100));
 const LANDING_FEATURES = [
   "Online prehľad zásob a pohybov v reálnom čase",
   "Rýchly export dát do Excelu pre operatívu",
@@ -64,6 +66,26 @@ const LANDING_FEATURES = [
 
 function getTableConfig(table) {
   return TABLE_CONFIG[table] || DEFAULT_CONFIG;
+}
+
+function makeStockKey(position, materialCode) {
+  return `${String(position || "").trim()}::${String(materialCode || "").trim()}`;
+}
+
+function normalizeDeadStockDays(value) {
+  const parsed = Number.parseInt(String(value), 10);
+  if (!Number.isFinite(parsed)) {
+    return ENV_DEFAULT_DEAD_STOCK_DAYS;
+  }
+  return Math.min(3650, Math.max(1, parsed));
+}
+
+function normalizeMaxPositions(value) {
+  const parsed = Number.parseInt(String(value), 10);
+  if (!Number.isFinite(parsed)) {
+    return ENV_DEFAULT_MAX_POSITIONS;
+  }
+  return Math.min(1000000, Math.max(1, parsed));
 }
 
 function pickValue(row, keys) {
@@ -138,6 +160,17 @@ function translateStatusLabel(status) {
 function App() {
   const [selectedTable, setSelectedTable] = useState(tableNames[0]);
   const [rows, setRows] = useState([]);
+  const [deadStockByKey, setDeadStockByKey] = useState({});
+  const [showDeadStockOnly, setShowDeadStockOnly] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [deadStockDays, setDeadStockDays] = useState(() => {
+    const saved = window.localStorage.getItem("wms_dead_stock_days");
+    return normalizeDeadStockDays(saved ?? ENV_DEFAULT_DEAD_STOCK_DAYS);
+  });
+  const [maxPositions, setMaxPositions] = useState(() => {
+    const saved = window.localStorage.getItem("wms_max_positions");
+    return normalizeMaxPositions(saved ?? ENV_DEFAULT_MAX_POSITIONS);
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -191,13 +224,70 @@ function App() {
       const config = getTableConfig(table);
       const data = await fetchAllRows(table, config);
       setRows(data || []);
+
+      if (table !== "stock") {
+        setDeadStockByKey({});
+        return;
+      }
+
+      const historyRows = await fetchAllRows("stock_history", getTableConfig("stock_history"));
+      const now = Date.now();
+      const deadStockMs = deadStockDays * 24 * 60 * 60 * 1000;
+      const latestMovementMsByKey = {};
+
+      for (const historyRow of historyRows) {
+        const key = makeStockKey(historyRow.position, historyRow.material_code);
+        if (!key || key === "::") {
+          continue;
+        }
+
+        const createdAtMs = Number(historyRow.created_at_ms);
+        if (!Number.isFinite(createdAtMs)) {
+          continue;
+        }
+
+        const latest = latestMovementMsByKey[key];
+        if (!Number.isFinite(latest) || createdAtMs > latest) {
+          latestMovementMsByKey[key] = createdAtMs;
+        }
+      }
+
+      const deadMap = {};
+      for (const stockRow of data || []) {
+        const quantity = Number(stockRow.quantity || 0);
+        if (!(quantity > 0)) {
+          continue;
+        }
+
+        const key = makeStockKey(stockRow.position, stockRow.material_code);
+        const lastMoveMs = latestMovementMsByKey[key];
+        const inactiveMs = Number.isFinite(lastMoveMs) ? now - lastMoveMs : Number.POSITIVE_INFINITY;
+        if (inactiveMs < deadStockMs) {
+          continue;
+        }
+
+        deadMap[key] = {
+          inactiveDays: Number.isFinite(inactiveMs) ? Math.floor(inactiveMs / (24 * 60 * 60 * 1000)) : null,
+          lastMoveMs: Number.isFinite(lastMoveMs) ? lastMoveMs : null
+        };
+      }
+      setDeadStockByKey(deadMap);
     } catch (queryError) {
       setError(queryError?.message || "Nepodarilo sa načítať dáta.");
       setRows([]);
+      setDeadStockByKey({});
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    window.localStorage.setItem("wms_dead_stock_days", String(deadStockDays));
+  }, [deadStockDays]);
+
+  useEffect(() => {
+    window.localStorage.setItem("wms_max_positions", String(maxPositions));
+  }, [maxPositions]);
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -208,6 +298,7 @@ function App() {
 
     setStatusFilter("all");
     setSearchTerm("");
+    setShowDeadStockOnly(false);
     loadRows(selectedTable);
 
     const channel = supabase
@@ -220,7 +311,7 @@ function App() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [selectedTable, isLoggedIn]);
+  }, [selectedTable, isLoggedIn, deadStockDays]);
 
   const statuses = useMemo(() => {
     if (tableConfig.statusKeys.length === 0) {
@@ -241,6 +332,13 @@ function App() {
     const normalizedTerm = searchTerm.trim().toLowerCase();
 
     return rows.filter((row) => {
+      if (selectedTable === "stock" && showDeadStockOnly) {
+        const rowKey = makeStockKey(row.position, row.material_code);
+        if (!deadStockByKey[rowKey]) {
+          return false;
+        }
+      }
+
       const matchesStatus =
         statusFilter === "all" ||
         String(pickValue(row, tableConfig.statusKeys) || "").toLowerCase() === statusFilter;
@@ -260,7 +358,7 @@ function App() {
 
       return searchKeys.some((key) => String(row[key] ?? "").toLowerCase().includes(normalizedTerm));
     });
-  }, [rows, statusFilter, searchTerm, tableConfig]);
+  }, [rows, statusFilter, searchTerm, tableConfig, selectedTable, showDeadStockOnly, deadStockByKey]);
 
   const lastTimestamp = useMemo(() => {
     if (tableConfig.timeKeys.length === 0) {
@@ -275,7 +373,27 @@ function App() {
   }, [rows, tableConfig.timeKeys]);
 
   const metricValue = useMemo(() => tableConfig.metricValue(rows), [rows, tableConfig]);
-  const hasActiveFilters = statusFilter !== "all" || searchTerm.trim().length > 0;
+  const deadStockCount = useMemo(() => Object.keys(deadStockByKey).length, [deadStockByKey]);
+  const occupiedPositions = useMemo(() => {
+    if (selectedTable !== "stock") {
+      return 0;
+    }
+    return new Set(rows.map((row) => String(row.position || "").trim()).filter(Boolean)).size;
+  }, [rows, selectedTable]);
+  const freePositions = useMemo(() => Math.max(0, maxPositions - occupiedPositions), [maxPositions, occupiedPositions]);
+  const occupancyPercent = useMemo(() => (occupiedPositions / maxPositions) * 100, [occupiedPositions, maxPositions]);
+  const occupancyLevel = useMemo(() => {
+    if (occupancyPercent < 70) {
+      return "ok";
+    }
+    if (occupancyPercent <= 90) {
+      return "warn";
+    }
+    return "critical";
+  }, [occupancyPercent]);
+  const occupancyLabel = occupancyLevel === "ok" ? "Nízke" : occupancyLevel === "warn" ? "Stredné" : "Vysoké";
+  const hasActiveFilters =
+    statusFilter !== "all" || searchTerm.trim().length > 0 || (selectedTable === "stock" && showDeadStockOnly);
 
   const exportToExcel = () => {
     const headers = tableConfig.columns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join("");
@@ -423,6 +541,9 @@ function App() {
           </div>
 
           <div className="action-buttons">
+            <button type="button" onClick={() => setIsSettingsOpen(true)} className="settings-btn">
+              Nastavenia
+            </button>
             <button type="button" onClick={exportToExcel} className="export-btn">
               Export do Excelu
             </button>
@@ -449,6 +570,29 @@ function App() {
           <p>Posledná zmena</p>
           <strong className="small-text">{lastTimestamp}</strong>
         </article>
+        {selectedTable === "stock" && (
+          <article className={`card ${deadStockCount > 0 ? "card-alert" : ""}`}>
+            <p>Dead stock ({deadStockDays} dní)</p>
+            <strong>{new Intl.NumberFormat("sk-SK").format(deadStockCount)}</strong>
+          </article>
+        )}
+        {selectedTable === "stock" && (
+          <article className={`card occupancy-${occupancyLevel}`}>
+            <p>Zaplnenie skladu</p>
+            <strong className={`occupancy-value occupancy-value-${occupancyLevel}`}>
+              {`${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(occupancyPercent)} %`}
+            </strong>
+            <p className="occupancy-meta">{`Obsadené: ${occupiedPositions} / ${maxPositions}`}</p>
+            <p className={`occupancy-badge occupancy-badge-${occupancyLevel}`}>{`Stav: ${occupancyLabel}`}</p>
+          </article>
+        )}
+        {selectedTable === "stock" && (
+          <article className="card">
+            <p>Voľné miesta</p>
+            <strong>{new Intl.NumberFormat("sk-SK").format(freePositions)}</strong>
+            <p className="occupancy-meta">Výpočet: max pozície - unikátne pozície</p>
+          </article>
+        )}
       </section>
 
       <section className="panel">
@@ -458,6 +602,11 @@ function App() {
             <p className="panel-meta">
               Zobrazených {filteredRows.length} / {rows.length} riadkov
             </p>
+            {selectedTable === "stock" && deadStockCount > 0 && (
+              <p className="dead-stock-meta">
+                Alert: {deadStockCount} položiek bez pohybu aspoň {deadStockDays} dní.
+              </p>
+            )}
           </div>
           <div className="panel-controls">
             <input
@@ -476,6 +625,15 @@ function App() {
                 ))}
               </select>
             )}
+            {selectedTable === "stock" && (
+              <button
+                type="button"
+                className={`clear-btn ${showDeadStockOnly ? "dead-stock-btn-active" : ""}`}
+                onClick={() => setShowDeadStockOnly((prev) => !prev)}
+              >
+                {showDeadStockOnly ? "Zobraziť všetko" : "Len dead stock"}
+              </button>
+            )}
             {hasActiveFilters && (
               <button
                 type="button"
@@ -483,6 +641,7 @@ function App() {
                 onClick={() => {
                   setSearchTerm("");
                   setStatusFilter("all");
+                  setShowDeadStockOnly(false);
                 }}
               >
                 Vymazať filter
@@ -506,15 +665,37 @@ function App() {
               </thead>
               <tbody>
                 {filteredRows.map((row, index) => (
-                  <tr key={row.event_key || `${selectedTable}-${index}`}>
+                  <tr
+                    key={row.event_key || `${selectedTable}-${index}`}
+                    className={
+                      selectedTable === "stock" && deadStockByKey[makeStockKey(row.position, row.material_code)]
+                        ? "dead-stock-row"
+                        : ""
+                    }
+                  >
                     {tableConfig.columns.map((column) => {
                       const value = pickValue(row, column.keys);
+                      const stockKey = makeStockKey(row.position, row.material_code);
+                      const deadInfo = selectedTable === "stock" ? deadStockByKey[stockKey] : null;
+                      const deadHint =
+                        deadInfo && deadInfo.inactiveDays !== null
+                          ? `Dead stock: bez pohybu ${deadInfo.inactiveDays} dní`
+                          : deadInfo
+                            ? "Dead stock: bez záznamu pohybu"
+                            : "";
                       return (
                         <td key={`${column.label}-${row.event_key || row.position || index}`}>
                           {column.kind === "status" ? (
                             <StatusPill status={String(value || "unknown")} />
                           ) : (
-                            formatCell(value, column.kind)
+                            <>
+                              {formatCell(value, column.kind)}
+                              {deadHint && column.keys.includes("material_code") && (
+                                <span className="dead-stock-inline" title={deadHint}>
+                                  dead stock
+                                </span>
+                              )}
+                            </>
                           )}
                         </td>
                       );
@@ -532,6 +713,7 @@ function App() {
                   onClick={() => {
                     setSearchTerm("");
                     setStatusFilter("all");
+                    setShowDeadStockOnly(false);
                   }}
                 >
                   Resetovať filter
@@ -541,6 +723,55 @@ function App() {
           </div>
         )}
       </section>
+
+      {isSettingsOpen && (
+        <div className="settings-backdrop" role="presentation" onClick={() => setIsSettingsOpen(false)}>
+          <section
+            className="settings-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Nastavenia monitoru"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="settings-head">
+              <h2>Nastavenia</h2>
+              <button type="button" className="clear-btn" onClick={() => setIsSettingsOpen(false)}>
+                Zavrieť
+              </button>
+            </div>
+
+            <label className="settings-field" htmlFor="settings-dead-stock-days">
+              <span>Dead stock dni</span>
+              <input
+                id="settings-dead-stock-days"
+                type="number"
+                min={1}
+                max={3650}
+                className="dead-stock-days-input"
+                value={deadStockDays}
+                onChange={(event) => setDeadStockDays(normalizeDeadStockDays(event.target.value))}
+              />
+            </label>
+
+            <label className="settings-field" htmlFor="settings-max-positions">
+              <span>Max počet pozícií</span>
+              <input
+                id="settings-max-positions"
+                type="number"
+                min={1}
+                max={1000000}
+                className="dead-stock-days-input"
+                value={maxPositions}
+                onChange={(event) => setMaxPositions(normalizeMaxPositions(event.target.value))}
+              />
+            </label>
+
+            <p className="settings-hint">
+              Voľné miesta sa počítajú ako: max počet pozícií - počet unikátnych pozícií v tabuľke stock.
+            </p>
+          </section>
+        </div>
+      )}
     </main>
   );
 }

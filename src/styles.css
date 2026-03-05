@@ -154,6 +154,17 @@ h1 {
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
+.settings-btn {
+  border: 1px solid #d6deea;
+  background: #ffffff;
+  color: #243548;
+  padding: 0.55rem 1rem;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
 .logout-btn {
   border: 1px solid #d6deea;
   background: #ffffff;
@@ -167,6 +178,7 @@ h1 {
 
 .refresh-btn:hover,
 .export-btn:hover,
+.settings-btn:hover,
 .logout-btn:hover {
   transform: translateY(-1px);
   box-shadow: 0 8px 18px rgba(23, 33, 43, 0.12);
@@ -176,7 +188,9 @@ h1 {
 .export-btn:focus-visible,
 .table-btn:focus-visible,
 .search-input:focus-visible,
+.dead-stock-days-input:focus-visible,
 select:focus-visible,
+.settings-btn:focus-visible,
 .clear-btn:focus-visible {
   outline: 2px solid #77a6ff;
   outline-offset: 2px;
@@ -216,6 +230,71 @@ select:focus-visible,
   font-size: 1.55rem;
 }
 
+.card-alert {
+  border-color: #f5c3c3;
+  background: #fff6f6;
+}
+
+.occupancy-meta {
+  margin-top: 0.4rem !important;
+  font-size: 0.78rem !important;
+  letter-spacing: normal !important;
+  text-transform: none !important;
+}
+
+.occupancy-ok {
+  border-color: #bfe8ce;
+  background: #f3fcf6;
+}
+
+.occupancy-warn {
+  border-color: #f0ddb3;
+  background: #fffaf0;
+}
+
+.occupancy-critical {
+  border-color: #f2bcbc;
+  background: #fff5f5;
+}
+
+.occupancy-value-ok {
+  color: #147a42;
+}
+
+.occupancy-value-warn {
+  color: #8a6200;
+}
+
+.occupancy-value-critical {
+  color: #a12626;
+}
+
+.occupancy-badge {
+  display: inline-block;
+  margin-top: 0.32rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  padding: 0.18rem 0.5rem;
+}
+
+.occupancy-badge-ok {
+  background: #dcf6e6;
+  color: #0f6d39;
+}
+
+.occupancy-badge-warn {
+  background: #fff1d7;
+  color: #885d00;
+}
+
+.occupancy-badge-critical {
+  background: #ffe3e3;
+  color: #9e2020;
+}
+
 .small-text {
   font-size: 0.96rem !important;
 }
@@ -249,11 +328,27 @@ h2 {
   color: #6c7a88;
 }
 
+.dead-stock-meta {
+  margin: 0.25rem 0 0;
+  font-size: 0.8rem;
+  color: #a33737;
+  font-weight: 600;
+}
+
 .panel-controls {
   display: flex;
   gap: 0.5rem;
   align-items: center;
   flex-wrap: wrap;
+}
+
+.dead-stock-days-input {
+  width: 86px;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid #d4deea;
+  border-radius: 10px;
+  background: #ffffff;
+  font-family: inherit;
 }
 
 .search-input {
@@ -285,6 +380,57 @@ select {
   border-radius: 10px;
   cursor: pointer;
   font-family: inherit;
+}
+
+.dead-stock-btn-active {
+  border-color: #e7b4b4;
+  background: #fff0f0;
+  color: #9b1d1d;
+}
+
+.settings-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(16, 28, 43, 0.44);
+  display: grid;
+  place-items: center;
+  z-index: 20;
+  padding: 1rem;
+}
+
+.settings-modal {
+  width: min(560px, 100%);
+  background: #ffffff;
+  border: 1px solid #dce6f2;
+  border-radius: 16px;
+  box-shadow: 0 22px 50px rgba(23, 33, 43, 0.3);
+  padding: 1rem;
+}
+
+.settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.8rem;
+}
+
+.settings-field {
+  display: grid;
+  gap: 0.35rem;
+  margin-bottom: 0.8rem;
+}
+
+.settings-field span {
+  font-size: 0.83rem;
+  color: #3f5266;
+  font-weight: 600;
+}
+
+.settings-hint {
+  margin: 0.2rem 0 0;
+  font-size: 0.82rem;
+  color: #58697b;
 }
 
 .table-wrap {
@@ -324,6 +470,24 @@ tbody tr:hover {
 
 tbody tr:nth-child(even) {
   background: #fbfdff;
+}
+
+.dead-stock-row {
+  background: #fff7f7 !important;
+}
+
+.dead-stock-inline {
+  margin-left: 0.35rem;
+  display: inline-block;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border: 1px solid #f2b7b7;
+  background: #ffecec;
+  color: #8d2424;
+  border-radius: 999px;
+  padding: 0.12rem 0.4rem;
+  font-weight: 700;
 }
 
 .pill {
@@ -521,6 +685,7 @@ tbody tr:nth-child(even) {
     flex-direction: column;
   }
 
+  .settings-btn,
   .export-btn {
     width: 100%;
   }

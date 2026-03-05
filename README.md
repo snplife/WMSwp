@@ -15,8 +15,12 @@ Create `.env.local` from `.env.example` and fill values:
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
 - `VITE_SUPABASE_TABLES` (comma-separated, example: `stock,stock_history`)
+- `VITE_DEAD_STOCK_DAYS` (optional, default `30`)
+- `VITE_MAX_POSITIONS` (optional, default `100`)
 - `VITE_LOGIN_USER` (simple app login username)
 - `VITE_LOGIN_PASSWORD` (simple app login password)
+
+Dead stock threshold and max number of positions can also be changed directly in the web UI (`Nastavenia`) and are saved in browser `localStorage`.
 
 ## 3) Run
 

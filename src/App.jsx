@@ -225,6 +225,7 @@ function App() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [authReady, setAuthReady] = useState(false);
+  const [authInitTimedOut, setAuthInitTimedOut] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [authUser, setAuthUser] = useState(null);
   const [authUsername, setAuthUsername] = useState("");
@@ -635,6 +636,14 @@ function App() {
 
   useEffect(() => {
     let mounted = true;
+    const initTimeout = window.setTimeout(() => {
+      if (!mounted) {
+        return;
+      }
+      setAuthInitTimedOut(true);
+      setAuthReady(true);
+      setAuthError((prev) => prev || "Auth init timeout. Skontroluj Vercel env a Supabase dostupnosť.");
+    }, 8000);
 
     const hydrateFromSession = async (session) => {
       const user = session?.user || null;
@@ -672,6 +681,7 @@ function App() {
         }
       }
       setAuthReady(true);
+      setAuthInitTimedOut(false);
     };
 
     const init = async () => {
@@ -716,6 +726,7 @@ function App() {
 
     return () => {
       mounted = false;
+      window.clearTimeout(initTimeout);
       subscription.unsubscribe();
     };
   }, []);
@@ -1035,7 +1046,7 @@ function App() {
     setAuthUsername("");
   };
 
-  if (!authReady) {
+  if (!authReady && !authInitTimedOut) {
     return (
       <main className="container">
         <section className="panel">

@@ -288,6 +288,7 @@ function App() {
   const [updateCompanySubmitting, setUpdateCompanySubmitting] = useState(false);
   const [deleteCompanySubmitting, setDeleteCompanySubmitting] = useState(false);
   const [createUserSubmitting, setCreateUserSubmitting] = useState(false);
+  const [repairUsersSubmitting, setRepairUsersSubmitting] = useState(false);
 
   useEffect(() => {
     try {
@@ -729,6 +730,40 @@ function App() {
       return;
     }
 
+    await loadManagedUsers();
+  };
+
+  const handleRepairUsersWithoutCompany = async () => {
+    if (!isMaster) {
+      return;
+    }
+    if (!selectedCompanyId || selectedCompanyId === "all") {
+      setManagedUsersError("Najprv vyber konkrétnu firmu v hornom filtri.");
+      return;
+    }
+
+    const missingUsers = managedUsers.filter((row) => row.role !== "master" && !row.company_id);
+    if (missingUsers.length === 0) {
+      setManagedUsersError("Všetci useri už majú priradenú firmu.");
+      return;
+    }
+
+    setRepairUsersSubmitting(true);
+    setManagedUsersError("");
+    const updates = await Promise.all(
+      missingUsers.map((row) =>
+        supabase.from(ROLE_TABLE).update({ company_id: selectedCompanyId }).eq("user_id", row.user_id)
+      )
+    );
+
+    const failed = updates.find((result) => result.error);
+    if (failed?.error) {
+      setManagedUsersError(failed.error.message || "Nepodarilo sa opraviť firmy pre všetkých userov.");
+      setRepairUsersSubmitting(false);
+      return;
+    }
+
+    setRepairUsersSubmitting(false);
     await loadManagedUsers();
   };
 
@@ -1669,6 +1704,14 @@ function App() {
               </button>
               <button type="button" className="refresh-btn" onClick={loadManagedUsers} disabled={managedUsersLoading}>
                 {managedUsersLoading ? "Načítavam..." : "Obnoviť používateľov"}
+              </button>
+              <button
+                type="button"
+                className="refresh-btn"
+                onClick={handleRepairUsersWithoutCompany}
+                disabled={repairUsersSubmitting}
+              >
+                {repairUsersSubmitting ? "Opravujem..." : "Opraviť userov bez firmy"}
               </button>
             </div>
           </div>

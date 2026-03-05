@@ -828,6 +828,7 @@ function App() {
 
   useEffect(() => {
     let mounted = true;
+    let hydrationSequence = 0;
     const initTimeout = window.setTimeout(() => {
       if (!mounted) {
         return;
@@ -838,8 +839,10 @@ function App() {
     }, 8000);
 
     const hydrateFromSession = async (session) => {
+      const currentHydrationId = hydrationSequence + 1;
+      hydrationSequence = currentHydrationId;
       const user = session?.user || null;
-      if (!mounted) {
+      if (!mounted || currentHydrationId !== hydrationSequence) {
         return;
       }
 
@@ -856,7 +859,7 @@ function App() {
           fetchDbMasterFlagViaRpc(user.id),
           fetchOwnCompanyIdViaRpc(user.id)
         ]);
-        if (!mounted) {
+        if (!mounted || currentHydrationId !== hydrationSequence) {
           return;
         }
         const role = resolvedRole === "master" || dbMasterFlag ? "master" : "user";
@@ -865,7 +868,7 @@ function App() {
           await ensureOwnRoleRow(user, role);
         }
         const ownRow = await fetchOwnRoleRow(user.id);
-        if (!mounted) {
+        if (!mounted || currentHydrationId !== hydrationSequence) {
           return;
         }
         const fallbackUsername = usernameFromInternalEmail(user.email);
@@ -964,7 +967,7 @@ function App() {
       }
       supabase.removeChannel(channel);
     };
-  }, [selectedTable, isLoggedIn, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster]);
+  }, [selectedTable, isLoggedIn, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id]);
 
   useEffect(() => {
     if (!authReady || !isLoggedIn) {
@@ -978,7 +981,7 @@ function App() {
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [isLoggedIn, selectedTable, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster]);
+  }, [isLoggedIn, selectedTable, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id]);
 
   useEffect(() => {
     if (!authReady || !isLoggedIn || !isMaster) {
@@ -989,7 +992,7 @@ function App() {
 
     loadManagedUsers();
     loadCompanies();
-  }, [authReady, isLoggedIn, isMaster]);
+  }, [authReady, isLoggedIn, isMaster, authUser?.id]);
 
   const statuses = useMemo(() => {
     if (tableConfig.statusKeys.length === 0) {
@@ -1263,6 +1266,11 @@ function App() {
     setAuthPassword("");
 
     try {
+      try {
+        await supabase.removeAllChannels();
+      } catch {
+        // Ignore realtime cleanup failures on logout.
+      }
       await supabase.auth.signOut();
       await userCreatorClient.auth.signOut();
     } catch (signOutError) {

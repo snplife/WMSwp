@@ -590,7 +590,6 @@ function App() {
           <article className="card">
             <p>Voľné miesta</p>
             <strong>{new Intl.NumberFormat("sk-SK").format(freePositions)}</strong>
-            <p className="occupancy-meta">Výpočet: max pozície - unikátne pozície</p>
           </article>
         )}
       </section>
@@ -765,10 +764,6 @@ function App() {
                 onChange={(event) => setMaxPositions(normalizeMaxPositions(event.target.value))}
               />
             </label>
-
-            <p className="settings-hint">
-              Voľné miesta sa počítajú ako: max počet pozícií - počet unikátnych pozícií v tabuľke stock.
-            </p>
           </section>
         </div>
       )}

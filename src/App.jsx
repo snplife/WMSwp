@@ -255,21 +255,6 @@ function App() {
   const [updateCompanySubmitting, setUpdateCompanySubmitting] = useState(false);
   const [deleteCompanySubmitting, setDeleteCompanySubmitting] = useState(false);
   const [createUserSubmitting, setCreateUserSubmitting] = useState(false);
-  const [diagnostics, setDiagnostics] = useState({
-    loadCount: 0,
-    intervalTicks: 0,
-    realtimeEvents: 0,
-    lastLoadStartAt: null,
-    lastLoadEndAt: null,
-    lastLoadMs: null,
-    lastLoadTable: null,
-    lastScopeCompanyId: null,
-    lastRowsCount: null,
-    lastHistoryRowsCount: null,
-    lastRealtimeAt: null,
-    lastRealtimeTable: null,
-    lastError: ""
-  });
 
   const tableConfig = getTableConfig(selectedTable);
   const isMaster = userRole === "master";
@@ -325,7 +310,6 @@ function App() {
 
     if (usersError) {
       setManagedUsersError(usersError.message || "Nepodarilo sa načítať používateľov.");
-      setDiagnostics((prev) => ({ ...prev, lastError: usersError.message || "managed_users_load_failed" }));
       setManagedUsers([]);
       setManagedUsersLoading(false);
       return;
@@ -344,7 +328,6 @@ function App() {
 
     if (companiesError) {
       setCompaniesError(companiesError.message || "Nepodarilo sa načítať firmy.");
-      setDiagnostics((prev) => ({ ...prev, lastError: companiesError.message || "companies_load_failed" }));
       setCompanies([]);
       return;
     }
@@ -628,27 +611,15 @@ function App() {
   const loadRows = async (table) => {
     setLoading(true);
     setError("");
-    const startedAt = Date.now();
-    setDiagnostics((prev) => ({
-      ...prev,
-      loadCount: prev.loadCount + 1,
-      lastLoadStartAt: startedAt,
-      lastLoadTable: table
-    }));
 
     try {
       const companyScope = isMaster ? selectedCompanyId : userCompanyId;
       const scopedCompanyId = companyScope && companyScope !== "all" ? companyScope : null;
-      setDiagnostics((prev) => ({
-        ...prev,
-        lastScopeCompanyId: scopedCompanyId || (isMaster ? "all" : "none")
-      }));
       if (!isMaster && !scopedCompanyId) {
         setRows([]);
         setDeadStockByKey({});
         setStockAgeStats({ avgDays: null, sampleCount: 0 });
         setError("Účet nemá priradenú firmu.");
-        setDiagnostics((prev) => ({ ...prev, lastError: "Účet nemá priradenú firmu." }));
         return;
       }
 
@@ -661,18 +632,10 @@ function App() {
             })
           : await fetchAllRows(table, config, { scopedCompanyId });
       setRows(data || []);
-      setDiagnostics((prev) => ({ ...prev, lastRowsCount: (data || []).length }));
 
       if (table !== "stock") {
         setDeadStockByKey({});
         setStockAgeStats({ avgDays: null, sampleCount: 0 });
-        const endedAt = Date.now();
-        setDiagnostics((prev) => ({
-          ...prev,
-          lastLoadEndAt: endedAt,
-          lastLoadMs: endedAt - startedAt,
-          lastHistoryRowsCount: null
-        }));
         return;
       }
 
@@ -681,7 +644,6 @@ function App() {
         selectClause: "company_id,action,position,material_code,created_at_ms",
         historyFromMs: Date.now() - HISTORY_ANALYTICS_LOOKBACK_DAYS * DAY_MS
       });
-      setDiagnostics((prev) => ({ ...prev, lastHistoryRowsCount: historyRows.length }));
       const now = Date.now();
       const deadStockMs = deadStockDays * 24 * 60 * 60 * 1000;
       const latestMovementMsByKey = {};
@@ -749,25 +711,11 @@ function App() {
         avgDays: ageSamples > 0 ? ageTotalMs / ageSamples / DAY_MS : null,
         sampleCount: ageSamples
       });
-      const endedAt = Date.now();
-      setDiagnostics((prev) => ({
-        ...prev,
-        lastLoadEndAt: endedAt,
-        lastLoadMs: endedAt - startedAt,
-        lastError: ""
-      }));
     } catch (queryError) {
       setError(queryError?.message || "Nepodarilo sa načítať dáta.");
       setRows([]);
       setDeadStockByKey({});
       setStockAgeStats({ avgDays: null, sampleCount: 0 });
-      const endedAt = Date.now();
-      setDiagnostics((prev) => ({
-        ...prev,
-        lastLoadEndAt: endedAt,
-        lastLoadMs: endedAt - startedAt,
-        lastError: queryError?.message || "Nepodarilo sa načítať dáta."
-      }));
     } finally {
       setLoading(false);
     }
@@ -896,13 +844,6 @@ function App() {
     loadRows(selectedTable);
     let reloadTimer = null;
     const scheduleReload = () => {
-      const eventAt = Date.now();
-      setDiagnostics((prev) => ({
-        ...prev,
-        realtimeEvents: prev.realtimeEvents + 1,
-        lastRealtimeAt: eventAt,
-        lastRealtimeTable: selectedTable
-      }));
       if (reloadTimer) {
         window.clearTimeout(reloadTimer);
       }
@@ -930,7 +871,6 @@ function App() {
     }
 
     const intervalId = window.setInterval(() => {
-      setDiagnostics((prev) => ({ ...prev, intervalTicks: prev.intervalTicks + 1 }));
       loadRows(selectedTable);
     }, AUTO_REFRESH_MS);
 
@@ -1440,33 +1380,6 @@ function App() {
 
           {managedUsersError && <p className="error">{managedUsersError}</p>}
           {companiesError && <p className="error">{companiesError}</p>}
-
-          <div className="diagnostics-box">
-            <p className="panel-meta">
-              Diag: loads={diagnostics.loadCount}, realtime={diagnostics.realtimeEvents}, interval={diagnostics.intervalTicks}
-            </p>
-            <p className="panel-meta">
-              Posledný load: {diagnostics.lastLoadTable || "-"} | scope: {String(diagnostics.lastScopeCompanyId || "-")} |
-              rows: {String(diagnostics.lastRowsCount ?? "-")} | history: {String(diagnostics.lastHistoryRowsCount ?? "-")} |
-              ms: {String(diagnostics.lastLoadMs ?? "-")}
-            </p>
-            <p className="panel-meta">
-              Posledný realtime: {diagnostics.lastRealtimeAt ? formatDate(diagnostics.lastRealtimeAt) : "-"} |
-              table: {diagnostics.lastRealtimeTable || "-"}
-            </p>
-            {diagnostics.lastError && <p className="error">Diag error: {diagnostics.lastError}</p>}
-            <div className="master-role-actions">
-              <button type="button" className="clear-btn" onClick={() => loadRows(selectedTable)}>
-                Diag reload data
-              </button>
-              <button type="button" className="clear-btn" onClick={loadCompanies}>
-                Diag reload companies
-              </button>
-              <button type="button" className="clear-btn" onClick={loadManagedUsers}>
-                Diag reload users
-              </button>
-            </div>
-          </div>
 
           <div className="table-wrap">
             <table className="master-users-table">

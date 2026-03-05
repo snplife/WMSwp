@@ -1,190 +1,239 @@
- create table if not exists public.stock (
-    position text not null,
-    material_code text not null,
-    quantity integer not null default 1,
-    constraint stock_pk primary key (position, material_code)
+﻿-- Multi-tenant WMS schema + policies
+
+create extension if not exists pgcrypto;
+
+create table if not exists public.companies (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.stock (
+  company_id uuid not null references public.companies (id) on delete cascade,
+  position text not null,
+  material_code text not null,
+  quantity integer not null default 1,
+  constraint stock_pk primary key (company_id, position, material_code)
+);
+
+create table if not exists public.stock_history (
+  event_key text primary key,
+  company_id uuid not null references public.companies (id) on delete cascade,
+  action text not null,
+  position text not null,
+  material_code text not null,
+  note text not null default '',
+  created_at_ms bigint not null
+);
+
+create table if not exists public.app_users (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  email text not null,
+  username text not null,
+  role text not null check (role in ('master', 'user')),
+  company_id uuid references public.companies (id),
+  created_by uuid references auth.users (id),
+  updated_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
+alter table public.stock add column if not exists company_id uuid references public.companies (id) on delete cascade;
+alter table public.stock_history add column if not exists company_id uuid references public.companies (id) on delete cascade;
+alter table public.app_users add column if not exists email text;
+alter table public.app_users add column if not exists username text;
+alter table public.app_users add column if not exists company_id uuid references public.companies (id);
+alter table public.app_users add column if not exists created_by uuid references auth.users (id);
+alter table public.app_users add column if not exists updated_at timestamptz not null default now();
+alter table public.app_users add column if not exists created_at timestamptz not null default now();
+
+update public.app_users
+set username = lower(split_part(email, '@', 1))
+where (username is null or username = '')
+  and email is not null;
+
+create unique index if not exists idx_app_users_email_unique
+  on public.app_users (lower(email));
+
+create unique index if not exists idx_app_users_username_unique
+  on public.app_users (lower(username));
+
+create index if not exists idx_app_users_company
+  on public.app_users (company_id);
+
+create index if not exists idx_stock_company
+  on public.stock (company_id);
+
+create index if not exists idx_stock_history_company
+  on public.stock_history (company_id);
+
+create index if not exists idx_stock_history_created_at_ms
+  on public.stock_history (created_at_ms desc);
+
+create index if not exists idx_stock_history_material
+  on public.stock_history (material_code);
+
+create index if not exists idx_stock_history_position
+  on public.stock_history (position);
+
+create or replace function public.touch_app_users_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_touch_app_users_updated_at on public.app_users;
+create trigger trg_touch_app_users_updated_at
+before update on public.app_users
+for each row execute function public.touch_app_users_updated_at();
+
+create or replace function public.is_master(uid uuid default auth.uid())
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.app_users
+    where user_id = uid
+      and role = 'master'
   );
+$$;
 
-  -- 2) HISTÓRIA (kto čo spravil)
-  create table if not exists public.stock_history (
-    event_key text primary key,
-    action text not null,           -- RECEIVE | ISSUE | MOVE_ALL | UNDO
-    position text not null,
-    material_code text not null,
-    note text not null default '',  -- napr. "Pouzivatel: Jan", "Cieľ: B202 | Používateľ: Jan"
-    created_at_ms bigint not null
-  );
+create or replace function public.user_company_id(uid uuid default auth.uid())
+returns uuid
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select company_id
+  from public.app_users
+  where user_id = uid
+  limit 1;
+$$;
 
-  create index if not exists idx_stock_history_created_at_ms
-    on public.stock_history (created_at_ms desc);
+grant execute on function public.is_master(uuid) to authenticated;
+grant execute on function public.user_company_id(uuid) to authenticated;
 
-  create index if not exists idx_stock_history_material
-    on public.stock_history (material_code);
+alter table public.companies enable row level security;
+alter table public.stock enable row level security;
+alter table public.stock_history enable row level security;
+alter table public.app_users enable row level security;
 
-  create index if not exists idx_stock_history_position
-    on public.stock_history (position);
+drop policy if exists "companies_select_master" on public.companies;
+drop policy if exists "companies_insert_master" on public.companies;
+drop policy if exists "companies_update_master" on public.companies;
+drop policy if exists "companies_delete_master" on public.companies;
+drop policy if exists "companies_select_user" on public.companies;
 
-  -- 3) RLS zapnúť
-  alter table public.stock enable row level security;
-  alter table public.stock_history enable row level security;
+create policy "companies_select_master"
+on public.companies
+for select
+to authenticated
+using (public.is_master(auth.uid()));
 
-  -- 4) Vymaž staré policy (aby nevznikol konflikt názvov)
-  drop policy if exists "stock_select_anon" on public.stock;
-  drop policy if exists "stock_insert_anon" on public.stock;
-  drop policy if exists "stock_update_anon" on public.stock;
-  drop policy if exists "stock_delete_anon" on public.stock;
+create policy "companies_select_user"
+on public.companies
+for select
+to authenticated
+using (id = public.user_company_id(auth.uid()));
 
-  drop policy if exists "stock_history_select_anon" on public.stock_history;
-  drop policy if exists "stock_history_insert_anon" on public.stock_history;
-  drop policy if exists "stock_history_update_anon" on public.stock_history;
-  drop policy if exists "stock_history_delete_anon" on public.stock_history;
+create policy "companies_insert_master"
+on public.companies
+for insert
+to authenticated
+with check (public.is_master(auth.uid()));
 
-  -- 5) Policy pre anon key (mobilná app)
-  create policy "stock_select_anon"
-  on public.stock
-  for select
-  to anon
-  using (true);
+create policy "companies_update_master"
+on public.companies
+for update
+to authenticated
+using (public.is_master(auth.uid()))
+with check (public.is_master(auth.uid()));
 
-  create policy "stock_insert_anon"
-  on public.stock
-  for insert
-  to anon
-  with check (true);
+create policy "companies_delete_master"
+on public.companies
+for delete
+to authenticated
+using (public.is_master(auth.uid()));
 
-  create policy "stock_update_anon"
-  on public.stock
-  for update
-  to anon
-  using (true)
-  with check (true);
+drop policy if exists "stock_select_auth" on public.stock;
+drop policy if exists "stock_modify_master" on public.stock;
 
-  create policy "stock_delete_anon"
-  on public.stock
-  for delete
-  to anon
-  using (true);
+create policy "stock_select_auth"
+on public.stock
+for select
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or company_id = public.user_company_id(auth.uid())
+);
 
-  create policy "stock_history_select_anon"
-  on public.stock_history
-  for select
-  to anon
-  using (true);
+create policy "stock_modify_master"
+on public.stock
+for all
+to authenticated
+using (public.is_master(auth.uid()))
+with check (public.is_master(auth.uid()));
 
-  create policy "stock_history_insert_anon"
-  on public.stock_history
-  for insert
-  to anon
-  with check (true);
+drop policy if exists "stock_history_select_auth" on public.stock_history;
+drop policy if exists "stock_history_modify_master" on public.stock_history;
 
-  create policy "stock_history_update_anon"
-  on public.stock_history
-  for update
-  to anon
-  using (true)
-  with check (true);
+create policy "stock_history_select_auth"
+on public.stock_history
+for select
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or company_id = public.user_company_id(auth.uid())
+);
 
-  create policy "stock_history_delete_anon"
-  on public.stock_history
-  for delete
-  to anon
-  using (true);
+create policy "stock_history_modify_master"
+on public.stock_history
+for all
+to authenticated
+using (public.is_master(auth.uid()))
+with check (public.is_master(auth.uid()));
 
-  -- 6) User roles for web login (master/user)
-  create table if not exists public.app_users (
-    user_id uuid primary key references auth.users (id) on delete cascade,
-    email text not null,
-    username text not null,
-    role text not null check (role in ('master', 'user')),
-    created_by uuid references auth.users (id),
-    updated_at timestamptz not null default now(),
-    created_at timestamptz not null default now()
-  );
+drop policy if exists "app_users_select_own" on public.app_users;
+drop policy if exists "app_users_select_master" on public.app_users;
+drop policy if exists "app_users_insert_master" on public.app_users;
+drop policy if exists "app_users_update_master" on public.app_users;
+drop policy if exists "app_users_delete_master" on public.app_users;
 
-  alter table public.app_users add column if not exists email text;
-  alter table public.app_users add column if not exists username text;
-  alter table public.app_users add column if not exists created_by uuid references auth.users (id);
-  alter table public.app_users add column if not exists updated_at timestamptz not null default now();
-  alter table public.app_users add column if not exists created_at timestamptz not null default now();
+create policy "app_users_select_own"
+on public.app_users
+for select
+to authenticated
+using (auth.uid() = user_id);
 
-  update public.app_users
-  set username = lower(split_part(email, '@', 1))
-  where (username is null or username = '')
-    and email is not null;
+create policy "app_users_select_master"
+on public.app_users
+for select
+to authenticated
+using (public.is_master(auth.uid()));
 
-  create unique index if not exists idx_app_users_email_unique
-    on public.app_users (lower(email));
+create policy "app_users_insert_master"
+on public.app_users
+for insert
+to authenticated
+with check (public.is_master(auth.uid()));
 
-  create unique index if not exists idx_app_users_username_unique
-    on public.app_users (lower(username));
+create policy "app_users_update_master"
+on public.app_users
+for update
+to authenticated
+using (public.is_master(auth.uid()))
+with check (public.is_master(auth.uid()));
 
-  create or replace function public.touch_app_users_updated_at()
-  returns trigger
-  language plpgsql
-  as $$
-  begin
-    new.updated_at = now();
-    return new;
-  end;
-  $$;
-
-  drop trigger if exists trg_touch_app_users_updated_at on public.app_users;
-  create trigger trg_touch_app_users_updated_at
-  before update on public.app_users
-  for each row execute function public.touch_app_users_updated_at();
-
-  create or replace function public.is_master(uid uuid default auth.uid())
-  returns boolean
-  language sql
-  stable
-  security definer
-  set search_path = public
-  as $$
-    select exists (
-      select 1
-      from public.app_users
-      where user_id = uid
-        and role = 'master'
-    );
-  $$;
-
-  grant execute on function public.is_master(uuid) to authenticated;
-
-  alter table public.app_users enable row level security;
-
-  drop policy if exists "app_users_select_own" on public.app_users;
-  drop policy if exists "app_users_select_master" on public.app_users;
-  drop policy if exists "app_users_insert_master" on public.app_users;
-  drop policy if exists "app_users_update_master" on public.app_users;
-  drop policy if exists "app_users_delete_master" on public.app_users;
-
-  create policy "app_users_select_own"
-  on public.app_users
-  for select
-  to authenticated
-  using (auth.uid() = user_id);
-
-  create policy "app_users_select_master"
-  on public.app_users
-  for select
-  to authenticated
-  using (public.is_master(auth.uid()));
-
-  create policy "app_users_insert_master"
-  on public.app_users
-  for insert
-  to authenticated
-  with check (public.is_master(auth.uid()));
-
-  create policy "app_users_update_master"
-  on public.app_users
-  for update
-  to authenticated
-  using (public.is_master(auth.uid()))
-  with check (public.is_master(auth.uid()));
-
-  create policy "app_users_delete_master"
-  on public.app_users
-  for delete
-  to authenticated
-  using (public.is_master(auth.uid()));
+create policy "app_users_delete_master"
+on public.app_users
+for delete
+to authenticated
+using (public.is_master(auth.uid()));

@@ -419,9 +419,21 @@ select {
   margin-top: 1rem;
 }
 
+.master-head-actions {
+  display: inline-flex;
+  gap: 0.4rem;
+}
+
+.master-company-form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
 .master-create-form {
   display: grid;
-  grid-template-columns: 1.3fr 1fr 140px auto;
+  grid-template-columns: 1.1fr 1fr 120px 160px auto;
   gap: 0.5rem;
   margin-bottom: 0.7rem;
 }
@@ -871,6 +883,15 @@ tbody tr:nth-child(even) {
 
   .master-create-form {
     grid-template-columns: 1fr;
+  }
+
+  .master-company-form {
+    grid-template-columns: 1fr;
+  }
+
+  .master-head-actions {
+    width: 100%;
+    flex-direction: column;
   }
 
   .empty-state {

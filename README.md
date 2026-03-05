@@ -35,7 +35,9 @@ Settings button is visible only for `master` account.
 ## Master dashboard
 
 Master account sees `Master Dashboard` panel in app:
+- create companies
 - create new user (`username`, `password`, `role`)
+- assign user to company
 - change role (`user` / `master`) for existing users
 
 Users log in by `username + password`. App converts username to internal email (`username@VITE_INTERNAL_LOGIN_DOMAIN`) for Supabase Auth.
@@ -52,8 +54,10 @@ npm run dev
 
 This UI is now aligned to your SQL:
 
-- `stock(position, material_code, quantity)`
-- `stock_history(event_key, action, position, material_code, note, created_at_ms)`
+- `companies(id, name)`
+- `app_users(user_id, username, role, company_id, ...)`
+- `stock(company_id, position, material_code, quantity)`
+- `stock_history(event_key, company_id, action, position, material_code, note, created_at_ms)`
 
 ## Realtime note
 

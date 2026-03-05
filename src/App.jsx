@@ -73,8 +73,8 @@ function getTableConfig(table) {
   return TABLE_CONFIG[table] || DEFAULT_CONFIG;
 }
 
-function makeStockKey(position, materialCode) {
-  return `${String(position || "").trim()}::${String(materialCode || "").trim()}`;
+function makeStockKey(position, materialCode, companyId) {
+  return `${String(companyId || "").trim()}::${String(position || "").trim()}::${String(materialCode || "").trim()}`;
 }
 
 function normalizeDeadStockDays(value) {
@@ -218,6 +218,9 @@ function App() {
   const [authUser, setAuthUser] = useState(null);
   const [authUsername, setAuthUsername] = useState("");
   const [userRole, setUserRole] = useState("user");
+  const [userCompanyId, setUserCompanyId] = useState(null);
+  const [companies, setCompanies] = useState([]);
+  const [selectedCompanyId, setSelectedCompanyId] = useState("all");
   const [authUsernameInput, setAuthUsernameInput] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authError, setAuthError] = useState("");
@@ -228,6 +231,9 @@ function App() {
   const [newUsername, setNewUsername] = useState("");
   const [newUserPassword, setNewUserPassword] = useState("");
   const [newUserRole, setNewUserRole] = useState("user");
+  const [newUserCompanyId, setNewUserCompanyId] = useState("");
+  const [newCompanyName, setNewCompanyName] = useState("");
+  const [createCompanySubmitting, setCreateCompanySubmitting] = useState(false);
   const [createUserSubmitting, setCreateUserSubmitting] = useState(false);
 
   const tableConfig = getTableConfig(selectedTable);
@@ -279,7 +285,7 @@ function App() {
     setManagedUsersError("");
     const { data, error: usersError } = await supabase
       .from(ROLE_TABLE)
-      .select("user_id,username,email,role,created_at,updated_at,created_by")
+      .select("user_id,username,email,role,company_id,created_at,updated_at,created_by")
       .order("created_at", { ascending: false });
 
     if (usersError) {
@@ -291,6 +297,53 @@ function App() {
 
     setManagedUsers(data || []);
     setManagedUsersLoading(false);
+  };
+
+  const loadCompanies = async () => {
+    const { data, error: companiesError } = await supabase
+      .from("companies")
+      .select("id,name,created_at")
+      .order("name", { ascending: true });
+
+    if (companiesError) {
+      setManagedUsersError(companiesError.message || "Nepodarilo sa načítať firmy.");
+      setCompanies([]);
+      return;
+    }
+
+    setCompanies(data || []);
+  };
+
+  const handleCreateCompany = async (event) => {
+    event.preventDefault();
+    setCreateCompanySubmitting(true);
+    setManagedUsersError("");
+
+    const name = String(newCompanyName || "").trim();
+    if (!name) {
+      setManagedUsersError("Zadaj názov firmy.");
+      setCreateCompanySubmitting(false);
+      return;
+    }
+
+    const { data: inserted, error: createError } = await supabase
+      .from("companies")
+      .insert([{ name }])
+      .select("id,name")
+      .single();
+
+    if (createError) {
+      setManagedUsersError(createError.message || "Nepodarilo sa vytvoriť firmu.");
+      setCreateCompanySubmitting(false);
+      return;
+    }
+
+    setNewCompanyName("");
+    await loadCompanies();
+    if (inserted?.id && selectedCompanyId === "all") {
+      setSelectedCompanyId(inserted.id);
+    }
+    setCreateCompanySubmitting(false);
   };
 
   const ensureOwnRoleRow = async (user, resolvedRole) => {
@@ -331,6 +384,12 @@ function App() {
       return;
     }
 
+    if (newUserRole !== "master" && !newUserCompanyId) {
+      setManagedUsersError("Pre user účet vyber firmu.");
+      setCreateUserSubmitting(false);
+      return;
+    }
+
     const { data: signUpData, error: signUpError } = await userCreatorClient.auth.signUp({
       email,
       password: newUserPassword
@@ -355,6 +414,7 @@ function App() {
         email,
         username,
         role: newUserRole === "master" ? "master" : "user",
+        company_id: newUserRole === "master" ? null : newUserCompanyId || null,
         created_by: authUser?.id || null
       },
       { onConflict: "user_id" }
@@ -369,6 +429,7 @@ function App() {
     setNewUsername("");
     setNewUserPassword("");
     setNewUserRole("user");
+    setNewUserCompanyId("");
     setCreateUserSubmitting(false);
     await loadManagedUsers();
   };
@@ -397,13 +458,35 @@ function App() {
     await loadManagedUsers();
   };
 
-  const fetchAllRows = async (table, config) => {
+  const handleManagedCompanyChange = async (row, nextCompanyId) => {
+    if (!row?.user_id) {
+      return;
+    }
+
+    const normalizedCompany = nextCompanyId || null;
+    const { error: updateError } = await supabase
+      .from(ROLE_TABLE)
+      .update({ company_id: normalizedCompany })
+      .eq("user_id", row.user_id);
+
+    if (updateError) {
+      setManagedUsersError(updateError.message || "Nepodarilo sa zmeniť firmu.");
+      return;
+    }
+
+    await loadManagedUsers();
+  };
+
+  const fetchAllRows = async (table, config, scopedCompanyId = null) => {
     const pageSize = 1000;
     let from = 0;
     let collected = [];
 
     while (true) {
       let query = supabase.from(table).select("*").range(from, from + pageSize - 1);
+      if (scopedCompanyId && (table === "stock" || table === "stock_history")) {
+        query = query.eq("company_id", scopedCompanyId);
+      }
 
       if (config.orderBy) {
         query = query.order(config.orderBy, { ascending: Boolean(config.orderAsc) });
@@ -433,8 +516,18 @@ function App() {
     setError("");
 
     try {
+      const companyScope = isMaster ? selectedCompanyId : userCompanyId;
+      const scopedCompanyId = companyScope && companyScope !== "all" ? companyScope : null;
+      if (!isMaster && !scopedCompanyId) {
+        setRows([]);
+        setDeadStockByKey({});
+        setStockAgeStats({ avgDays: null, sampleCount: 0 });
+        setError("Účet nemá priradenú firmu.");
+        return;
+      }
+
       const config = getTableConfig(table);
-      const data = await fetchAllRows(table, config);
+      const data = await fetchAllRows(table, config, scopedCompanyId);
       setRows(data || []);
 
       if (table !== "stock") {
@@ -443,7 +536,7 @@ function App() {
         return;
       }
 
-      const historyRows = await fetchAllRows("stock_history", getTableConfig("stock_history"));
+      const historyRows = await fetchAllRows("stock_history", getTableConfig("stock_history"), scopedCompanyId);
       const now = Date.now();
       const deadStockMs = deadStockDays * 24 * 60 * 60 * 1000;
       const latestMovementMsByKey = {};
@@ -451,7 +544,7 @@ function App() {
       const latestAnyMsByKey = {};
 
       for (const historyRow of historyRows) {
-        const key = makeStockKey(historyRow.position, historyRow.material_code);
+        const key = makeStockKey(historyRow.position, historyRow.material_code, historyRow.company_id);
         if (!key || key === "::") {
           continue;
         }
@@ -488,7 +581,7 @@ function App() {
           continue;
         }
 
-        const key = makeStockKey(stockRow.position, stockRow.material_code);
+        const key = makeStockKey(stockRow.position, stockRow.material_code, stockRow.company_id);
         const lastMoveMs = latestMovementMsByKey[key];
         const inactiveMs = Number.isFinite(lastMoveMs) ? now - lastMoveMs : Number.POSITIVE_INFINITY;
         const referenceMs = latestInboundMsByKey[key] ?? latestAnyMsByKey[key];
@@ -543,6 +636,8 @@ function App() {
       if (!user) {
         setUserRole("user");
         setAuthUsername("");
+        setUserCompanyId(null);
+        setSelectedCompanyId("all");
       } else {
         const role = await resolveUserRole(user);
         if (!mounted) {
@@ -552,7 +647,7 @@ function App() {
         await ensureOwnRoleRow(user, role);
         const { data: ownRow } = await supabase
           .from(ROLE_TABLE)
-          .select("username,email")
+          .select("username,email,company_id")
           .eq("user_id", user.id)
           .maybeSingle();
         if (!mounted) {
@@ -560,6 +655,10 @@ function App() {
         }
         const fallbackUsername = usernameFromInternalEmail(user.email);
         setAuthUsername(String(ownRow?.username || usernameFromInternalEmail(ownRow?.email) || fallbackUsername || ""));
+        setUserCompanyId(ownRow?.company_id || null);
+        if (role !== "master") {
+          setSelectedCompanyId(ownRow?.company_id || "");
+        }
       }
       setAuthReady(true);
     };
@@ -610,7 +709,7 @@ function App() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [selectedTable, isLoggedIn, deadStockDays, authReady]);
+  }, [selectedTable, isLoggedIn, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster]);
 
   useEffect(() => {
     if (!authReady || !isLoggedIn) {
@@ -624,15 +723,17 @@ function App() {
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [isLoggedIn, selectedTable, deadStockDays, authReady]);
+  }, [isLoggedIn, selectedTable, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster]);
 
   useEffect(() => {
     if (!authReady || !isLoggedIn || !isMaster) {
       setManagedUsers([]);
+      setCompanies([]);
       return;
     }
 
     loadManagedUsers();
+    loadCompanies();
   }, [authReady, isLoggedIn, isMaster]);
 
   const statuses = useMemo(() => {
@@ -656,7 +757,7 @@ function App() {
 
     return rows.filter((row) => {
       if (selectedTable === "stock" && showDeadStockOnly) {
-        const rowKey = makeStockKey(row.position, row.material_code);
+        const rowKey = makeStockKey(row.position, row.material_code, row.company_id);
         if (!deadStockByKey[rowKey]) {
           return false;
         }
@@ -708,6 +809,14 @@ function App() {
     return candidate ? formatDate(candidate) : "-";
   }, [rows, tableConfig.timeKeys]);
 
+  const companyNameById = useMemo(
+    () =>
+      Object.fromEntries(
+        companies.map((company) => [company.id, company.name])
+      ),
+    [companies]
+  );
+
   const metricValue = useMemo(() => tableConfig.metricValue(rows), [rows, tableConfig]);
   const issueCount = useMemo(() => {
     if (selectedTable !== "stock_history") {
@@ -723,9 +832,11 @@ function App() {
 
     const groupsByPosition = {};
     for (const row of filteredRows) {
-      const position = String(row.position || "-").trim() || "-";
+      const companyPart =
+        isMaster && selectedCompanyId === "all" ? `${companyNameById[row.company_id] || "Firma"} | ` : "";
+      const position = `${companyPart}${String(row.position || "-").trim() || "-"}`;
       const quantity = Number(row.quantity || 0);
-      const stockKey = makeStockKey(row.position, row.material_code);
+      const stockKey = makeStockKey(row.position, row.material_code, row.company_id);
 
       if (!groupsByPosition[position]) {
         groupsByPosition[position] = {
@@ -746,7 +857,7 @@ function App() {
     return Object.values(groupsByPosition).sort((a, b) =>
       a.position.localeCompare(b.position, "sk-SK", { numeric: true, sensitivity: "base" })
     );
-  }, [filteredRows, selectedTable, deadStockByKey]);
+  }, [filteredRows, selectedTable, deadStockByKey, isMaster, selectedCompanyId, companyNameById]);
   const positionUsageMap = useMemo(() => {
     if (selectedTable !== "stock") {
       return {};
@@ -754,14 +865,17 @@ function App() {
 
     const usage = {};
     for (const row of rows) {
-      const positionKey = String(row.position || "").trim();
+      const rawPosition = String(row.position || "").trim();
+      const companyPrefix =
+        isMaster && selectedCompanyId === "all" ? `${companyNameById[row.company_id] || "Firma"} | ` : "";
+      const positionKey = `${companyPrefix}${rawPosition}`;
       if (!positionKey) {
         continue;
       }
       usage[positionKey] = (usage[positionKey] || 0) + 1;
     }
     return usage;
-  }, [rows, selectedTable]);
+  }, [rows, selectedTable, isMaster, selectedCompanyId, companyNameById]);
   const sharedPositionsCount = useMemo(
     () => Object.values(positionUsageMap).filter((count) => count > 1).length,
     [positionUsageMap]
@@ -782,8 +896,18 @@ function App() {
     if (selectedTable !== "stock") {
       return 0;
     }
-    return new Set(rows.map((row) => String(row.position || "").trim()).filter(Boolean)).size;
-  }, [rows, selectedTable]);
+    return new Set(
+      rows
+        .map((row) => {
+          const position = String(row.position || "").trim();
+          if (!position) {
+            return "";
+          }
+          return isMaster && selectedCompanyId === "all" ? `${row.company_id}::${position}` : position;
+        })
+        .filter(Boolean)
+    ).size;
+  }, [rows, selectedTable, isMaster, selectedCompanyId]);
   const freePositions = useMemo(() => Math.max(0, maxPositions - occupiedPositions), [maxPositions, occupiedPositions]);
   const occupancyPercent = useMemo(() => (occupiedPositions / maxPositions) * 100, [occupiedPositions, maxPositions]);
   const occupancyLevel = useMemo(() => {
@@ -798,6 +922,12 @@ function App() {
   const occupancyLabel = occupancyLevel === "ok" ? "Nízke" : occupancyLevel === "warn" ? "Stredné" : "Vysoké";
   const hasActiveFilters =
     statusFilter !== "all" || searchTerm.trim().length > 0 || (selectedTable === "stock" && showDeadStockOnly);
+  const currentCompanyLabel = useMemo(() => {
+    if (isMaster) {
+      return selectedCompanyId === "all" ? "Všetky firmy" : companyNameById[selectedCompanyId] || "Firma";
+    }
+    return companyNameById[userCompanyId] || "Bez firmy";
+  }, [isMaster, selectedCompanyId, companyNameById, userCompanyId]);
 
   const togglePositionExpanded = (position) => {
     setExpandedPositions((prev) => ({ ...prev, [position]: !prev[position] }));
@@ -863,6 +993,7 @@ function App() {
     await supabase.auth.signOut();
     setIsSettingsOpen(false);
     setManagedUsers([]);
+    setCompanies([]);
     setManagedUsersError("");
     setAuthUsername("");
   };
@@ -954,6 +1085,7 @@ function App() {
             <span className="table-badge">{selectedTable}</span>
             {isMaster && <span className="table-badge table-badge-master">master</span>}
             <span className="table-badge">{authUsername || "user"}</span>
+            <span className="table-badge">{currentCompanyLabel}</span>
           </div>
         </div>
         <h1>{tableConfig.title}</h1>
@@ -974,6 +1106,16 @@ function App() {
           </div>
 
           <div className="action-buttons">
+            {isMaster && (
+              <select value={selectedCompanyId} onChange={(event) => setSelectedCompanyId(event.target.value)}>
+                <option value="all">Všetky firmy</option>
+                {companies.map((company) => (
+                  <option key={company.id} value={company.id}>
+                    {company.name}
+                  </option>
+                ))}
+              </select>
+            )}
             {isMaster && (
               <button type="button" onClick={() => setIsSettingsOpen(true)} className="settings-btn">
                 Nastavenia
@@ -999,10 +1141,29 @@ function App() {
               <h2>Master Dashboard</h2>
               <p className="panel-meta">Správa používateľov pre tento Supabase projekt</p>
             </div>
-            <button type="button" className="refresh-btn" onClick={loadManagedUsers} disabled={managedUsersLoading}>
-              {managedUsersLoading ? "Načítavam..." : "Obnoviť používateľov"}
-            </button>
+            <div className="master-head-actions">
+              <button type="button" className="refresh-btn" onClick={loadCompanies}>
+                Obnoviť firmy
+              </button>
+              <button type="button" className="refresh-btn" onClick={loadManagedUsers} disabled={managedUsersLoading}>
+                {managedUsersLoading ? "Načítavam..." : "Obnoviť používateľov"}
+              </button>
+            </div>
           </div>
+
+          <form className="master-company-form" onSubmit={handleCreateCompany}>
+            <input
+              type="text"
+              className="search-input"
+              placeholder="Názov firmy"
+              value={newCompanyName}
+              onChange={(event) => setNewCompanyName(event.target.value)}
+              required
+            />
+            <button type="submit" className="settings-btn" disabled={createCompanySubmitting}>
+              {createCompanySubmitting ? "Vytváram..." : "Vytvoriť firmu"}
+            </button>
+          </form>
 
           <form className="master-create-form" onSubmit={handleCreateManagedUser}>
             <input
@@ -1027,6 +1188,18 @@ function App() {
               <option value="user">user</option>
               <option value="master">master</option>
             </select>
+            <select
+              value={newUserCompanyId}
+              onChange={(event) => setNewUserCompanyId(event.target.value)}
+              disabled={newUserRole === "master"}
+            >
+              <option value="">Bez firmy</option>
+              {companies.map((company) => (
+                <option key={company.id} value={company.id}>
+                  {company.name}
+                </option>
+              ))}
+            </select>
             <button type="submit" className="settings-btn" disabled={createUserSubmitting}>
               {createUserSubmitting ? "Vytváram..." : "Vytvoriť účet"}
             </button>
@@ -1040,6 +1213,7 @@ function App() {
                 <tr>
                   <th>Login</th>
                   <th>Rola</th>
+                  <th>Firma</th>
                   <th>Vytvorené</th>
                   <th>Zmena role</th>
                 </tr>
@@ -1053,6 +1227,23 @@ function App() {
                       <div className="master-user-email">{row.email}</div>
                     </td>
                     <td>{row.role}</td>
+                    <td>
+                      {row.role === "master" ? (
+                        <span className="table-badge table-badge-master">všetky</span>
+                      ) : (
+                        <select
+                          value={row.company_id || ""}
+                          onChange={(event) => handleManagedCompanyChange(row, event.target.value)}
+                        >
+                          <option value="">Bez firmy</option>
+                          {companies.map((company) => (
+                            <option key={company.id} value={company.id}>
+                              {company.name}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </td>
                     <td>{formatDate(row.created_at)}</td>
                     <td>
                       <div className="master-role-actions">
@@ -1256,7 +1447,7 @@ function App() {
                             </thead>
                             <tbody>
                               {group.rows.map((row, rowIndex) => {
-                                const stockKey = makeStockKey(row.position, row.material_code);
+                                const stockKey = makeStockKey(row.position, row.material_code, row.company_id);
                                 const deadInfo = deadStockByKey[stockKey];
                                 const deadHint =
                                   deadInfo && deadInfo.inactiveDays !== null
@@ -1308,7 +1499,7 @@ function App() {
                           key={row.event_key || `${selectedTable}-${index}`}
                           className={
                             [
-                              selectedTable === "stock" && deadStockByKey[makeStockKey(row.position, row.material_code)]
+                              selectedTable === "stock" && deadStockByKey[makeStockKey(row.position, row.material_code, row.company_id)]
                                 ? "dead-stock-row"
                                 : "",
                               isSharedPosition ? "shared-position-row" : "",
@@ -1320,7 +1511,7 @@ function App() {
                         >
                           {tableConfig.columns.map((column) => {
                             const value = pickValue(row, column.keys);
-                            const stockKey = makeStockKey(row.position, row.material_code);
+                            const stockKey = makeStockKey(row.position, row.material_code, row.company_id);
                             const deadInfo = selectedTable === "stock" ? deadStockByKey[stockKey] : null;
                             const deadHint =
                               deadInfo && deadInfo.inactiveDays !== null

@@ -234,6 +234,7 @@ function App() {
   const [userRole, setUserRole] = useState("user");
   const [userCompanyId, setUserCompanyId] = useState(null);
   const [companies, setCompanies] = useState([]);
+  const [companiesError, setCompaniesError] = useState("");
   const [selectedCompanyId, setSelectedCompanyId] = useState("all");
   const [authUsernameInput, setAuthUsernameInput] = useState("");
   const [authPassword, setAuthPassword] = useState("");
@@ -248,7 +249,11 @@ function App() {
   const [newUserRole, setNewUserRole] = useState("user");
   const [newUserCompanyId, setNewUserCompanyId] = useState("");
   const [newCompanyName, setNewCompanyName] = useState("");
+  const [editingCompanyId, setEditingCompanyId] = useState("");
+  const [editingCompanyName, setEditingCompanyName] = useState("");
   const [createCompanySubmitting, setCreateCompanySubmitting] = useState(false);
+  const [updateCompanySubmitting, setUpdateCompanySubmitting] = useState(false);
+  const [deleteCompanySubmitting, setDeleteCompanySubmitting] = useState(false);
   const [createUserSubmitting, setCreateUserSubmitting] = useState(false);
   const [diagnostics, setDiagnostics] = useState({
     loadCount: 0,
@@ -331,13 +336,14 @@ function App() {
   };
 
   const loadCompanies = async () => {
+    setCompaniesError("");
     const { data, error: companiesError } = await supabase
       .from("companies")
       .select("id,name,created_at")
       .order("name", { ascending: true });
 
     if (companiesError) {
-      setManagedUsersError(companiesError.message || "Nepodarilo sa načítať firmy.");
+      setCompaniesError(companiesError.message || "Nepodarilo sa načítať firmy.");
       setDiagnostics((prev) => ({ ...prev, lastError: companiesError.message || "companies_load_failed" }));
       setCompanies([]);
       return;
@@ -365,7 +371,7 @@ function App() {
       .single();
 
     if (createError) {
-      setManagedUsersError(createError.message || "Nepodarilo sa vytvoriť firmu.");
+      setCompaniesError(createError.message || "Nepodarilo sa vytvoriť firmu.");
       setCreateCompanySubmitting(false);
       return;
     }
@@ -379,6 +385,75 @@ function App() {
       );
     }
     setCreateCompanySubmitting(false);
+  };
+
+  const handleStartEditCompany = (company) => {
+    setEditingCompanyId(company?.id || "");
+    setEditingCompanyName(String(company?.name || ""));
+    setCompaniesError("");
+  };
+
+  const handleCancelEditCompany = () => {
+    setEditingCompanyId("");
+    setEditingCompanyName("");
+  };
+
+  const handleSaveCompany = async (companyId) => {
+    const name = String(editingCompanyName || "").trim();
+    if (!name) {
+      setCompaniesError("Názov firmy nemôže byť prázdny.");
+      return;
+    }
+    setUpdateCompanySubmitting(true);
+    setCompaniesError("");
+    const { data, error: updateError } = await supabase
+      .from("companies")
+      .update({ name })
+      .eq("id", companyId)
+      .select("id,name,created_at")
+      .single();
+
+    if (updateError) {
+      setCompaniesError(updateError.message || "Nepodarilo sa upraviť firmu.");
+      setUpdateCompanySubmitting(false);
+      return;
+    }
+
+    setCompanies((prev) =>
+      prev
+        .map((company) => (company.id === companyId ? data : company))
+        .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "sk-SK", { sensitivity: "base" }))
+    );
+    setUpdateCompanySubmitting(false);
+    handleCancelEditCompany();
+  };
+
+  const handleDeleteCompany = async (company) => {
+    if (!company?.id) {
+      return;
+    }
+    const confirmed = window.confirm(`Naozaj chceš zmazať firmu "${company.name}"?`);
+    if (!confirmed) {
+      return;
+    }
+
+    setDeleteCompanySubmitting(true);
+    setCompaniesError("");
+    const { error: deleteError } = await supabase.from("companies").delete().eq("id", company.id);
+    if (deleteError) {
+      setCompaniesError(deleteError.message || "Nepodarilo sa zmazať firmu.");
+      setDeleteCompanySubmitting(false);
+      return;
+    }
+
+    setCompanies((prev) => prev.filter((item) => item.id !== company.id));
+    if (selectedCompanyId === company.id) {
+      setSelectedCompanyId("all");
+    }
+    if (newUserCompanyId === company.id) {
+      setNewUserCompanyId("");
+    }
+    setDeleteCompanySubmitting(false);
   };
 
   const ensureOwnRoleRow = async (user, resolvedRole) => {
@@ -1364,6 +1439,7 @@ function App() {
           </form>
 
           {managedUsersError && <p className="error">{managedUsersError}</p>}
+          {companiesError && <p className="error">{companiesError}</p>}
 
           <div className="diagnostics-box">
             <p className="panel-meta">
@@ -1390,6 +1466,73 @@ function App() {
                 Diag reload users
               </button>
             </div>
+          </div>
+
+          <div className="table-wrap">
+            <table className="master-users-table">
+              <thead>
+                <tr>
+                  <th>Firma</th>
+                  <th>ID</th>
+                  <th>Vytvorená</th>
+                  <th>Akcie</th>
+                </tr>
+              </thead>
+              <tbody>
+                {companies.map((company) => {
+                  const isEditing = editingCompanyId === company.id;
+                  return (
+                    <tr key={company.id}>
+                      <td>
+                        {isEditing ? (
+                          <input
+                            type="text"
+                            className="search-input"
+                            value={editingCompanyName}
+                            onChange={(event) => setEditingCompanyName(event.target.value)}
+                          />
+                        ) : (
+                          company.name
+                        )}
+                      </td>
+                      <td className="master-user-email">{company.id}</td>
+                      <td>{formatDate(company.created_at)}</td>
+                      <td>
+                        <div className="master-role-actions">
+                          {isEditing ? (
+                            <>
+                              <button
+                                type="button"
+                                className="clear-btn"
+                                onClick={() => handleSaveCompany(company.id)}
+                                disabled={updateCompanySubmitting}
+                              >
+                                Uložiť
+                              </button>
+                              <button type="button" className="clear-btn" onClick={handleCancelEditCompany}>
+                                Zrušiť
+                              </button>
+                            </>
+                          ) : (
+                            <button type="button" className="clear-btn" onClick={() => handleStartEditCompany(company)}>
+                              Upraviť
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="clear-btn"
+                            onClick={() => handleDeleteCompany(company)}
+                            disabled={deleteCompanySubmitting}
+                          >
+                            Zmazať
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
 
           <div className="table-wrap">

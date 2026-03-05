@@ -446,11 +446,20 @@ select {
   margin-top: 0.2rem;
   color: #7b8794;
   font-size: 0.74rem;
+  word-break: break-all;
 }
 
 .master-role-actions {
   display: inline-flex;
   gap: 0.35rem;
+}
+
+.diagnostics-box {
+  border: 1px solid #dbe5f2;
+  border-radius: 10px;
+  background: #f9fbff;
+  padding: 0.65rem;
+  margin-bottom: 0.75rem;
 }
 
 .stock-view-btn-active {

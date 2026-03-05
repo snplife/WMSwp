@@ -58,6 +58,8 @@ const ROLE_TABLE = (import.meta.env.VITE_USER_ROLES_TABLE || "app_users").trim()
 const MASTER_EMAIL = (import.meta.env.VITE_MASTER_EMAIL || "").trim().toLowerCase();
 const INTERNAL_LOGIN_DOMAIN = (import.meta.env.VITE_INTERNAL_LOGIN_DOMAIN || "wms.local").trim().toLowerCase();
 const APP_BUILD_ID = typeof __APP_BUILD_ID__ === "undefined" ? "dev" : String(__APP_BUILD_ID__);
+const DEFAULT_DB_URL = String(supabaseUrl || "").trim();
+const DEFAULT_DB_ANON_KEY = String(supabaseAnonKey || "").trim();
 const CACHE_BUILD_KEY = "wms_app_build_id";
 const CACHE_RELOAD_GUARD_KEY = "wms_app_build_reload_guard";
 const MIN_MANAGED_PASSWORD_LENGTH = 8;
@@ -556,6 +558,8 @@ function App() {
         email: String(user.email || "").toLowerCase(),
         username,
         role: rowRole,
+        db_url: DEFAULT_DB_URL || null,
+        db_anon_key: DEFAULT_DB_ANON_KEY || null,
         created_by: user.id
       },
       { onConflict: "user_id" }
@@ -615,6 +619,8 @@ function App() {
         username,
         role: newUserRole === "master" ? "master" : "user",
         company_id: newUserRole === "master" ? null : effectiveCompanyIdForUser,
+        db_url: DEFAULT_DB_URL || null,
+        db_anon_key: DEFAULT_DB_ANON_KEY || null,
         created_by: authUser?.id || null
       },
       { onConflict: "user_id" }

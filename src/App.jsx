@@ -343,7 +343,7 @@ function App() {
     const { data: inserted, error: createError } = await supabase
       .from("companies")
       .insert([{ name }])
-      .select("id,name")
+      .select("id,name,created_at")
       .single();
 
     if (createError) {
@@ -353,9 +353,12 @@ function App() {
     }
 
     setNewCompanyName("");
-    await loadCompanies();
-    if (inserted?.id && selectedCompanyId === "all") {
-      setSelectedCompanyId(inserted.id);
+    if (inserted) {
+      setCompanies((prev) =>
+        [...prev.filter((company) => company.id !== inserted.id), inserted].sort((a, b) =>
+          String(a.name || "").localeCompare(String(b.name || ""), "sk-SK", { sensitivity: "base" })
+        )
+      );
     }
     setCreateCompanySubmitting(false);
   };

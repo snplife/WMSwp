@@ -1100,13 +1100,16 @@ function App() {
   }, [isLoggedIn, selectedTable, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id]);
 
   useEffect(() => {
-    if (!authReady || !isLoggedIn || !isMaster) {
+    if (!authReady || !isLoggedIn) {
       setManagedUsers([]);
-      setCompanies([]);
       return;
     }
 
-    loadManagedUsers();
+    if (isMaster) {
+      loadManagedUsers();
+    } else {
+      setManagedUsers([]);
+    }
     loadCompanies();
   }, [authReady, isLoggedIn, isMaster, authUser?.id]);
 

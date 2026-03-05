@@ -133,6 +133,12 @@ function formatCell(value, kind) {
   return String(value);
 }
 
+function normalizeForSearch(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[\s\-_/.]/g, "");
+}
+
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -347,6 +353,7 @@ function App() {
 
   const filteredRows = useMemo(() => {
     const normalizedTerm = searchTerm.trim().toLowerCase();
+    const compactTerm = normalizeForSearch(searchTerm.trim());
 
     return rows.filter((row) => {
       if (selectedTable === "stock" && showDeadStockOnly) {
@@ -373,7 +380,20 @@ function App() {
           ? tableConfig.searchKeys
           : tableConfig.columns.flatMap((column) => column.keys);
 
-      return searchKeys.some((key) => String(row[key] ?? "").toLowerCase().includes(normalizedTerm));
+      return searchKeys.some((key) => {
+        const rawValue = String(row[key] ?? "");
+        const plainMatch = rawValue.toLowerCase().includes(normalizedTerm);
+        if (plainMatch) {
+          return true;
+        }
+
+        if (key !== "material_code" || compactTerm.length < 5) {
+          return false;
+        }
+
+        // For material search, allow matching by any 5+ consecutive chars even with separators in source code.
+        return normalizeForSearch(rawValue).includes(compactTerm);
+      });
     });
   }, [rows, statusFilter, searchTerm, tableConfig, selectedTable, showDeadStockOnly, deadStockByKey]);
 

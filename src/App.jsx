@@ -581,7 +581,10 @@ function App() {
       return;
     }
 
-    if (newUserRole !== "master" && !newUserCompanyId) {
+    const effectiveCompanyIdForUser =
+      newUserRole === "master" ? null : newUserCompanyId || (selectedCompanyId !== "all" ? selectedCompanyId : "");
+
+    if (newUserRole !== "master" && !effectiveCompanyIdForUser) {
       setManagedUsersError("Pre user účet vyber firmu.");
       setCreateUserSubmitting(false);
       return;
@@ -611,7 +614,7 @@ function App() {
         email,
         username,
         role: newUserRole === "master" ? "master" : "user",
-        company_id: newUserRole === "master" ? null : newUserCompanyId || null,
+        company_id: newUserRole === "master" ? null : effectiveCompanyIdForUser,
         created_by: authUser?.id || null
       },
       { onConflict: "user_id" }
@@ -621,6 +624,17 @@ function App() {
       setManagedUsersError(roleWriteError.message || "Používateľ je vytvorený, ale nepodarilo sa uložiť rolu.");
       setCreateUserSubmitting(false);
       return;
+    }
+
+    if (newUserRole !== "master") {
+      const { data: verifyRow } = await supabase
+        .from(ROLE_TABLE)
+        .select("company_id")
+        .eq("user_id", createdUserId)
+        .maybeSingle();
+      if (!verifyRow?.company_id) {
+        setManagedUsersError("User bol vytvorený, ale neuložila sa firma. Skús uložiť firmu znova.");
+      }
     }
 
     setNewUsername("");
@@ -638,6 +652,10 @@ function App() {
 
     if (row.user_id === authUser?.id && nextRole !== "master") {
       setManagedUsersError("Master účet nemožno znížiť cez vlastnú reláciu.");
+      return;
+    }
+    if (nextRole === "user" && !row.company_id) {
+      setManagedUsersError("Pred prepnutím na user rolu najprv nastav firmu.");
       return;
     }
 
@@ -661,6 +679,10 @@ function App() {
     }
 
     const normalizedCompany = nextCompanyId || null;
+    if (row.role !== "master" && !normalizedCompany) {
+      setManagedUsersError("User účet musí mať priradenú firmu.");
+      return;
+    }
     const { error: updateError } = await supabase
       .from(ROLE_TABLE)
       .update({ company_id: normalizedCompany })

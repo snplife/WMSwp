@@ -13,7 +13,7 @@ create table if not exists public.stock (
   company_id uuid references public.companies (id) on delete cascade,
   position text not null,
   material_code text not null,
-  quantity integer not null default 1,
+  quantity integer not null,
   constraint stock_pk primary key (company_id, position, material_code)
 );
 
@@ -79,6 +79,11 @@ where company_id is null
 -- 5) Strengthen constraints after backfill
 alter table public.stock alter column company_id set not null;
 alter table public.stock_history alter column company_id set not null;
+alter table public.app_users
+  drop constraint if exists app_users_user_must_have_company;
+alter table public.app_users
+  add constraint app_users_user_must_have_company
+  check (role = 'master' or company_id is not null) not valid;
 
 -- Ensure stock PK includes company_id even on legacy schema
 DO $$
@@ -371,3 +376,91 @@ on public.app_users
 for delete
 to authenticated
 using (public.is_master(auth.uid()));
+
+-- 9) Rebuild stock from stock_history events
+create or replace function public.apply_stock_history_events(p_company_id uuid default null)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  -- Rebuild target scope from history to keep stock consistent.
+  if p_company_id is null then
+    truncate table public.stock;
+
+    insert into public.stock (company_id, position, material_code, quantity)
+    select
+      h.company_id,
+      h.position,
+      h.material_code,
+      sum(
+        case upper(coalesce(h.action, ''))
+          when 'RECEIVE' then 1
+          when 'ISSUE' then -1
+          when 'MOVE' then 0
+          when 'MOVE_ALL' then 0
+          when 'ADJUST' then 0
+          when 'UNDO' then 0
+          else 0
+        end
+      )::int as quantity
+    from public.stock_history h
+    where h.company_id is not null
+    group by h.company_id, h.position, h.material_code
+    having sum(
+      case upper(coalesce(h.action, ''))
+        when 'RECEIVE' then 1
+        when 'ISSUE' then -1
+        when 'MOVE' then 0
+        when 'MOVE_ALL' then 0
+        when 'ADJUST' then 0
+        when 'UNDO' then 0
+        else 0
+      end
+    ) > 0;
+
+    return;
+  end if;
+
+  delete from public.stock s
+  where s.company_id = p_company_id;
+
+  insert into public.stock (company_id, position, material_code, quantity)
+  select
+    h.company_id,
+    h.position,
+    h.material_code,
+    sum(
+      case upper(coalesce(h.action, ''))
+        when 'RECEIVE' then 1
+        when 'ISSUE' then -1
+        when 'MOVE' then 0
+        when 'MOVE_ALL' then 0
+        when 'ADJUST' then 0
+        when 'UNDO' then 0
+        else 0
+      end
+    )::int as quantity
+  from public.stock_history h
+  where h.company_id = p_company_id
+  group by h.company_id, h.position, h.material_code
+  having sum(
+    case upper(coalesce(h.action, ''))
+      when 'RECEIVE' then 1
+      when 'ISSUE' then -1
+      when 'MOVE' then 0
+      when 'MOVE_ALL' then 0
+      when 'ADJUST' then 0
+      when 'UNDO' then 0
+      else 0
+    end
+  ) > 0;
+end;
+$$;
+
+grant execute on function public.apply_stock_history_events(uuid) to authenticated;
+
+-- Usage:
+-- select public.apply_stock_history_events();
+-- select public.apply_stock_history_events('YOUR-COMPANY-UUID');

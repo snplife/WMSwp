@@ -66,6 +66,7 @@ const ENV_DEFAULT_MAX_POSITIONS = Math.max(1, Number(import.meta.env.VITE_MAX_PO
 const HISTORY_ANALYTICS_LOOKBACK_DAYS = Math.max(30, Number(import.meta.env.VITE_HISTORY_LOOKBACK_DAYS || 365));
 const AUTO_REFRESH_MS = Math.max(60 * 1000, Number(import.meta.env.VITE_AUTO_REFRESH_MS || 5 * 60 * 1000));
 const DAY_MS = 24 * 60 * 60 * 1000;
+const AUTH_INIT_TIMEOUT_MS = 5000;
 const INBOUND_ACTIONS = new Set(["RECEIVE", "MOVE", "MOVE_ALL", "ADJUST"]);
 const LANDING_FEATURES = [
   "Online prehľad zásob a pohybov v reálnom čase",
@@ -191,6 +192,15 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function withTimeout(promise, timeoutMs, timeoutMessage) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      window.setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+    })
+  ]);
 }
 
 function translateStatusLabel(status) {
@@ -847,7 +857,7 @@ function App() {
       setAuthInitTimedOut(true);
       setAuthReady(true);
       setAuthError((prev) => prev || "Auth init timeout. Skontroluj Vercel env a Supabase dostupnosť.");
-    }, 8000);
+    }, AUTH_INIT_TIMEOUT_MS);
 
     const hydrateFromSession = async (session) => {
       const currentHydrationId = hydrationSequence + 1;
@@ -896,7 +906,11 @@ function App() {
 
     const init = async () => {
       try {
-        const { data, error: sessionError } = await supabase.auth.getSession();
+        const { data, error: sessionError } = await withTimeout(
+          supabase.auth.getSession(),
+          AUTH_INIT_TIMEOUT_MS,
+          "Auth session request timeout"
+        );
         if (sessionError) {
           throw sessionError;
         }
@@ -910,6 +924,7 @@ function App() {
         setUserRole("user");
         setAuthUsername("");
         setAuthReady(true);
+        setAuthInitTimedOut(true);
         setAuthError(
           `Auth init failed: ${
             initError?.message || "Skontroluj VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY vo Verceli."
@@ -1334,6 +1349,8 @@ function App() {
     event.preventDefault();
     setAuthSubmitting(true);
     setAuthError("");
+    setAuthInitTimedOut(false);
+    setAuthReady(true);
     const email = resolveLoginEmail(authUsernameInput);
 
     if (!email) {
@@ -1342,10 +1359,13 @@ function App() {
       return;
     }
 
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email,
-      password: authPassword
-    });
+    try {
+      await supabase.auth.signOut({ scope: "local" });
+    } catch {
+      // Ignore local sign-out cleanup failure before fresh login.
+    }
+
+    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password: authPassword });
 
     if (signInError) {
       setAuthError(signInError.message || "Prihlásenie zlyhalo. Skontroluj login a heslo.");
@@ -1396,6 +1416,18 @@ function App() {
       <main className="container">
         <section className="panel">
           <p className="hint">Overujem reláciu...</p>
+          <button
+            type="button"
+            className="refresh-btn"
+            onClick={() => {
+              setAuthReady(true);
+              setAuthInitTimedOut(true);
+              setIsLoggedIn(false);
+              setAuthError((prev) => prev || "Reláciu sa nepodarilo overiť. Pokračuj cez nové prihlásenie.");
+            }}
+          >
+            Pokračovať na login
+          </button>
         </section>
       </main>
     );

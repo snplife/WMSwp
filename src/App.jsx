@@ -822,13 +822,8 @@ function App() {
 
       const companyScope = isMaster ? selectedCompanyId : effectiveUserCompanyId;
       const scopedCompanyId = companyScope && companyScope !== "all" ? companyScope : null;
-      if (!isMaster && !scopedCompanyId) {
-        setRows([]);
-        setDeadStockByKey({});
-        setStockAgeStats({ avgDays: null, sampleCount: 0 });
-        setError("Účet nemá priradenú firmu.");
-        return;
-      }
+      // For non-master users, do not hard-block when local company state is missing.
+      // RLS safely scopes rows by auth.uid() on the backend.
 
       const config = getTableConfig(table);
       const data =

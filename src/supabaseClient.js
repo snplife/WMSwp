@@ -20,6 +20,16 @@ export const noStoreFetch = (input, init = {}) => {
   });
 };
 
+function makeAuthStorageKey(url) {
+  const normalized = String(url || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return `wms-auth-${normalized || "default"}`;
+}
+
+const authStorageKey = makeAuthStorageKey(supabaseUrl);
+
 export const tableName = import.meta.env.VITE_SUPABASE_TABLE || "events";
 export const tableNames = (
   import.meta.env.VITE_SUPABASE_TABLES || import.meta.env.VITE_SUPABASE_TABLE || "events"
@@ -29,6 +39,9 @@ export const tableNames = (
   .filter(Boolean);
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    storageKey: authStorageKey
+  },
   global: {
     fetch: noStoreFetch
   }

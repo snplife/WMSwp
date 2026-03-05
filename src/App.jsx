@@ -160,6 +160,8 @@ function translateStatusLabel(status) {
 function App() {
   const [selectedTable, setSelectedTable] = useState(tableNames[0]);
   const [rows, setRows] = useState([]);
+  const [stockViewMode, setStockViewMode] = useState("table");
+  const [expandedPositions, setExpandedPositions] = useState({});
   const [deadStockByKey, setDeadStockByKey] = useState({});
   const [showDeadStockOnly, setShowDeadStockOnly] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -299,6 +301,7 @@ function App() {
     setStatusFilter("all");
     setSearchTerm("");
     setShowDeadStockOnly(false);
+    setExpandedPositions({});
     loadRows(selectedTable);
 
     const channel = supabase
@@ -312,6 +315,20 @@ function App() {
       supabase.removeChannel(channel);
     };
   }, [selectedTable, isLoggedIn, deadStockDays]);
+
+  useEffect(() => {
+    if (!isLoggedIn) {
+      return undefined;
+    }
+
+    const intervalId = window.setInterval(() => {
+      loadRows(selectedTable);
+    }, 60 * 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [isLoggedIn, selectedTable, deadStockDays]);
 
   const statuses = useMemo(() => {
     if (tableConfig.statusKeys.length === 0) {
@@ -380,6 +397,37 @@ function App() {
     return rows.filter((row) => String(row.action || "").toUpperCase() === "ISSUE").length;
   }, [rows, selectedTable]);
   const deadStockCount = useMemo(() => Object.keys(deadStockByKey).length, [deadStockByKey]);
+  const groupedStockRows = useMemo(() => {
+    if (selectedTable !== "stock") {
+      return [];
+    }
+
+    const groupsByPosition = {};
+    for (const row of filteredRows) {
+      const position = String(row.position || "-").trim() || "-";
+      const quantity = Number(row.quantity || 0);
+      const stockKey = makeStockKey(row.position, row.material_code);
+
+      if (!groupsByPosition[position]) {
+        groupsByPosition[position] = {
+          position,
+          rows: [],
+          totalQuantity: 0,
+          deadCount: 0
+        };
+      }
+
+      groupsByPosition[position].rows.push(row);
+      groupsByPosition[position].totalQuantity += Number.isFinite(quantity) ? quantity : 0;
+      if (deadStockByKey[stockKey]) {
+        groupsByPosition[position].deadCount += 1;
+      }
+    }
+
+    return Object.values(groupsByPosition).sort((a, b) =>
+      a.position.localeCompare(b.position, "sk-SK", { numeric: true, sensitivity: "base" })
+    );
+  }, [filteredRows, selectedTable, deadStockByKey]);
   const positionUsageMap = useMemo(() => {
     if (selectedTable !== "stock") {
       return {};
@@ -431,6 +479,10 @@ function App() {
   const occupancyLabel = occupancyLevel === "ok" ? "Nízke" : occupancyLevel === "warn" ? "Stredné" : "Vysoké";
   const hasActiveFilters =
     statusFilter !== "all" || searchTerm.trim().length > 0 || (selectedTable === "stock" && showDeadStockOnly);
+
+  const togglePositionExpanded = (position) => {
+    setExpandedPositions((prev) => ({ ...prev, [position]: !prev[position] }));
+  };
 
   const exportToExcel = () => {
     const headers = tableConfig.columns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join("");
@@ -681,6 +733,24 @@ function App() {
               </select>
             )}
             {selectedTable === "stock" && (
+              <div className="stock-view-switch" role="tablist" aria-label="Režim zobrazenia stock">
+                <button
+                  type="button"
+                  className={`clear-btn ${stockViewMode === "table" ? "stock-view-btn-active" : ""}`}
+                  onClick={() => setStockViewMode("table")}
+                >
+                  Tabuľka
+                </button>
+                <button
+                  type="button"
+                  className={`clear-btn ${stockViewMode === "position" ? "stock-view-btn-active" : ""}`}
+                  onClick={() => setStockViewMode("position")}
+                >
+                  Podľa pozícií
+                </button>
+              </div>
+            )}
+            {selectedTable === "stock" && (
               <button
                 type="button"
                 className={`clear-btn ${showDeadStockOnly ? "dead-stock-btn-active" : ""}`}
@@ -709,74 +779,135 @@ function App() {
         {error && <p className="error">{error}</p>}
 
         {!loading && !error && (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  {tableConfig.columns.map((column) => (
-                    <th key={column.label}>{column.label}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filteredRows.map((row, index) => {
-                  const positionKey = String(row.position || "").trim();
-                  const positionCount = positionUsageMap[positionKey] || 0;
-                  const isSharedPosition = selectedTable === "stock" && positionCount > 1;
-                  const isStrongSharedPosition = selectedTable === "stock" && positionCount >= 5;
-
+          <>
+            {selectedTable === "stock" && stockViewMode === "position" ? (
+              <div className="position-groups">
+                {groupedStockRows.map((group) => {
+                  const isOpen = Boolean(expandedPositions[group.position]);
                   return (
-                    <tr
-                      key={row.event_key || `${selectedTable}-${index}`}
-                      className={
-                        [
-                          selectedTable === "stock" && deadStockByKey[makeStockKey(row.position, row.material_code)]
-                            ? "dead-stock-row"
-                            : "",
-                          isSharedPosition ? "shared-position-row" : "",
-                          isStrongSharedPosition ? "shared-position-row-strong" : ""
-                        ]
-                          .filter(Boolean)
-                          .join(" ")
-                      }
-                    >
-                      {tableConfig.columns.map((column) => {
-                        const value = pickValue(row, column.keys);
-                        const stockKey = makeStockKey(row.position, row.material_code);
-                        const deadInfo = selectedTable === "stock" ? deadStockByKey[stockKey] : null;
-                        const deadHint =
-                          deadInfo && deadInfo.inactiveDays !== null
-                            ? `Dead stock: bez pohybu ${deadInfo.inactiveDays} dní`
-                            : deadInfo
-                              ? "Dead stock: bez záznamu pohybu"
-                              : "";
-                        return (
-                          <td key={`${column.label}-${row.event_key || row.position || index}`}>
-                            {column.kind === "status" ? (
-                              <StatusPill status={String(value || "unknown")} />
-                            ) : (
-                              <>
-                                {formatCell(value, column.kind)}
-                                {selectedTable === "stock" && column.keys.includes("position") && positionCount > 1 && (
-                                  <span className="shared-position-inline" title={`Na pozícii je ${positionCount} položiek`}>
-                                    {`x${positionCount}`}
-                                  </span>
-                                )}
-                                {deadHint && column.keys.includes("material_code") && (
-                                  <span className="dead-stock-inline" title={deadHint}>
-                                    dead stock
-                                  </span>
-                                )}
-                              </>
-                            )}
-                          </td>
-                        );
-                      })}
-                    </tr>
+                    <article key={group.position} className="position-group-card">
+                      <button type="button" className="position-group-head" onClick={() => togglePositionExpanded(group.position)}>
+                        <div>
+                          <strong>{group.position}</strong>
+                          <p>{`${group.rows.length} materiálov | ${new Intl.NumberFormat("sk-SK").format(group.totalQuantity)} ks`}</p>
+                        </div>
+                        <div className="position-group-right">
+                          {group.deadCount > 0 && <span className="dead-stock-inline">{`dead ${group.deadCount}`}</span>}
+                          <span className="shared-position-inline">{isOpen ? "Zbaliť" : "Rozbaliť"}</span>
+                        </div>
+                      </button>
+                      {isOpen && (
+                        <div className="position-group-table-wrap">
+                          <table className="position-group-table">
+                            <thead>
+                              <tr>
+                                <th>Materiál</th>
+                                <th>Množstvo</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {group.rows.map((row, rowIndex) => {
+                                const stockKey = makeStockKey(row.position, row.material_code);
+                                const deadInfo = deadStockByKey[stockKey];
+                                const deadHint =
+                                  deadInfo && deadInfo.inactiveDays !== null
+                                    ? `Dead stock: bez pohybu ${deadInfo.inactiveDays} dní`
+                                    : deadInfo
+                                      ? "Dead stock: bez záznamu pohybu"
+                                      : "";
+                                return (
+                                  <tr key={`${group.position}-${row.material_code}-${rowIndex}`}>
+                                    <td>
+                                      {formatCell(row.material_code, null)}
+                                      {deadHint && (
+                                        <span className="dead-stock-inline" title={deadHint}>
+                                          dead stock
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td>{formatCell(row.quantity, "number")}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </article>
                   );
                 })}
-              </tbody>
-            </table>
+              </div>
+            ) : (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      {tableConfig.columns.map((column) => (
+                        <th key={column.label}>{column.label}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredRows.map((row, index) => {
+                      const positionKey = String(row.position || "").trim();
+                      const positionCount = positionUsageMap[positionKey] || 0;
+                      const isSharedPosition = selectedTable === "stock" && positionCount > 1;
+                      const isStrongSharedPosition = selectedTable === "stock" && positionCount >= 5;
+
+                      return (
+                        <tr
+                          key={row.event_key || `${selectedTable}-${index}`}
+                          className={
+                            [
+                              selectedTable === "stock" && deadStockByKey[makeStockKey(row.position, row.material_code)]
+                                ? "dead-stock-row"
+                                : "",
+                              isSharedPosition ? "shared-position-row" : "",
+                              isStrongSharedPosition ? "shared-position-row-strong" : ""
+                            ]
+                              .filter(Boolean)
+                              .join(" ")
+                          }
+                        >
+                          {tableConfig.columns.map((column) => {
+                            const value = pickValue(row, column.keys);
+                            const stockKey = makeStockKey(row.position, row.material_code);
+                            const deadInfo = selectedTable === "stock" ? deadStockByKey[stockKey] : null;
+                            const deadHint =
+                              deadInfo && deadInfo.inactiveDays !== null
+                                ? `Dead stock: bez pohybu ${deadInfo.inactiveDays} dní`
+                                : deadInfo
+                                  ? "Dead stock: bez záznamu pohybu"
+                                  : "";
+                            return (
+                              <td key={`${column.label}-${row.event_key || row.position || index}`}>
+                                {column.kind === "status" ? (
+                                  <StatusPill status={String(value || "unknown")} />
+                                ) : (
+                                  <>
+                                    {formatCell(value, column.kind)}
+                                    {selectedTable === "stock" && column.keys.includes("position") && positionCount > 1 && (
+                                      <span className="shared-position-inline" title={`Na pozícii je ${positionCount} položiek`}>
+                                        {`x${positionCount}`}
+                                      </span>
+                                    )}
+                                    {deadHint && column.keys.includes("material_code") && (
+                                      <span className="dead-stock-inline" title={deadHint}>
+                                        dead stock
+                                      </span>
+                                    )}
+                                  </>
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
             {filteredRows.length === 0 && (
               <div className="empty-state">
                 <p>Pre tento filter nie sú dáta.</p>
@@ -793,7 +924,7 @@ function App() {
                 </button>
               </div>
             )}
-          </div>
+          </>
         )}
       </section>
 

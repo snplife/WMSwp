@@ -460,6 +460,12 @@ function App() {
 
   const tableConfig = getTableConfig(selectedTable);
   const isMaster = userRole === "master";
+  const visibleTableNames = useMemo(() => {
+    if (isMaster) {
+      return tableNames;
+    }
+    return tableNames.filter((table) => table === "stock" || isTransactionsTable(table));
+  }, [isMaster]);
 
   const resolveUserRole = async (user) => {
     if (!user) {
@@ -1307,6 +1313,12 @@ function App() {
     loadCompanies();
   }, [authReady, isLoggedIn, isMaster, authUser?.id]);
 
+  useEffect(() => {
+    if (!visibleTableNames.includes(selectedTable)) {
+      setSelectedTable(visibleTableNames[0] || "stock");
+    }
+  }, [visibleTableNames, selectedTable]);
+
   const statuses = useMemo(() => {
     if (tableConfig.statusKeys.length === 0) {
       return ["all"];
@@ -1836,7 +1848,7 @@ function App() {
 
         <div className="actions-row">
           <div className="table-switch" role="tablist" aria-label="Výber tabuľky">
-            {tableNames.map((table) => (
+            {visibleTableNames.map((table) => (
               <button
                 key={table}
                 type="button"

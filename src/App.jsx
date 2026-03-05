@@ -316,6 +316,9 @@ function App() {
   const [deleteCompanySubmitting, setDeleteCompanySubmitting] = useState(false);
   const [createUserSubmitting, setCreateUserSubmitting] = useState(false);
   const [repairUsersSubmitting, setRepairUsersSubmitting] = useState(false);
+  const [deleteUserSubmitting, setDeleteUserSubmitting] = useState(false);
+  const [masterUserSearch, setMasterUserSearch] = useState("");
+  const [masterUserCompanyFilter, setMasterUserCompanyFilter] = useState("all");
 
   useEffect(() => {
     try {
@@ -757,6 +760,36 @@ function App() {
       return;
     }
 
+    await loadManagedUsers();
+  };
+
+  const handleDeleteManagedUser = async (row) => {
+    if (!row?.user_id) {
+      return;
+    }
+    if (row.user_id === authUser?.id) {
+      setManagedUsersError("Aktuálne prihlásený master účet nie je možné zmazať.");
+      return;
+    }
+
+    const login = row.username || usernameFromInternalEmail(row.email) || row.user_id;
+    const confirmed = window.confirm(
+      `Zmazať účet "${login}"? Zmaže sa profil v app_users (odoberie sa prístup do webu).`
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setDeleteUserSubmitting(true);
+    setManagedUsersError("");
+    const { error: deleteError } = await supabase.from(ROLE_TABLE).delete().eq("user_id", row.user_id);
+    if (deleteError) {
+      setManagedUsersError(deleteError.message || "Nepodarilo sa zmazať účet.");
+      setDeleteUserSubmitting(false);
+      return;
+    }
+
+    setDeleteUserSubmitting(false);
     await loadManagedUsers();
   };
 
@@ -1224,6 +1257,36 @@ function App() {
       ),
     [companies]
   );
+  const filteredManagedUsers = useMemo(() => {
+    const normalizedSearch = String(masterUserSearch || "").trim().toLowerCase();
+    return managedUsers.filter((row) => {
+      if (masterUserCompanyFilter !== "all") {
+        if (masterUserCompanyFilter === "__masters__") {
+          if (row.role !== "master") {
+            return false;
+          }
+        } else if ((row.company_id || "") !== masterUserCompanyFilter) {
+          return false;
+        }
+      }
+
+      if (!normalizedSearch) {
+        return true;
+      }
+
+      const haystack = [
+        row.username,
+        row.email,
+        row.user_id,
+        row.role,
+        row.company_id ? companyNameById[row.company_id] : ""
+      ]
+        .map((value) => String(value || "").toLowerCase())
+        .join(" ");
+
+      return haystack.includes(normalizedSearch);
+    });
+  }, [managedUsers, masterUserSearch, masterUserCompanyFilter, companyNameById]);
 
   const metricValue = useMemo(() => tableConfig.metricValue(rows), [rows, tableConfig]);
   const issueCount = useMemo(() => {
@@ -1869,6 +1932,26 @@ function App() {
             </table>
           </div>
 
+          <div className="panel-controls">
+            <input
+              type="search"
+              className="search-input"
+              placeholder="Hľadaj účet (login, email, id...)"
+              value={masterUserSearch}
+              onChange={(event) => setMasterUserSearch(event.target.value)}
+            />
+            <select value={masterUserCompanyFilter} onChange={(event) => setMasterUserCompanyFilter(event.target.value)}>
+              <option value="all">Všetky účty</option>
+              <option value="__masters__">Len master</option>
+              {companies.map((company) => (
+                <option key={company.id} value={company.id}>
+                  {`Firma: ${company.name}`}
+                </option>
+              ))}
+            </select>
+            <span className="panel-meta">{`Nájdené účty: ${filteredManagedUsers.length} / ${managedUsers.length}`}</span>
+          </div>
+
           <div className="table-wrap">
             <table className="master-users-table">
               <thead>
@@ -1878,11 +1961,11 @@ function App() {
                   <th>Firma</th>
                   <th>Supabase</th>
                   <th>Vytvorené</th>
-                  <th>Zmena role</th>
+                  <th>Akcie</th>
                 </tr>
               </thead>
               <tbody>
-                {managedUsers.map((row) => (
+                {filteredManagedUsers.map((row) => (
                   <tr key={row.user_id}>
                     <td>
                       {row.username || usernameFromInternalEmail(row.email)}
@@ -1930,10 +2013,23 @@ function App() {
                         >
                           master
                         </button>
+                        <button
+                          type="button"
+                          className="clear-btn"
+                          onClick={() => handleDeleteManagedUser(row)}
+                          disabled={deleteUserSubmitting || row.user_id === authUser?.id}
+                        >
+                          Zmazať účet
+                        </button>
                       </div>
                     </td>
                   </tr>
                 ))}
+                {filteredManagedUsers.length === 0 && (
+                  <tr>
+                    <td colSpan={6}>Žiadne účty pre tento filter.</td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

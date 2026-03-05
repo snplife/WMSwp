@@ -69,6 +69,10 @@ const HISTORY_ANALYTICS_LOOKBACK_DAYS = Math.max(30, Number(import.meta.env.VITE
 const AUTO_REFRESH_MS = Math.max(60 * 1000, Number(import.meta.env.VITE_AUTO_REFRESH_MS || 5 * 60 * 1000));
 const DAY_MS = 24 * 60 * 60 * 1000;
 const AUTH_INIT_TIMEOUT_MS = 5000;
+const TRANSACTIONS_TABLE = (import.meta.env.VITE_TRANSACTIONS_TABLE || "stock_history").trim();
+const TRANSACTION_TABLE_ALIASES = Array.from(
+  new Set([TRANSACTIONS_TABLE, "stock_history", "stock_transactions"].filter(Boolean))
+);
 const INBOUND_ACTIONS = new Set(["RECEIVE", "MOVE", "MOVE_ALL", "ADJUST"]);
 const LANDING_FEATURES = [
   "Online prehľad zásob a pohybov v reálnom čase",
@@ -78,7 +82,14 @@ const LANDING_FEATURES = [
 ];
 
 function getTableConfig(table) {
+  if (isTransactionsTable(table)) {
+    return TABLE_CONFIG.stock_history;
+  }
   return TABLE_CONFIG[table] || DEFAULT_CONFIG;
+}
+
+function isTransactionsTable(table) {
+  return TRANSACTION_TABLE_ALIASES.includes(String(table || "").trim());
 }
 
 function makeStockKey(position, materialCode, companyId) {
@@ -203,6 +214,22 @@ function withTimeout(promise, timeoutMs, timeoutMessage) {
       window.setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
     })
   ]);
+}
+
+function decodeJwtClaims(accessToken) {
+  try {
+    const token = String(accessToken || "");
+    const parts = token.split(".");
+    if (parts.length < 2) {
+      return null;
+    }
+    const base64Url = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64Url.padEnd(base64Url.length + ((4 - (base64Url.length % 4)) % 4), "=");
+    const decoded = atob(padded);
+    return JSON.parse(decoded);
+  } catch {
+    return null;
+  }
 }
 
 function translateStatusLabel(status) {
@@ -775,10 +802,10 @@ function App() {
 
     while (true) {
       let query = supabase.from(table).select(selectClause).range(from, from + pageSize - 1);
-      if (scopedCompanyId && (table === "stock" || table === "stock_history")) {
+      if (scopedCompanyId && (table === "stock" || isTransactionsTable(table))) {
         query = query.eq("company_id", scopedCompanyId);
       }
-      if (historyFromMs && table === "stock_history") {
+      if (historyFromMs && isTransactionsTable(table)) {
         query = query.gte("created_at_ms", historyFromMs);
       }
 
@@ -841,7 +868,7 @@ function App() {
         return;
       }
 
-      const historyRows = await fetchAllRows("stock_history", getTableConfig("stock_history"), {
+      const historyRows = await fetchAllRows(TRANSACTIONS_TABLE, getTableConfig(TRANSACTIONS_TABLE), {
         scopedCompanyId,
         selectClause: "company_id,action,position,material_code,created_at_ms",
         historyFromMs: Date.now() - HISTORY_ANALYTICS_LOOKBACK_DAYS * DAY_MS
@@ -951,6 +978,7 @@ function App() {
       const currentHydrationId = hydrationSequence + 1;
       hydrationSequence = currentHydrationId;
       const user = session?.user || null;
+      const jwtClaims = decodeJwtClaims(session?.access_token);
       if (!mounted || currentHydrationId !== hydrationSequence) {
         return;
       }
@@ -963,6 +991,9 @@ function App() {
         setUserCompanyId(null);
         setSelectedCompanyId("all");
       } else {
+        const claimedRoleRaw = String(jwtClaims?.app_role || "").toLowerCase();
+        const claimedRole = claimedRoleRaw === "master" ? "master" : "";
+        const claimedCompanyId = String(jwtClaims?.company_id || "").trim() || null;
         const [resolvedRole, dbMasterFlag, companyFromRpc] = await Promise.all([
           resolveUserRole(user),
           fetchDbMasterFlagViaRpc(user.id),
@@ -971,7 +1002,7 @@ function App() {
         if (!mounted || currentHydrationId !== hydrationSequence) {
           return;
         }
-        const role = resolvedRole === "master" || dbMasterFlag ? "master" : "user";
+        const role = claimedRole || (resolvedRole === "master" || dbMasterFlag ? "master" : "user");
         setUserRole(role);
         if (role === "master") {
           await ensureOwnRoleRow(user, role);
@@ -982,7 +1013,7 @@ function App() {
         }
         const fallbackUsername = usernameFromInternalEmail(user.email);
         setAuthUsername(String(ownRow?.username || usernameFromInternalEmail(ownRow?.email) || fallbackUsername || ""));
-        const resolvedCompanyId = ownRow?.company_id || companyFromRpc || null;
+        const resolvedCompanyId = claimedCompanyId || ownRow?.company_id || companyFromRpc || null;
         setUserCompanyId(resolvedCompanyId);
         if (role !== "master") {
           setSelectedCompanyId(resolvedCompanyId || "");
@@ -1073,7 +1104,7 @@ function App() {
     const channel = supabase.channel(`monitor-${selectedTable}`);
     channel.on("postgres_changes", { event: "*", schema: "public", table: selectedTable }, scheduleReload);
     if (selectedTable === "stock") {
-      channel.on("postgres_changes", { event: "*", schema: "public", table: "stock_history" }, scheduleReload);
+      channel.on("postgres_changes", { event: "*", schema: "public", table: TRANSACTIONS_TABLE }, scheduleReload);
     }
     channel.subscribe();
 
@@ -1196,7 +1227,7 @@ function App() {
 
   const metricValue = useMemo(() => tableConfig.metricValue(rows), [rows, tableConfig]);
   const issueCount = useMemo(() => {
-    if (selectedTable !== "stock_history") {
+    if (!isTransactionsTable(selectedTable)) {
       return 0;
     }
     return rows.filter((row) => String(row.action || "").toUpperCase() === "ISSUE").length;
@@ -1920,7 +1951,7 @@ function App() {
           <p>{tableConfig.metricLabel}</p>
           <strong>{new Intl.NumberFormat("sk-SK").format(metricValue)}</strong>
         </article>
-        {selectedTable === "stock_history" && (
+        {isTransactionsTable(selectedTable) && (
           <article className="card">
             <p>Výdaje</p>
             <strong>{new Intl.NumberFormat("sk-SK").format(issueCount)}</strong>

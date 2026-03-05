@@ -373,7 +373,44 @@ function App() {
   }, [rows, tableConfig.timeKeys]);
 
   const metricValue = useMemo(() => tableConfig.metricValue(rows), [rows, tableConfig]);
+  const issueCount = useMemo(() => {
+    if (selectedTable !== "stock_history") {
+      return 0;
+    }
+    return rows.filter((row) => String(row.action || "").toUpperCase() === "ISSUE").length;
+  }, [rows, selectedTable]);
   const deadStockCount = useMemo(() => Object.keys(deadStockByKey).length, [deadStockByKey]);
+  const positionUsageMap = useMemo(() => {
+    if (selectedTable !== "stock") {
+      return {};
+    }
+
+    const usage = {};
+    for (const row of rows) {
+      const positionKey = String(row.position || "").trim();
+      if (!positionKey) {
+        continue;
+      }
+      usage[positionKey] = (usage[positionKey] || 0) + 1;
+    }
+    return usage;
+  }, [rows, selectedTable]);
+  const sharedPositionsCount = useMemo(
+    () => Object.values(positionUsageMap).filter((count) => count > 1).length,
+    [positionUsageMap]
+  );
+  const maxItemsInOnePosition = useMemo(
+    () => Object.values(positionUsageMap).reduce((max, count) => Math.max(max, Number(count || 0)), 0),
+    [positionUsageMap]
+  );
+  const topSharedPositions = useMemo(
+    () =>
+      Object.entries(positionUsageMap)
+        .filter(([, count]) => count > 1)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 4),
+    [positionUsageMap]
+  );
   const occupiedPositions = useMemo(() => {
     if (selectedTable !== "stock") {
       return 0;
@@ -566,6 +603,12 @@ function App() {
           <p>{tableConfig.metricLabel}</p>
           <strong>{new Intl.NumberFormat("sk-SK").format(metricValue)}</strong>
         </article>
+        {selectedTable === "stock_history" && (
+          <article className="card">
+            <p>Výdaje</p>
+            <strong>{new Intl.NumberFormat("sk-SK").format(issueCount)}</strong>
+          </article>
+        )}
         <article className="card">
           <p>Posledná zmena</p>
           <strong className="small-text">{lastTimestamp}</strong>
@@ -592,6 +635,13 @@ function App() {
             <strong>{new Intl.NumberFormat("sk-SK").format(freePositions)}</strong>
           </article>
         )}
+        {selectedTable === "stock" && (
+          <article className={`card ${maxItemsInOnePosition >= 5 ? "card-shared-strong" : "card-shared"}`}>
+            <p>Zdieľané pozície</p>
+            <strong>{new Intl.NumberFormat("sk-SK").format(sharedPositionsCount)}</strong>
+            <p className="occupancy-meta">{`Max na 1 pozícii: ${maxItemsInOnePosition}`}</p>
+          </article>
+        )}
       </section>
 
       <section className="panel">
@@ -604,6 +654,12 @@ function App() {
             {selectedTable === "stock" && deadStockCount > 0 && (
               <p className="dead-stock-meta">
                 Alert: {deadStockCount} položiek bez pohybu aspoň {deadStockDays} dní.
+              </p>
+            )}
+            {selectedTable === "stock" && topSharedPositions.length > 0 && (
+              <p className="shared-position-meta">
+                Zdieľané pozície:
+                {` ${topSharedPositions.map(([position, count]) => `${position} (${count}x)`).join(", ")}`}
               </p>
             )}
           </div>
@@ -663,44 +719,62 @@ function App() {
                 </tr>
               </thead>
               <tbody>
-                {filteredRows.map((row, index) => (
-                  <tr
-                    key={row.event_key || `${selectedTable}-${index}`}
-                    className={
-                      selectedTable === "stock" && deadStockByKey[makeStockKey(row.position, row.material_code)]
-                        ? "dead-stock-row"
-                        : ""
-                    }
-                  >
-                    {tableConfig.columns.map((column) => {
-                      const value = pickValue(row, column.keys);
-                      const stockKey = makeStockKey(row.position, row.material_code);
-                      const deadInfo = selectedTable === "stock" ? deadStockByKey[stockKey] : null;
-                      const deadHint =
-                        deadInfo && deadInfo.inactiveDays !== null
-                          ? `Dead stock: bez pohybu ${deadInfo.inactiveDays} dní`
-                          : deadInfo
-                            ? "Dead stock: bez záznamu pohybu"
-                            : "";
-                      return (
-                        <td key={`${column.label}-${row.event_key || row.position || index}`}>
-                          {column.kind === "status" ? (
-                            <StatusPill status={String(value || "unknown")} />
-                          ) : (
-                            <>
-                              {formatCell(value, column.kind)}
-                              {deadHint && column.keys.includes("material_code") && (
-                                <span className="dead-stock-inline" title={deadHint}>
-                                  dead stock
-                                </span>
-                              )}
-                            </>
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
+                {filteredRows.map((row, index) => {
+                  const positionKey = String(row.position || "").trim();
+                  const positionCount = positionUsageMap[positionKey] || 0;
+                  const isSharedPosition = selectedTable === "stock" && positionCount > 1;
+                  const isStrongSharedPosition = selectedTable === "stock" && positionCount >= 5;
+
+                  return (
+                    <tr
+                      key={row.event_key || `${selectedTable}-${index}`}
+                      className={
+                        [
+                          selectedTable === "stock" && deadStockByKey[makeStockKey(row.position, row.material_code)]
+                            ? "dead-stock-row"
+                            : "",
+                          isSharedPosition ? "shared-position-row" : "",
+                          isStrongSharedPosition ? "shared-position-row-strong" : ""
+                        ]
+                          .filter(Boolean)
+                          .join(" ")
+                      }
+                    >
+                      {tableConfig.columns.map((column) => {
+                        const value = pickValue(row, column.keys);
+                        const stockKey = makeStockKey(row.position, row.material_code);
+                        const deadInfo = selectedTable === "stock" ? deadStockByKey[stockKey] : null;
+                        const deadHint =
+                          deadInfo && deadInfo.inactiveDays !== null
+                            ? `Dead stock: bez pohybu ${deadInfo.inactiveDays} dní`
+                            : deadInfo
+                              ? "Dead stock: bez záznamu pohybu"
+                              : "";
+                        return (
+                          <td key={`${column.label}-${row.event_key || row.position || index}`}>
+                            {column.kind === "status" ? (
+                              <StatusPill status={String(value || "unknown")} />
+                            ) : (
+                              <>
+                                {formatCell(value, column.kind)}
+                                {selectedTable === "stock" && column.keys.includes("position") && positionCount > 1 && (
+                                  <span className="shared-position-inline" title={`Na pozícii je ${positionCount} položiek`}>
+                                    {`x${positionCount}`}
+                                  </span>
+                                )}
+                                {deadHint && column.keys.includes("material_code") && (
+                                  <span className="dead-stock-inline" title={deadHint}>
+                                    dead stock
+                                  </span>
+                                )}
+                              </>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
             {filteredRows.length === 0 && (

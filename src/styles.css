@@ -335,6 +335,13 @@ h2 {
   font-weight: 600;
 }
 
+.shared-position-meta {
+  margin: 0.24rem 0 0;
+  font-size: 0.8rem;
+  color: #305f95;
+  font-weight: 600;
+}
+
 .panel-controls {
   display: flex;
   gap: 0.5rem;
@@ -386,6 +393,16 @@ select {
   border-color: #e7b4b4;
   background: #fff0f0;
   color: #9b1d1d;
+}
+
+.card-shared {
+  border-color: #c8dcf2;
+  background: #f5faff;
+}
+
+.card-shared-strong {
+  border-color: #f0d0a5;
+  background: #fff8ee;
 }
 
 .settings-backdrop {
@@ -474,6 +491,28 @@ tbody tr:nth-child(even) {
 
 .dead-stock-row {
   background: #fff7f7 !important;
+}
+
+.shared-position-row td:first-child {
+  font-weight: 700;
+}
+
+.shared-position-row-strong {
+  background: #fff9ee !important;
+}
+
+.shared-position-inline {
+  margin-left: 0.35rem;
+  display: inline-block;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border: 1px solid #b8cfea;
+  background: #eaf4ff;
+  color: #1f5487;
+  border-radius: 999px;
+  padding: 0.12rem 0.4rem;
+  font-weight: 700;
 }
 
 .dead-stock-inline {

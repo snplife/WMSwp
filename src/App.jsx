@@ -1,6 +1,7 @@
 ﻿import { useEffect, useMemo, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
 import StatusPill from "./components/StatusPill";
-import { supabase, tableNames } from "./supabaseClient";
+import { supabase, supabaseAnonKey, supabaseUrl, tableNames } from "./supabaseClient";
 import logo from "../logo.png";
 
 const TABLE_CONFIG = {
@@ -53,8 +54,10 @@ const DEFAULT_CONFIG = {
   metricValue: (rows) => rows.length
 };
 
-const SIMPLE_LOGIN_USER = (import.meta.env.VITE_LOGIN_USER || "admin").trim();
-const SIMPLE_LOGIN_PASSWORD = import.meta.env.VITE_LOGIN_PASSWORD || "admin123";
+const ROLE_TABLE = (import.meta.env.VITE_USER_ROLES_TABLE || "app_users").trim();
+const MASTER_EMAIL = (import.meta.env.VITE_MASTER_EMAIL || "").trim().toLowerCase();
+const INTERNAL_LOGIN_DOMAIN = (import.meta.env.VITE_INTERNAL_LOGIN_DOMAIN || "wms.local").trim().toLowerCase();
+const MIN_MANAGED_PASSWORD_LENGTH = 8;
 const ENV_DEFAULT_DEAD_STOCK_DAYS = Math.max(1, Number(import.meta.env.VITE_DEAD_STOCK_DAYS || 30));
 const ENV_DEFAULT_MAX_POSITIONS = Math.max(1, Number(import.meta.env.VITE_MAX_POSITIONS || 100));
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -88,6 +91,30 @@ function normalizeMaxPositions(value) {
     return ENV_DEFAULT_MAX_POSITIONS;
   }
   return Math.min(1000000, Math.max(1, parsed));
+}
+
+function normalizeUsernameInput(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, "");
+}
+
+function buildInternalEmailFromUsername(username) {
+  const normalized = normalizeUsernameInput(username);
+  if (!normalized) {
+    return "";
+  }
+  return `${normalized}@${INTERNAL_LOGIN_DOMAIN}`;
+}
+
+function usernameFromInternalEmail(emailValue) {
+  const email = String(emailValue || "").toLowerCase();
+  const atIndex = email.indexOf("@");
+  if (atIndex <= 0) {
+    return "";
+  }
+  return normalizeUsernameInput(email.slice(0, atIndex));
 }
 
 function pickValue(row, keys) {
@@ -186,15 +213,189 @@ function App() {
   const [error, setError] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
-  const [isLoggedIn, setIsLoggedIn] = useState(() => {
-    return window.sessionStorage.getItem("wms_logged_in") === "1";
-  });
-  const [authEmail, setAuthEmail] = useState("");
+  const [authReady, setAuthReady] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [authUser, setAuthUser] = useState(null);
+  const [authUsername, setAuthUsername] = useState("");
+  const [userRole, setUserRole] = useState("user");
+  const [authUsernameInput, setAuthUsernameInput] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authError, setAuthError] = useState("");
   const [authSubmitting, setAuthSubmitting] = useState(false);
+  const [managedUsers, setManagedUsers] = useState([]);
+  const [managedUsersLoading, setManagedUsersLoading] = useState(false);
+  const [managedUsersError, setManagedUsersError] = useState("");
+  const [newUsername, setNewUsername] = useState("");
+  const [newUserPassword, setNewUserPassword] = useState("");
+  const [newUserRole, setNewUserRole] = useState("user");
+  const [createUserSubmitting, setCreateUserSubmitting] = useState(false);
 
   const tableConfig = getTableConfig(selectedTable);
+  const isMaster = userRole === "master";
+
+  const resolveUserRole = async (user) => {
+    if (!user) {
+      return "user";
+    }
+
+    const normalizedEmail = String(user.email || "").toLowerCase();
+    if (MASTER_EMAIL && normalizedEmail === MASTER_EMAIL) {
+      return "master";
+    }
+
+    const { data: roleRow, error: roleError } = await supabase
+      .from(ROLE_TABLE)
+      .select("role")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (roleError) {
+      return "user";
+    }
+
+    return String(roleRow?.role || "user").toLowerCase() === "master" ? "master" : "user";
+  };
+
+  const userCreatorClient = useMemo(
+    () =>
+      createClient(supabaseUrl, supabaseAnonKey, {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+          detectSessionInUrl: false,
+          storageKey: "wms-user-creator"
+        }
+      }),
+    []
+  );
+
+  const loadManagedUsers = async () => {
+    if (!isMaster) {
+      setManagedUsers([]);
+      return;
+    }
+
+    setManagedUsersLoading(true);
+    setManagedUsersError("");
+    const { data, error: usersError } = await supabase
+      .from(ROLE_TABLE)
+      .select("user_id,username,email,role,created_at,updated_at,created_by")
+      .order("created_at", { ascending: false });
+
+    if (usersError) {
+      setManagedUsersError(usersError.message || "Nepodarilo sa načítať používateľov.");
+      setManagedUsers([]);
+      setManagedUsersLoading(false);
+      return;
+    }
+
+    setManagedUsers(data || []);
+    setManagedUsersLoading(false);
+  };
+
+  const ensureOwnRoleRow = async (user, resolvedRole) => {
+    if (!user) {
+      return;
+    }
+
+    const rowRole = resolvedRole === "master" ? "master" : "user";
+    const username = usernameFromInternalEmail(user.email);
+    await supabase.from(ROLE_TABLE).upsert(
+      {
+        user_id: user.id,
+        email: String(user.email || "").toLowerCase(),
+        username,
+        role: rowRole,
+        created_by: user.id
+      },
+      { onConflict: "user_id" }
+    );
+  };
+
+  const handleCreateManagedUser = async (event) => {
+    event.preventDefault();
+    setCreateUserSubmitting(true);
+    setManagedUsersError("");
+
+    const username = normalizeUsernameInput(newUsername);
+    if (!username) {
+      setManagedUsersError("Zadaj login (username).");
+      setCreateUserSubmitting(false);
+      return;
+    }
+    const email = buildInternalEmailFromUsername(username);
+
+    if (newUserPassword.length < MIN_MANAGED_PASSWORD_LENGTH) {
+      setManagedUsersError(`Heslo musí mať aspoň ${MIN_MANAGED_PASSWORD_LENGTH} znakov.`);
+      setCreateUserSubmitting(false);
+      return;
+    }
+
+    const { data: signUpData, error: signUpError } = await userCreatorClient.auth.signUp({
+      email,
+      password: newUserPassword
+    });
+
+    if (signUpError) {
+      setManagedUsersError(signUpError.message || "Nepodarilo sa vytvoriť používateľa.");
+      setCreateUserSubmitting(false);
+      return;
+    }
+
+    const createdUserId = signUpData?.user?.id;
+    if (!createdUserId) {
+      setManagedUsersError("Používateľ bol vytvorený, ale nepodarilo sa získať jeho ID.");
+      setCreateUserSubmitting(false);
+      return;
+    }
+
+    const { error: roleWriteError } = await supabase.from(ROLE_TABLE).upsert(
+      {
+        user_id: createdUserId,
+        email,
+        username,
+        role: newUserRole === "master" ? "master" : "user",
+        created_by: authUser?.id || null
+      },
+      { onConflict: "user_id" }
+    );
+
+    if (roleWriteError) {
+      setManagedUsersError(roleWriteError.message || "Používateľ je vytvorený, ale nepodarilo sa uložiť rolu.");
+      setCreateUserSubmitting(false);
+      return;
+    }
+
+    setNewUsername("");
+    setNewUserPassword("");
+    setNewUserRole("user");
+    setCreateUserSubmitting(false);
+    await loadManagedUsers();
+  };
+
+  const handleManagedRoleChange = async (row, nextRole) => {
+    if (!row?.user_id) {
+      return;
+    }
+
+    if (row.user_id === authUser?.id && nextRole !== "master") {
+      setManagedUsersError("Master účet nemožno znížiť cez vlastnú reláciu.");
+      return;
+    }
+
+    setManagedUsersError("");
+    const { error: updateError } = await supabase
+      .from(ROLE_TABLE)
+      .update({ role: nextRole })
+      .eq("user_id", row.user_id);
+
+    if (updateError) {
+      setManagedUsersError(updateError.message || "Nepodarilo sa zmeniť rolu.");
+      return;
+    }
+
+    await loadManagedUsers();
+  };
 
   const fetchAllRows = async (table, config) => {
     const pageSize = 1000;
@@ -290,6 +491,12 @@ function App() {
         const key = makeStockKey(stockRow.position, stockRow.material_code);
         const lastMoveMs = latestMovementMsByKey[key];
         const inactiveMs = Number.isFinite(lastMoveMs) ? now - lastMoveMs : Number.POSITIVE_INFINITY;
+        const referenceMs = latestInboundMsByKey[key] ?? latestAnyMsByKey[key];
+        if (Number.isFinite(referenceMs) && now >= referenceMs) {
+          ageTotalMs += now - referenceMs;
+          ageSamples += 1;
+        }
+
         if (inactiveMs < deadStockMs) {
           continue;
         }
@@ -298,12 +505,6 @@ function App() {
           inactiveDays: Number.isFinite(inactiveMs) ? Math.floor(inactiveMs / DAY_MS) : null,
           lastMoveMs: Number.isFinite(lastMoveMs) ? lastMoveMs : null
         };
-
-        const referenceMs = latestInboundMsByKey[key] ?? latestAnyMsByKey[key];
-        if (Number.isFinite(referenceMs) && now >= referenceMs) {
-          ageTotalMs += now - referenceMs;
-          ageSamples += 1;
-        }
       }
       setDeadStockByKey(deadMap);
       setStockAgeStats({
@@ -329,6 +530,64 @@ function App() {
   }, [maxPositions]);
 
   useEffect(() => {
+    let mounted = true;
+
+    const hydrateFromSession = async (session) => {
+      const user = session?.user || null;
+      if (!mounted) {
+        return;
+      }
+
+      setIsLoggedIn(Boolean(user));
+      setAuthUser(user);
+      if (!user) {
+        setUserRole("user");
+        setAuthUsername("");
+      } else {
+        const role = await resolveUserRole(user);
+        if (!mounted) {
+          return;
+        }
+        setUserRole(role);
+        await ensureOwnRoleRow(user, role);
+        const { data: ownRow } = await supabase
+          .from(ROLE_TABLE)
+          .select("username,email")
+          .eq("user_id", user.id)
+          .maybeSingle();
+        if (!mounted) {
+          return;
+        }
+        const fallbackUsername = usernameFromInternalEmail(user.email);
+        setAuthUsername(String(ownRow?.username || usernameFromInternalEmail(ownRow?.email) || fallbackUsername || ""));
+      }
+      setAuthReady(true);
+    };
+
+    const init = async () => {
+      const { data } = await supabase.auth.getSession();
+      await hydrateFromSession(data?.session || null);
+    };
+
+    init();
+
+    const {
+      data: { subscription }
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      await hydrateFromSession(session || null);
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!authReady) {
+      return undefined;
+    }
+
     if (!isLoggedIn) {
       setRows([]);
       setLoading(false);
@@ -351,10 +610,10 @@ function App() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [selectedTable, isLoggedIn, deadStockDays]);
+  }, [selectedTable, isLoggedIn, deadStockDays, authReady]);
 
   useEffect(() => {
-    if (!isLoggedIn) {
+    if (!authReady || !isLoggedIn) {
       return undefined;
     }
 
@@ -365,7 +624,16 @@ function App() {
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [isLoggedIn, selectedTable, deadStockDays]);
+  }, [isLoggedIn, selectedTable, deadStockDays, authReady]);
+
+  useEffect(() => {
+    if (!authReady || !isLoggedIn || !isMaster) {
+      setManagedUsers([]);
+      return;
+    }
+
+    loadManagedUsers();
+  }, [authReady, isLoggedIn, isMaster]);
 
   const statuses = useMemo(() => {
     if (tableConfig.statusKeys.length === 0) {
@@ -567,26 +835,47 @@ function App() {
     event.preventDefault();
     setAuthSubmitting(true);
     setAuthError("");
+    const username = normalizeUsernameInput(authUsernameInput);
+    const email = buildInternalEmailFromUsername(username);
 
-    const userOk = authEmail.trim() === SIMPLE_LOGIN_USER;
-    const passwordOk = authPassword === SIMPLE_LOGIN_PASSWORD;
-
-    if (!userOk || !passwordOk) {
-      setAuthError("Nesprávne meno alebo heslo.");
+    if (!email) {
+      setAuthError("Zadaj platný login.");
       setAuthSubmitting(false);
       return;
     }
 
-    window.sessionStorage.setItem("wms_logged_in", "1");
-    setIsLoggedIn(true);
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email,
+      password: authPassword
+    });
+
+    if (signInError) {
+      setAuthError("Prihlásenie zlyhalo. Skontroluj login a heslo.");
+      setAuthSubmitting(false);
+      return;
+    }
+
     setAuthSubmitting(false);
     setAuthPassword("");
   };
 
   const handleSignOut = async () => {
-    window.sessionStorage.removeItem("wms_logged_in");
-    setIsLoggedIn(false);
+    await supabase.auth.signOut();
+    setIsSettingsOpen(false);
+    setManagedUsers([]);
+    setManagedUsersError("");
+    setAuthUsername("");
   };
+
+  if (!authReady) {
+    return (
+      <main className="container">
+        <section className="panel">
+          <p className="hint">Overujem reláciu...</p>
+        </section>
+      </main>
+    );
+  }
 
   if (!isLoggedIn) {
     return (
@@ -617,17 +906,17 @@ function App() {
 
           <section className="login-card">
             <h2>Prihlásenie</h2>
-            <p className="subtitle">Zadaj meno a heslo pre prístup do monitoru.</p>
+            <p className="subtitle">Prihlás sa loginom a heslom.</p>
             <form className="login-form" onSubmit={handleSignIn}>
-              <label className="login-label" htmlFor="email">
-                Meno
+              <label className="login-label" htmlFor="username">
+                Login
               </label>
               <input
-                id="email"
+                id="username"
                 type="text"
                 className="search-input"
-                value={authEmail}
-                onChange={(event) => setAuthEmail(event.target.value)}
+                value={authUsernameInput}
+                onChange={(event) => setAuthUsernameInput(event.target.value)}
                 required
                 autoComplete="username"
               />
@@ -661,7 +950,11 @@ function App() {
           <div className="brand">
             <img src={logo} alt="Logo" className="brand-logo" />
           </div>
-          <span className="table-badge">{selectedTable}</span>
+          <div className="hero-badges">
+            <span className="table-badge">{selectedTable}</span>
+            {isMaster && <span className="table-badge table-badge-master">master</span>}
+            <span className="table-badge">{authUsername || "user"}</span>
+          </div>
         </div>
         <h1>{tableConfig.title}</h1>
         <p className="subtitle">{tableConfig.subtitle}</p>
@@ -681,9 +974,11 @@ function App() {
           </div>
 
           <div className="action-buttons">
-            <button type="button" onClick={() => setIsSettingsOpen(true)} className="settings-btn">
-              Nastavenia
-            </button>
+            {isMaster && (
+              <button type="button" onClick={() => setIsSettingsOpen(true)} className="settings-btn">
+                Nastavenia
+              </button>
+            )}
             <button type="button" onClick={exportToExcel} className="export-btn">
               Export do Excelu
             </button>
@@ -696,6 +991,96 @@ function App() {
           </div>
         </div>
       </section>
+
+      {isMaster && (
+        <section className="panel master-panel">
+          <div className="panel-head">
+            <div>
+              <h2>Master Dashboard</h2>
+              <p className="panel-meta">Správa používateľov pre tento Supabase projekt</p>
+            </div>
+            <button type="button" className="refresh-btn" onClick={loadManagedUsers} disabled={managedUsersLoading}>
+              {managedUsersLoading ? "Načítavam..." : "Obnoviť používateľov"}
+            </button>
+          </div>
+
+          <form className="master-create-form" onSubmit={handleCreateManagedUser}>
+            <input
+              type="text"
+              className="search-input"
+              placeholder="login (napr. skladnik01)"
+              value={newUsername}
+              onChange={(event) => setNewUsername(event.target.value)}
+              required
+              autoComplete="off"
+            />
+            <input
+              type="password"
+              className="search-input"
+              placeholder={`Heslo (min ${MIN_MANAGED_PASSWORD_LENGTH} znakov)`}
+              value={newUserPassword}
+              onChange={(event) => setNewUserPassword(event.target.value)}
+              required
+              autoComplete="new-password"
+            />
+            <select value={newUserRole} onChange={(event) => setNewUserRole(event.target.value)}>
+              <option value="user">user</option>
+              <option value="master">master</option>
+            </select>
+            <button type="submit" className="settings-btn" disabled={createUserSubmitting}>
+              {createUserSubmitting ? "Vytváram..." : "Vytvoriť účet"}
+            </button>
+          </form>
+
+          {managedUsersError && <p className="error">{managedUsersError}</p>}
+
+          <div className="table-wrap">
+            <table className="master-users-table">
+              <thead>
+                <tr>
+                  <th>Login</th>
+                  <th>Rola</th>
+                  <th>Vytvorené</th>
+                  <th>Zmena role</th>
+                </tr>
+              </thead>
+              <tbody>
+                {managedUsers.map((row) => (
+                  <tr key={row.user_id}>
+                    <td>
+                      {row.username || usernameFromInternalEmail(row.email)}
+                      {row.user_id === authUser?.id && <span className="table-badge table-badge-master">ty</span>}
+                      <div className="master-user-email">{row.email}</div>
+                    </td>
+                    <td>{row.role}</td>
+                    <td>{formatDate(row.created_at)}</td>
+                    <td>
+                      <div className="master-role-actions">
+                        <button
+                          type="button"
+                          className={`clear-btn ${row.role === "user" ? "stock-view-btn-active" : ""}`}
+                          onClick={() => handleManagedRoleChange(row, "user")}
+                          disabled={row.role === "user" || row.user_id === authUser?.id}
+                        >
+                          user
+                        </button>
+                        <button
+                          type="button"
+                          className={`clear-btn ${row.role === "master" ? "stock-view-btn-active" : ""}`}
+                          onClick={() => handleManagedRoleChange(row, "master")}
+                          disabled={row.role === "master"}
+                        >
+                          master
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       <section className="stats-grid">
         {selectedTable !== "stock" && (
@@ -992,7 +1377,7 @@ function App() {
         )}
       </section>
 
-      {isSettingsOpen && (
+      {isMaster && isSettingsOpen && (
         <div className="settings-backdrop" role="presentation" onClick={() => setIsSettingsOpen(false)}>
           <section
             className="settings-modal"

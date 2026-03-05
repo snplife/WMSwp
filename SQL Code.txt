@@ -89,3 +89,102 @@
   for delete
   to anon
   using (true);
+
+  -- 6) User roles for web login (master/user)
+  create table if not exists public.app_users (
+    user_id uuid primary key references auth.users (id) on delete cascade,
+    email text not null,
+    username text not null,
+    role text not null check (role in ('master', 'user')),
+    created_by uuid references auth.users (id),
+    updated_at timestamptz not null default now(),
+    created_at timestamptz not null default now()
+  );
+
+  alter table public.app_users add column if not exists email text;
+  alter table public.app_users add column if not exists username text;
+  alter table public.app_users add column if not exists created_by uuid references auth.users (id);
+  alter table public.app_users add column if not exists updated_at timestamptz not null default now();
+  alter table public.app_users add column if not exists created_at timestamptz not null default now();
+
+  update public.app_users
+  set username = lower(split_part(email, '@', 1))
+  where (username is null or username = '')
+    and email is not null;
+
+  create unique index if not exists idx_app_users_email_unique
+    on public.app_users (lower(email));
+
+  create unique index if not exists idx_app_users_username_unique
+    on public.app_users (lower(username));
+
+  create or replace function public.touch_app_users_updated_at()
+  returns trigger
+  language plpgsql
+  as $$
+  begin
+    new.updated_at = now();
+    return new;
+  end;
+  $$;
+
+  drop trigger if exists trg_touch_app_users_updated_at on public.app_users;
+  create trigger trg_touch_app_users_updated_at
+  before update on public.app_users
+  for each row execute function public.touch_app_users_updated_at();
+
+  create or replace function public.is_master(uid uuid default auth.uid())
+  returns boolean
+  language sql
+  stable
+  security definer
+  set search_path = public
+  as $$
+    select exists (
+      select 1
+      from public.app_users
+      where user_id = uid
+        and role = 'master'
+    );
+  $$;
+
+  grant execute on function public.is_master(uuid) to authenticated;
+
+  alter table public.app_users enable row level security;
+
+  drop policy if exists "app_users_select_own" on public.app_users;
+  drop policy if exists "app_users_select_master" on public.app_users;
+  drop policy if exists "app_users_insert_master" on public.app_users;
+  drop policy if exists "app_users_update_master" on public.app_users;
+  drop policy if exists "app_users_delete_master" on public.app_users;
+
+  create policy "app_users_select_own"
+  on public.app_users
+  for select
+  to authenticated
+  using (auth.uid() = user_id);
+
+  create policy "app_users_select_master"
+  on public.app_users
+  for select
+  to authenticated
+  using (public.is_master(auth.uid()));
+
+  create policy "app_users_insert_master"
+  on public.app_users
+  for insert
+  to authenticated
+  with check (public.is_master(auth.uid()));
+
+  create policy "app_users_update_master"
+  on public.app_users
+  for update
+  to authenticated
+  using (public.is_master(auth.uid()))
+  with check (public.is_master(auth.uid()));
+
+  create policy "app_users_delete_master"
+  on public.app_users
+  for delete
+  to authenticated
+  using (public.is_master(auth.uid()));

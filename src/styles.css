@@ -51,6 +51,14 @@ body {
   align-items: center;
 }
 
+.hero-badges {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .brand {
   background: #ffffff;
   border: 1px solid #e8edf5;
@@ -76,6 +84,13 @@ body {
   border: 1px solid #d2ddea;
   border-radius: 999px;
   padding: 0.25rem 0.6rem;
+}
+
+.table-badge-master {
+  color: #7d4500;
+  background: #fff3df;
+  border-color: #f0cf98;
+  font-weight: 700;
 }
 
 h1 {
@@ -396,6 +411,32 @@ select {
 }
 
 .stock-view-switch {
+  display: inline-flex;
+  gap: 0.35rem;
+}
+
+.master-panel {
+  margin-top: 1rem;
+}
+
+.master-create-form {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr 140px auto;
+  gap: 0.5rem;
+  margin-bottom: 0.7rem;
+}
+
+.master-users-table td .table-badge {
+  margin-left: 0.35rem;
+}
+
+.master-user-email {
+  margin-top: 0.2rem;
+  color: #7b8794;
+  font-size: 0.74rem;
+}
+
+.master-role-actions {
   display: inline-flex;
   gap: 0.35rem;
 }
@@ -773,6 +814,11 @@ tbody tr:nth-child(even) {
     align-items: flex-start;
   }
 
+  .hero-badges {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
   .landing-layout {
     grid-template-columns: 1fr;
   }
@@ -821,6 +867,10 @@ tbody tr:nth-child(even) {
 
   .stock-view-switch .clear-btn {
     width: 100%;
+  }
+
+  .master-create-form {
+    grid-template-columns: 1fr;
   }
 
   .empty-state {

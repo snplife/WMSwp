@@ -117,6 +117,17 @@ function usernameFromInternalEmail(emailValue) {
   return normalizeUsernameInput(email.slice(0, atIndex));
 }
 
+function resolveLoginEmail(loginValue) {
+  const raw = String(loginValue || "").trim().toLowerCase();
+  if (!raw) {
+    return "";
+  }
+  if (raw.includes("@")) {
+    return raw;
+  }
+  return buildInternalEmailFromUsername(raw);
+}
+
 function pickValue(row, keys) {
   for (const key of keys) {
     if (row[key] !== undefined && row[key] !== null && row[key] !== "") {
@@ -965,8 +976,7 @@ function App() {
     event.preventDefault();
     setAuthSubmitting(true);
     setAuthError("");
-    const username = normalizeUsernameInput(authUsernameInput);
-    const email = buildInternalEmailFromUsername(username);
+    const email = resolveLoginEmail(authUsernameInput);
 
     if (!email) {
       setAuthError("Zadaj platný login.");
@@ -980,7 +990,7 @@ function App() {
     });
 
     if (signInError) {
-      setAuthError("Prihlásenie zlyhalo. Skontroluj login a heslo.");
+      setAuthError(signInError.message || "Prihlásenie zlyhalo. Skontroluj login a heslo.");
       setAuthSubmitting(false);
       return;
     }

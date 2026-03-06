@@ -457,6 +457,31 @@ function App() {
     }
     return tableNames.filter((table) => table === "stock" || isTransactionsTable(table));
   }, [isMaster]);
+  const companyNameById = useMemo(
+    () =>
+      Object.fromEntries(
+        companies.map((company) => [company.id, company.name])
+      ),
+    [companies]
+  );
+  const activeCompanyId = isMaster ? (selectedCompanyId === "all" ? null : selectedCompanyId) : userCompanyId;
+  const activeCompany = useMemo(
+    () => companies.find((company) => company.id === activeCompanyId) || null,
+    [companies, activeCompanyId]
+  );
+  const effectiveMaxPositions = useMemo(() => {
+    if (selectedTable !== "stock") {
+      return ENV_DEFAULT_MAX_POSITIONS;
+    }
+    if (isMaster && selectedCompanyId === "all") {
+      const totalCapacity = companies.reduce(
+        (sum, company) => sum + normalizeMaxPositions(company.max_positions ?? ENV_DEFAULT_MAX_POSITIONS),
+        0
+      );
+      return Math.max(1, totalCapacity || ENV_DEFAULT_MAX_POSITIONS);
+    }
+    return normalizeMaxPositions(activeCompany?.max_positions ?? ENV_DEFAULT_MAX_POSITIONS);
+  }, [selectedTable, isMaster, selectedCompanyId, companies, activeCompany]);
 
   const resolveUserRole = async (user) => {
     if (!user) {
@@ -1411,19 +1436,6 @@ function App() {
     return candidate ? formatDate(candidate) : "-";
   }, [rows, tableConfig.timeKeys]);
 
-  const companyNameById = useMemo(
-    () =>
-      Object.fromEntries(
-        companies.map((company) => [company.id, company.name])
-      ),
-    [companies]
-  );
-  const activeCompanyId = isMaster ? (selectedCompanyId === "all" ? null : selectedCompanyId) : userCompanyId;
-  const activeCompany = useMemo(
-    () => companies.find((company) => company.id === activeCompanyId) || null,
-    [companies, activeCompanyId]
-  );
-
   useEffect(() => {
     setCompanySettingsError("");
     setCompanyMaxPositionsInput(String(normalizeMaxPositions(activeCompany?.max_positions ?? ENV_DEFAULT_MAX_POSITIONS)));
@@ -1535,19 +1547,6 @@ function App() {
         .filter(Boolean)
     ).size;
   }, [rows, selectedTable, isMaster, selectedCompanyId]);
-  const effectiveMaxPositions = useMemo(() => {
-    if (selectedTable !== "stock") {
-      return ENV_DEFAULT_MAX_POSITIONS;
-    }
-    if (isMaster && selectedCompanyId === "all") {
-      const totalCapacity = companies.reduce(
-        (sum, company) => sum + normalizeMaxPositions(company.max_positions ?? ENV_DEFAULT_MAX_POSITIONS),
-        0
-      );
-      return Math.max(1, totalCapacity || ENV_DEFAULT_MAX_POSITIONS);
-    }
-    return normalizeMaxPositions(activeCompany?.max_positions ?? ENV_DEFAULT_MAX_POSITIONS);
-  }, [selectedTable, isMaster, selectedCompanyId, companies, activeCompany]);
   const freePositions = useMemo(
     () => Math.max(0, effectiveMaxPositions - occupiedPositions),
     [effectiveMaxPositions, occupiedPositions]

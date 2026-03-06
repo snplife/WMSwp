@@ -1,5 +1,6 @@
 ﻿import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
+import { useRef } from "react";
 import StatusPill from "./components/StatusPill";
 import { noStoreFetch, supabase, supabaseAnonKey, supabaseUrl, tableNames } from "./supabaseClient";
 import logo from "../logo.png";
@@ -421,6 +422,7 @@ function App() {
   const [companyMaxPositionsInput, setCompanyMaxPositionsInput] = useState(String(ENV_DEFAULT_MAX_POSITIONS));
   const [companySettingsSubmitting, setCompanySettingsSubmitting] = useState(false);
   const [companySettingsError, setCompanySettingsError] = useState("");
+  const latestLoadRowsRequestRef = useRef(0);
 
   useEffect(() => {
     try {
@@ -1043,6 +1045,10 @@ function App() {
   };
 
   const loadRows = async (table) => {
+    const requestId = latestLoadRowsRequestRef.current + 1;
+    latestLoadRowsRequestRef.current = requestId;
+    const isLatestRequest = () => latestLoadRowsRequestRef.current === requestId;
+
     setLoading(true);
     setError("");
 
@@ -1052,6 +1058,9 @@ function App() {
         const resolvedCompanyId = await fetchOwnCompanyIdViaRpc(authUser.id);
         if (resolvedCompanyId) {
           effectiveUserCompanyId = resolvedCompanyId;
+          if (!isLatestRequest()) {
+            return;
+          }
           setUserCompanyId(resolvedCompanyId);
           setSelectedCompanyId(resolvedCompanyId);
         }
@@ -1070,6 +1079,9 @@ function App() {
               selectClause: "company_id,position,material_code,quantity"
             })
           : await fetchAllRows(table, config, { scopedCompanyId });
+      if (!isLatestRequest()) {
+        return;
+      }
       setRows(data || []);
 
       if (table !== "stock") {
@@ -1084,6 +1096,9 @@ function App() {
         selectClause: "company_id,action,position,material_code,created_at_ms",
         historyFromMs: Date.now() - HISTORY_ANALYTICS_LOOKBACK_DAYS * DAY_MS
       });
+      if (!isLatestRequest()) {
+        return;
+      }
       const now = Date.now();
       const deadStockMs = deadStockDays * 24 * 60 * 60 * 1000;
       const latestMovementMsByKey = {};
@@ -1146,6 +1161,9 @@ function App() {
           lastMoveMs: Number.isFinite(lastMoveMs) ? lastMoveMs : null
         };
       }
+      if (!isLatestRequest()) {
+        return;
+      }
       setDeadStockByKey(deadMap);
       setStockAgeStats({
         avgDays: ageSamples > 0 ? ageTotalMs / ageSamples / DAY_MS : null,
@@ -1163,6 +1181,9 @@ function App() {
         setOccupancySeries([]);
       }
     } catch (queryError) {
+      if (!isLatestRequest()) {
+        return;
+      }
       const loadErrorMessage = queryError?.message || "Nepodarilo sa načítať dáta.";
       setError(loadErrorMessage);
       setRows([]);
@@ -1170,7 +1191,9 @@ function App() {
       setStockAgeStats({ avgDays: null, sampleCount: 0 });
       setOccupancySeries([]);
     } finally {
-      setLoading(false);
+      if (isLatestRequest()) {
+        setLoading(false);
+      }
     }
   };
 

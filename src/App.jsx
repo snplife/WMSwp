@@ -1821,6 +1821,15 @@ function App() {
                 ))}
               </select>
             )}
+            {selectedTable === "stock" && (
+              <button
+                type="button"
+                className="settings-btn"
+                onClick={() => setIsCompanySettingsOpen((current) => !current)}
+              >
+                {isCompanySettingsOpen ? "Skryť nastavenia" : "Nastavenia firmy"}
+              </button>
+            )}
             <button type="button" onClick={exportToExcel} className="export-btn">
               Export do Excelu
             </button>
@@ -1834,7 +1843,7 @@ function App() {
         </div>
       </section>
 
-      {selectedTable === "stock" && (
+      {selectedTable === "stock" && isCompanySettingsOpen && (
         <section className="panel">
           <div className="panel-head">
             <div>
@@ -1845,41 +1854,30 @@ function App() {
                   : "Vyber konkrétnu firmu, aby sa dala upraviť kapacita skladu."}
               </p>
             </div>
-            <button
-              type="button"
-              className="clear-btn"
-              onClick={() => setIsCompanySettingsOpen((current) => !current)}
-            >
-              {isCompanySettingsOpen ? "Skryť nastavenia" : "Zobraziť nastavenia"}
-            </button>
           </div>
 
-          {isCompanySettingsOpen && (
-            <>
-              <form className="company-settings-form" onSubmit={handleSaveCompanyMaxPositions}>
-                <label className="settings-field" htmlFor="company-max-positions">
-                  <span>Počet miest na sklade</span>
-                  <input
-                    id="company-max-positions"
-                    type="number"
-                    min={1}
-                    max={1000000}
-                    className="dead-stock-days-input"
-                    value={companyMaxPositionsInput}
-                    onChange={(event) => setCompanyMaxPositionsInput(event.target.value)}
-                    disabled={!activeCompanyId || companySettingsSubmitting}
-                  />
-                </label>
-                <button type="submit" className="settings-btn" disabled={!activeCompanyId || companySettingsSubmitting}>
-                  {companySettingsSubmitting ? "Ukladám..." : "Uložiť kapacitu"}
-                </button>
-              </form>
-              {companySettingsError && <p className="error">{companySettingsError}</p>}
-              <p className="settings-hint">
-                Táto hodnota sa ukladá pre firmu a používa sa pri výpočte obsadenosti a voľných miest.
-              </p>
-            </>
-          )}
+          <form className="company-settings-form" onSubmit={handleSaveCompanyMaxPositions}>
+            <label className="settings-field" htmlFor="company-max-positions">
+              <span>Počet miest na sklade</span>
+              <input
+                id="company-max-positions"
+                type="number"
+                min={1}
+                max={1000000}
+                className="dead-stock-days-input"
+                value={companyMaxPositionsInput}
+                onChange={(event) => setCompanyMaxPositionsInput(event.target.value)}
+                disabled={!activeCompanyId || companySettingsSubmitting}
+              />
+            </label>
+            <button type="submit" className="settings-btn" disabled={!activeCompanyId || companySettingsSubmitting}>
+              {companySettingsSubmitting ? "Ukladám..." : "Uložiť kapacitu"}
+            </button>
+          </form>
+          {companySettingsError && <p className="error">{companySettingsError}</p>}
+          <p className="settings-hint">
+            Táto hodnota sa ukladá pre firmu a používa sa pri výpočte obsadenosti a voľných miest.
+          </p>
         </section>
       )}
 

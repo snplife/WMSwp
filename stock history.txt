@@ -1,0 +1,90 @@
+﻿-- APPLY STOCK HISTORY EVENTS (multi-tenant safe)
+-- Run in Supabase SQL Editor.
+-- Rebuilds stock from stock_history events for all companies or one company.
+
+create or replace function public.apply_stock_history_events(p_company_id uuid default null)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  -- Rebuild target scope from history to keep stock consistent.
+  if p_company_id is null then
+    truncate table public.stock;
+
+    insert into public.stock (company_id, position, material_code, quantity)
+    select
+      h.company_id,
+      h.position,
+      h.material_code,
+      sum(
+        case upper(coalesce(h.action, ''))
+          when 'RECEIVE' then 1
+          when 'ISSUE' then -1
+          when 'MOVE' then 0
+          when 'MOVE_ALL' then 0
+          when 'ADJUST' then 0
+          when 'UNDO' then 0
+          else 0
+        end
+      )::int as quantity
+    from public.stock_history h
+    where h.company_id is not null
+    group by h.company_id, h.position, h.material_code
+    having sum(
+      case upper(coalesce(h.action, ''))
+        when 'RECEIVE' then 1
+        when 'ISSUE' then -1
+        when 'MOVE' then 0
+        when 'MOVE_ALL' then 0
+        when 'ADJUST' then 0
+        when 'UNDO' then 0
+        else 0
+      end
+    ) > 0;
+
+    return;
+  end if;
+
+  delete from public.stock s
+  where s.company_id = p_company_id;
+
+  insert into public.stock (company_id, position, material_code, quantity)
+  select
+    h.company_id,
+    h.position,
+    h.material_code,
+    sum(
+      case upper(coalesce(h.action, ''))
+        when 'RECEIVE' then 1
+        when 'ISSUE' then -1
+        when 'MOVE' then 0
+        when 'MOVE_ALL' then 0
+        when 'ADJUST' then 0
+        when 'UNDO' then 0
+        else 0
+      end
+    )::int as quantity
+  from public.stock_history h
+  where h.company_id = p_company_id
+  group by h.company_id, h.position, h.material_code
+  having sum(
+    case upper(coalesce(h.action, ''))
+      when 'RECEIVE' then 1
+      when 'ISSUE' then -1
+      when 'MOVE' then 0
+      when 'MOVE_ALL' then 0
+      when 'ADJUST' then 0
+      when 'UNDO' then 0
+      else 0
+    end
+  ) > 0;
+end;
+$$;
+
+grant execute on function public.apply_stock_history_events(uuid) to authenticated;
+
+-- Usage:
+-- select public.apply_stock_history_events();
+-- select public.apply_stock_history_events('YOUR-COMPANY-UUID');

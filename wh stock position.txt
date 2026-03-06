@@ -1,0 +1,165 @@
+﻿-- Stock + stock_history (multi-tenant aligned)
+-- This script expects helper functions from SQL Code.txt:
+--   public.is_master(uuid)
+--   public.user_company_id(uuid)
+
+create table if not exists public.stock (
+  company_id uuid references public.companies (id) on delete cascade,
+  position text not null,
+  material_code text not null,
+  quantity integer not null,
+  constraint stock_pk primary key (company_id, position, material_code)
+);
+
+create table if not exists public.stock_history (
+  event_key text primary key,
+  company_id uuid references public.companies (id) on delete cascade,
+  action text not null,           -- RECEIVE | ISSUE | MOVE | MOVE_ALL | ADJUST | UNDO
+  position text not null,
+  material_code text not null,
+  note text not null default '',
+  created_at_ms bigint not null
+);
+
+alter table public.stock add column if not exists company_id uuid references public.companies (id) on delete cascade;
+alter table public.stock_history add column if not exists company_id uuid references public.companies (id) on delete cascade;
+
+create index if not exists idx_stock_company
+  on public.stock (company_id);
+
+create index if not exists idx_stock_history_company
+  on public.stock_history (company_id);
+
+create index if not exists idx_stock_history_created_at_ms
+  on public.stock_history (created_at_ms desc);
+
+create index if not exists idx_stock_history_material
+  on public.stock_history (material_code);
+
+create index if not exists idx_stock_history_position
+  on public.stock_history (position);
+
+alter table public.stock enable row level security;
+alter table public.stock_history enable row level security;
+
+-- Drop legacy/open policies
+DROP POLICY IF EXISTS "stock_select_anon" ON public.stock;
+DROP POLICY IF EXISTS "stock_insert_anon" ON public.stock;
+DROP POLICY IF EXISTS "stock_update_anon" ON public.stock;
+DROP POLICY IF EXISTS "stock_delete_anon" ON public.stock;
+DROP POLICY IF EXISTS "stock_history_select_anon" ON public.stock_history;
+DROP POLICY IF EXISTS "stock_history_insert_anon" ON public.stock_history;
+DROP POLICY IF EXISTS "stock_history_update_anon" ON public.stock_history;
+DROP POLICY IF EXISTS "stock_history_delete_anon" ON public.stock_history;
+
+DROP POLICY IF EXISTS "stock_select_auth" ON public.stock;
+DROP POLICY IF EXISTS "stock_insert_master" ON public.stock;
+DROP POLICY IF EXISTS "stock_update_master" ON public.stock;
+DROP POLICY IF EXISTS "stock_delete_master" ON public.stock;
+DROP POLICY IF EXISTS "stock_insert_user_company" ON public.stock;
+DROP POLICY IF EXISTS "stock_update_user_company" ON public.stock;
+DROP POLICY IF EXISTS "stock_delete_user_company" ON public.stock;
+
+DROP POLICY IF EXISTS "stock_history_select_auth" ON public.stock_history;
+DROP POLICY IF EXISTS "stock_history_insert_master" ON public.stock_history;
+DROP POLICY IF EXISTS "stock_history_update_master" ON public.stock_history;
+DROP POLICY IF EXISTS "stock_history_delete_master" ON public.stock_history;
+DROP POLICY IF EXISTS "stock_history_insert_user_company" ON public.stock_history;
+DROP POLICY IF EXISTS "stock_history_update_user_company" ON public.stock_history;
+DROP POLICY IF EXISTS "stock_history_delete_user_company" ON public.stock_history;
+
+-- stock policies
+create policy "stock_select_auth"
+on public.stock
+for select
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or company_id = public.user_company_id(auth.uid())
+);
+
+create policy "stock_insert_master"
+on public.stock
+for insert
+to authenticated
+with check (public.is_master(auth.uid()));
+
+create policy "stock_update_master"
+on public.stock
+for update
+to authenticated
+using (public.is_master(auth.uid()))
+with check (public.is_master(auth.uid()));
+
+create policy "stock_delete_master"
+on public.stock
+for delete
+to authenticated
+using (public.is_master(auth.uid()));
+
+create policy "stock_insert_user_company"
+on public.stock
+for insert
+to authenticated
+with check (company_id = public.user_company_id(auth.uid()));
+
+create policy "stock_update_user_company"
+on public.stock
+for update
+to authenticated
+using (company_id = public.user_company_id(auth.uid()))
+with check (company_id = public.user_company_id(auth.uid()));
+
+create policy "stock_delete_user_company"
+on public.stock
+for delete
+to authenticated
+using (company_id = public.user_company_id(auth.uid()));
+
+-- stock_history policies
+create policy "stock_history_select_auth"
+on public.stock_history
+for select
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or company_id = public.user_company_id(auth.uid())
+);
+
+create policy "stock_history_insert_master"
+on public.stock_history
+for insert
+to authenticated
+with check (public.is_master(auth.uid()));
+
+create policy "stock_history_update_master"
+on public.stock_history
+for update
+to authenticated
+using (public.is_master(auth.uid()))
+with check (public.is_master(auth.uid()));
+
+create policy "stock_history_delete_master"
+on public.stock_history
+for delete
+to authenticated
+using (public.is_master(auth.uid()));
+
+create policy "stock_history_insert_user_company"
+on public.stock_history
+for insert
+to authenticated
+with check (company_id = public.user_company_id(auth.uid()));
+
+create policy "stock_history_update_user_company"
+on public.stock_history
+for update
+to authenticated
+using (company_id = public.user_company_id(auth.uid()))
+with check (company_id = public.user_company_id(auth.uid()));
+
+create policy "stock_history_delete_user_company"
+on public.stock_history
+for delete
+to authenticated
+using (company_id = public.user_company_id(auth.uid()));

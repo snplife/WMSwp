@@ -405,10 +405,8 @@ function App() {
   const [newUserRole, setNewUserRole] = useState("user");
   const [newUserCompanyId, setNewUserCompanyId] = useState("");
   const [newCompanyName, setNewCompanyName] = useState("");
-  const [newCompanyTracksExpiryDate, setNewCompanyTracksExpiryDate] = useState(false);
   const [editingCompanyId, setEditingCompanyId] = useState("");
   const [editingCompanyName, setEditingCompanyName] = useState("");
-  const [editingCompanyTracksExpiryDate, setEditingCompanyTracksExpiryDate] = useState(false);
   const [createCompanySubmitting, setCreateCompanySubmitting] = useState(false);
   const [updateCompanySubmitting, setUpdateCompanySubmitting] = useState(false);
   const [deleteCompanySubmitting, setDeleteCompanySubmitting] = useState(false);
@@ -625,7 +623,7 @@ function App() {
     setCompaniesError("");
     const { data, error: companiesError } = await supabase
       .from("companies")
-      .select("id,name,created_at,max_positions,tracks_expiry_date")
+      .select("id,name,created_at,max_positions")
       .order("name", { ascending: true });
 
     if (companiesError) {
@@ -651,8 +649,8 @@ function App() {
 
     const { data: inserted, error: createError } = await supabase
       .from("companies")
-      .insert([{ name, tracks_expiry_date: newCompanyTracksExpiryDate }])
-      .select("id,name,created_at,max_positions,tracks_expiry_date")
+      .insert([{ name }])
+      .select("id,name,created_at,max_positions")
       .single();
 
     if (createError) {
@@ -662,7 +660,6 @@ function App() {
     }
 
     setNewCompanyName("");
-    setNewCompanyTracksExpiryDate(false);
     if (inserted) {
       setCompanies((prev) =>
         [...prev.filter((company) => company.id !== inserted.id), inserted].sort((a, b) =>
@@ -676,14 +673,12 @@ function App() {
   const handleStartEditCompany = (company) => {
     setEditingCompanyId(company?.id || "");
     setEditingCompanyName(String(company?.name || ""));
-    setEditingCompanyTracksExpiryDate(Boolean(company?.tracks_expiry_date));
     setCompaniesError("");
   };
 
   const handleCancelEditCompany = () => {
     setEditingCompanyId("");
     setEditingCompanyName("");
-    setEditingCompanyTracksExpiryDate(false);
   };
 
   const handleSaveCompany = async (companyId) => {
@@ -696,9 +691,9 @@ function App() {
     setCompaniesError("");
     const { data, error: updateError } = await supabase
       .from("companies")
-      .update({ name, tracks_expiry_date: editingCompanyTracksExpiryDate })
+      .update({ name })
       .eq("id", companyId)
-      .select("id,name,created_at,max_positions,tracks_expiry_date")
+      .select("id,name,created_at,max_positions")
       .single();
 
     if (updateError) {
@@ -1920,14 +1915,6 @@ function App() {
               onChange={(event) => setNewCompanyName(event.target.value)}
               required
             />
-            <label className="company-feature-option">
-              <input
-                type="checkbox"
-                checked={newCompanyTracksExpiryDate}
-                onChange={(event) => setNewCompanyTracksExpiryDate(event.target.checked)}
-              />
-              <span>Sledovať dátum expirácie</span>
-            </label>
             <button type="submit" className="settings-btn" disabled={createCompanySubmitting}>
               {createCompanySubmitting ? "Vytváram..." : "Vytvoriť firmu"}
             </button>
@@ -1981,7 +1968,6 @@ function App() {
               <thead>
                 <tr>
                   <th>Firma</th>
-                  <th>Atribúty</th>
                   <th>ID</th>
                   <th>Vytvorená</th>
                   <th>Akcie</th>
@@ -1994,27 +1980,16 @@ function App() {
                     <tr key={company.id}>
                       <td>
                         {isEditing ? (
-                          <div className="company-edit-fields">
-                            <input
-                              type="text"
-                              className="search-input"
-                              value={editingCompanyName}
-                              onChange={(event) => setEditingCompanyName(event.target.value)}
-                            />
-                            <label className="company-feature-option">
-                              <input
-                                type="checkbox"
-                                checked={editingCompanyTracksExpiryDate}
-                                onChange={(event) => setEditingCompanyTracksExpiryDate(event.target.checked)}
-                              />
-                              <span>Sledovať dátum expirácie</span>
-                            </label>
-                          </div>
+                          <input
+                            type="text"
+                            className="search-input"
+                            value={editingCompanyName}
+                            onChange={(event) => setEditingCompanyName(event.target.value)}
+                          />
                         ) : (
                           company.name
                         )}
                       </td>
-                      <td>{company.tracks_expiry_date ? "Expirácia" : "-"}</td>
                       <td className="master-user-email">{company.id}</td>
                       <td>{formatDate(company.created_at)}</td>
                       <td>

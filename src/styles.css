@@ -431,6 +431,13 @@ select {
   margin-bottom: 0.6rem;
 }
 
+.company-settings-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) auto;
+  gap: 0.75rem;
+  align-items: end;
+}
+
 .master-create-form {
   display: grid;
   grid-template-columns: 1.1fr 1fr 120px 160px auto;
@@ -925,6 +932,10 @@ tbody tr:nth-child(even) {
   }
 
   .master-company-form {
+    grid-template-columns: 1fr;
+  }
+
+  .company-settings-form {
     grid-template-columns: 1fr;
   }
 

@@ -374,14 +374,9 @@ function App() {
   const [deadStockByKey, setDeadStockByKey] = useState({});
   const [stockAgeStats, setStockAgeStats] = useState({ avgDays: null, sampleCount: 0 });
   const [showDeadStockOnly, setShowDeadStockOnly] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [deadStockDays, setDeadStockDays] = useState(() => {
     const saved = window.localStorage.getItem("wms_dead_stock_days");
     return normalizeDeadStockDays(saved ?? ENV_DEFAULT_DEAD_STOCK_DAYS);
-  });
-  const [maxPositions, setMaxPositions] = useState(() => {
-    const saved = window.localStorage.getItem("wms_max_positions");
-    return normalizeMaxPositions(saved ?? ENV_DEFAULT_MAX_POSITIONS);
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -422,6 +417,9 @@ function App() {
   const [masterUserCompanyFilter, setMasterUserCompanyFilter] = useState("all");
   const [occupancyChartRange, setOccupancyChartRange] = useState("week");
   const [occupancySeries, setOccupancySeries] = useState([]);
+  const [companyMaxPositionsInput, setCompanyMaxPositionsInput] = useState(String(ENV_DEFAULT_MAX_POSITIONS));
+  const [companySettingsSubmitting, setCompanySettingsSubmitting] = useState(false);
+  const [companySettingsError, setCompanySettingsError] = useState("");
 
   useEffect(() => {
     try {
@@ -599,7 +597,7 @@ function App() {
     setCompaniesError("");
     const { data, error: companiesError } = await supabase
       .from("companies")
-      .select("id,name,created_at")
+      .select("id,name,created_at,max_positions")
       .order("name", { ascending: true });
 
     if (companiesError) {
@@ -626,7 +624,7 @@ function App() {
     const { data: inserted, error: createError } = await supabase
       .from("companies")
       .insert([{ name }])
-      .select("id,name,created_at")
+      .select("id,name,created_at,max_positions")
       .single();
 
     if (createError) {
@@ -669,7 +667,7 @@ function App() {
       .from("companies")
       .update({ name })
       .eq("id", companyId)
-      .select("id,name,created_at")
+      .select("id,name,created_at,max_positions")
       .single();
 
     if (updateError) {
@@ -943,6 +941,43 @@ function App() {
     setSelectedCompanyId(nextCompanyId || "all");
   };
 
+  const handleSaveCompanyMaxPositions = async (event) => {
+    event.preventDefault();
+    if (!activeCompanyId) {
+      setCompanySettingsError("Najprv vyber konkrétnu firmu.");
+      return;
+    }
+
+    setCompanySettingsSubmitting(true);
+    setCompanySettingsError("");
+
+    const normalizedValue = normalizeMaxPositions(companyMaxPositionsInput);
+    const { data, error: saveError } = await supabase.rpc("set_company_max_positions", {
+      target_company_id: activeCompanyId,
+      target_max_positions: normalizedValue
+    });
+
+    if (saveError) {
+      setCompanySettingsError(saveError.message || "Nepodarilo sa uložiť počet miest na sklade.");
+      setCompanySettingsSubmitting(false);
+      return;
+    }
+
+    const updatedCompany = Array.isArray(data) ? data[0] : data;
+    if (updatedCompany?.id) {
+      setCompanies((prev) =>
+        prev.map((company) =>
+          company.id === updatedCompany.id
+            ? { ...company, max_positions: normalizeMaxPositions(updatedCompany.max_positions) }
+            : company
+        )
+      );
+      setCompanyMaxPositionsInput(String(normalizeMaxPositions(updatedCompany.max_positions)));
+    }
+
+    setCompanySettingsSubmitting(false);
+  };
+
   const fetchAllRows = async (table, config, options = {}) => {
     const { scopedCompanyId = null, selectClause = "*", historyFromMs = null } = options;
     const pageSize = 1000;
@@ -1093,7 +1128,7 @@ function App() {
       if (!isMaster) {
         const chartSeries = buildOccupancySeries(historyRows, {
           range: occupancyChartRange,
-          maxPositions,
+          maxPositions: effectiveMaxPositions,
           isMaster,
           selectedCompanyId
         });
@@ -1116,10 +1151,6 @@ function App() {
   useEffect(() => {
     window.localStorage.setItem("wms_dead_stock_days", String(deadStockDays));
   }, [deadStockDays]);
-
-  useEffect(() => {
-    window.localStorage.setItem("wms_max_positions", String(maxPositions));
-  }, [maxPositions]);
 
   useEffect(() => {
     let mounted = true;
@@ -1271,7 +1302,7 @@ function App() {
       }
       supabase.removeChannel(channel);
     };
-  }, [selectedTable, isLoggedIn, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id, occupancyChartRange, maxPositions]);
+  }, [selectedTable, isLoggedIn, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id, occupancyChartRange, effectiveMaxPositions]);
 
   useEffect(() => {
     if (!authReady || !isLoggedIn) {
@@ -1285,7 +1316,7 @@ function App() {
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [isLoggedIn, selectedTable, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id, occupancyChartRange, maxPositions]);
+  }, [isLoggedIn, selectedTable, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id, occupancyChartRange, effectiveMaxPositions]);
 
   useEffect(() => {
     if (!authReady || !isLoggedIn) {
@@ -1387,6 +1418,17 @@ function App() {
       ),
     [companies]
   );
+  const activeCompanyId = isMaster ? (selectedCompanyId === "all" ? null : selectedCompanyId) : userCompanyId;
+  const activeCompany = useMemo(
+    () => companies.find((company) => company.id === activeCompanyId) || null,
+    [companies, activeCompanyId]
+  );
+
+  useEffect(() => {
+    setCompanySettingsError("");
+    setCompanyMaxPositionsInput(String(normalizeMaxPositions(activeCompany?.max_positions ?? ENV_DEFAULT_MAX_POSITIONS)));
+  }, [activeCompany?.id, activeCompany?.max_positions]);
+
   const filteredManagedUsers = useMemo(() => {
     const normalizedSearch = String(masterUserSearch || "").trim().toLowerCase();
     return managedUsers.filter((row) => {
@@ -1493,8 +1535,27 @@ function App() {
         .filter(Boolean)
     ).size;
   }, [rows, selectedTable, isMaster, selectedCompanyId]);
-  const freePositions = useMemo(() => Math.max(0, maxPositions - occupiedPositions), [maxPositions, occupiedPositions]);
-  const occupancyPercent = useMemo(() => (occupiedPositions / maxPositions) * 100, [occupiedPositions, maxPositions]);
+  const effectiveMaxPositions = useMemo(() => {
+    if (selectedTable !== "stock") {
+      return ENV_DEFAULT_MAX_POSITIONS;
+    }
+    if (isMaster && selectedCompanyId === "all") {
+      const totalCapacity = companies.reduce(
+        (sum, company) => sum + normalizeMaxPositions(company.max_positions ?? ENV_DEFAULT_MAX_POSITIONS),
+        0
+      );
+      return Math.max(1, totalCapacity || ENV_DEFAULT_MAX_POSITIONS);
+    }
+    return normalizeMaxPositions(activeCompany?.max_positions ?? ENV_DEFAULT_MAX_POSITIONS);
+  }, [selectedTable, isMaster, selectedCompanyId, companies, activeCompany]);
+  const freePositions = useMemo(
+    () => Math.max(0, effectiveMaxPositions - occupiedPositions),
+    [effectiveMaxPositions, occupiedPositions]
+  );
+  const occupancyPercent = useMemo(
+    () => (occupiedPositions / effectiveMaxPositions) * 100,
+    [occupiedPositions, effectiveMaxPositions]
+  );
   const occupancyLevel = useMemo(() => {
     if (occupancyPercent < 70) {
       return "ok";
@@ -1609,7 +1670,6 @@ function App() {
     setRows([]);
     setError("");
     setLoading(false);
-    setIsSettingsOpen(false);
     setManagedUsers([]);
     setCompanies([]);
     setManagedUsersError("");
@@ -1761,11 +1821,6 @@ function App() {
                 ))}
               </select>
             )}
-            {isMaster && (
-              <button type="button" onClick={() => setIsSettingsOpen(true)} className="settings-btn">
-                Nastavenia
-              </button>
-            )}
             <button type="button" onClick={exportToExcel} className="export-btn">
               Export do Excelu
             </button>
@@ -1778,6 +1833,44 @@ function App() {
           </div>
         </div>
       </section>
+
+      {selectedTable === "stock" && (
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <h2>Nastavenia firmy</h2>
+              <p className="panel-meta">
+                {activeCompany
+                  ? `Kapacita skladu pre firmu ${activeCompany.name}`
+                  : "Vyber konkrétnu firmu, aby sa dala upraviť kapacita skladu."}
+              </p>
+            </div>
+          </div>
+
+          <form className="company-settings-form" onSubmit={handleSaveCompanyMaxPositions}>
+            <label className="settings-field" htmlFor="company-max-positions">
+              <span>Počet miest na sklade</span>
+              <input
+                id="company-max-positions"
+                type="number"
+                min={1}
+                max={1000000}
+                className="dead-stock-days-input"
+                value={companyMaxPositionsInput}
+                onChange={(event) => setCompanyMaxPositionsInput(event.target.value)}
+                disabled={!activeCompanyId || companySettingsSubmitting}
+              />
+            </label>
+            <button type="submit" className="settings-btn" disabled={!activeCompanyId || companySettingsSubmitting}>
+              {companySettingsSubmitting ? "Ukladám..." : "Uložiť kapacitu"}
+            </button>
+          </form>
+          {companySettingsError && <p className="error">{companySettingsError}</p>}
+          <p className="settings-hint">
+            Táto hodnota sa ukladá pre firmu a používa sa pri výpočte obsadenosti a voľných miest.
+          </p>
+        </section>
+      )}
 
       {isMaster && (
         <section className="panel master-panel">
@@ -2076,7 +2169,7 @@ function App() {
             <strong className={`occupancy-value occupancy-value-${occupancyLevel}`}>
               {`${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(occupancyPercent)} %`}
             </strong>
-            <p className="occupancy-meta">{`Obsadené: ${occupiedPositions} / ${maxPositions}`}</p>
+            <p className="occupancy-meta">{`Obsadené: ${occupiedPositions} / ${effectiveMaxPositions}`}</p>
             <p className={`occupancy-badge occupancy-badge-${occupancyLevel}`}>{`Stav: ${occupancyLabel}`}</p>
           </article>
         )}
@@ -2359,50 +2452,6 @@ function App() {
         )}
       </section>
 
-      {isMaster && isSettingsOpen && (
-        <div className="settings-backdrop" role="presentation" onClick={() => setIsSettingsOpen(false)}>
-          <section
-            className="settings-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Nastavenia monitoru"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="settings-head">
-              <h2>Nastavenia</h2>
-              <button type="button" className="clear-btn" onClick={() => setIsSettingsOpen(false)}>
-                Zavrieť
-              </button>
-            </div>
-
-            <label className="settings-field" htmlFor="settings-dead-stock-days">
-              <span>Dead stock dni</span>
-              <input
-                id="settings-dead-stock-days"
-                type="number"
-                min={1}
-                max={3650}
-                className="dead-stock-days-input"
-                value={deadStockDays}
-                onChange={(event) => setDeadStockDays(normalizeDeadStockDays(event.target.value))}
-              />
-            </label>
-
-            <label className="settings-field" htmlFor="settings-max-positions">
-              <span>Max počet pozícií</span>
-              <input
-                id="settings-max-positions"
-                type="number"
-                min={1}
-                max={1000000}
-                className="dead-stock-days-input"
-                value={maxPositions}
-                onChange={(event) => setMaxPositions(normalizeMaxPositions(event.target.value))}
-              />
-            </label>
-          </section>
-        </div>
-      )}
     </main>
   );
 }

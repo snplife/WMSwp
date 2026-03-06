@@ -39,6 +39,24 @@ const TABLE_CONFIG = {
     orderAsc: false,
     metricLabel: "Príjmy",
     metricValue: (rows) => rows.filter((row) => String(row.action || "").toUpperCase() === "RECEIVE").length
+  },
+  [DAILY_OVERVIEW_TABLE]: {
+    title: "Denný prehľad",
+    subtitle: "Manažérsky prehľad dnešného pohybu skladu",
+    columns: [
+      { label: "Operácia", keys: ["action"], kind: "status", required: true },
+      { label: "Pozícia", keys: ["position"], required: true },
+      { label: "Materiál", keys: ["material_code"], required: true },
+      { label: "Poznámka", keys: ["note"] },
+      { label: "Vytvorené", keys: ["created_at_ms"], kind: "epoch_ms", required: true }
+    ],
+    searchKeys: ["action", "position", "material_code", "note", "event_key"],
+    statusKeys: ["action"],
+    timeKeys: ["created_at_ms"],
+    orderBy: "created_at_ms",
+    orderAsc: false,
+    metricLabel: "Dnešné pohyby",
+    metricValue: (rows) => rows.length
   }
 };
 
@@ -71,6 +89,7 @@ const AUTO_REFRESH_MS = Math.max(60 * 1000, Number(import.meta.env.VITE_AUTO_REF
 const DAY_MS = 24 * 60 * 60 * 1000;
 const AUTH_INIT_TIMEOUT_MS = 5000;
 const TRANSACTIONS_TABLE = (import.meta.env.VITE_TRANSACTIONS_TABLE || "stock_history").trim();
+const DAILY_OVERVIEW_TABLE = "__daily_overview__";
 const TRANSACTION_TABLE_ALIASES = Array.from(
   new Set([TRANSACTIONS_TABLE, "stock_history", "stock_transactions"].filter(Boolean))
 );
@@ -88,14 +107,33 @@ const LANDING_FEATURES = [
 ];
 
 function getTableConfig(table) {
+  if (isDailyOverviewTable(table)) {
+    return TABLE_CONFIG[DAILY_OVERVIEW_TABLE];
+  }
   if (isTransactionsTable(table)) {
     return TABLE_CONFIG.stock_history;
   }
   return TABLE_CONFIG[table] || DEFAULT_CONFIG;
 }
 
+function isDailyOverviewTable(table) {
+  return String(table || "").trim() === DAILY_OVERVIEW_TABLE;
+}
+
 function isTransactionsTable(table) {
   return TRANSACTION_TABLE_ALIASES.includes(String(table || "").trim());
+}
+
+function getStartOfTodayMs() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+}
+
+function getTableLabel(table) {
+  if (isDailyOverviewTable(table)) {
+    return "Denný prehľad";
+  }
+  return table;
 }
 
 function makeStockKey(position, materialCode, companyId) {
@@ -458,7 +496,7 @@ function App() {
     if (isMaster) {
       return tableNames;
     }
-    return tableNames.filter((table) => table === "stock" || isTransactionsTable(table));
+    return [DAILY_OVERVIEW_TABLE, ...tableNames.filter((table) => table === "stock" || isTransactionsTable(table))];
   }, [isMaster]);
   const companyNameById = useMemo(
     () =>
@@ -1071,20 +1109,24 @@ function App() {
       // For non-master users, do not hard-block when local company state is missing.
       // RLS safely scopes rows by auth.uid() on the backend.
 
+      const sourceTable = isDailyOverviewTable(table) ? TRANSACTIONS_TABLE : table;
       const config = getTableConfig(table);
       const data =
-        table === "stock"
-          ? await fetchAllRows(table, config, {
+        sourceTable === "stock"
+          ? await fetchAllRows(sourceTable, config, {
               scopedCompanyId,
               selectClause: "company_id,position,material_code,quantity"
             })
-          : await fetchAllRows(table, config, { scopedCompanyId });
+          : await fetchAllRows(sourceTable, config, {
+              scopedCompanyId,
+              historyFromMs: isDailyOverviewTable(table) ? getStartOfTodayMs() : null
+            });
       if (!isLatestRequest()) {
         return;
       }
       setRows(data || []);
 
-      if (table !== "stock") {
+      if (sourceTable !== "stock") {
         setDeadStockByKey({});
         setStockAgeStats({ avgDays: null, sampleCount: 0 });
         setOccupancySeries([]);
@@ -1610,6 +1652,61 @@ function App() {
   }, [occupancySeries, occupancyChartMaxPercent]);
   const hasActiveFilters =
     statusFilter !== "all" || searchTerm.trim().length > 0 || (selectedTable === "stock" && showDeadStockOnly);
+  const dailyOverviewStats = useMemo(() => {
+    if (!isDailyOverviewTable(selectedTable)) {
+      return null;
+    }
+
+    const actionCounts = { receive: 0, issue: 0, move: 0, adjust: 0, other: 0 };
+    const materials = new Set();
+    const positions = new Set();
+    const hourlyBuckets = Array.from({ length: 24 }, (_, hour) => ({ hour, count: 0 }));
+
+    for (const row of rows) {
+      const action = String(row.action || "").toUpperCase();
+      if (action === "RECEIVE") {
+        actionCounts.receive += 1;
+      } else if (action === "ISSUE") {
+        actionCounts.issue += 1;
+      } else if (action === "MOVE" || action === "MOVE_ALL") {
+        actionCounts.move += 1;
+      } else if (action === "ADJUST") {
+        actionCounts.adjust += 1;
+      } else {
+        actionCounts.other += 1;
+      }
+
+      if (row.material_code) {
+        materials.add(String(row.material_code));
+      }
+      if (row.position) {
+        positions.add(String(row.position));
+      }
+
+      const createdAt = Number(row.created_at_ms);
+      if (Number.isFinite(createdAt)) {
+        const hour = new Date(createdAt).getHours();
+        if (hourlyBuckets[hour]) {
+          hourlyBuckets[hour].count += 1;
+        }
+      }
+    }
+
+    const busiestBucket = hourlyBuckets.reduce((best, current) => (current.count > best.count ? current : best), hourlyBuckets[0]);
+    const recentRows = [...rows]
+      .sort((a, b) => Number(b.created_at_ms || 0) - Number(a.created_at_ms || 0))
+      .slice(0, 8);
+
+    return {
+      ...actionCounts,
+      uniqueMaterials: materials.size,
+      activePositions: positions.size,
+      busiestHourLabel: busiestBucket.count > 0 ? `${String(busiestBucket.hour).padStart(2, "0")}:00` : "-",
+      busiestHourCount: busiestBucket.count,
+      hourlyBuckets,
+      recentRows
+    };
+  }, [rows, selectedTable]);
   const currentCompanyLabel = useMemo(() => {
     if (isMaster) {
       return selectedCompanyId === "all" ? "Všetky firmy" : companyNameById[selectedCompanyId] || "Firma";
@@ -1828,7 +1925,7 @@ function App() {
                 className={`table-btn ${table === selectedTable ? "table-btn-active" : ""}`}
                 onClick={() => setSelectedTable(table)}
               >
-                {table}
+                {getTableLabel(table)}
               </button>
             ))}
           </div>
@@ -2158,26 +2255,67 @@ function App() {
       )}
 
       <section className="stats-grid">
-        {selectedTable !== "stock" && (
+        {isDailyOverviewTable(selectedTable) && dailyOverviewStats && (
+          <>
+            <article className="card">
+              <p>Dnešné pohyby</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(rows.length)}</strong>
+            </article>
+            <article className="card">
+              <p>Príjmy dnes</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(dailyOverviewStats.receive)}</strong>
+            </article>
+            <article className="card">
+              <p>Výdaje dnes</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(dailyOverviewStats.issue)}</strong>
+            </article>
+            <article className="card">
+              <p>Presuny dnes</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(dailyOverviewStats.move)}</strong>
+            </article>
+            <article className="card">
+              <p>Aktívne pozície</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(dailyOverviewStats.activePositions)}</strong>
+            </article>
+            <article className="card">
+              <p>Materiály dnes</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(dailyOverviewStats.uniqueMaterials)}</strong>
+            </article>
+            <article className="card">
+              <p>Najsilnejšia hodina</p>
+              <strong>{dailyOverviewStats.busiestHourLabel}</strong>
+              <p className="occupancy-meta">{`${dailyOverviewStats.busiestHourCount} pohybov`}</p>
+            </article>
+            <article className="card">
+              <p>Posledná operácia</p>
+              <strong className="small-text">{lastTimestamp}</strong>
+            </article>
+          </>
+        )}
+        {!isDailyOverviewTable(selectedTable) && selectedTable !== "stock" && (
           <article className="card">
             <p>Počet riadkov</p>
             <strong>{rows.length}</strong>
           </article>
         )}
-        <article className="card">
-          <p>{tableConfig.metricLabel}</p>
-          <strong>{new Intl.NumberFormat("sk-SK").format(metricValue)}</strong>
-        </article>
-        {isTransactionsTable(selectedTable) && (
+        {!isDailyOverviewTable(selectedTable) && (
+          <article className="card">
+            <p>{tableConfig.metricLabel}</p>
+            <strong>{new Intl.NumberFormat("sk-SK").format(metricValue)}</strong>
+          </article>
+        )}
+        {isTransactionsTable(selectedTable) && !isDailyOverviewTable(selectedTable) && (
           <article className="card">
             <p>Výdaje</p>
             <strong>{new Intl.NumberFormat("sk-SK").format(issueCount)}</strong>
           </article>
         )}
-        <article className="card">
-          <p>Posledná zmena</p>
-          <strong className="small-text">{lastTimestamp}</strong>
-        </article>
+        {!isDailyOverviewTable(selectedTable) && (
+          <article className="card">
+            <p>Posledná zmena</p>
+            <strong className="small-text">{lastTimestamp}</strong>
+          </article>
+        )}
         {selectedTable === "stock" && (
           <article className={`card ${deadStockCount > 0 ? "card-alert" : ""}`}>
             <p>Dead stock ({deadStockDays} dní)</p>
@@ -2212,6 +2350,52 @@ function App() {
           </article>
         )}
       </section>
+
+      {isDailyOverviewTable(selectedTable) && dailyOverviewStats && (
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <h2>Dnešná aktivita</h2>
+              <p className="panel-meta">Rozloženie pohybov počas dneška a posledné operácie</p>
+            </div>
+          </div>
+          <div className="daily-overview-grid">
+            <article className="card">
+              <p>Hodinový prehľad</p>
+              <div className="daily-hour-bars">
+                {dailyOverviewStats.hourlyBuckets.map((bucket) => {
+                  const maxCount = Math.max(1, ...dailyOverviewStats.hourlyBuckets.map((item) => item.count));
+                  const height = `${Math.max(8, (bucket.count / maxCount) * 100)}%`;
+                  return (
+                    <div key={bucket.hour} className="daily-hour-bar-wrap" title={`${String(bucket.hour).padStart(2, "0")}:00 - ${bucket.count} pohybov`}>
+                      <div className="daily-hour-bar" style={{ height }} />
+                      <span>{String(bucket.hour).padStart(2, "0")}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </article>
+            <article className="card">
+              <p>Posledné operácie</p>
+              {dailyOverviewStats.recentRows.length === 0 ? (
+                <p className="hint">Dnes zatiaľ nie sú operácie.</p>
+              ) : (
+                <div className="daily-activity-list">
+                  {dailyOverviewStats.recentRows.map((row, index) => (
+                    <div key={row.event_key || `${row.position}-${row.material_code}-${index}`} className="daily-activity-item">
+                      <div>
+                        <strong>{String(row.material_code || "-")}</strong>
+                        <p>{`${String(row.action || "-")} | ${String(row.position || "-")}`}</p>
+                      </div>
+                      <span>{formatCell(row.created_at_ms, "epoch_ms")}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </article>
+          </div>
+        </section>
+      )}
 
       {selectedTable === "stock" && !isMaster && (
         <section className="panel">
@@ -2259,12 +2443,14 @@ function App() {
       )}
 
       <section className="panel">
-        <div className="panel-head">
-          <div>
-            <h2>Dátový tok</h2>
-            <p className="panel-meta">
-              Zobrazených {filteredRows.length} / {rows.length} riadkov
-            </p>
+          <div className="panel-head">
+            <div>
+              <h2>{isDailyOverviewTable(selectedTable) ? "Dnešné operácie" : "Dátový tok"}</h2>
+              <p className="panel-meta">
+                {isDailyOverviewTable(selectedTable)
+                  ? `Dnes zaznamenaných ${filteredRows.length} / ${rows.length} operácií`
+                  : `Zobrazených ${filteredRows.length} / ${rows.length} riadkov`}
+              </p>
             {selectedTable === "stock" && deadStockCount > 0 && (
               <p className="dead-stock-meta">
                 Alert: {deadStockCount} položiek bez pohybu aspoň {deadStockDays} dní.

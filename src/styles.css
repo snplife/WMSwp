@@ -438,6 +438,77 @@ select {
   align-items: end;
 }
 
+.daily-overview-grid {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 0.75rem;
+}
+
+.daily-hour-bars {
+  display: grid;
+  grid-template-columns: repeat(24, minmax(0, 1fr));
+  gap: 0.25rem;
+  align-items: end;
+  min-height: 180px;
+  margin-top: 0.9rem;
+}
+
+.daily-hour-bar-wrap {
+  display: grid;
+  gap: 0.35rem;
+  justify-items: center;
+}
+
+.daily-hour-bar {
+  width: 100%;
+  min-height: 8px;
+  border-radius: 999px 999px 0 0;
+  background: linear-gradient(180deg, #5fa8ff 0%, #1e6fd9 100%);
+}
+
+.daily-hour-bar-wrap span {
+  font-size: 0.7rem;
+  color: #6c7a88;
+}
+
+.daily-activity-list {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 0.9rem;
+}
+
+.daily-activity-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-start;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid #e8eef7;
+}
+
+.daily-activity-item:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.daily-activity-item strong {
+  display: block;
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.daily-activity-item p {
+  margin: 0.2rem 0 0;
+  color: #6c7a88;
+  font-size: 0.82rem;
+}
+
+.daily-activity-item span {
+  color: #3f5266;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
 .master-create-form {
   display: grid;
   grid-template-columns: 1.1fr 1fr 120px 160px auto;
@@ -936,6 +1007,10 @@ tbody tr:nth-child(even) {
   }
 
   .company-settings-form {
+    grid-template-columns: 1fr;
+  }
+
+  .daily-overview-grid {
     grid-template-columns: 1fr;
   }
 

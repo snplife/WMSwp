@@ -5,6 +5,8 @@ import StatusPill from "./components/StatusPill";
 import { noStoreFetch, supabase, supabaseAnonKey, supabaseUrl, tableNames } from "./supabaseClient";
 import logo from "../logo.png";
 
+const DAILY_OVERVIEW_TABLE = "__daily_overview__";
+
 const TABLE_CONFIG = {
   stock: {
     title: "Skladové zásoby",
@@ -89,7 +91,6 @@ const AUTO_REFRESH_MS = Math.max(60 * 1000, Number(import.meta.env.VITE_AUTO_REF
 const DAY_MS = 24 * 60 * 60 * 1000;
 const AUTH_INIT_TIMEOUT_MS = 5000;
 const TRANSACTIONS_TABLE = (import.meta.env.VITE_TRANSACTIONS_TABLE || "stock_history").trim();
-const DAILY_OVERVIEW_TABLE = "__daily_overview__";
 const TRANSACTION_TABLE_ALIASES = Array.from(
   new Set([TRANSACTIONS_TABLE, "stock_history", "stock_transactions"].filter(Boolean))
 );

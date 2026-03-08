@@ -2154,13 +2154,24 @@ function App() {
               </select>
             )}
             {selectedTable === "stock" && (
-              <button
-                type="button"
-                className="settings-btn"
-                onClick={() => setIsCompanySettingsOpen((current) => !current)}
-              >
-                {isCompanySettingsOpen ? "Skryť nastavenia" : "Nastavenia firmy"}
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="settings-btn"
+                  onClick={() => setIsCompanySettingsOpen((current) => !current)}
+                >
+                  {isCompanySettingsOpen ? "Skryť nastavenia" : "Nastavenia firmy"}
+                </button>
+                {!isMaster && (
+                  <button
+                    type="button"
+                    className="settings-btn"
+                    onClick={() => setIsMaterialSubscriptionOpen((current) => !current)}
+                  >
+                    {isMaterialSubscriptionOpen ? "Skryť sledovanie" : "Sledovanie materiálu"}
+                  </button>
+                )}
+              </>
             )}
             <button type="button" onClick={exportToExcel} className="export-btn">
               Export do Excelu
@@ -2220,13 +2231,6 @@ function App() {
               <h2>Sledovanie materiálu</h2>
               <p className="panel-meta">Email alerty pre vybrané materiály.</p>
             </div>
-            <button
-              type="button"
-              className="settings-btn"
-              onClick={() => setIsMaterialSubscriptionOpen((current) => !current)}
-            >
-              {isMaterialSubscriptionOpen ? "Skryť sledovanie" : "Sledovanie materiálu"}
-            </button>
           </div>
           {isMaterialSubscriptionOpen && (
             <>

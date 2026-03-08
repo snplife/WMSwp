@@ -29,7 +29,6 @@ function makeAuthStorageKey(url) {
 }
 
 const authStorageKey = makeAuthStorageKey(supabaseUrl);
-const noLock = async (_name, _acquireTimeout, fn) => fn();
 
 export const tableName = import.meta.env.VITE_SUPABASE_TABLE || "events";
 export const tableNames = (
@@ -42,8 +41,9 @@ export const tableNames = (
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     storageKey: authStorageKey,
-    multiTab: false,
-    lock: noLock
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: false
   },
   global: {
     fetch: noStoreFetch

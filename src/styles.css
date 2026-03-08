@@ -600,6 +600,34 @@ select {
   border-radius: 14px;
 }
 
+.material-subscription-form {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(240px, 1fr) auto;
+  gap: 0.5rem;
+  margin-bottom: 0.8rem;
+}
+
+.subscription-list-panel {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.subscription-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid #e4ecf6;
+  border-radius: 12px;
+  background: #fbfdff;
+}
+
+.subscription-hint {
+  font-size: 0.75rem;
+  color: #7b8794;
+}
+
 .position-groups {
   display: grid;
   gap: 0.55rem;

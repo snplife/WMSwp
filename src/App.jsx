@@ -141,6 +141,10 @@ function makeStockKey(position, materialCode, companyId) {
   return `${String(companyId || "").trim()}::${String(position || "").trim()}::${String(materialCode || "").trim()}`;
 }
 
+function makeMaterialSubscriptionKey(companyId, materialCode) {
+  return `${String(companyId || "").trim()}::${String(materialCode || "").trim()}`;
+}
+
 function normalizeDeadStockDays(value) {
   const parsed = Number.parseInt(String(value), 10);
   if (!Number.isFinite(parsed)) {
@@ -461,6 +465,11 @@ function App() {
   const [companyMaxPositionsInput, setCompanyMaxPositionsInput] = useState(String(ENV_DEFAULT_MAX_POSITIONS));
   const [companySettingsSubmitting, setCompanySettingsSubmitting] = useState(false);
   const [companySettingsError, setCompanySettingsError] = useState("");
+  const [materialSubscriptions, setMaterialSubscriptions] = useState([]);
+  const [materialSubscriptionsError, setMaterialSubscriptionsError] = useState("");
+  const [materialSubscriptionSavingKey, setMaterialSubscriptionSavingKey] = useState("");
+  const [subscriptionMaterialInput, setSubscriptionMaterialInput] = useState("");
+  const [subscriptionEmailInput, setSubscriptionEmailInput] = useState("");
   const latestLoadRowsRequestRef = useRef(0);
 
   useEffect(() => {
@@ -511,6 +520,17 @@ function App() {
     () => companies.find((company) => company.id === activeCompanyId) || null,
     [companies, activeCompanyId]
   );
+  const materialSubscriptionsByKey = useMemo(() => {
+    const grouped = {};
+    for (const item of materialSubscriptions) {
+      const key = makeMaterialSubscriptionKey(item.company_id, item.material_code);
+      if (!grouped[key]) {
+        grouped[key] = [];
+      }
+      grouped[key].push(item);
+    }
+    return grouped;
+  }, [materialSubscriptions]);
   const effectiveMaxPositions = useMemo(() => {
     if (selectedTable !== "stock") {
       return ENV_DEFAULT_MAX_POSITIONS;
@@ -674,6 +694,143 @@ function App() {
     }
 
     setCompanies(data || []);
+  };
+
+  const loadMaterialSubscriptions = async () => {
+    if (!authReady || !isLoggedIn || selectedTable !== "stock" || isMaster) {
+      setMaterialSubscriptions([]);
+      setMaterialSubscriptionsError("");
+      return;
+    }
+
+    setMaterialSubscriptionsError("");
+    let query = supabase
+      .from("material_subscriptions")
+      .select("id,company_id,material_code,email,is_active,created_at")
+      .eq("is_active", true)
+      .order("created_at", { ascending: true });
+
+    if (activeCompanyId) {
+      query = query.eq("company_id", activeCompanyId);
+    } else if (userCompanyId) {
+      query = query.eq("company_id", userCompanyId);
+    }
+
+    const { data, error: subscriptionsError } = await query;
+    if (subscriptionsError) {
+      setMaterialSubscriptions([]);
+      setMaterialSubscriptionsError(subscriptionsError.message || "Nepodarilo sa načítať odbery materiálov.");
+      return;
+    }
+
+    setMaterialSubscriptions(data || []);
+  };
+
+  const handleMaterialSubscriptionSave = async (event) => {
+    event.preventDefault();
+
+    const companyId = activeCompanyId || userCompanyId;
+    const materialCode = String(subscriptionMaterialInput || "").trim();
+    const email = String(subscriptionEmailInput || "").trim().toLowerCase();
+    const key = makeMaterialSubscriptionKey(companyId, materialCode);
+
+    if (!companyId) {
+      setMaterialSubscriptionsError("Chýba firma pre uloženie odberu.");
+      return;
+    }
+
+    if (!materialCode) {
+      setMaterialSubscriptionsError("Zadaj materiál, ktorý chceš sledovať.");
+      return;
+    }
+
+    if (!email || !email.includes("@")) {
+      setMaterialSubscriptionsError("Zadaj platný email pre odber upozornení.");
+      return;
+    }
+
+    setMaterialSubscriptionSavingKey(key);
+    setMaterialSubscriptionsError("");
+
+    const existingSubscription =
+      materialSubscriptionsByKey[key]?.find((item) => String(item.email || "").toLowerCase() === email) || null;
+
+    if (existingSubscription) {
+      const { data, error: updateError } = await supabase
+        .from("material_subscriptions")
+        .update({ is_active: true })
+        .eq("id", existingSubscription.id)
+        .select("id,company_id,material_code,email,is_active,created_at")
+        .single();
+
+      if (updateError) {
+        setMaterialSubscriptionsError(updateError.message || "Nepodarilo sa obnoviť odber.");
+        setMaterialSubscriptionSavingKey("");
+        return;
+      }
+
+      setMaterialSubscriptions((prev) => {
+        const withoutCurrent = prev.filter((item) => item.id !== existingSubscription.id);
+        return [...withoutCurrent, data].sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
+      });
+      setSubscriptionMaterialInput("");
+      setSubscriptionEmailInput("");
+      setMaterialSubscriptionSavingKey("");
+      return;
+    }
+
+    const { data, error: insertError } = await supabase
+      .from("material_subscriptions")
+      .insert([
+        {
+          company_id: companyId,
+          material_code: materialCode,
+          email,
+          is_active: true,
+          created_by: authUser?.id || null
+        }
+      ])
+      .select("id,company_id,material_code,email,is_active,created_at")
+      .single();
+
+    if (insertError) {
+      setMaterialSubscriptionsError(insertError.message || "Nepodarilo sa uložiť odber materiálu.");
+      setMaterialSubscriptionSavingKey("");
+      return;
+    }
+
+    setMaterialSubscriptions((prev) =>
+      [...prev, data].sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")))
+    );
+    setSubscriptionMaterialInput("");
+    setSubscriptionEmailInput("");
+    setMaterialSubscriptionSavingKey("");
+  };
+
+  const handleMaterialSubscriptionDisable = async (subscription) => {
+    const key = makeMaterialSubscriptionKey(subscription.company_id, subscription.material_code);
+    const existingSubscription = subscription || null;
+
+    if (!existingSubscription) {
+      return;
+    }
+
+    setMaterialSubscriptionSavingKey(key);
+    setMaterialSubscriptionsError("");
+
+    const { error: updateError } = await supabase
+      .from("material_subscriptions")
+      .update({ is_active: false })
+      .eq("id", existingSubscription.id);
+
+    if (updateError) {
+      setMaterialSubscriptionsError(updateError.message || "Nepodarilo sa vypnúť odber.");
+      setMaterialSubscriptionSavingKey("");
+      return;
+    }
+
+    setMaterialSubscriptions((prev) => prev.filter((item) => item.id !== existingSubscription.id));
+    setMaterialSubscriptionSavingKey("");
   };
 
   const handleCreateCompany = async (event) => {
@@ -1425,6 +1582,10 @@ function App() {
   }, [authReady, isLoggedIn, isMaster, authUser?.id]);
 
   useEffect(() => {
+    loadMaterialSubscriptions();
+  }, [authReady, isLoggedIn, selectedTable, activeCompanyId, selectedCompanyId, isMaster, userCompanyId, rows]);
+
+  useEffect(() => {
     if (!visibleTableNames.includes(selectedTable)) {
       setSelectedTable(visibleTableNames[0] || "stock");
     }
@@ -1651,6 +1812,19 @@ function App() {
       })
       .join(" ");
   }, [occupancySeries, occupancyChartMaxPercent]);
+  const availableMaterialSuggestions = useMemo(() => {
+    if (selectedTable !== "stock") {
+      return [];
+    }
+
+    return Array.from(
+      new Set(
+        rows
+          .map((row) => String(row.material_code || "").trim())
+          .filter(Boolean)
+      )
+    ).sort((a, b) => a.localeCompare(b, "sk-SK", { sensitivity: "base" }));
+  }, [rows, selectedTable]);
   const hasActiveFilters =
     statusFilter !== "all" || searchTerm.trim().length > 0 || (selectedTable === "stock" && showDeadStockOnly);
   const dailyOverviewStats = useMemo(() => {
@@ -1808,6 +1982,10 @@ function App() {
     } catch (signOutError) {
       setAuthError(signOutError?.message || "Odhlásenie lokálne prebehlo, serverové odhlásenie zlyhalo.");
     } finally {
+      setMaterialSubscriptions([]);
+      setMaterialSubscriptionsError("");
+      setSubscriptionMaterialInput("");
+      setSubscriptionEmailInput("");
       setSignOutSubmitting(false);
     }
   };
@@ -1999,6 +2177,66 @@ function App() {
           <p className="settings-hint">
             Táto hodnota sa ukladá pre firmu a používa sa pri výpočte obsadenosti a voľných miest.
           </p>
+        </section>
+      )}
+
+      {selectedTable === "stock" && !isMaster && (
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <h2>Email alerty na materiál</h2>
+              <p className="panel-meta">Zadaj materiál, ktorý chceš sledovať, a cieľový email.</p>
+            </div>
+          </div>
+          <form className="material-subscription-form" onSubmit={handleMaterialSubscriptionSave}>
+            <input
+              type="text"
+              className="search-input"
+              placeholder="Materiál, napr. TEST-MAT-001"
+              list="material-subscription-options"
+              value={subscriptionMaterialInput}
+              onChange={(event) => setSubscriptionMaterialInput(event.target.value)}
+              disabled={Boolean(materialSubscriptionSavingKey)}
+            />
+            <datalist id="material-subscription-options">
+              {availableMaterialSuggestions.map((materialCode) => (
+                <option key={materialCode} value={materialCode} />
+              ))}
+            </datalist>
+            <input
+              type="email"
+              className="search-input"
+              placeholder="Cieľový email"
+              value={subscriptionEmailInput}
+              onChange={(event) => setSubscriptionEmailInput(event.target.value)}
+              disabled={Boolean(materialSubscriptionSavingKey)}
+            />
+            <button type="submit" className="settings-btn" disabled={Boolean(materialSubscriptionSavingKey)}>
+              {materialSubscriptionSavingKey ? "Ukladám..." : "Pridať odber"}
+            </button>
+          </form>
+          {materialSubscriptions.length > 0 ? (
+            <div className="subscription-list-panel">
+              {materialSubscriptions.map((item) => (
+                <div key={item.id} className="subscription-card">
+                  <div>
+                    <strong>{item.material_code}</strong>
+                    <div className="subscription-hint">{item.email}</div>
+                  </div>
+                  <button
+                    type="button"
+                    className="clear-btn"
+                    onClick={() => handleMaterialSubscriptionDisable(item)}
+                    disabled={materialSubscriptionSavingKey === makeMaterialSubscriptionKey(item.company_id, item.material_code)}
+                  >
+                    Vypnúť
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="settings-hint">Zatiaľ nemáš nastavený žiadny odber materiálu.</p>
+          )}
         </section>
       )}
 
@@ -2520,6 +2758,7 @@ function App() {
 
         {loading && <p className="hint">Načítavam dáta...</p>}
         {error && <p className="error">{error}</p>}
+        {materialSubscriptionsError && selectedTable === "stock" && !isMaster && <p className="error">{materialSubscriptionsError}</p>}
 
         {!loading && !error && (
           <>

@@ -2,7 +2,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { useRef } from "react";
 import StatusPill from "./components/StatusPill";
-import { noStoreFetch, supabase, supabaseAnonKey, supabaseUrl, tableNames } from "./supabaseClient";
+import { clearSupabaseAuthStorage, noStoreFetch, supabase, supabaseAnonKey, supabaseUrl, tableNames } from "./supabaseClient";
 import logo from "../logo.png";
 
 const DAILY_OVERVIEW_TABLE = "__daily_overview__";
@@ -694,6 +694,15 @@ function App() {
     }
 
     setCompanies(data || []);
+  };
+
+  const recoverBrokenLocalAuthState = async () => {
+    clearSupabaseAuthStorage();
+    try {
+      await supabase.auth.signOut({ scope: "local" });
+    } catch {
+      // Ignore local cleanup failure; storage key removal is the main recovery path.
+    }
   };
 
   const loadMaterialSubscriptions = async () => {
@@ -1477,6 +1486,7 @@ function App() {
         if (!mounted) {
           return;
         }
+        await recoverBrokenLocalAuthState();
         setIsLoggedIn(false);
         setAuthUser(null);
         setUserRole("user");
@@ -1936,6 +1946,7 @@ function App() {
     }
 
     try {
+      clearSupabaseAuthStorage();
       await supabase.auth.signOut({ scope: "local" });
     } catch {
       // Ignore local sign-out cleanup failure before fresh login.

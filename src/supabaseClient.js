@@ -28,7 +28,19 @@ function makeAuthStorageKey(url) {
   return `wms-auth-${normalized || "default"}`;
 }
 
-const authStorageKey = makeAuthStorageKey(supabaseUrl);
+export const authStorageKey = makeAuthStorageKey(supabaseUrl);
+
+export function clearSupabaseAuthStorage() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.removeItem(authStorageKey);
+  } catch {
+    // Ignore storage cleanup failures.
+  }
+}
 
 export const tableName = import.meta.env.VITE_SUPABASE_TABLE || "events";
 export const tableNames = (

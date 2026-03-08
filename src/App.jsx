@@ -1427,6 +1427,9 @@ function App() {
   useEffect(() => {
     let mounted = true;
     let hydrationSequence = 0;
+    const clearInitTimeout = () => {
+      window.clearTimeout(initTimeout);
+    };
     const initTimeout = window.setTimeout(() => {
       if (!mounted) {
         return;
@@ -1444,6 +1447,7 @@ function App() {
         return;
       }
 
+      clearInitTimeout();
       setIsLoggedIn(Boolean(user));
       setAuthUser(user);
       if (!user) {
@@ -1495,6 +1499,7 @@ function App() {
         if (!mounted) {
           return;
         }
+        clearInitTimeout();
         if (isRecoverableAuthStateError(initError)) {
           await recoverBrokenLocalAuthState();
         }
@@ -1530,7 +1535,7 @@ function App() {
 
     return () => {
       mounted = false;
-      window.clearTimeout(initTimeout);
+      clearInitTimeout();
       subscription.unsubscribe();
     };
   }, []);

@@ -2224,7 +2224,7 @@ function App() {
         </section>
       )}
 
-      {selectedTable === "stock" && !isMaster && (
+      {selectedTable === "stock" && !isMaster && isMaterialSubscriptionOpen && (
         <section className="panel">
           <div className="panel-head">
             <div>
@@ -2232,58 +2232,54 @@ function App() {
               <p className="panel-meta">Email alerty pre vybrané materiály.</p>
             </div>
           </div>
-          {isMaterialSubscriptionOpen && (
-            <>
-              <form className="material-subscription-form" onSubmit={handleMaterialSubscriptionSave}>
-                <input
-                  type="text"
-                  className="search-input"
-                  placeholder="Materiál, napr. TEST-MAT-001"
-                  list="material-subscription-options"
-                  value={subscriptionMaterialInput}
-                  onChange={(event) => setSubscriptionMaterialInput(event.target.value)}
-                  disabled={Boolean(materialSubscriptionSavingKey)}
-                />
-                <datalist id="material-subscription-options">
-                  {availableMaterialSuggestions.map((materialCode) => (
-                    <option key={materialCode} value={materialCode} />
-                  ))}
-                </datalist>
-                <input
-                  type="email"
-                  className="search-input"
-                  placeholder="Cieľový email"
-                  value={subscriptionEmailInput}
-                  onChange={(event) => setSubscriptionEmailInput(event.target.value)}
-                  disabled={Boolean(materialSubscriptionSavingKey)}
-                />
-                <button type="submit" className="settings-btn" disabled={Boolean(materialSubscriptionSavingKey)}>
-                  {materialSubscriptionSavingKey ? "Ukladám..." : "Pridať odber"}
-                </button>
-              </form>
-              {materialSubscriptions.length > 0 ? (
-                <div className="subscription-list-panel">
-                  {materialSubscriptions.map((item) => (
-                    <div key={item.id} className="subscription-card">
-                      <div>
-                        <strong>{item.material_code}</strong>
-                        <div className="subscription-hint">{item.email}</div>
-                      </div>
-                      <button
-                        type="button"
-                        className="clear-btn"
-                        onClick={() => handleMaterialSubscriptionDisable(item)}
-                        disabled={materialSubscriptionSavingKey === makeMaterialSubscriptionKey(item.company_id, item.material_code)}
-                      >
-                        Vypnúť
-                      </button>
-                    </div>
-                  ))}
+          <form className="material-subscription-form" onSubmit={handleMaterialSubscriptionSave}>
+            <input
+              type="text"
+              className="search-input"
+              placeholder="Materiál, napr. TEST-MAT-001"
+              list="material-subscription-options"
+              value={subscriptionMaterialInput}
+              onChange={(event) => setSubscriptionMaterialInput(event.target.value)}
+              disabled={Boolean(materialSubscriptionSavingKey)}
+            />
+            <datalist id="material-subscription-options">
+              {availableMaterialSuggestions.map((materialCode) => (
+                <option key={materialCode} value={materialCode} />
+              ))}
+            </datalist>
+            <input
+              type="email"
+              className="search-input"
+              placeholder="Cieľový email"
+              value={subscriptionEmailInput}
+              onChange={(event) => setSubscriptionEmailInput(event.target.value)}
+              disabled={Boolean(materialSubscriptionSavingKey)}
+            />
+            <button type="submit" className="settings-btn" disabled={Boolean(materialSubscriptionSavingKey)}>
+              {materialSubscriptionSavingKey ? "Ukladám..." : "Pridať odber"}
+            </button>
+          </form>
+          {materialSubscriptions.length > 0 ? (
+            <div className="subscription-list-panel">
+              {materialSubscriptions.map((item) => (
+                <div key={item.id} className="subscription-card">
+                  <div>
+                    <strong>{item.material_code}</strong>
+                    <div className="subscription-hint">{item.email}</div>
+                  </div>
+                  <button
+                    type="button"
+                    className="clear-btn"
+                    onClick={() => handleMaterialSubscriptionDisable(item)}
+                    disabled={materialSubscriptionSavingKey === makeMaterialSubscriptionKey(item.company_id, item.material_code)}
+                  >
+                    Vypnúť
+                  </button>
                 </div>
-              ) : (
-                <p className="settings-hint">Zatiaľ nemáš nastavený žiadny odber materiálu.</p>
-              )}
-            </>
+              ))}
+            </div>
+          ) : (
+            <p className="settings-hint">Zatiaľ nemáš nastavený žiadny odber materiálu.</p>
           )}
         </section>
       )}

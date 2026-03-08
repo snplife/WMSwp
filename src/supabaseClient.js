@@ -37,6 +37,9 @@ export function clearSupabaseAuthStorage() {
 
   try {
     window.localStorage.removeItem(authStorageKey);
+    window.localStorage.removeItem(`${authStorageKey}-code-verifier`);
+    window.sessionStorage.removeItem(authStorageKey);
+    window.sessionStorage.removeItem(`${authStorageKey}-code-verifier`);
   } catch {
     // Ignore storage cleanup failures.
   }

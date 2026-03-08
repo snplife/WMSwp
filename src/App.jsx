@@ -89,7 +89,7 @@ const ENV_DEFAULT_MAX_POSITIONS = Math.max(1, Number(import.meta.env.VITE_MAX_PO
 const HISTORY_ANALYTICS_LOOKBACK_DAYS = Math.max(30, Number(import.meta.env.VITE_HISTORY_LOOKBACK_DAYS || 365));
 const AUTO_REFRESH_MS = Math.max(60 * 1000, Number(import.meta.env.VITE_AUTO_REFRESH_MS || 5 * 60 * 1000));
 const DAY_MS = 24 * 60 * 60 * 1000;
-const AUTH_INIT_TIMEOUT_MS = 5000;
+const AUTH_INIT_TIMEOUT_MS = 15000;
 const TRANSACTIONS_TABLE = (import.meta.env.VITE_TRANSACTIONS_TABLE || "stock_history").trim();
 const TRANSACTION_TABLE_ALIASES = Array.from(
   new Set([TRANSACTIONS_TABLE, "stock_history", "stock_transactions"].filter(Boolean))
@@ -263,6 +263,19 @@ function withTimeout(promise, timeoutMs, timeoutMessage) {
       window.setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
     })
   ]);
+}
+
+function isRecoverableAuthStateError(error) {
+  const message = String(error?.message || error || "").toLowerCase();
+  return [
+    "refresh token",
+    "invalid refresh token",
+    "jwt",
+    "session",
+    "storage",
+    "json",
+    "auth session missing"
+  ].some((fragment) => message.includes(fragment));
 }
 
 function decodeJwtClaims(accessToken) {
@@ -470,6 +483,7 @@ function App() {
   const [materialSubscriptionSavingKey, setMaterialSubscriptionSavingKey] = useState("");
   const [subscriptionMaterialInput, setSubscriptionMaterialInput] = useState("");
   const [subscriptionEmailInput, setSubscriptionEmailInput] = useState("");
+  const [isMaterialSubscriptionOpen, setIsMaterialSubscriptionOpen] = useState(false);
   const latestLoadRowsRequestRef = useRef(0);
 
   useEffect(() => {
@@ -1418,7 +1432,6 @@ function App() {
         return;
       }
       setAuthInitTimedOut(true);
-      setAuthReady(true);
       setAuthError((prev) => prev || "Auth init timeout. Skontroluj Vercel env a Supabase dostupnosť.");
     }, AUTH_INIT_TIMEOUT_MS);
 
@@ -1473,11 +1486,7 @@ function App() {
 
     const init = async () => {
       try {
-        const { data, error: sessionError } = await withTimeout(
-          supabase.auth.getSession(),
-          AUTH_INIT_TIMEOUT_MS,
-          "Auth session request timeout"
-        );
+        const { data, error: sessionError } = await supabase.auth.getSession();
         if (sessionError) {
           throw sessionError;
         }
@@ -1486,7 +1495,9 @@ function App() {
         if (!mounted) {
           return;
         }
-        await recoverBrokenLocalAuthState();
+        if (isRecoverableAuthStateError(initError)) {
+          await recoverBrokenLocalAuthState();
+        }
         setIsLoggedIn(false);
         setAuthUser(null);
         setUserRole("user");
@@ -1952,7 +1963,12 @@ function App() {
       // Ignore local sign-out cleanup failure before fresh login.
     }
 
-    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password: authPassword });
+    let { error: signInError } = await supabase.auth.signInWithPassword({ email, password: authPassword });
+
+    if (signInError && isRecoverableAuthStateError(signInError)) {
+      await recoverBrokenLocalAuthState();
+      ({ error: signInError } = await supabase.auth.signInWithPassword({ email, password: authPassword }));
+    }
 
     if (signInError) {
       setAuthError(signInError.message || "Prihlásenie zlyhalo. Skontroluj login a heslo.");
@@ -1997,6 +2013,7 @@ function App() {
       setMaterialSubscriptionsError("");
       setSubscriptionMaterialInput("");
       setSubscriptionEmailInput("");
+      setIsMaterialSubscriptionOpen(false);
       setSignOutSubmitting(false);
     }
   };
@@ -2195,58 +2212,69 @@ function App() {
         <section className="panel">
           <div className="panel-head">
             <div>
-              <h2>Email alerty na materiál</h2>
-              <p className="panel-meta">Zadaj materiál, ktorý chceš sledovať, a cieľový email.</p>
+              <h2>Sledovanie materiálu</h2>
+              <p className="panel-meta">Email alerty pre vybrané materiály.</p>
             </div>
-          </div>
-          <form className="material-subscription-form" onSubmit={handleMaterialSubscriptionSave}>
-            <input
-              type="text"
-              className="search-input"
-              placeholder="Materiál, napr. TEST-MAT-001"
-              list="material-subscription-options"
-              value={subscriptionMaterialInput}
-              onChange={(event) => setSubscriptionMaterialInput(event.target.value)}
-              disabled={Boolean(materialSubscriptionSavingKey)}
-            />
-            <datalist id="material-subscription-options">
-              {availableMaterialSuggestions.map((materialCode) => (
-                <option key={materialCode} value={materialCode} />
-              ))}
-            </datalist>
-            <input
-              type="email"
-              className="search-input"
-              placeholder="Cieľový email"
-              value={subscriptionEmailInput}
-              onChange={(event) => setSubscriptionEmailInput(event.target.value)}
-              disabled={Boolean(materialSubscriptionSavingKey)}
-            />
-            <button type="submit" className="settings-btn" disabled={Boolean(materialSubscriptionSavingKey)}>
-              {materialSubscriptionSavingKey ? "Ukladám..." : "Pridať odber"}
+            <button
+              type="button"
+              className="settings-btn"
+              onClick={() => setIsMaterialSubscriptionOpen((current) => !current)}
+            >
+              {isMaterialSubscriptionOpen ? "Skryť sledovanie" : "Sledovanie materiálu"}
             </button>
-          </form>
-          {materialSubscriptions.length > 0 ? (
-            <div className="subscription-list-panel">
-              {materialSubscriptions.map((item) => (
-                <div key={item.id} className="subscription-card">
-                  <div>
-                    <strong>{item.material_code}</strong>
-                    <div className="subscription-hint">{item.email}</div>
-                  </div>
-                  <button
-                    type="button"
-                    className="clear-btn"
-                    onClick={() => handleMaterialSubscriptionDisable(item)}
-                    disabled={materialSubscriptionSavingKey === makeMaterialSubscriptionKey(item.company_id, item.material_code)}
-                  >
-                    Vypnúť
-                  </button>
+          </div>
+          {isMaterialSubscriptionOpen && (
+            <>
+              <form className="material-subscription-form" onSubmit={handleMaterialSubscriptionSave}>
+                <input
+                  type="text"
+                  className="search-input"
+                  placeholder="Materiál, napr. TEST-MAT-001"
+                  list="material-subscription-options"
+                  value={subscriptionMaterialInput}
+                  onChange={(event) => setSubscriptionMaterialInput(event.target.value)}
+                  disabled={Boolean(materialSubscriptionSavingKey)}
+                />
+                <datalist id="material-subscription-options">
+                  {availableMaterialSuggestions.map((materialCode) => (
+                    <option key={materialCode} value={materialCode} />
+                  ))}
+                </datalist>
+                <input
+                  type="email"
+                  className="search-input"
+                  placeholder="Cieľový email"
+                  value={subscriptionEmailInput}
+                  onChange={(event) => setSubscriptionEmailInput(event.target.value)}
+                  disabled={Boolean(materialSubscriptionSavingKey)}
+                />
+                <button type="submit" className="settings-btn" disabled={Boolean(materialSubscriptionSavingKey)}>
+                  {materialSubscriptionSavingKey ? "Ukladám..." : "Pridať odber"}
+                </button>
+              </form>
+              {materialSubscriptions.length > 0 ? (
+                <div className="subscription-list-panel">
+                  {materialSubscriptions.map((item) => (
+                    <div key={item.id} className="subscription-card">
+                      <div>
+                        <strong>{item.material_code}</strong>
+                        <div className="subscription-hint">{item.email}</div>
+                      </div>
+                      <button
+                        type="button"
+                        className="clear-btn"
+                        onClick={() => handleMaterialSubscriptionDisable(item)}
+                        disabled={materialSubscriptionSavingKey === makeMaterialSubscriptionKey(item.company_id, item.material_code)}
+                      >
+                        Vypnúť
+                      </button>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          ) : (
-            <p className="settings-hint">Zatiaľ nemáš nastavený žiadny odber materiálu.</p>
+              ) : (
+                <p className="settings-hint">Zatiaľ nemáš nastavený žiadny odber materiálu.</p>
+              )}
+            </>
           )}
         </section>
       )}

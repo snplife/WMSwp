@@ -122,14 +122,14 @@ const LANDING_FAQ = [
       "Aplikácia zobrazuje stav skladu, online prehľad zásob, históriu pohybov, príjmy, výdaje, presuny, obsadenosť pozícií aj dead stock v jednom rozhraní."
   },
   {
-    question: "Je systém vhodný aj pre viac firiem alebo skladov?",
+    question: "Je systém vhodný pre výrobu aj logistiku?",
     answer:
-      "Áno. Riešenie už počíta s oddelením firiem, používateľských rolí a skladových dát, takže je vhodné aj pre multi-company nasadenie."
+      "Áno. Je vhodný pre interné sklady, výrobu aj logistiku, kde treba mať rýchly prehľad zásob a pohybov."
   },
   {
     question: "Dá sa WMS Online napojiť na existujúce procesy?",
     answer:
-      "Áno. Projekt je postavený ako webová aplikácia nad databázou Supabase a vie sa prispôsobiť interným skladovým procesom, QR štítkom aj lokátorom."
+      "Áno. Riešenie sa dá prispôsobiť interným skladovým procesom, QR štítkom aj lokátorom."
   }
 ];
 

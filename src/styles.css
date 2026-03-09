@@ -454,8 +454,16 @@ select {
 
 .daily-hour-bar-wrap {
   display: grid;
-  gap: 0.35rem;
+  gap: 0.25rem;
   justify-items: center;
+}
+
+.daily-hour-bar-track {
+  width: 100%;
+  height: 160px;
+  display: flex;
+  align-items: end;
+  border-bottom: 1px solid #d9e4ef;
 }
 
 .daily-hour-bar {
@@ -463,6 +471,12 @@ select {
   min-height: 0;
   border-radius: 999px 999px 0 0;
   background: linear-gradient(180deg, #5fa8ff 0%, #1e6fd9 100%);
+}
+
+.daily-hour-count {
+  font-size: 0.72rem;
+  color: #36526d;
+  line-height: 1;
 }
 
 .daily-hour-bar-wrap span {

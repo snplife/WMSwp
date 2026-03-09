@@ -3031,7 +3031,10 @@ function App() {
                   const height = bucket.count <= 0 ? "0%" : `${Math.max(10, scaledRatio * 100)}%`;
                   return (
                     <div key={bucket.hour} className="daily-hour-bar-wrap" title={`${String(bucket.hour).padStart(2, "0")}:00 - ${bucket.count} pohybov`}>
-                      <div className="daily-hour-bar" style={{ height }} />
+                      <div className="daily-hour-bar-track">
+                        <div className="daily-hour-bar" style={{ height }} />
+                      </div>
+                      <strong className="daily-hour-count">{bucket.count}</strong>
                       <span>{String(bucket.hour).padStart(2, "0")}</span>
                     </div>
                   );

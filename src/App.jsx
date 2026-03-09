@@ -280,6 +280,53 @@ function buildQrLabelsPrintHtml(codes) {
   </html>`;
 }
 
+function printQrLabels(codes) {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    throw new Error("Tlač QR štítkov je dostupná len v prehliadači.");
+  }
+
+  const frame = document.createElement("iframe");
+  frame.setAttribute("aria-hidden", "true");
+  frame.style.position = "fixed";
+  frame.style.right = "0";
+  frame.style.bottom = "0";
+  frame.style.width = "0";
+  frame.style.height = "0";
+  frame.style.border = "0";
+
+  const cleanup = () => {
+    window.setTimeout(() => {
+      frame.remove();
+    }, 1000);
+  };
+
+  frame.onload = () => {
+    const targetWindow = frame.contentWindow;
+    if (!targetWindow) {
+      cleanup();
+      return;
+    }
+
+    const handleAfterPrint = () => {
+      targetWindow.removeEventListener("afterprint", handleAfterPrint);
+      cleanup();
+    };
+
+    targetWindow.addEventListener("afterprint", handleAfterPrint);
+    window.setTimeout(() => {
+      try {
+        targetWindow.focus();
+        targetWindow.print();
+      } catch {
+        cleanup();
+      }
+    }, 150);
+  };
+
+  document.body.appendChild(frame);
+  frame.srcdoc = buildQrLabelsPrintHtml(codes);
+}
+
 function normalizeDeadStockDays(value) {
   const parsed = Number.parseInt(String(value), 10);
   if (!Number.isFinite(parsed)) {
@@ -2104,20 +2151,11 @@ function App() {
     }
 
     const codes = buildRackLocationCodes(prefix, rows, columns);
-    const printWindow = window.open("", "_blank", "noopener,noreferrer");
-
-    if (!printWindow) {
-      setQrGeneratorError("Nepodarilo sa otvoriť tlačové okno. Skontroluj blokovanie popup okien.");
-      return;
+    try {
+      printQrLabels(codes);
+    } catch (printError) {
+      setQrGeneratorError(printError?.message || "Nepodarilo sa pripraviť QR štítky na tlač.");
     }
-
-    printWindow.document.open();
-    printWindow.document.write(buildQrLabelsPrintHtml(codes));
-    printWindow.document.close();
-    printWindow.focus();
-    window.setTimeout(() => {
-      printWindow.print();
-    }, 350);
   };
 
   const handleSignIn = async (event) => {

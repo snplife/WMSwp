@@ -176,6 +176,19 @@ function buildQrImageUrl(value, size = 220) {
   return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(value)}`;
 }
 
+function resolvePrintableAssetUrl(assetUrl) {
+  const raw = String(assetUrl || "").trim();
+  if (!raw || typeof window === "undefined") {
+    return "";
+  }
+
+  try {
+    return new URL(raw, window.location.href).href;
+  } catch {
+    return raw;
+  }
+}
+
 function buildQrLabelsPrintHtml(codes, logoUrl) {
   const generatedAt = new Date().toLocaleString("sk-SK");
   const labelsHtml = codes
@@ -2208,7 +2221,7 @@ function App() {
 
     const codes = buildRackLocationCodes(prefix, rows, columns);
     try {
-      printQrLabels(codes, logo);
+      printQrLabels(codes, resolvePrintableAssetUrl(logo));
     } catch (printError) {
       setQrGeneratorError(printError?.message || "Nepodarilo sa pripraviť QR štítky na tlač.");
     }
@@ -2689,7 +2702,7 @@ function App() {
 
                 setQrGeneratorError("");
                 try {
-                  downloadQrLabelsHtml(buildRackLocationCodes(prefix, rows, columns), logo);
+                  downloadQrLabelsHtml(buildRackLocationCodes(prefix, rows, columns), resolvePrintableAssetUrl(logo));
                 } catch (downloadError) {
                   setQrGeneratorError(downloadError?.message || "Nepodarilo sa stiahnuť QR štítky.");
                 }

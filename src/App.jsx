@@ -78,11 +78,8 @@ const DEFAULT_CONFIG = {
 const ROLE_TABLE = (import.meta.env.VITE_USER_ROLES_TABLE || "app_users").trim();
 const MASTER_EMAIL = (import.meta.env.VITE_MASTER_EMAIL || "").trim().toLowerCase();
 const INTERNAL_LOGIN_DOMAIN = (import.meta.env.VITE_INTERNAL_LOGIN_DOMAIN || "wms.local").trim().toLowerCase();
-const APP_BUILD_ID = typeof __APP_BUILD_ID__ === "undefined" ? "dev" : String(__APP_BUILD_ID__);
 const DEFAULT_DB_URL = String(supabaseUrl || "").trim();
 const DEFAULT_DB_ANON_KEY = String(supabaseAnonKey || "").trim();
-const CACHE_BUILD_KEY = "wms_app_build_id";
-const CACHE_RELOAD_GUARD_KEY = "wms_app_build_reload_guard";
 const MIN_MANAGED_PASSWORD_LENGTH = 8;
 const ENV_DEFAULT_DEAD_STOCK_DAYS = Math.max(1, Number(import.meta.env.VITE_DEAD_STOCK_DAYS || 30));
 const ENV_DEFAULT_MAX_POSITIONS = Math.max(1, Number(import.meta.env.VITE_MAX_POSITIONS || 100));
@@ -627,34 +624,6 @@ function App() {
   const [subscriptionEmailInput, setSubscriptionEmailInput] = useState("");
   const [isMaterialSubscriptionOpen, setIsMaterialSubscriptionOpen] = useState(false);
   const latestLoadRowsRequestRef = useRef(0);
-
-  useEffect(() => {
-    try {
-      const previousBuildId = window.localStorage.getItem(CACHE_BUILD_KEY);
-      const reloadGuard = window.sessionStorage.getItem(CACHE_RELOAD_GUARD_KEY);
-
-      if (previousBuildId && previousBuildId !== APP_BUILD_ID && reloadGuard !== APP_BUILD_ID) {
-        window.localStorage.setItem(CACHE_BUILD_KEY, APP_BUILD_ID);
-        window.sessionStorage.setItem(CACHE_RELOAD_GUARD_KEY, APP_BUILD_ID);
-        if ("serviceWorker" in navigator) {
-          navigator.serviceWorker.getRegistrations().then((registrations) => {
-            registrations.forEach((registration) => registration.unregister());
-          });
-        }
-        const url = new URL(window.location.href);
-        url.searchParams.set("v", APP_BUILD_ID);
-        window.location.replace(url.toString());
-        return;
-      }
-
-      window.localStorage.setItem(CACHE_BUILD_KEY, APP_BUILD_ID);
-      if (reloadGuard === APP_BUILD_ID) {
-        window.sessionStorage.removeItem(CACHE_RELOAD_GUARD_KEY);
-      }
-    } catch {
-      // Ignore storage errors and continue app initialization.
-    }
-  }, []);
 
   const tableConfig = getTableConfig(selectedTable);
   const isMaster = userRole === "master";
@@ -1590,6 +1559,7 @@ function App() {
       }
 
       clearInitTimeout();
+      setAuthError("");
       setIsLoggedIn(Boolean(user));
       setAuthUser(user);
       if (!user) {
@@ -1598,32 +1568,47 @@ function App() {
         setUserCompanyId(null);
         setSelectedCompanyId("all");
       } else {
+        const fallbackUsername = usernameFromInternalEmail(user.email);
         const claimedRoleRaw = String(jwtClaims?.app_role || "").toLowerCase();
         const claimedRole = claimedRoleRaw === "master" ? "master" : "";
         const claimedCompanyId = String(jwtClaims?.company_id || "").trim() || null;
-        const [resolvedRole, dbMasterFlag, companyFromRpc] = await Promise.all([
-          resolveUserRole(user),
-          fetchDbMasterFlagViaRpc(user.id),
-          fetchOwnCompanyIdViaRpc(user.id)
-        ]);
-        if (!mounted || currentHydrationId !== hydrationSequence) {
-          return;
+
+        setUserRole(claimedRole || "user");
+        setAuthUsername(String(fallbackUsername || ""));
+        setUserCompanyId(claimedCompanyId);
+        if (claimedRole !== "master") {
+          setSelectedCompanyId(claimedCompanyId || "");
         }
-        const role = claimedRole || (resolvedRole === "master" || dbMasterFlag ? "master" : "user");
-        setUserRole(role);
-        if (role === "master") {
-          await ensureOwnRoleRow(user, role);
-        }
-        const ownRow = await fetchOwnRoleRow(user.id);
-        if (!mounted || currentHydrationId !== hydrationSequence) {
-          return;
-        }
-        const fallbackUsername = usernameFromInternalEmail(user.email);
-        setAuthUsername(String(ownRow?.username || usernameFromInternalEmail(ownRow?.email) || fallbackUsername || ""));
-        const resolvedCompanyId = claimedCompanyId || ownRow?.company_id || companyFromRpc || null;
-        setUserCompanyId(resolvedCompanyId);
-        if (role !== "master") {
-          setSelectedCompanyId(resolvedCompanyId || "");
+
+        try {
+          const [resolvedRole, dbMasterFlag, companyFromRpc] = await Promise.all([
+            resolveUserRole(user),
+            fetchDbMasterFlagViaRpc(user.id),
+            fetchOwnCompanyIdViaRpc(user.id)
+          ]);
+          if (!mounted || currentHydrationId !== hydrationSequence) {
+            return;
+          }
+          const role = claimedRole || (resolvedRole === "master" || dbMasterFlag ? "master" : "user");
+          setUserRole(role);
+          if (role === "master") {
+            await ensureOwnRoleRow(user, role);
+          }
+          const ownRow = await fetchOwnRoleRow(user.id);
+          if (!mounted || currentHydrationId !== hydrationSequence) {
+            return;
+          }
+          setAuthUsername(String(ownRow?.username || usernameFromInternalEmail(ownRow?.email) || fallbackUsername || ""));
+          const resolvedCompanyId = claimedCompanyId || ownRow?.company_id || companyFromRpc || null;
+          setUserCompanyId(resolvedCompanyId);
+          if (role !== "master") {
+            setSelectedCompanyId(resolvedCompanyId || "");
+          }
+        } catch (profileError) {
+          if (!mounted || currentHydrationId !== hydrationSequence) {
+            return;
+          }
+          setAuthError((prev) => prev || `Profil sa načítal len čiastočne: ${profileError?.message || "neznáma chyba"}`);
         }
       }
       setAuthReady(true);
@@ -1663,16 +1648,19 @@ function App() {
 
     const {
       data: { subscription }
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
-      try {
-        await hydrateFromSession(session || null);
-      } catch (stateError) {
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      window.setTimeout(() => {
         if (!mounted) {
           return;
         }
-        setAuthReady(true);
-        setAuthError(`Auth state error: ${stateError?.message || "neznáma chyba"}`);
-      }
+        hydrateFromSession(session || null).catch((stateError) => {
+          if (!mounted) {
+            return;
+          }
+          setAuthReady(true);
+          setAuthError(`Auth state error: ${stateError?.message || "neznáma chyba"}`);
+        });
+      }, 0);
     });
 
     return () => {

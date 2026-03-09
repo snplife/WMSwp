@@ -28,7 +28,18 @@ function makeAuthStorageKey(url) {
   return `wms-auth-${normalized || "default"}`;
 }
 
+function makeLegacySupabaseStorageKey(url) {
+  try {
+    const hostname = new URL(String(url || "")).hostname || "";
+    const projectRef = hostname.split(".")[0] || "";
+    return projectRef ? `sb-${projectRef}-auth-token` : "";
+  } catch {
+    return "";
+  }
+}
+
 export const authStorageKey = makeAuthStorageKey(supabaseUrl);
+export const legacyAuthStorageKey = makeLegacySupabaseStorageKey(supabaseUrl);
 
 export function clearSupabaseAuthStorage() {
   if (typeof window === "undefined") {
@@ -36,10 +47,17 @@ export function clearSupabaseAuthStorage() {
   }
 
   try {
-    window.localStorage.removeItem(authStorageKey);
-    window.localStorage.removeItem(`${authStorageKey}-code-verifier`);
-    window.sessionStorage.removeItem(authStorageKey);
-    window.sessionStorage.removeItem(`${authStorageKey}-code-verifier`);
+    const keysToClear = [
+      authStorageKey,
+      `${authStorageKey}-code-verifier`,
+      legacyAuthStorageKey,
+      legacyAuthStorageKey ? `${legacyAuthStorageKey}-code-verifier` : ""
+    ].filter(Boolean);
+
+    for (const key of keysToClear) {
+      window.localStorage.removeItem(key);
+      window.sessionStorage.removeItem(key);
+    }
   } catch {
     // Ignore storage cleanup failures.
   }

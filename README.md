@@ -14,6 +14,7 @@ Create `.env.local` from `.env.example` and fill values:
 
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
+- `VITE_SITE_URL` (optional, canonical/OG URL for SEO)
 - `VITE_SUPABASE_TABLES` (comma-separated, example: `stock,stock_history`)
 - `VITE_USER_ROLES_TABLE` (optional, default `app_users`)
 - `VITE_MASTER_EMAIL` (optional, this email is always treated as `master`)

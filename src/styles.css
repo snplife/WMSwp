@@ -921,6 +921,13 @@ tbody tr:nth-child(even) {
   gap: 1rem;
 }
 
+.landing-supporting {
+  margin-top: 1rem;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
 .landing-card {
   background: rgba(255, 255, 255, 0.93);
   border: 1px solid #dde7f3;
@@ -972,6 +979,44 @@ tbody tr:nth-child(even) {
 .landing-note p {
   margin: 0.45rem 0 0;
   color: #42586f;
+}
+
+.seo-section h2 {
+  margin: 0 0 0.7rem;
+}
+
+.seo-section p {
+  margin: 0;
+  color: #42586f;
+  line-height: 1.65;
+}
+
+.seo-list {
+  margin: 0;
+}
+
+.faq-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.faq-item {
+  border: 1px solid #e1eaf4;
+  border-radius: 14px;
+  background: #ffffff;
+  padding: 0.8rem 0.9rem;
+}
+
+.faq-item summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: #243548;
+}
+
+.faq-item p {
+  margin: 0.6rem 0 0;
+  color: #55687c;
+  line-height: 1.6;
 }
 
 .login-card {
@@ -1041,6 +1086,10 @@ tbody tr:nth-child(even) {
   }
 
   .landing-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .landing-supporting {
     grid-template-columns: 1fr;
   }
 

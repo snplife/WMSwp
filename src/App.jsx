@@ -98,10 +98,39 @@ const OCCUPANCY_RANGE_CONFIG = {
   month: { label: "Mesiac", bucketMs: 24 * 60 * 60 * 1000, points: 30 }
 };
 const LANDING_FEATURES = [
-  "Online prehľad zásob a pohybov v reálnom čase",
-  "Rýchly export dát do Excelu pre operatívu",
-  "Filter podľa akcie, pozície a materiálu",
-  "Napojenie na Traktile lokátory pre sledovanie presunov"
+  "Skladový monitoring a prehľad zásob v reálnom čase",
+  "Evidencia skladových pohybov podľa akcie, pozície a materiálu",
+  "Dead stock, obsadenosť skladu a rýchly export dát do Excelu",
+  "QR štítky a napojenie na Traktile lokátory pre sledovanie presunov"
+];
+const SITE_NAME = "WMS Online";
+const DEFAULT_SITE_URL = String(import.meta.env.VITE_SITE_URL || "")
+  .trim()
+  .replace(/\/+$/, "");
+const LANDING_TITLE = `${SITE_NAME} | Skladový monitoring a online prehľad zásob`;
+const LANDING_DESCRIPTION =
+  "Skladový monitoring, online prehľad zásob a evidencia skladových pohybov v reálnom čase pre výrobu, logistiku a interné sklady.";
+const LANDING_USE_CASES = [
+  "Sklady a logistické tímy, ktoré potrebujú online prehľad zásob podľa pozície a materiálu.",
+  "Výrobné prevádzky, ktoré chcú mať evidenciu skladových pohybov bez ručných Excel reportov.",
+  "Manažéri, ktorí potrebujú rýchlo vidieť dead stock, obsadenosť skladu a denný pohyb materiálu."
+];
+const LANDING_FAQ = [
+  {
+    question: "Čo dokáže WMS Online sledovať?",
+    answer:
+      "Aplikácia zobrazuje stav skladu, online prehľad zásob, históriu pohybov, príjmy, výdaje, presuny, obsadenosť pozícií aj dead stock v jednom rozhraní."
+  },
+  {
+    question: "Je systém vhodný aj pre viac firiem alebo skladov?",
+    answer:
+      "Áno. Riešenie už počíta s oddelením firiem, používateľských rolí a skladových dát, takže je vhodné aj pre multi-company nasadenie."
+  },
+  {
+    question: "Dá sa WMS Online napojiť na existujúce procesy?",
+    answer:
+      "Áno. Projekt je postavený ako webová aplikácia nad databázou Supabase a vie sa prispôsobiť interným skladovým procesom, QR štítkom aj lokátorom."
+  }
 ];
 
 function getTableConfig(table) {
@@ -516,6 +545,44 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function resolveSiteUrl() {
+  if (DEFAULT_SITE_URL) {
+    return DEFAULT_SITE_URL;
+  }
+  if (typeof window !== "undefined") {
+    return window.location.origin;
+  }
+  return "";
+}
+
+function upsertMetaTag(attributeName, attributeValue, content) {
+  if (typeof document === "undefined") {
+    return;
+  }
+
+  let tag = document.head.querySelector(`meta[${attributeName}="${attributeValue}"]`);
+  if (!tag) {
+    tag = document.createElement("meta");
+    tag.setAttribute(attributeName, attributeValue);
+    document.head.appendChild(tag);
+  }
+  tag.setAttribute("content", content);
+}
+
+function upsertLinkTag(rel, href) {
+  if (typeof document === "undefined") {
+    return;
+  }
+
+  let tag = document.head.querySelector(`link[rel="${rel}"]`);
+  if (!tag) {
+    tag = document.createElement("link");
+    tag.setAttribute("rel", rel);
+    document.head.appendChild(tag);
+  }
+  tag.setAttribute("href", href);
 }
 
 function withTimeout(promise, timeoutMs, timeoutMessage) {
@@ -2304,6 +2371,32 @@ function App() {
     return companyNameById[userCompanyId] || "Bez firmy";
   }, [isMaster, selectedCompanyId, companyNameById, userCompanyId]);
 
+  useEffect(() => {
+    const siteUrl = resolveSiteUrl();
+    const canonicalUrl = siteUrl ? `${siteUrl}/` : "/";
+    const publicView = !isLoggedIn;
+    const pendingAuthCheck = !authReady && !authInitTimedOut;
+    const pageTitle = pendingAuthCheck ? `Overenie relácie | ${SITE_NAME}` : publicView ? LANDING_TITLE : `${tableConfig.title} | ${SITE_NAME}`;
+    const pageDescription = publicView
+      ? LANDING_DESCRIPTION
+      : `${tableConfig.subtitle}. Interná WMS aplikácia pre monitoring zásob, pohybov a kapacity skladu.`;
+    const robotsDirective = publicView && !pendingAuthCheck ? "index, follow" : "noindex, nofollow";
+    const shareImage = siteUrl ? `${siteUrl}/logo.png` : "/logo.png";
+
+    document.title = pageTitle;
+    upsertMetaTag("name", "description", pageDescription);
+    upsertMetaTag("name", "robots", robotsDirective);
+    upsertMetaTag("property", "og:title", pageTitle);
+    upsertMetaTag("property", "og:description", pageDescription);
+    upsertMetaTag("property", "og:type", "website");
+    upsertMetaTag("property", "og:url", canonicalUrl);
+    upsertMetaTag("property", "og:image", shareImage);
+    upsertMetaTag("name", "twitter:title", pageTitle);
+    upsertMetaTag("name", "twitter:description", pageDescription);
+    upsertMetaTag("name", "twitter:image", shareImage);
+    upsertLinkTag("canonical", canonicalUrl);
+  }, [authReady, authInitTimedOut, isLoggedIn, tableConfig.title, tableConfig.subtitle]);
+
   const togglePositionExpanded = (position) => {
     setExpandedPositions((prev) => ({ ...prev, [position]: !prev[position] }));
   };
@@ -2475,9 +2568,10 @@ function App() {
           <article className="landing-card">
             <img src={logo} alt="WMS Online" className="landing-logo" />
             <p className="landing-tag">WMS Online</p>
-            <h1>Moderný skladový monitoring na jednom mieste</h1>
+            <h1>Skladový monitoring a online prehľad zásob na jednom mieste</h1>
             <p className="subtitle">
-              Sleduj zásoby, príjmy, výdaje a presuny v jednej aplikácii s okamžitou aktualizáciou dát.
+              Sleduj zásoby, evidenciu skladových pohybov, príjmy, výdaje a presuny v jednej aplikácii s okamžitou
+              aktualizáciou dát.
             </p>
 
             <ul className="landing-list">
@@ -2529,6 +2623,35 @@ function App() {
             </form>
             {authError && <p className="error">{authError}</p>}
           </section>
+        </section>
+        <section className="landing-supporting" aria-label="Informácie o riešení WMS Online">
+          <article className="landing-card seo-section">
+            <h2>Skladový monitoring a evidencia skladových pohybov</h2>
+            <p>
+              WMS Online pomáha sledovať skladové zásoby, pohyby materiálu a obsadenosť pozícií v reálnom čase. Je
+              vhodný pre firmy, ktoré chcú mať online prehľad zásob, znížiť manuálne reportovanie a zrýchliť prácu
+              operatívy aj manažmentu.
+            </p>
+          </article>
+          <article className="landing-card seo-section">
+            <h2>Pre koho je skladový monitoring vhodný</h2>
+            <ul className="landing-list seo-list">
+              {LANDING_USE_CASES.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </article>
+          <article className="landing-card seo-section">
+            <h2>Časté otázky</h2>
+            <div className="faq-list">
+              {LANDING_FAQ.map((item) => (
+                <details key={item.question} className="faq-item">
+                  <summary>{item.question}</summary>
+                  <p>{item.answer}</p>
+                </details>
+              ))}
+            </div>
+          </article>
         </section>
       </main>
     );

@@ -176,13 +176,20 @@ function buildQrImageUrl(value, size = 220) {
   return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(value)}`;
 }
 
-function buildQrLabelsPrintHtml(codes) {
+function buildQrLabelsPrintHtml(codes, logoUrl) {
   const generatedAt = new Date().toLocaleString("sk-SK");
   const labelsHtml = codes
     .map(
       (code) => `
         <article class="label">
-          <img src="${buildQrImageUrl(code)}" alt="QR ${escapeHtml(code)}" />
+          <div class="qr-wrap">
+            <img class="qr-image" src="${buildQrImageUrl(code)}" alt="QR ${escapeHtml(code)}" />
+            ${
+              logoUrl
+                ? `<span class="qr-logo-badge"><img class="qr-logo" src="${escapeHtml(logoUrl)}" alt="Logo" /></span>`
+                : ""
+            }
+          </div>
           <strong>${escapeHtml(code)}</strong>
         </article>
       `
@@ -251,9 +258,38 @@ function buildQrLabelsPrintHtml(codes) {
           page-break-inside: avoid;
         }
 
-        .label img {
+        .qr-wrap {
+          position: relative;
           width: 24mm;
           height: 24mm;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .qr-image {
+          width: 24mm;
+          height: 24mm;
+          display: block;
+        }
+
+        .qr-logo-badge {
+          position: absolute;
+          width: 7mm;
+          height: 7mm;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: #ffffff;
+          border-radius: 1.6mm;
+          padding: 0.7mm;
+          box-shadow: 0 0 0 0.6mm #ffffff;
+        }
+
+        .qr-logo {
+          width: 100%;
+          height: 100%;
+          object-fit: contain;
           display: block;
         }
 
@@ -280,7 +316,7 @@ function buildQrLabelsPrintHtml(codes) {
   </html>`;
 }
 
-function printQrLabels(codes) {
+function printQrLabels(codes, logoUrl) {
   if (typeof window === "undefined" || typeof document === "undefined") {
     throw new Error("Tlač QR štítkov je dostupná len v prehliadači.");
   }
@@ -324,7 +360,27 @@ function printQrLabels(codes) {
   };
 
   document.body.appendChild(frame);
-  frame.srcdoc = buildQrLabelsPrintHtml(codes);
+  frame.srcdoc = buildQrLabelsPrintHtml(codes, logoUrl);
+}
+
+function downloadQrLabelsHtml(codes, logoUrl) {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    throw new Error("Export QR štítkov je dostupný len v prehliadači.");
+  }
+
+  const html = buildQrLabelsPrintHtml(codes, logoUrl);
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const timestamp = new Date().toISOString().slice(0, 10);
+  link.href = url;
+  link.download = `qr-labels-${timestamp}.html`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => {
+    URL.revokeObjectURL(url);
+  }, 1000);
 }
 
 function normalizeDeadStockDays(value) {
@@ -2152,7 +2208,7 @@ function App() {
 
     const codes = buildRackLocationCodes(prefix, rows, columns);
     try {
-      printQrLabels(codes);
+      printQrLabels(codes, logo);
     } catch (printError) {
       setQrGeneratorError(printError?.message || "Nepodarilo sa pripraviť QR štítky na tlač.");
     }
@@ -2604,6 +2660,42 @@ function App() {
             />
             <button type="submit" className="settings-btn">
               Generovať QR PDF
+            </button>
+            <button
+              type="button"
+              className="refresh-btn"
+              onClick={() => {
+                const prefix = String(qrRackPrefix || "")
+                  .trim()
+                  .toUpperCase()
+                  .replace(/[^A-Z0-9]/g, "");
+                const rows = Number.parseInt(String(qrRowCount || "0"), 10);
+                const columns = Number.parseInt(String(qrColumnCount || "0"), 10);
+
+                if (!prefix) {
+                  setQrGeneratorError("Zadaj názov regálu, napr. A.");
+                  return;
+                }
+
+                if (!Number.isFinite(rows) || rows < 1) {
+                  setQrGeneratorError("Počet riadkov musí byť aspoň 1.");
+                  return;
+                }
+
+                if (!Number.isFinite(columns) || columns < 1) {
+                  setQrGeneratorError("Počet stĺpcov musí byť aspoň 1.");
+                  return;
+                }
+
+                setQrGeneratorError("");
+                try {
+                  downloadQrLabelsHtml(buildRackLocationCodes(prefix, rows, columns), logo);
+                } catch (downloadError) {
+                  setQrGeneratorError(downloadError?.message || "Nepodarilo sa stiahnuť QR štítky.");
+                }
+              }}
+            >
+              Stiahnuť HTML
             </button>
           </form>
           <p className="settings-hint">

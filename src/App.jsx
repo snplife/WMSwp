@@ -684,6 +684,7 @@ function App() {
   const [expandedPositions, setExpandedPositions] = useState({});
   const [deadStockByKey, setDeadStockByKey] = useState({});
   const [stockAgeStats, setStockAgeStats] = useState({ avgDays: null, sampleCount: 0 });
+  const [stockSnapshotRows, setStockSnapshotRows] = useState([]);
   const [showDeadStockOnly, setShowDeadStockOnly] = useState(false);
   const [deadStockDays, setDeadStockDays] = useState(() => {
     const saved = window.localStorage.getItem("wms_dead_stock_days");
@@ -1537,7 +1538,19 @@ function App() {
       }
       setRows(data || []);
 
-      if (sourceTable !== "stock") {
+      const stockRows =
+        sourceTable === "stock"
+          ? data || []
+          : await fetchAllRows("stock", getTableConfig("stock"), {
+              scopedCompanyId,
+              selectClause: "company_id,position,material_code,quantity"
+            });
+      if (!isLatestRequest()) {
+        return;
+      }
+      setStockSnapshotRows(stockRows || []);
+
+      if (sourceTable !== "stock" && !isDailyOverviewTable(table)) {
         setDeadStockByKey({});
         setStockAgeStats({ avgDays: null, sampleCount: 0 });
         setOccupancySeries([]);
@@ -1590,7 +1603,7 @@ function App() {
       const deadMap = {};
       let ageTotalMs = 0;
       let ageSamples = 0;
-      for (const stockRow of data || []) {
+      for (const stockRow of stockRows || []) {
         const quantity = Number(stockRow.quantity || 0);
         if (!(quantity > 0)) {
           continue;
@@ -1640,6 +1653,7 @@ function App() {
       const loadErrorMessage = queryError?.message || "Nepodarilo sa načítať dáta.";
       setError(loadErrorMessage);
       setRows([]);
+      setStockSnapshotRows([]);
       setDeadStockByKey({});
       setStockAgeStats({ avgDays: null, sampleCount: 0 });
       setOccupancySeries([]);
@@ -1796,6 +1810,7 @@ function App() {
 
     if (!isLoggedIn) {
       setRows([]);
+      setStockSnapshotRows([]);
       setLoading(false);
       return undefined;
     }
@@ -2035,11 +2050,12 @@ function App() {
     return usage;
   }, [rows, selectedTable, isMaster, selectedCompanyId, companyNameById]);
   const occupiedPositions = useMemo(() => {
-    if (selectedTable !== "stock") {
+    const sourceRows = selectedTable === "stock" ? rows : isDailyOverviewTable(selectedTable) ? stockSnapshotRows : [];
+    if (sourceRows.length === 0) {
       return 0;
     }
     return new Set(
-      rows
+      sourceRows
         .map((row) => {
           const position = String(row.position || "").trim();
           if (!position) {
@@ -2049,7 +2065,7 @@ function App() {
         })
         .filter(Boolean)
     ).size;
-  }, [rows, selectedTable, isMaster, selectedCompanyId]);
+  }, [rows, stockSnapshotRows, selectedTable, isMaster, selectedCompanyId]);
   const freePositions = useMemo(
     () => Math.max(0, effectiveMaxPositions - occupiedPositions),
     [effectiveMaxPositions, occupiedPositions]

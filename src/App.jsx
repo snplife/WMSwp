@@ -2973,7 +2973,7 @@ function App() {
             <p className="occupancy-meta">{`Vzorka: ${stockAgeStats.sampleCount} položiek`}</p>
           </article>
         )}
-        {selectedTable === "stock" && (
+        {isDailyOverviewTable(selectedTable) && (
           <article className={`card occupancy-${occupancyLevel}`}>
             <p>Zaplnenie skladu</p>
             <strong className={`occupancy-value occupancy-value-${occupancyLevel}`}>
@@ -3037,7 +3037,7 @@ function App() {
         </section>
       )}
 
-      {selectedTable === "stock" && !isMaster && (
+      {isDailyOverviewTable(selectedTable) && !isMaster && (
         <section className="panel">
           <div className="panel-head">
             <div>

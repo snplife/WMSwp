@@ -809,7 +809,7 @@ function App() {
     const users = Math.max(1, normalizePositiveInt(pricingUserCount, 1));
     const warehouses = Math.max(1, normalizePositiveInt(pricingWarehouseCount, 1));
 
-    let monthly = 119;
+    let monthly = 90;
     let setup = 900;
 
     if (employees >= 150) {
@@ -2878,7 +2878,7 @@ function App() {
               </article>
               <article className="card">
                 <p>Mesačne</p>
-                <strong>{new Intl.NumberFormat("sk-SK").format(pricingEstimate.monthly)} EUR</strong>
+                <strong>{`od ${new Intl.NumberFormat("sk-SK").format(pricingEstimate.monthly)} EUR`}</strong>
               </article>
               <article className="card">
                 <p>Ročne vopred</p>

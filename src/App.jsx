@@ -492,6 +492,14 @@ function formatCell(value, kind) {
     return formatDate(value);
   }
 
+  if (kind === "date") {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      return String(value);
+    }
+    return parsed.toLocaleDateString("sk-SK");
+  }
+
   return String(value);
 }
 
@@ -780,6 +788,25 @@ function App() {
     () => companies.find((company) => company.id === activeCompanyId) || null,
     [companies, activeCompanyId]
   );
+  const showsExpiryDate = selectedTable === "stock" && Boolean(activeCompany?.tracks_expiry_date);
+  const effectiveTableConfig = useMemo(() => {
+    if (!showsExpiryDate) {
+      return tableConfig;
+    }
+
+    if (selectedTable !== "stock") {
+      return tableConfig;
+    }
+
+    return {
+      ...tableConfig,
+      columns: [
+        ...tableConfig.columns,
+        { label: "Dátum spotreby", keys: ["expiry_date"], kind: "date" }
+      ],
+      searchKeys: [...tableConfig.searchKeys, "expiry_date"]
+    };
+  }, [tableConfig, selectedTable, showsExpiryDate]);
   const materialSubscriptionsByKey = useMemo(() => {
     const grouped = {};
     for (const item of materialSubscriptions) {
@@ -1616,11 +1643,12 @@ function App() {
 
       const sourceTable = isDailyOverviewTable(table) ? TRANSACTIONS_TABLE : table;
       const config = getTableConfig(table);
+      const stockSelectClause = `company_id,position,material_code,quantity${showsExpiryDate ? ",expiry_date" : ""}`;
       const data =
         sourceTable === "stock"
           ? await fetchAllRows(sourceTable, config, {
               scopedCompanyId,
-              selectClause: "company_id,position,material_code,quantity"
+              selectClause: stockSelectClause
             })
           : await fetchAllRows(sourceTable, config, {
               scopedCompanyId,
@@ -1636,7 +1664,7 @@ function App() {
           ? data || []
           : await fetchAllRows("stock", getTableConfig("stock"), {
               scopedCompanyId,
-              selectClause: "company_id,position,material_code,quantity"
+              selectClause: stockSelectClause
             });
       if (!isLatestRequest()) {
         return;
@@ -1934,7 +1962,7 @@ function App() {
       }
       supabase.removeChannel(channel);
     };
-  }, [selectedTable, isLoggedIn, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id, occupancyChartRange, effectiveMaxPositions]);
+  }, [selectedTable, isLoggedIn, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id, occupancyChartRange, effectiveMaxPositions, activeCompany?.tracks_expiry_date]);
 
   useEffect(() => {
     if (!authReady || !isLoggedIn) {
@@ -1948,7 +1976,7 @@ function App() {
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [isLoggedIn, selectedTable, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id, occupancyChartRange, effectiveMaxPositions]);
+  }, [isLoggedIn, selectedTable, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id, occupancyChartRange, effectiveMaxPositions, activeCompany?.tracks_expiry_date]);
 
   useEffect(() => {
     if (!authReady || !isLoggedIn) {
@@ -1975,19 +2003,19 @@ function App() {
   }, [visibleTableNames, selectedTable]);
 
   const statuses = useMemo(() => {
-    if (tableConfig.statusKeys.length === 0) {
+    if (effectiveTableConfig.statusKeys.length === 0) {
       return ["all"];
     }
 
     const unique = new Set(
       rows
-        .map((row) => pickValue(row, tableConfig.statusKeys))
+        .map((row) => pickValue(row, effectiveTableConfig.statusKeys))
         .filter(Boolean)
         .map((value) => String(value).toLowerCase())
     );
 
     return ["all", ...Array.from(unique)];
-  }, [rows, tableConfig.statusKeys]);
+  }, [rows, effectiveTableConfig.statusKeys]);
 
   const filteredRows = useMemo(() => {
     const normalizedTerm = searchTerm.trim().toLowerCase();
@@ -2003,7 +2031,7 @@ function App() {
 
       const matchesStatus =
         statusFilter === "all" ||
-        String(pickValue(row, tableConfig.statusKeys) || "").toLowerCase() === statusFilter;
+        String(pickValue(row, effectiveTableConfig.statusKeys) || "").toLowerCase() === statusFilter;
 
       if (!matchesStatus) {
         return false;
@@ -2014,9 +2042,9 @@ function App() {
       }
 
       const searchKeys =
-        tableConfig.searchKeys && tableConfig.searchKeys.length > 0
-          ? tableConfig.searchKeys
-          : tableConfig.columns.flatMap((column) => column.keys);
+        effectiveTableConfig.searchKeys && effectiveTableConfig.searchKeys.length > 0
+          ? effectiveTableConfig.searchKeys
+          : effectiveTableConfig.columns.flatMap((column) => column.keys);
 
       return searchKeys.some((key) => {
         const rawValue = String(row[key] ?? "");
@@ -2036,16 +2064,16 @@ function App() {
   }, [rows, statusFilter, searchTerm, tableConfig, selectedTable, showDeadStockOnly, deadStockByKey]);
 
   const lastTimestamp = useMemo(() => {
-    if (tableConfig.timeKeys.length === 0) {
+    if (effectiveTableConfig.timeKeys.length === 0) {
       return "-";
     }
 
     const candidate = rows
-      .map((row) => pickValue(row, tableConfig.timeKeys))
+      .map((row) => pickValue(row, effectiveTableConfig.timeKeys))
       .find((value) => value !== null && value !== undefined);
 
     return candidate ? formatDate(candidate) : "-";
-  }, [rows, tableConfig.timeKeys]);
+  }, [rows, effectiveTableConfig.timeKeys]);
 
   useEffect(() => {
     setCompanySettingsError("");
@@ -2084,7 +2112,7 @@ function App() {
     });
   }, [managedUsers, masterUserSearch, masterUserCompanyFilter, companyNameById]);
 
-  const metricValue = useMemo(() => tableConfig.metricValue(rows), [rows, tableConfig]);
+  const metricValue = useMemo(() => effectiveTableConfig.metricValue(rows), [rows, effectiveTableConfig]);
   const issueCount = useMemo(() => {
     if (!isTransactionsTable(selectedTable)) {
       return 0;
@@ -2281,10 +2309,10 @@ function App() {
   };
 
   const exportToExcel = () => {
-    const headers = tableConfig.columns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join("");
+    const headers = effectiveTableConfig.columns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join("");
     const body = filteredRows
       .map((row) => {
-        const cols = tableConfig.columns
+        const cols = effectiveTableConfig.columns
           .map((column) => {
             const value = pickValue(row, column.keys);
             const text = column.kind === "status" ? String(value || "neznáme") : formatCell(value, column.kind);
@@ -3153,7 +3181,7 @@ function App() {
         )}
         {!isDailyOverviewTable(selectedTable) && (
           <article className="card">
-            <p>{tableConfig.metricLabel}</p>
+            <p>{effectiveTableConfig.metricLabel}</p>
             <strong>{new Intl.NumberFormat("sk-SK").format(metricValue)}</strong>
           </article>
         )}
@@ -3406,6 +3434,7 @@ function App() {
                             <thead>
                               <tr>
                                 <th>Materiál</th>
+                                {showsExpiryDate && <th>Dátum spotreby</th>}
                                 <th>Množstvo</th>
                               </tr>
                             </thead>
@@ -3429,6 +3458,7 @@ function App() {
                                         </span>
                                       )}
                                     </td>
+                                    {showsExpiryDate && <td>{formatCell(row.expiry_date, "date")}</td>}
                                     <td>{formatCell(row.quantity, "number")}</td>
                                   </tr>
                                 );
@@ -3446,7 +3476,7 @@ function App() {
                 <table>
                   <thead>
                     <tr>
-                      {tableConfig.columns.map((column) => (
+                      {effectiveTableConfig.columns.map((column) => (
                         <th key={column.label}>{column.label}</th>
                       ))}
                     </tr>
@@ -3473,7 +3503,7 @@ function App() {
                               .join(" ")
                           }
                         >
-                          {tableConfig.columns.map((column) => {
+                          {effectiveTableConfig.columns.map((column) => {
                             const value = pickValue(row, column.keys);
                             const stockKey = makeStockKey(row.position, row.material_code, row.company_id);
                             const deadInfo = selectedTable === "stock" ? deadStockByKey[stockKey] : null;

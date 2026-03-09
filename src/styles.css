@@ -529,6 +529,14 @@ select {
   margin-bottom: 0.7rem;
 }
 
+.master-company-form {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
+  gap: 0.5rem;
+  margin-bottom: 0.7rem;
+  align-items: center;
+}
+
 .master-qr-form {
   display: grid;
   grid-template-columns: minmax(180px, 1fr) 110px 110px auto;

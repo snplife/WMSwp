@@ -725,8 +725,10 @@ function App() {
   const [newUserRole, setNewUserRole] = useState("user");
   const [newUserCompanyId, setNewUserCompanyId] = useState("");
   const [newCompanyName, setNewCompanyName] = useState("");
+  const [newCompanyTracksExpiryDate, setNewCompanyTracksExpiryDate] = useState(false);
   const [editingCompanyId, setEditingCompanyId] = useState("");
   const [editingCompanyName, setEditingCompanyName] = useState("");
+  const [editingCompanyTracksExpiryDate, setEditingCompanyTracksExpiryDate] = useState(false);
   const [createCompanySubmitting, setCreateCompanySubmitting] = useState(false);
   const [updateCompanySubmitting, setUpdateCompanySubmitting] = useState(false);
   const [deleteCompanySubmitting, setDeleteCompanySubmitting] = useState(false);
@@ -739,6 +741,7 @@ function App() {
   const [occupancySeries, setOccupancySeries] = useState([]);
   const [isCompanySettingsOpen, setIsCompanySettingsOpen] = useState(false);
   const [companyMaxPositionsInput, setCompanyMaxPositionsInput] = useState(String(ENV_DEFAULT_MAX_POSITIONS));
+  const [companyTracksExpiryDateInput, setCompanyTracksExpiryDateInput] = useState(false);
   const [companySettingsSubmitting, setCompanySettingsSubmitting] = useState(false);
   const [companySettingsError, setCompanySettingsError] = useState("");
   const [qrRackPrefix, setQrRackPrefix] = useState("A");
@@ -995,7 +998,7 @@ function App() {
     setCompaniesError("");
     const { data, error: companiesError } = await supabase
       .from("companies")
-      .select("id,name,created_at,max_positions")
+      .select("id,name,created_at,max_positions,tracks_expiry_date")
       .order("name", { ascending: true });
 
     if (companiesError) {
@@ -1167,8 +1170,8 @@ function App() {
 
     const { data: inserted, error: createError } = await supabase
       .from("companies")
-      .insert([{ name }])
-      .select("id,name,created_at,max_positions")
+      .insert([{ name, tracks_expiry_date: newCompanyTracksExpiryDate }])
+      .select("id,name,created_at,max_positions,tracks_expiry_date")
       .single();
 
     if (createError) {
@@ -1178,6 +1181,7 @@ function App() {
     }
 
     setNewCompanyName("");
+    setNewCompanyTracksExpiryDate(false);
     if (inserted) {
       setCompanies((prev) =>
         [...prev.filter((company) => company.id !== inserted.id), inserted].sort((a, b) =>
@@ -1191,12 +1195,14 @@ function App() {
   const handleStartEditCompany = (company) => {
     setEditingCompanyId(company?.id || "");
     setEditingCompanyName(String(company?.name || ""));
+    setEditingCompanyTracksExpiryDate(Boolean(company?.tracks_expiry_date));
     setCompaniesError("");
   };
 
   const handleCancelEditCompany = () => {
     setEditingCompanyId("");
     setEditingCompanyName("");
+    setEditingCompanyTracksExpiryDate(false);
   };
 
   const handleSaveCompany = async (companyId) => {
@@ -1209,9 +1215,9 @@ function App() {
     setCompaniesError("");
     const { data, error: updateError } = await supabase
       .from("companies")
-      .update({ name })
+      .update({ name, tracks_expiry_date: editingCompanyTracksExpiryDate })
       .eq("id", companyId)
-      .select("id,name,created_at,max_positions")
+      .select("id,name,created_at,max_positions,tracks_expiry_date")
       .single();
 
     if (updateError) {
@@ -1508,16 +1514,37 @@ function App() {
     }
 
     const updatedCompany = Array.isArray(data) ? data[0] : data;
-    if (updatedCompany?.id) {
-      setCompanies((prev) =>
-        prev.map((company) =>
-          company.id === updatedCompany.id
-            ? { ...company, max_positions: normalizeMaxPositions(updatedCompany.max_positions) }
-            : company
-        )
-      );
-      setCompanyMaxPositionsInput(String(normalizeMaxPositions(updatedCompany.max_positions)));
+    if (!updatedCompany?.id) {
+      setCompanySettingsSubmitting(false);
+      return;
     }
+
+    const { data: expiryUpdatedCompany, error: expiryUpdateError } = await supabase
+      .from("companies")
+      .update({ tracks_expiry_date: companyTracksExpiryDateInput })
+      .eq("id", updatedCompany.id)
+      .select("id,name,created_at,max_positions,tracks_expiry_date")
+      .single();
+
+    if (expiryUpdateError) {
+      setCompanySettingsError(expiryUpdateError.message || "Nepodarilo sa uložiť sledovanie expirácie.");
+      setCompanySettingsSubmitting(false);
+      return;
+    }
+
+    setCompanies((prev) =>
+      prev.map((company) =>
+        company.id === expiryUpdatedCompany.id
+          ? {
+              ...company,
+              max_positions: normalizeMaxPositions(expiryUpdatedCompany.max_positions),
+              tracks_expiry_date: Boolean(expiryUpdatedCompany.tracks_expiry_date)
+            }
+          : company
+      )
+    );
+    setCompanyMaxPositionsInput(String(normalizeMaxPositions(expiryUpdatedCompany.max_positions)));
+    setCompanyTracksExpiryDateInput(Boolean(expiryUpdatedCompany.tracks_expiry_date));
 
     setCompanySettingsSubmitting(false);
   };
@@ -2023,7 +2050,8 @@ function App() {
   useEffect(() => {
     setCompanySettingsError("");
     setCompanyMaxPositionsInput(String(normalizeMaxPositions(activeCompany?.max_positions ?? ENV_DEFAULT_MAX_POSITIONS)));
-  }, [activeCompany?.id, activeCompany?.max_positions]);
+    setCompanyTracksExpiryDateInput(Boolean(activeCompany?.tracks_expiry_date));
+  }, [activeCompany?.id, activeCompany?.max_positions, activeCompany?.tracks_expiry_date]);
 
   const filteredManagedUsers = useMemo(() => {
     const normalizedSearch = String(masterUserSearch || "").trim().toLowerCase();
@@ -2580,6 +2608,18 @@ function App() {
                 disabled={!activeCompanyId || companySettingsSubmitting}
               />
             </label>
+            <label className="settings-field">
+              <span>Food & beverage / expirácia</span>
+              <label className="pricing-options">
+                <input
+                  type="checkbox"
+                  checked={companyTracksExpiryDateInput}
+                  onChange={(event) => setCompanyTracksExpiryDateInput(event.target.checked)}
+                  disabled={!activeCompanyId || companySettingsSubmitting}
+                />
+                <span>Sledovať dátum spotreby pre túto firmu</span>
+              </label>
+            </label>
             <button type="submit" className="settings-btn" disabled={!activeCompanyId || companySettingsSubmitting}>
               {companySettingsSubmitting ? "Ukladám..." : "Uložiť kapacitu"}
             </button>
@@ -2685,6 +2725,14 @@ function App() {
               onChange={(event) => setNewCompanyName(event.target.value)}
               required
             />
+            <label className="pricing-options">
+              <input
+                type="checkbox"
+                checked={newCompanyTracksExpiryDate}
+                onChange={(event) => setNewCompanyTracksExpiryDate(event.target.checked)}
+              />
+              <span>Food & beverage</span>
+            </label>
             <button type="submit" className="settings-btn" disabled={createCompanySubmitting}>
               {createCompanySubmitting ? "Vytváram..." : "Vytvoriť firmu"}
             </button>
@@ -2876,6 +2924,7 @@ function App() {
               <thead>
                 <tr>
                   <th>Firma</th>
+                  <th>Expirácia</th>
                   <th>ID</th>
                   <th>Vytvorená</th>
                   <th>Akcie</th>
@@ -2896,6 +2945,22 @@ function App() {
                           />
                         ) : (
                           company.name
+                        )}
+                      </td>
+                      <td>
+                        {isEditing ? (
+                          <label className="pricing-options">
+                            <input
+                              type="checkbox"
+                              checked={editingCompanyTracksExpiryDate}
+                              onChange={(event) => setEditingCompanyTracksExpiryDate(event.target.checked)}
+                            />
+                            <span>Food & beverage</span>
+                          </label>
+                        ) : company.tracks_expiry_date ? (
+                          <span className="table-badge table-badge-master">áno</span>
+                        ) : (
+                          <span className="master-user-email">nie</span>
                         )}
                       </td>
                       <td className="master-user-email">{company.id}</td>

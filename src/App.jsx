@@ -197,12 +197,12 @@ function buildQrLabelsPrintHtml(codes, logoUrl) {
         <article class="label">
           <div class="qr-wrap">
             <img class="qr-image" src="${buildQrImageUrl(code)}" alt="QR ${escapeHtml(code)}" />
-            ${
-              logoUrl
-                ? `<span class="qr-logo-badge"><img class="qr-logo" src="${escapeHtml(logoUrl)}" alt="Logo" /></span>`
-                : ""
-            }
           </div>
+          ${
+            logoUrl
+              ? `<span class="label-logo-corner"><img class="label-logo" src="${escapeHtml(logoUrl)}" alt="Logo" /></span>`
+              : ""
+          }
           <strong>${escapeHtml(code)}</strong>
         </article>
       `
@@ -257,6 +257,7 @@ function buildQrLabelsPrintHtml(codes, logoUrl) {
         }
 
         .label {
+          position: relative;
           width: 40mm;
           height: 40mm;
           border: 0.2mm solid #d9e2ec;
@@ -286,8 +287,10 @@ function buildQrLabelsPrintHtml(codes, logoUrl) {
           display: block;
         }
 
-        .qr-logo-badge {
+        .label-logo-corner {
           position: absolute;
+          left: 1.8mm;
+          bottom: 1.8mm;
           width: 5.2mm;
           height: 5.2mm;
           display: flex;
@@ -299,7 +302,7 @@ function buildQrLabelsPrintHtml(codes, logoUrl) {
           box-shadow: 0 0 0 0.45mm #ffffff;
         }
 
-        .qr-logo {
+        .label-logo {
           width: 100%;
           height: 100%;
           object-fit: contain;

@@ -3020,7 +3020,10 @@ function App() {
           <div className="daily-overview-grid">
             <article className="card">
               <p>Hodinový prehľad</p>
-              <div className="daily-hour-bars">
+              <div
+                className="daily-hour-bars"
+                style={{ gridTemplateColumns: `repeat(${Math.max(1, dailyOverviewStats.hourlyBuckets.length)}, minmax(0, 1fr))` }}
+              >
                 {dailyOverviewStats.hourlyBuckets.map((bucket) => {
                   const maxCount = Math.max(1, ...dailyOverviewStats.hourlyBuckets.map((item) => item.count));
                   const ratio = bucket.count <= 0 ? 0 : bucket.count / maxCount;

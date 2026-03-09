@@ -446,7 +446,6 @@ select {
 
 .daily-hour-bars {
   display: grid;
-  grid-template-columns: repeat(24, minmax(0, 1fr));
   gap: 0.25rem;
   align-items: end;
   min-height: 180px;
@@ -461,7 +460,7 @@ select {
 
 .daily-hour-bar {
   width: 100%;
-  min-height: 8px;
+  min-height: 0;
   border-radius: 999px 999px 0 0;
   background: linear-gradient(180deg, #5fa8ff 0%, #1e6fd9 100%);
 }

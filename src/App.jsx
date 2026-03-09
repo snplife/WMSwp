@@ -3258,6 +3258,7 @@ function App() {
         </section>
       )}
 
+      {!isMaster && (
       <section className="stats-grid">
         {isDailyOverviewTable(selectedTable) && dailyOverviewStats && (
           <>
@@ -3354,8 +3355,9 @@ function App() {
           </article>
         )}
       </section>
+      )}
 
-      {isDailyOverviewTable(selectedTable) && dailyOverviewStats && (
+      {!isMaster && isDailyOverviewTable(selectedTable) && dailyOverviewStats && (
         <section className="panel">
           <div className="panel-head">
             <div>

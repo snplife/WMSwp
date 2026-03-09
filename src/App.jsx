@@ -809,42 +809,44 @@ function App() {
     const users = Math.max(1, normalizePositiveInt(pricingUserCount, 1));
     const warehouses = Math.max(1, normalizePositiveInt(pricingWarehouseCount, 1));
 
-    let monthly = 149;
+    let monthly = 119;
     let setup = 900;
 
     if (employees >= 150) {
-      monthly = 699;
+      monthly = 549;
       setup = 4900;
     } else if (employees >= 50) {
-      monthly = 349;
+      monthly = 279;
       setup = 2400;
     }
 
     if (users > 5) {
-      monthly += (users - 5) * 12;
+      monthly += (users - 5) * 9;
     }
     if (warehouses > 1) {
-      monthly += (warehouses - 1) * 120;
+      monthly += (warehouses - 1) * 90;
       setup += (warehouses - 1) * 600;
     }
     if (pricingNeedsAndroid) {
-      monthly += 90;
+      monthly += 70;
       setup += 800;
     }
     if (pricingNeedsAlerts) {
-      monthly += 35;
+      monthly += 25;
       setup += 250;
     }
     if (pricingNeedsQr) {
-      monthly += 45;
+      monthly += 30;
       setup += 350;
     }
     if (pricingNeedsCustomSupport) {
-      monthly += 180;
+      monthly += 140;
       setup += 1200;
     }
 
     const annual = monthly * 12;
+    const annualDiscounted = Math.round(annual * 0.8);
+    const annualMonthlyEquivalent = Math.round(annualDiscounted / 12);
 
     return {
       employees,
@@ -853,6 +855,8 @@ function App() {
       monthly,
       setup,
       annual,
+      annualDiscounted,
+      annualMonthlyEquivalent,
       summary:
         employees >= 150
           ? "Mid-market nasadenie"
@@ -2877,8 +2881,9 @@ function App() {
                 <strong>{new Intl.NumberFormat("sk-SK").format(pricingEstimate.monthly)} EUR</strong>
               </article>
               <article className="card">
-                <p>Ročne</p>
-                <strong>{new Intl.NumberFormat("sk-SK").format(pricingEstimate.annual)} EUR</strong>
+                <p>Ročne vopred</p>
+                <strong>{new Intl.NumberFormat("sk-SK").format(pricingEstimate.annualDiscounted)} EUR</strong>
+                <p className="occupancy-meta">{`-20 % | efektívne ${new Intl.NumberFormat("sk-SK").format(pricingEstimate.annualMonthlyEquivalent)} EUR / mes.`}</p>
               </article>
             </div>
           </section>

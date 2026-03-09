@@ -251,14 +251,14 @@ function buildQrLabelsPrintHtml(codes, logoUrl) {
 
         .labels {
           display: grid;
-          grid-template-columns: repeat(auto-fill, 35mm);
+          grid-template-columns: repeat(auto-fill, 40mm);
           gap: 3mm;
           justify-content: start;
         }
 
         .label {
-          width: 35mm;
-          height: 35mm;
+          width: 40mm;
+          height: 40mm;
           border: 0.2mm solid #d9e2ec;
           border-radius: 1.5mm;
           display: flex;
@@ -273,30 +273,30 @@ function buildQrLabelsPrintHtml(codes, logoUrl) {
 
         .qr-wrap {
           position: relative;
-          width: 24mm;
-          height: 24mm;
+          width: 28mm;
+          height: 28mm;
           display: flex;
           align-items: center;
           justify-content: center;
         }
 
         .qr-image {
-          width: 24mm;
-          height: 24mm;
+          width: 28mm;
+          height: 28mm;
           display: block;
         }
 
         .qr-logo-badge {
           position: absolute;
-          width: 7mm;
-          height: 7mm;
+          width: 5.2mm;
+          height: 5.2mm;
           display: flex;
           align-items: center;
           justify-content: center;
           background: #ffffff;
-          border-radius: 1.6mm;
-          padding: 0.7mm;
-          box-shadow: 0 0 0 0.6mm #ffffff;
+          border-radius: 1.2mm;
+          padding: 0.45mm;
+          box-shadow: 0 0 0 0.45mm #ffffff;
         }
 
         .qr-logo {
@@ -309,7 +309,7 @@ function buildQrLabelsPrintHtml(codes, logoUrl) {
         .label strong {
           display: block;
           margin-top: 1.2mm;
-          font-size: 9pt;
+          font-size: 10pt;
           letter-spacing: 0.3mm;
         }
       </style>
@@ -2713,7 +2713,7 @@ function App() {
           </form>
           <p className="settings-hint">
             Formát kódu: <code>{`${String(qrRackPrefix || "A").trim().toUpperCase() || "A"}1A`}</code>. Štítky sa
-            otvoria v tlačovom okne ako 35 mm x 35 mm PDF.
+            otvoria v tlačovom okne ako 40 mm x 40 mm PDF.
           </p>
           {qrGeneratorError && <p className="error">{qrGeneratorError}</p>}
 

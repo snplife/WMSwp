@@ -516,6 +516,14 @@ select {
   margin-bottom: 0.7rem;
 }
 
+.master-qr-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 110px 110px auto;
+  gap: 0.5rem;
+  margin-bottom: 0.7rem;
+  align-items: center;
+}
+
 .master-users-table td .table-badge {
   margin-left: 0.35rem;
 }

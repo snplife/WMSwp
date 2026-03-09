@@ -145,6 +145,144 @@ function makeMaterialSubscriptionKey(companyId, materialCode) {
   return `${String(companyId || "").trim()}::${String(materialCode || "").trim()}`;
 }
 
+function columnLabelFromIndex(index) {
+  let current = Math.max(0, Number(index || 0));
+  let label = "";
+
+  do {
+    label = String.fromCharCode(65 + (current % 26)) + label;
+    current = Math.floor(current / 26) - 1;
+  } while (current >= 0);
+
+  return label;
+}
+
+function buildRackLocationCodes(rackPrefix, rowCount, columnCount) {
+  const normalizedPrefix = String(rackPrefix || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+  const rows = Math.max(1, Number.parseInt(String(rowCount || "1"), 10) || 1);
+  const columns = Math.max(1, Number.parseInt(String(columnCount || "1"), 10) || 1);
+  const codes = [];
+
+  for (let row = 1; row <= rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      codes.push(`${normalizedPrefix}${row}${columnLabelFromIndex(column)}`);
+    }
+  }
+
+  return codes;
+}
+
+function buildQrImageUrl(value, size = 220) {
+  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(value)}`;
+}
+
+function buildQrLabelsPrintHtml(codes) {
+  const generatedAt = new Date().toLocaleString("sk-SK");
+  const labelsHtml = codes
+    .map(
+      (code) => `
+        <article class="label">
+          <img src="${buildQrImageUrl(code)}" alt="QR ${escapeHtml(code)}" />
+          <strong>${escapeHtml(code)}</strong>
+        </article>
+      `
+    )
+    .join("");
+
+  return `<!doctype html>
+  <html lang="sk">
+    <head>
+      <meta charset="UTF-8" />
+      <title>QR štítky skladu</title>
+      <style>
+        @page {
+          size: A4 portrait;
+          margin: 8mm;
+        }
+
+        * {
+          box-sizing: border-box;
+        }
+
+        body {
+          margin: 0;
+          font-family: Arial, sans-serif;
+          color: #1b2631;
+        }
+
+        .sheet-head {
+          margin: 0 0 6mm;
+          display: flex;
+          justify-content: space-between;
+          gap: 4mm;
+          align-items: end;
+        }
+
+        .sheet-head h1 {
+          margin: 0;
+          font-size: 14pt;
+        }
+
+        .sheet-head p {
+          margin: 1mm 0 0;
+          font-size: 8pt;
+          color: #51606f;
+        }
+
+        .labels {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, 35mm);
+          gap: 3mm;
+          justify-content: start;
+        }
+
+        .label {
+          width: 35mm;
+          height: 35mm;
+          border: 0.2mm solid #d9e2ec;
+          border-radius: 1.5mm;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          padding: 1.5mm;
+          overflow: hidden;
+          break-inside: avoid;
+          page-break-inside: avoid;
+        }
+
+        .label img {
+          width: 24mm;
+          height: 24mm;
+          display: block;
+        }
+
+        .label strong {
+          display: block;
+          margin-top: 1.2mm;
+          font-size: 9pt;
+          letter-spacing: 0.3mm;
+        }
+      </style>
+    </head>
+    <body>
+      <section class="sheet-head">
+        <div>
+          <h1>QR štítky skladu</h1>
+          <p>Vygenerované: ${escapeHtml(generatedAt)}</p>
+        </div>
+        <p>${escapeHtml(`Počet štítkov: ${codes.length}`)}</p>
+      </section>
+      <section class="labels">
+        ${labelsHtml}
+      </section>
+    </body>
+  </html>`;
+}
+
 function normalizeDeadStockDays(value) {
   const parsed = Number.parseInt(String(value), 10);
   if (!Number.isFinite(parsed)) {
@@ -478,6 +616,10 @@ function App() {
   const [companyMaxPositionsInput, setCompanyMaxPositionsInput] = useState(String(ENV_DEFAULT_MAX_POSITIONS));
   const [companySettingsSubmitting, setCompanySettingsSubmitting] = useState(false);
   const [companySettingsError, setCompanySettingsError] = useState("");
+  const [qrRackPrefix, setQrRackPrefix] = useState("A");
+  const [qrRowCount, setQrRowCount] = useState("1");
+  const [qrColumnCount, setQrColumnCount] = useState("1");
+  const [qrGeneratorError, setQrGeneratorError] = useState("");
   const [materialSubscriptions, setMaterialSubscriptions] = useState([]);
   const [materialSubscriptionsError, setMaterialSubscriptionsError] = useState("");
   const [materialSubscriptionSavingKey, setMaterialSubscriptionSavingKey] = useState("");
@@ -1947,6 +2089,49 @@ function App() {
     URL.revokeObjectURL(url);
   };
 
+  const handleGenerateQrLabels = (event) => {
+    event.preventDefault();
+    setQrGeneratorError("");
+
+    const prefix = String(qrRackPrefix || "")
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "");
+    const rows = Number.parseInt(String(qrRowCount || "0"), 10);
+    const columns = Number.parseInt(String(qrColumnCount || "0"), 10);
+
+    if (!prefix) {
+      setQrGeneratorError("Zadaj názov regálu, napr. A.");
+      return;
+    }
+
+    if (!Number.isFinite(rows) || rows < 1) {
+      setQrGeneratorError("Počet riadkov musí byť aspoň 1.");
+      return;
+    }
+
+    if (!Number.isFinite(columns) || columns < 1) {
+      setQrGeneratorError("Počet stĺpcov musí byť aspoň 1.");
+      return;
+    }
+
+    const codes = buildRackLocationCodes(prefix, rows, columns);
+    const printWindow = window.open("", "_blank", "noopener,noreferrer");
+
+    if (!printWindow) {
+      setQrGeneratorError("Nepodarilo sa otvoriť tlačové okno. Skontroluj blokovanie popup okien.");
+      return;
+    }
+
+    printWindow.document.open();
+    printWindow.document.write(buildQrLabelsPrintHtml(codes));
+    printWindow.document.close();
+    printWindow.focus();
+    window.setTimeout(() => {
+      printWindow.print();
+    }, 350);
+  };
+
   const handleSignIn = async (event) => {
     event.preventDefault();
     setAuthSubmitting(true);
@@ -2362,6 +2547,44 @@ function App() {
               {createUserSubmitting ? "Vytváram..." : "Vytvoriť účet"}
             </button>
           </form>
+
+          <form className="master-qr-form" onSubmit={handleGenerateQrLabels}>
+            <input
+              type="text"
+              className="search-input"
+              placeholder="Regál, napr. A"
+              value={qrRackPrefix}
+              onChange={(event) => setQrRackPrefix(event.target.value.toUpperCase())}
+              maxLength={4}
+              required
+            />
+            <input
+              type="number"
+              min={1}
+              className="dead-stock-days-input"
+              placeholder="Riadky"
+              value={qrRowCount}
+              onChange={(event) => setQrRowCount(event.target.value)}
+              required
+            />
+            <input
+              type="number"
+              min={1}
+              className="dead-stock-days-input"
+              placeholder="Stĺpce"
+              value={qrColumnCount}
+              onChange={(event) => setQrColumnCount(event.target.value)}
+              required
+            />
+            <button type="submit" className="settings-btn">
+              Generovať QR PDF
+            </button>
+          </form>
+          <p className="settings-hint">
+            Formát kódu: <code>{`${String(qrRackPrefix || "A").trim().toUpperCase() || "A"}1A`}</code>. Štítky sa
+            otvoria v tlačovom okne ako 35 mm x 35 mm PDF.
+          </p>
+          {qrGeneratorError && <p className="error">{qrGeneratorError}</p>}
 
           {managedUsersError && <p className="error">{managedUsersError}</p>}
           {companiesError && <p className="error">{companiesError}</p>}

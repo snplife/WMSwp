@@ -3028,7 +3028,7 @@ function App() {
                   const maxCount = Math.max(1, ...dailyOverviewStats.hourlyBuckets.map((item) => item.count));
                   const ratio = bucket.count <= 0 ? 0 : bucket.count / maxCount;
                   const scaledRatio = ratio <= 0 ? 0 : Math.pow(ratio, 0.72);
-                  const height = `${scaledRatio * 100}%`;
+                  const height = bucket.count <= 0 ? "0%" : `${Math.max(10, scaledRatio * 100)}%`;
                   return (
                     <div key={bucket.hour} className="daily-hour-bar-wrap" title={`${String(bucket.hour).padStart(2, "0")}:00 - ${bucket.count} pohybov`}>
                       <div className="daily-hour-bar" style={{ height }} />

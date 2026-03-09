@@ -2126,7 +2126,8 @@ function App() {
     const actionCounts = { receive: 0, issue: 0, move: 0, adjust: 0, other: 0 };
     const materials = new Set();
     const positions = new Set();
-    const hourlyBuckets = Array.from({ length: 24 }, (_, hour) => ({ hour, count: 0 }));
+    const currentHour = new Date().getHours();
+    const hourlyBuckets = Array.from({ length: currentHour + 1 }, (_, hour) => ({ hour, count: 0 }));
 
     for (const row of rows) {
       const action = String(row.action || "").toUpperCase();
@@ -2169,6 +2170,7 @@ function App() {
       activePositions: positions.size,
       busiestHourLabel: busiestBucket.count > 0 ? `${String(busiestBucket.hour).padStart(2, "0")}:00` : "-",
       busiestHourCount: busiestBucket.count,
+      currentHourLabel: `${String(currentHour).padStart(2, "0")}:00`,
       hourlyBuckets,
       recentRows
     };

@@ -3454,6 +3454,7 @@ function App() {
         </section>
       )}
 
+      {!isMaster && (
       <section className="panel">
           <div className="panel-head">
             <div>
@@ -3684,6 +3685,7 @@ function App() {
           </>
         )}
       </section>
+      )}
 
     </main>
   );

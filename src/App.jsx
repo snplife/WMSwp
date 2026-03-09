@@ -677,6 +677,14 @@ function maskSecret(value) {
   return `${raw.slice(0, 6)}...${raw.slice(-4)}`;
 }
 
+function normalizePositiveInt(value, fallback = 0) {
+  const parsed = Number.parseInt(String(value || fallback), 10);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.max(0, parsed);
+}
+
 function App() {
   const [selectedTable, setSelectedTable] = useState(tableNames[0]);
   const [rows, setRows] = useState([]);
@@ -737,6 +745,13 @@ function App() {
   const [qrRowCount, setQrRowCount] = useState("1");
   const [qrColumnCount, setQrColumnCount] = useState("1");
   const [qrGeneratorError, setQrGeneratorError] = useState("");
+  const [pricingEmployeeCount, setPricingEmployeeCount] = useState("150");
+  const [pricingUserCount, setPricingUserCount] = useState("12");
+  const [pricingWarehouseCount, setPricingWarehouseCount] = useState("1");
+  const [pricingNeedsAndroid, setPricingNeedsAndroid] = useState(true);
+  const [pricingNeedsAlerts, setPricingNeedsAlerts] = useState(true);
+  const [pricingNeedsQr, setPricingNeedsQr] = useState(true);
+  const [pricingNeedsCustomSupport, setPricingNeedsCustomSupport] = useState(false);
   const [materialSubscriptions, setMaterialSubscriptions] = useState([]);
   const [materialSubscriptionsError, setMaterialSubscriptionsError] = useState("");
   const [materialSubscriptionSavingKey, setMaterialSubscriptionSavingKey] = useState("");
@@ -789,6 +804,71 @@ function App() {
     }
     return normalizeMaxPositions(activeCompany?.max_positions ?? ENV_DEFAULT_MAX_POSITIONS);
   }, [selectedTable, isMaster, selectedCompanyId, companies, activeCompany]);
+  const pricingEstimate = useMemo(() => {
+    const employees = normalizePositiveInt(pricingEmployeeCount, 0);
+    const users = Math.max(1, normalizePositiveInt(pricingUserCount, 1));
+    const warehouses = Math.max(1, normalizePositiveInt(pricingWarehouseCount, 1));
+
+    let monthly = 149;
+    let setup = 900;
+
+    if (employees >= 150) {
+      monthly = 699;
+      setup = 4900;
+    } else if (employees >= 50) {
+      monthly = 349;
+      setup = 2400;
+    }
+
+    if (users > 5) {
+      monthly += (users - 5) * 12;
+    }
+    if (warehouses > 1) {
+      monthly += (warehouses - 1) * 120;
+      setup += (warehouses - 1) * 600;
+    }
+    if (pricingNeedsAndroid) {
+      monthly += 90;
+      setup += 800;
+    }
+    if (pricingNeedsAlerts) {
+      monthly += 35;
+      setup += 250;
+    }
+    if (pricingNeedsQr) {
+      monthly += 45;
+      setup += 350;
+    }
+    if (pricingNeedsCustomSupport) {
+      monthly += 180;
+      setup += 1200;
+    }
+
+    const annual = monthly * 12;
+
+    return {
+      employees,
+      users,
+      warehouses,
+      monthly,
+      setup,
+      annual,
+      summary:
+        employees >= 150
+          ? "Mid-market nasadenie"
+          : employees >= 50
+            ? "Rastúca firma"
+            : "Menšie nasadenie"
+    };
+  }, [
+    pricingEmployeeCount,
+    pricingUserCount,
+    pricingWarehouseCount,
+    pricingNeedsAndroid,
+    pricingNeedsAlerts,
+    pricingNeedsQr,
+    pricingNeedsCustomSupport
+  ]);
 
   const resolveUserRole = async (user) => {
     if (!user) {
@@ -2737,6 +2817,71 @@ function App() {
             otvoria v tlačovom okne ako 40 mm x 40 mm PDF.
           </p>
           {qrGeneratorError && <p className="error">{qrGeneratorError}</p>}
+
+          <section className="pricing-panel">
+            <div className="panel-head">
+              <div>
+                <h2>Kalkulačka ceny</h2>
+                <p className="panel-meta">Interný odhad setupu a mesačnej ceny pre WMS nasadenie.</p>
+              </div>
+            </div>
+            <div className="pricing-grid">
+              <label className="settings-field">
+                <span>Počet zamestnancov</span>
+                <input
+                  type="number"
+                  min={1}
+                  className="dead-stock-days-input"
+                  value={pricingEmployeeCount}
+                  onChange={(event) => setPricingEmployeeCount(event.target.value)}
+                />
+              </label>
+              <label className="settings-field">
+                <span>Počet používateľov</span>
+                <input
+                  type="number"
+                  min={1}
+                  className="dead-stock-days-input"
+                  value={pricingUserCount}
+                  onChange={(event) => setPricingUserCount(event.target.value)}
+                />
+              </label>
+              <label className="settings-field">
+                <span>Počet skladov</span>
+                <input
+                  type="number"
+                  min={1}
+                  className="dead-stock-days-input"
+                  value={pricingWarehouseCount}
+                  onChange={(event) => setPricingWarehouseCount(event.target.value)}
+                />
+              </label>
+            </div>
+            <div className="pricing-options">
+              <label><input type="checkbox" checked={pricingNeedsAndroid} onChange={(event) => setPricingNeedsAndroid(event.target.checked)} /> Android appka</label>
+              <label><input type="checkbox" checked={pricingNeedsAlerts} onChange={(event) => setPricingNeedsAlerts(event.target.checked)} /> Email alerty</label>
+              <label><input type="checkbox" checked={pricingNeedsQr} onChange={(event) => setPricingNeedsQr(event.target.checked)} /> QR workflow</label>
+              <label><input type="checkbox" checked={pricingNeedsCustomSupport} onChange={(event) => setPricingNeedsCustomSupport(event.target.checked)} /> Prioritný support / custom</label>
+            </div>
+            <div className="pricing-result">
+              <article className="card">
+                <p>Segment</p>
+                <strong>{pricingEstimate.summary}</strong>
+              </article>
+              <article className="card">
+                <p>Setup</p>
+                <strong>{new Intl.NumberFormat("sk-SK").format(pricingEstimate.setup)} EUR</strong>
+              </article>
+              <article className="card">
+                <p>Mesačne</p>
+                <strong>{new Intl.NumberFormat("sk-SK").format(pricingEstimate.monthly)} EUR</strong>
+              </article>
+              <article className="card">
+                <p>Ročne</p>
+                <strong>{new Intl.NumberFormat("sk-SK").format(pricingEstimate.annual)} EUR</strong>
+              </article>
+            </div>
+          </section>
 
           {managedUsersError && <p className="error">{managedUsersError}</p>}
           {companiesError && <p className="error">{companiesError}</p>}

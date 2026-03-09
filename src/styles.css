@@ -537,6 +537,41 @@ select {
   align-items: center;
 }
 
+.pricing-panel {
+  margin: 1rem 0;
+  padding: 0.9rem;
+  border: 1px solid #dce6f2;
+  border-radius: 14px;
+  background: #fbfdff;
+}
+
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(160px, 1fr));
+  gap: 0.6rem;
+}
+
+.pricing-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+  margin: 0.8rem 0;
+  color: #3f5266;
+  font-size: 0.88rem;
+}
+
+.pricing-options label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.pricing-result {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
 .master-users-table td .table-badge {
   margin-left: 0.35rem;
 }

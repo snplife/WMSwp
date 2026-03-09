@@ -1,6 +1,7 @@
 ﻿import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { useRef } from "react";
+import { installHotjar, uninstallHotjar } from "./hotjar";
 import StatusPill from "./components/StatusPill";
 import { clearSupabaseAuthStorage, noStoreFetch, supabase, supabaseAnonKey, supabaseUrl, tableNames } from "./supabaseClient";
 import logo from "../logo.png";
@@ -837,6 +838,7 @@ function App() {
 
   const tableConfig = getTableConfig(selectedTable);
   const isMaster = userRole === "master";
+  const hotjarAllowed = (authReady || authInitTimedOut) && (!isLoggedIn || !isMaster);
   const visibleTableNames = useMemo(() => {
     if (isMaster) {
       return tableNames;
@@ -2370,6 +2372,16 @@ function App() {
     }
     return companyNameById[userCompanyId] || "Bez firmy";
   }, [isMaster, selectedCompanyId, companyNameById, userCompanyId]);
+
+  useEffect(() => {
+    if (hotjarAllowed) {
+      installHotjar();
+      return undefined;
+    }
+
+    uninstallHotjar();
+    return undefined;
+  }, [hotjarAllowed]);
 
   useEffect(() => {
     const siteUrl = resolveSiteUrl();

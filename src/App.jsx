@@ -748,9 +748,6 @@ function App() {
   const [pricingEmployeeCount, setPricingEmployeeCount] = useState("150");
   const [pricingUserCount, setPricingUserCount] = useState("12");
   const [pricingWarehouseCount, setPricingWarehouseCount] = useState("1");
-  const [pricingNeedsAndroid, setPricingNeedsAndroid] = useState(true);
-  const [pricingNeedsAlerts, setPricingNeedsAlerts] = useState(true);
-  const [pricingNeedsQr, setPricingNeedsQr] = useState(true);
   const [pricingNeedsCustomSupport, setPricingNeedsCustomSupport] = useState(false);
   const [materialSubscriptions, setMaterialSubscriptions] = useState([]);
   const [materialSubscriptionsError, setMaterialSubscriptionsError] = useState("");
@@ -827,18 +824,6 @@ function App() {
       monthly += (warehouses - 1) * 90;
       setup += (warehouses - 1) * 600;
     }
-    if (pricingNeedsAndroid) {
-      monthly += 70;
-      setup += 800;
-    }
-    if (pricingNeedsAlerts) {
-      monthly += 25;
-      setup += 250;
-    }
-    if (pricingNeedsQr) {
-      monthly += 30;
-      setup += 350;
-    }
     if (pricingNeedsCustomSupport) {
       monthly += 140;
       setup += 1200;
@@ -868,9 +853,6 @@ function App() {
     pricingEmployeeCount,
     pricingUserCount,
     pricingWarehouseCount,
-    pricingNeedsAndroid,
-    pricingNeedsAlerts,
-    pricingNeedsQr,
     pricingNeedsCustomSupport
   ]);
 
@@ -2862,9 +2844,7 @@ function App() {
               </label>
             </div>
             <div className="pricing-options">
-              <label><input type="checkbox" checked={pricingNeedsAndroid} onChange={(event) => setPricingNeedsAndroid(event.target.checked)} /> Android appka</label>
-              <label><input type="checkbox" checked={pricingNeedsAlerts} onChange={(event) => setPricingNeedsAlerts(event.target.checked)} /> Email alerty</label>
-              <label><input type="checkbox" checked={pricingNeedsQr} onChange={(event) => setPricingNeedsQr(event.target.checked)} /> QR workflow</label>
+              <span>V cene: web, Android appka, email alerty, QR workflow</span>
               <label><input type="checkbox" checked={pricingNeedsCustomSupport} onChange={(event) => setPricingNeedsCustomSupport(event.target.checked)} /> Prioritný support / custom</label>
             </div>
             <div className="pricing-result">

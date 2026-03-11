@@ -32,6 +32,7 @@ create table if not exists public.app_users (
   email text not null,
   username text not null,
   role text not null check (role in ('master', 'user')),
+  can_manage_orders boolean not null default false,
   company_id uuid references public.companies (id),
   created_by uuid references auth.users (id),
   db_url text,
@@ -45,12 +46,47 @@ alter table public.stock add column if not exists company_id uuid references pub
 alter table public.stock_history add column if not exists company_id uuid references public.companies (id) on delete cascade;
 alter table public.app_users add column if not exists email text;
 alter table public.app_users add column if not exists username text;
+alter table public.app_users add column if not exists can_manage_orders boolean not null default false;
 alter table public.app_users add column if not exists company_id uuid references public.companies (id);
 alter table public.app_users add column if not exists created_by uuid references auth.users (id);
 alter table public.app_users add column if not exists db_url text;
 alter table public.app_users add column if not exists db_anon_key text;
 alter table public.app_users add column if not exists updated_at timestamptz not null default now();
 alter table public.app_users add column if not exists created_at timestamptz not null default now();
+
+create table if not exists public.customers (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies (id) on delete cascade,
+  name text not null,
+  email text,
+  phone text,
+  address text,
+  note text not null default '',
+  created_by uuid references auth.users (id),
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.orders (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies (id) on delete cascade,
+  customer_id uuid references public.customers (id) on delete set null,
+  customer_name text not null,
+  order_number text not null,
+  note text not null default '',
+  created_by uuid references auth.users (id),
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.order_items (
+  id uuid primary key default gen_random_uuid(),
+  order_id uuid not null references public.orders (id) on delete cascade,
+  material_code text not null,
+  position text not null,
+  ordered_quantity integer not null check (ordered_quantity > 0),
+  stock_quantity_snapshot integer not null default 0,
+  line_note text not null default '',
+  created_at timestamptz not null default now()
+);
 
 -- 3) Normalize users
 update public.app_users
@@ -119,6 +155,9 @@ create index if not exists idx_app_users_company
 create index if not exists idx_app_users_user_company
   on public.app_users (user_id, company_id);
 
+create index if not exists idx_app_users_can_manage_orders
+  on public.app_users (can_manage_orders);
+
 create index if not exists idx_stock_company
   on public.stock (company_id);
 
@@ -133,6 +172,48 @@ create index if not exists idx_stock_history_material
 
 create index if not exists idx_stock_history_position
   on public.stock_history (position);
+
+create unique index if not exists idx_customers_company_name_unique
+  on public.customers (company_id, lower(name));
+
+create index if not exists idx_customers_company
+  on public.customers (company_id);
+
+create unique index if not exists idx_orders_company_number_unique
+  on public.orders (company_id, order_number);
+
+create index if not exists idx_orders_company_created_at
+  on public.orders (company_id, created_at desc);
+
+create index if not exists idx_order_items_order
+  on public.order_items (order_id);
+
+create or replace view public.order_list_overview
+with (security_invoker = true)
+as
+select
+  o.id,
+  o.company_id,
+  o.order_number,
+  o.customer_name,
+  o.note,
+  o.created_at,
+  count(oi.id)::int as item_count
+from public.orders o
+left join public.order_items oi on oi.order_id = o.id
+group by o.id, o.company_id, o.order_number, o.customer_name, o.note, o.created_at;
+
+-- Zoznam objednávok pre grid/list:
+-- select id, customer_name, order_number, created_at, item_count
+-- from public.order_list_overview
+-- where company_id = 'YOUR-COMPANY-UUID'
+-- order by created_at desc;
+
+-- Detail položiek po rozkliku objednávky:
+-- select material_code, position, ordered_quantity, stock_quantity_snapshot, line_note
+-- from public.order_items
+-- where order_id = 'YOUR-ORDER-UUID'
+-- order by created_at asc;
 
 -- 7) Helper functions
 create or replace function public.touch_app_users_updated_at()
@@ -209,11 +290,31 @@ $$;
 grant execute on function public.is_master(uuid) to authenticated;
 grant execute on function public.user_company_id(uuid) to authenticated;
 
+create or replace function public.can_manage_orders(uid uuid default auth.uid())
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.app_users
+    where user_id = uid
+      and can_manage_orders = true
+  );
+$$;
+
+grant execute on function public.can_manage_orders(uuid) to authenticated;
+
 -- 8) RLS
 alter table public.companies enable row level security;
 alter table public.stock enable row level security;
 alter table public.stock_history enable row level security;
 alter table public.app_users enable row level security;
+alter table public.customers enable row level security;
+alter table public.orders enable row level security;
+alter table public.order_items enable row level security;
 
 -- companies
 DROP POLICY IF EXISTS "companies_select_master" ON public.companies;
@@ -405,6 +506,224 @@ for delete
 to authenticated
 using (public.is_master(auth.uid()));
 
+-- customers
+DROP POLICY IF EXISTS "customers_select_auth" ON public.customers;
+DROP POLICY IF EXISTS "customers_insert_auth" ON public.customers;
+DROP POLICY IF EXISTS "customers_update_auth" ON public.customers;
+DROP POLICY IF EXISTS "customers_delete_auth" ON public.customers;
+
+create policy "customers_select_auth"
+on public.customers
+for select
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy "customers_insert_auth"
+on public.customers
+for insert
+to authenticated
+with check (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy "customers_update_auth"
+on public.customers
+for update
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+)
+with check (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy "customers_delete_auth"
+on public.customers
+for delete
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+-- orders
+DROP POLICY IF EXISTS "orders_select_auth" ON public.orders;
+DROP POLICY IF EXISTS "orders_insert_auth" ON public.orders;
+DROP POLICY IF EXISTS "orders_update_auth" ON public.orders;
+DROP POLICY IF EXISTS "orders_delete_auth" ON public.orders;
+
+create policy "orders_select_auth"
+on public.orders
+for select
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy "orders_insert_auth"
+on public.orders
+for insert
+to authenticated
+with check (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy "orders_update_auth"
+on public.orders
+for update
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+)
+with check (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy "orders_delete_auth"
+on public.orders
+for delete
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+-- order_items
+DROP POLICY IF EXISTS "order_items_select_auth" ON public.order_items;
+DROP POLICY IF EXISTS "order_items_insert_auth" ON public.order_items;
+DROP POLICY IF EXISTS "order_items_update_auth" ON public.order_items;
+DROP POLICY IF EXISTS "order_items_delete_auth" ON public.order_items;
+
+create policy "order_items_select_auth"
+on public.order_items
+for select
+to authenticated
+using (
+  exists (
+    select 1
+    from public.orders o
+    where o.id = order_items.order_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and o.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+create policy "order_items_insert_auth"
+on public.order_items
+for insert
+to authenticated
+with check (
+  exists (
+    select 1
+    from public.orders o
+    where o.id = order_items.order_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and o.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+create policy "order_items_update_auth"
+on public.order_items
+for update
+to authenticated
+using (
+  exists (
+    select 1
+    from public.orders o
+    where o.id = order_items.order_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and o.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+)
+with check (
+  exists (
+    select 1
+    from public.orders o
+    where o.id = order_items.order_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and o.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+create policy "order_items_delete_auth"
+on public.order_items
+for delete
+to authenticated
+using (
+  exists (
+    select 1
+    from public.orders o
+    where o.id = order_items.order_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and o.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
 -- 9) Rebuild stock from stock_history events
 create or replace function public.apply_stock_history_events(p_company_id uuid default null)
 returns void
@@ -492,3 +811,30 @@ grant execute on function public.apply_stock_history_events(uuid) to authenticat
 -- Usage:
 -- select public.apply_stock_history_events();
 -- select public.apply_stock_history_events('YOUR-COMPANY-UUID');
+
+-- 10) Company API keys for external stock API
+create table if not exists public.company_api_keys (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies (id) on delete cascade,
+  label text not null,
+  key_prefix text not null,
+  key_hash text not null,
+  scopes text[] not null default array['stock:read']::text[],
+  is_active boolean not null default true,
+  expires_at timestamptz,
+  last_used_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists idx_company_api_keys_hash_unique
+  on public.company_api_keys (key_hash);
+
+create index if not exists idx_company_api_keys_company
+  on public.company_api_keys (company_id);
+
+create index if not exists idx_company_api_keys_company_active
+  on public.company_api_keys (company_id, is_active);
+
+alter table public.company_api_keys enable row level security;
+
+revoke all on public.company_api_keys from anon, authenticated;

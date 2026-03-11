@@ -869,10 +869,6 @@ select {
 }
 
 .production-output-primary {
-  grid-column: 1 / -1;
-}
-
-.production-output-secondary {
   grid-column: 1 / 2;
 }
 

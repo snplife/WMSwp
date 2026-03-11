@@ -122,6 +122,7 @@ const TRANSACTION_TABLE_ALIASES = Array.from(
 const ORDER_STOCK_DATALIST_ID = "orders-stock-options";
 const PRODUCTION_INPUT_DATALIST_ID = "production-input-stock-options";
 const PRODUCTION_OUTPUT_MATERIAL_DATALIST_ID = "production-output-material-options";
+const PRODUCTION_OUTPUT_DEFAULT_POSITION = "VYROBA";
 const INBOUND_ACTIONS = new Set(["RECEIVE", "MOVE", "MOVE_ALL", "ADJUST"]);
 const OCCUPANCY_RANGE_CONFIG = {
   day: { label: "Deň", bucketMs: 60 * 60 * 1000, points: 24 },
@@ -254,7 +255,6 @@ function createEmptyProductionOutputDraft() {
   return {
     draftId: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
     materialCode: "",
-    position: "",
     outputQuantity: "1",
     lineNote: "",
     showNote: false
@@ -2428,13 +2428,9 @@ function App() {
     const normalizedOutputs = [];
     for (const item of productionDraftOutputs) {
       const materialCode = String(item.materialCode || "").trim();
-      const position = String(item.position || "").trim();
-      if (!materialCode && !position) {
+      const position = PRODUCTION_OUTPUT_DEFAULT_POSITION;
+      if (!materialCode) {
         continue;
-      }
-      if (!materialCode || !position) {
-        setProductionError("Každý výstup musí mať materiál aj pozíciu.");
-        return;
       }
       const outputQuantity = Number.parseInt(String(item.outputQuantity || "0"), 10);
       if (!Number.isFinite(outputQuantity) || outputQuantity < 1) {
@@ -5433,18 +5429,6 @@ function App() {
                                 />
                                 <p className="workflow-helper-text">Materiál alebo kód finálneho výrobku.</p>
                               </div>
-                              <div className="orders-draft-cell production-output-secondary">
-                                <span className="draft-field-label">Pozícia</span>
-                                <input
-                                  type="text"
-                                  className="search-input"
-                                  placeholder="Pozícia výstupu"
-                                  value={item.position}
-                                  onChange={(event) => handleProductionOutputChange(index, "position", event.target.value)}
-                                  disabled={!activeCompanyId || productionSubmitting}
-                                />
-                                <p className="workflow-helper-text">Kam sa má finálny výrobok naskladniť.</p>
-                              </div>
                               <div className="orders-draft-cell production-output-compact">
                                 <span className="draft-field-label">Množstvo</span>
                                 <input
@@ -5594,11 +5578,10 @@ function App() {
                                 <table>
                                   <thead>
                                     <tr>
-                                      <th colSpan={4}>Výstupy výroby</th>
+                                      <th colSpan={3}>Výstupy výroby</th>
                                     </tr>
                                     <tr>
                                       <th>Materiál</th>
-                                      <th>Pozícia</th>
                                       <th>Množstvo</th>
                                       <th>Poznámka</th>
                                     </tr>
@@ -5607,7 +5590,6 @@ function App() {
                                     {outputs.map((item) => (
                                       <tr key={item.id}>
                                         <td>{item.material_code}</td>
-                                        <td>{item.position}</td>
                                         <td>{formatCell(item.output_quantity, "number")}</td>
                                         <td>{item.line_note || "-"}</td>
                                       </tr>

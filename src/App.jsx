@@ -800,6 +800,130 @@ function printOrderPdf(order, customer, items, companyName) {
   printHtmlDocument(buildOrderPrintHtml(order, customer, items, companyName));
 }
 
+function buildProductionPrintHtml(productionOrder, inputs, outputs, companyName) {
+  const generatedAt = new Date().toLocaleString("sk-SK");
+  const createdAt = formatDate(productionOrder?.created_at);
+  const completedAt = productionOrder?.completed_at ? formatDate(productionOrder.completed_at) : "-";
+  const productionNote = String(productionOrder?.note || "").trim();
+  const noteHtml = productionNote
+    ? `
+        <section class="note">
+          <span class="label">Poznámka</span>
+          <div>${escapeHtml(productionNote)}</div>
+        </section>
+      `
+    : "";
+  const inputRowsHtml = (inputs || [])
+    .map(
+      (item, index) => `
+        <tr>
+          <td>${index + 1}</td>
+          <td>${escapeHtml(String(item.material_code || "-"))}</td>
+          <td>${escapeHtml(String(item.position || "-"))}</td>
+          <td>${escapeHtml(formatCell(item.required_quantity, "number"))}</td>
+          <td>${escapeHtml(String(item.line_note || "-"))}</td>
+        </tr>
+      `
+    )
+    .join("");
+  const outputRowsHtml = (outputs || [])
+    .map(
+      (item, index) => `
+        <tr>
+          <td>${index + 1}</td>
+          <td>${escapeHtml(String(item.material_code || "-"))}</td>
+          <td>${escapeHtml(formatCell(item.output_quantity, "number"))}</td>
+          <td>${escapeHtml(String(item.line_note || "-"))}</td>
+        </tr>
+      `
+    )
+    .join("");
+
+  return `<!doctype html>
+  <html lang="sk">
+    <head>
+      <meta charset="UTF-8" />
+      <title>${escapeHtml(String(productionOrder?.production_number || "Vyrobna-objednavka"))}</title>
+      <style>
+        @page { size: A4 portrait; margin: 14mm; }
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: Arial, sans-serif; color: #1b2631; }
+        .page { display: grid; gap: 8mm; }
+        .head { display: flex; justify-content: space-between; gap: 8mm; align-items: start; }
+        h1 { margin: 0 0 2mm; font-size: 20pt; }
+        .meta, .note, .section-box { border: 0.3mm solid #d9e2ec; border-radius: 3mm; padding: 4mm; }
+        .meta-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3mm 6mm; }
+        .label { display: block; margin-bottom: 1mm; font-size: 8pt; color: #52606d; text-transform: uppercase; letter-spacing: 0.08em; }
+        .value { font-size: 11pt; font-weight: 700; }
+        table { width: 100%; border-collapse: collapse; font-size: 10pt; }
+        th, td { border: 0.3mm solid #d9e2ec; padding: 3mm; text-align: left; vertical-align: top; }
+        th { background: #eef4f8; }
+        .section-title { margin: 0 0 3mm; font-size: 12pt; }
+        .foot { font-size: 8pt; color: #52606d; }
+      </style>
+    </head>
+    <body>
+      <section class="page">
+        <header class="head">
+          <div>
+            <h1>Výrobná objednávka</h1>
+            <div class="value">${escapeHtml(String(productionOrder?.production_number || "-"))}</div>
+          </div>
+          <div class="foot">Vygenerované: ${escapeHtml(generatedAt)}</div>
+        </header>
+        <section class="meta">
+          <div class="meta-grid">
+            <div><span class="label">Firma</span><div class="value">${escapeHtml(String(companyName || "-"))}</div></div>
+            <div><span class="label">Názov</span><div class="value">${escapeHtml(String(productionOrder?.title || "-"))}</div></div>
+            <div><span class="label">Vytvorené</span><div class="value">${escapeHtml(createdAt)}</div></div>
+            <div><span class="label">Dokončené</span><div class="value">${escapeHtml(completedAt)}</div></div>
+            <div><span class="label">Stav</span><div class="value">${escapeHtml(String(productionOrder?.status || "-"))}</div></div>
+            <div><span class="label">ID</span><div class="value">${escapeHtml(String(productionOrder?.id || "-"))}</div></div>
+          </div>
+        </section>
+        ${noteHtml}
+        <section class="section-box">
+          <h2 class="section-title">Vstupy</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Materiál</th>
+                <th>Pozícia</th>
+                <th>Množstvo</th>
+                <th>Poznámka</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${inputRowsHtml || '<tr><td colspan="5">Bez vstupov</td></tr>'}
+            </tbody>
+          </table>
+        </section>
+        <section class="section-box">
+          <h2 class="section-title">Výstupy</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Materiál</th>
+                <th>Množstvo</th>
+                <th>Poznámka</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${outputRowsHtml || '<tr><td colspan="4">Bez výstupov</td></tr>'}
+            </tbody>
+          </table>
+        </section>
+      </section>
+    </body>
+  </html>`;
+}
+
+function printProductionPdf(productionOrder, inputs, outputs, companyName) {
+  printHtmlDocument(buildProductionPrintHtml(productionOrder, inputs, outputs, companyName));
+}
+
 function normalizeDeadStockDays(value) {
   const parsed = Number.parseInt(String(value), 10);
   if (!Number.isFinite(parsed)) {
@@ -2947,6 +3071,19 @@ function App() {
       );
     } catch (printError) {
       setOrdersError(printError?.message || "Nepodarilo sa vytvoriť PDF objednávky.");
+    }
+  };
+
+  const handlePrintProductionOrder = (productionOrder) => {
+    try {
+      printProductionPdf(
+        productionOrder,
+        productionInputsByOrderId[productionOrder.id] || [],
+        productionOutputsByOrderId[productionOrder.id] || [],
+        companyNameById[productionOrder.company_id] || currentCompanyLabel
+      );
+    } catch (printError) {
+      setProductionError(printError?.message || "Nepodarilo sa vytvoriť PDF výrobnej objednávky.");
     }
   };
 
@@ -5540,10 +5677,17 @@ function App() {
                               <span className="order-card-badge">{formatDate(productionOrder.created_at)}</span>
                               <span className="order-card-badge">{`${inputs.length} vstupov / ${outputs.length} výstupov`}</span>
                             </div>
-                          </button>
+                            </button>
                           {isOpen && (
                             <div className="order-card-body">
                               <div className="order-card-actions">
+                                <button
+                                  type="button"
+                                  className="clear-btn"
+                                  onClick={() => handlePrintProductionOrder(productionOrder)}
+                                >
+                                  PDF
+                                </button>
                                 <StatusPill status={String(productionOrder.status || "draft")} />
                                 {productionOrder.status !== "completed" && (
                                   <button

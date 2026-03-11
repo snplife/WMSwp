@@ -4276,7 +4276,7 @@ function App() {
           </div>
           <div className="hero-badges">
             <span className="table-badge">{getTableLabel(selectedTable)}</span>
-            {canAccessOrdersModule && <span className="table-badge">objednávky</span>}
+            {canAccessOrdersModule && <span className="table-badge">objednávky + výroba</span>}
             {selectedTable === "stock" && <span className="table-badge">sklad</span>}
           </div>
         </div>
@@ -4524,7 +4524,7 @@ function App() {
                 onChange={(event) => setNewUserCanManageOrders(event.target.checked)}
                 disabled={newUserRole === "master"}
               />
-              <span>Objednávky</span>
+              <span>Objednávky + výroba</span>
             </label>
             <button type="submit" className="settings-btn" disabled={createUserSubmitting}>
               {createUserSubmitting ? "Vytváram..." : "Vytvoriť účet"}
@@ -4783,7 +4783,7 @@ function App() {
                   <th>Login</th>
                   <th>Rola</th>
                   <th>Firma</th>
-                  <th>Objednávky</th>
+                  <th>Objednávky + výroba</th>
                   <th>Supabase</th>
                   <th>Vytvorené</th>
                   <th>Akcie</th>

@@ -1,4 +1,6 @@
 node_modules
 dist
 .vite
-.env.local
+.env
+.env.*
+!.env.example

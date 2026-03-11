@@ -2867,7 +2867,7 @@ function App() {
       }
 
       if (!stockRow) {
-        setOrdersError(`Položku ${index + 1} sa nepodarilo jednoznačne nájsť v sklade. Vyber návrh zo zoznamu.`);
+        setOrdersError(`Položka ${index + 1} nie je spárovaná so skladom. Vyber návrh zo zoznamu alebo zadaj presný názov.`);
         return;
       }
 

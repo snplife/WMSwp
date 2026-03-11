@@ -5077,7 +5077,7 @@ function App() {
                           return (
                             <>
                               <div className="orders-draft-main">
-                                <div className="orders-draft-cell workflow-quantity-cell">
+                                <div className="orders-draft-cell">
                                   <span className="draft-field-label">{`Položka ${index + 1}`}</span>
                                   <input
                                     type="text"
@@ -5094,7 +5094,7 @@ function App() {
                                       : "Píš voľne, sklad len ponúkne doplnenie."}
                                   </p>
                                 </div>
-                                <div className="orders-draft-cell">
+                                <div className="orders-draft-cell workflow-quantity-cell">
                                   <span className="draft-field-label">Množstvo</span>
                                   <input
                                     type="number"
@@ -5326,7 +5326,7 @@ function App() {
                         return (
                           <div key={item.draftId || `production-input-${index}`} className="orders-draft-row">
                             <div className="orders-draft-main">
-                              <div className="orders-draft-cell workflow-quantity-cell">
+                              <div className="orders-draft-cell">
                                 <span className="draft-field-label">{`Vstup ${index + 1}`}</span>
                                 <input
                                   type="text"
@@ -5343,7 +5343,7 @@ function App() {
                                     : "Vyber presnú skladovú položku, ktorá sa má spotrebovať."}
                                 </p>
                               </div>
-                              <div className="orders-draft-cell">
+                              <div className="orders-draft-cell workflow-quantity-cell">
                                 <span className="draft-field-label">Množstvo</span>
                                 <input
                                   type="number"

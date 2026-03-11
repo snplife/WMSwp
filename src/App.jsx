@@ -1098,8 +1098,6 @@ function App() {
   const [selectedRegistryCompanyId, setSelectedRegistryCompanyId] = useState("");
   const [customerSubmitting, setCustomerSubmitting] = useState(false);
   const [selectedOrderCustomerId, setSelectedOrderCustomerId] = useState("");
-  const [orderNoteInput, setOrderNoteInput] = useState("");
-  const [showOrderNoteInput, setShowOrderNoteInput] = useState(false);
   const [orderSearchTerm, setOrderSearchTerm] = useState("");
   const [orderDraftItems, setOrderDraftItems] = useState([createEmptyOrderDraftItem()]);
   const [orderSubmitting, setOrderSubmitting] = useState(false);
@@ -1975,8 +1973,6 @@ function App() {
   };
 
   const resetOrderDraft = () => {
-    setOrderNoteInput("");
-    setShowOrderNoteInput(false);
     setOrderDraftItems([createEmptyOrderDraftItem()]);
   };
 
@@ -2288,7 +2284,7 @@ function App() {
           customer_id: customer.id,
           customer_name: customer.name,
           order_number: buildOrderNumber(),
-          note: String(orderNoteInput || "").trim(),
+          note: "",
           created_by: authUser?.id || null
         }
       ])
@@ -3365,7 +3361,6 @@ function App() {
     setCustomerIcoInput("");
     setCustomerDicInput("");
     setCustomerNoteInput("");
-    setShowOrderNoteInput(false);
     setCompanyLookupResults([]);
     setCompanyLookupLoading(false);
     setCompanyLookupError("");
@@ -4349,28 +4344,6 @@ function App() {
                       </option>
                     ))}
                   </select>
-                  <div className="orders-note-toggle">
-                    <button
-                      type="button"
-                      className="clear-btn"
-                      onClick={() => setShowOrderNoteInput((current) => !current)}
-                      disabled={!activeCompanyId || orderSubmitting}
-                    >
-                      {showOrderNoteInput || String(orderNoteInput || "").trim()
-                        ? "Skryť poznámku k objednávke"
-                        : "Pridať poznámku k objednávke"}
-                    </button>
-                    {(showOrderNoteInput || String(orderNoteInput || "").trim()) && (
-                      <input
-                        type="text"
-                        className="search-input"
-                        placeholder="Poznámka k objednávke"
-                        value={orderNoteInput}
-                        onChange={(event) => setOrderNoteInput(event.target.value)}
-                        disabled={!activeCompanyId || orderSubmitting}
-                      />
-                    )}
-                  </div>
 
                   <div className="orders-draft-list">
                     <datalist id={ORDER_STOCK_DATALIST_ID}>
@@ -4390,51 +4363,51 @@ function App() {
                             <>
                               <div className="orders-draft-main">
                                 <div className="orders-draft-cell">
-                                <input
-                                  type="text"
-                                  className="search-input"
-                                  list={ORDER_STOCK_DATALIST_ID}
-                                  placeholder="Položka objednávky"
-                                  value={item.stockInput || ""}
-                                  onChange={(event) => handleOrderDraftItemChange(index, "stockInput", event.target.value)}
-                                  disabled={!activeCompanyId || orderSubmitting}
-                                />
-                                <p className="orders-draft-meta">
-                                  {selectedStockRow
-                                    ? `Sklad: ${String(selectedStockRow.material_code || "-")} | ${String(selectedStockRow.position || "-")}`
-                                    : "Píš voľne, sklad len ponúkne doplnenie."}
-                                </p>
-                              </div>
-                              <div className="orders-draft-cell">
-                                <input
-                                  type="number"
-                                  min={1}
-                                  max={quantityMax}
-                                  className="dead-stock-days-input"
-                                  placeholder="Množstvo"
-                                  value={item.orderedQuantity}
-                                  onChange={(event) => handleOrderDraftItemChange(index, "orderedQuantity", event.target.value)}
-                                  disabled={!activeCompanyId || orderSubmitting}
-                                />
-                                <p className="orders-draft-meta">
-                                  {selectedStockRow
-                                    ? `Max zo skladu: ${new Intl.NumberFormat("sk-SK").format(stockQuantity)} ks`
-                                    : "Bez limitu skladu."}
-                                </p>
-                              </div>
-                                <div className="orders-draft-actions">
-                                  <button
-                                    type="button"
-                                    className="clear-btn"
-                                    onClick={() => handleOrderDraftItemChange(index, "showNote", !showNote)}
+                                  <input
+                                    type="text"
+                                    className="search-input"
+                                    list={ORDER_STOCK_DATALIST_ID}
+                                    placeholder="Položka objednávky"
+                                    value={item.stockInput || ""}
+                                    onChange={(event) => handleOrderDraftItemChange(index, "stockInput", event.target.value)}
                                     disabled={!activeCompanyId || orderSubmitting}
-                                  >
-                                    {showNote ? "Skryť poznámku" : "Pridať poznámku"}
-                                  </button>
-                                  <button type="button" className="clear-btn" onClick={() => handleRemoveOrderDraftItem(index)}>
-                                    Odobrať
-                                  </button>
+                                  />
+                                  <p className="orders-draft-meta">
+                                    {selectedStockRow
+                                      ? `Sklad: ${String(selectedStockRow.material_code || "-")} | ${String(selectedStockRow.position || "-")}`
+                                      : "Píš voľne, sklad len ponúkne doplnenie."}
+                                  </p>
                                 </div>
+                                <div className="orders-draft-cell">
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    max={quantityMax}
+                                    className="dead-stock-days-input"
+                                    placeholder="Množstvo"
+                                    value={item.orderedQuantity}
+                                    onChange={(event) => handleOrderDraftItemChange(index, "orderedQuantity", event.target.value)}
+                                    disabled={!activeCompanyId || orderSubmitting}
+                                  />
+                                  <p className="orders-draft-meta">
+                                    {selectedStockRow
+                                      ? `Max zo skladu: ${new Intl.NumberFormat("sk-SK").format(stockQuantity)} ks`
+                                      : "Bez limitu skladu."}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="orders-draft-actions">
+                                <button
+                                  type="button"
+                                  className="clear-btn"
+                                  onClick={() => handleOrderDraftItemChange(index, "showNote", !showNote)}
+                                  disabled={!activeCompanyId || orderSubmitting}
+                                >
+                                  {showNote ? "Skryť poznámku" : "Pridať poznámku"}
+                                </button>
+                                <button type="button" className="clear-btn" onClick={() => handleRemoveOrderDraftItem(index)}>
+                                  Odobrať
+                                </button>
                               </div>
                               {showNote && (
                                 <div className="orders-draft-note-row">

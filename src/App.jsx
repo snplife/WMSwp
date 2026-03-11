@@ -8,6 +8,7 @@ import logo from "../logo.png";
 
 const DAILY_OVERVIEW_TABLE = "__daily_overview__";
 const ORDERS_MODULE = "__orders__";
+const PRODUCTION_MODULE = "__production__";
 const COMPANY_LOOKUP_DEBOUNCE_MS = 250;
 
 const TABLE_CONFIG = {
@@ -74,6 +75,18 @@ const TABLE_CONFIG = {
     orderAsc: false,
     metricLabel: "Objednávky",
     metricValue: (rows) => rows.length
+  },
+  [PRODUCTION_MODULE]: {
+    title: "Výrobné objednávky",
+    subtitle: "Interná výroba: vstupy zo skladu, výstupy na sklad",
+    columns: [],
+    searchKeys: [],
+    statusKeys: [],
+    timeKeys: [],
+    orderBy: "created_at",
+    orderAsc: false,
+    metricLabel: "Výrobné zákazky",
+    metricValue: (rows) => rows.length
   }
 };
 
@@ -107,6 +120,8 @@ const TRANSACTION_TABLE_ALIASES = Array.from(
   new Set([TRANSACTIONS_TABLE, "stock_history", "stock_transactions"].filter(Boolean))
 );
 const ORDER_STOCK_DATALIST_ID = "orders-stock-options";
+const PRODUCTION_INPUT_DATALIST_ID = "production-input-stock-options";
+const PRODUCTION_OUTPUT_MATERIAL_DATALIST_ID = "production-output-material-options";
 const INBOUND_ACTIONS = new Set(["RECEIVE", "MOVE", "MOVE_ALL", "ADJUST"]);
 const OCCUPANCY_RANGE_CONFIG = {
   day: { label: "Deň", bucketMs: 60 * 60 * 1000, points: 24 },
@@ -153,6 +168,9 @@ function getTableConfig(table) {
   if (isOrdersModule(table)) {
     return TABLE_CONFIG[ORDERS_MODULE];
   }
+  if (isProductionModule(table)) {
+    return TABLE_CONFIG[PRODUCTION_MODULE];
+  }
   if (isDailyOverviewTable(table)) {
     return TABLE_CONFIG[DAILY_OVERVIEW_TABLE];
   }
@@ -164,6 +182,14 @@ function getTableConfig(table) {
 
 function isOrdersModule(table) {
   return String(table || "").trim() === ORDERS_MODULE;
+}
+
+function isProductionModule(table) {
+  return String(table || "").trim() === PRODUCTION_MODULE;
+}
+
+function isWorkflowModule(table) {
+  return isOrdersModule(table) || isProductionModule(table);
 }
 
 function isDailyOverviewTable(table) {
@@ -182,6 +208,9 @@ function getStartOfTodayMs() {
 function getTableLabel(table) {
   if (isOrdersModule(table)) {
     return "Objednávky";
+  }
+  if (isProductionModule(table)) {
+    return "Výrobné objednávky";
   }
   if (isDailyOverviewTable(table)) {
     return "Denný prehľad";
@@ -205,6 +234,28 @@ function createEmptyOrderDraftItem() {
     stockKey: "",
     stockInput: "",
     orderedQuantity: "1",
+    lineNote: "",
+    showNote: false
+  };
+}
+
+function createEmptyProductionInputDraft() {
+  return {
+    draftId: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    stockKey: "",
+    stockInput: "",
+    requiredQuantity: "1",
+    lineNote: "",
+    showNote: false
+  };
+}
+
+function createEmptyProductionOutputDraft() {
+  return {
+    draftId: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    materialCode: "",
+    position: "",
+    outputQuantity: "1",
     lineNote: "",
     showNote: false
   };
@@ -584,6 +635,18 @@ function buildOrderNumber() {
   const timePart = `${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}`;
   const randomPart = Math.floor(1000 + Math.random() * 9000);
   return `OBJ-${datePart}-${timePart}-${randomPart}`;
+}
+
+function buildProductionNumber() {
+  const now = new Date();
+  const datePart = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+  const timePart = `${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}`;
+  const randomPart = Math.floor(1000 + Math.random() * 9000);
+  return `VYR-${datePart}-${timePart}-${randomPart}`;
+}
+
+function buildInventoryEventKey(prefix) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function buildOrderIdentityQrPayload(order) {
@@ -1167,6 +1230,19 @@ function App() {
   const [orderDraftItems, setOrderDraftItems] = useState([createEmptyOrderDraftItem()]);
   const [orderSubmitting, setOrderSubmitting] = useState(false);
   const [expandedOrders, setExpandedOrders] = useState({});
+  const [productionOrders, setProductionOrders] = useState([]);
+  const [productionOrderInputs, setProductionOrderInputs] = useState([]);
+  const [productionOrderOutputs, setProductionOrderOutputs] = useState([]);
+  const [productionStockRows, setProductionStockRows] = useState([]);
+  const [productionLoading, setProductionLoading] = useState(false);
+  const [productionError, setProductionError] = useState("");
+  const [productionTitleInput, setProductionTitleInput] = useState("");
+  const [productionSearchTerm, setProductionSearchTerm] = useState("");
+  const [productionDraftInputs, setProductionDraftInputs] = useState([createEmptyProductionInputDraft()]);
+  const [productionDraftOutputs, setProductionDraftOutputs] = useState([createEmptyProductionOutputDraft()]);
+  const [productionSubmitting, setProductionSubmitting] = useState(false);
+  const [productionCompletingId, setProductionCompletingId] = useState("");
+  const [expandedProductionOrders, setExpandedProductionOrders] = useState({});
   const latestLoadRowsRequestRef = useRef(0);
   const companyLookupRequestRef = useRef(0);
 
@@ -1176,10 +1252,10 @@ function App() {
   const hotjarAllowed = (authReady || authInitTimedOut) && (!isLoggedIn || !isMaster);
   const visibleTableNames = useMemo(() => {
     if (isMaster) {
-      return [...tableNames, ORDERS_MODULE];
+      return [...tableNames, ORDERS_MODULE, PRODUCTION_MODULE];
     }
     const baseTables = [DAILY_OVERVIEW_TABLE, ...tableNames.filter((table) => table === "stock" || isTransactionsTable(table))];
-    return canAccessOrdersModule ? [...baseTables, ORDERS_MODULE] : baseTables;
+    return canAccessOrdersModule ? [...baseTables, ORDERS_MODULE, PRODUCTION_MODULE] : baseTables;
   }, [isMaster, canAccessOrdersModule]);
   const companyNameById = useMemo(
     () =>
@@ -1208,6 +1284,28 @@ function App() {
     }
     return grouped;
   }, [orderItems]);
+  const productionInputsByOrderId = useMemo(() => {
+    const grouped = {};
+    for (const item of productionOrderInputs) {
+      const orderId = String(item.production_order_id || "");
+      if (!grouped[orderId]) {
+        grouped[orderId] = [];
+      }
+      grouped[orderId].push(item);
+    }
+    return grouped;
+  }, [productionOrderInputs]);
+  const productionOutputsByOrderId = useMemo(() => {
+    const grouped = {};
+    for (const item of productionOrderOutputs) {
+      const orderId = String(item.production_order_id || "");
+      if (!grouped[orderId]) {
+        grouped[orderId] = [];
+      }
+      grouped[orderId].push(item);
+    }
+    return grouped;
+  }, [productionOrderOutputs]);
   const ordersStockOptions = useMemo(
     () =>
       ordersStockRows
@@ -1222,6 +1320,28 @@ function App() {
   const ordersStockMap = useMemo(
     () => Object.fromEntries(ordersStockOptions.map((item) => [item.stockKey, item.row])),
     [ordersStockOptions]
+  );
+  const productionStockOptions = useMemo(
+    () =>
+      productionStockRows
+        .filter((row) => Number(row.quantity || 0) > 0)
+        .map((row) => ({
+          stockKey: makeStockKey(row.position, row.material_code, row.company_id),
+          row,
+          label: `${String(row.material_code || "-")} | ${String(row.position || "-")} | ${new Intl.NumberFormat("sk-SK").format(Number(row.quantity || 0))} ks`
+        })),
+    [productionStockRows]
+  );
+  const productionStockMap = useMemo(
+    () => Object.fromEntries(productionStockOptions.map((item) => [item.stockKey, item.row])),
+    [productionStockOptions]
+  );
+  const productionOutputMaterialOptions = useMemo(
+    () =>
+      Array.from(new Set(productionStockRows.map((row) => String(row.material_code || "").trim()).filter(Boolean))).sort((a, b) =>
+        a.localeCompare(b, "sk-SK", { sensitivity: "base" })
+      ),
+    [productionStockRows]
   );
   const showsExpiryDate = selectedTable === "stock" && Boolean(activeCompany?.tracks_expiry_date);
   const effectiveTableConfig = useMemo(() => {
@@ -2131,6 +2251,441 @@ function App() {
     }
   };
 
+  const resetProductionDraft = () => {
+    setProductionTitleInput("");
+    setProductionDraftInputs([createEmptyProductionInputDraft()]);
+    setProductionDraftOutputs([createEmptyProductionOutputDraft()]);
+  };
+
+  const loadProductionModuleData = async () => {
+    if (!authReady || !isLoggedIn || !canAccessOrdersModule) {
+      setProductionOrders([]);
+      setProductionOrderInputs([]);
+      setProductionOrderOutputs([]);
+      setProductionStockRows([]);
+      setProductionLoading(false);
+      setProductionError("");
+      return;
+    }
+
+    const requestId = latestLoadRowsRequestRef.current + 1;
+    latestLoadRowsRequestRef.current = requestId;
+    setProductionLoading(true);
+    setProductionError("");
+
+    try {
+      const scopedCompanyId = activeCompanyId || userCompanyId || null;
+      const productionOrdersQuery = supabase
+        .from("production_orders")
+        .select("id,company_id,production_number,title,status,note,created_at,created_by,completed_at,completed_by")
+        .order("created_at", { ascending: false });
+      const stockQuery = supabase
+        .from("stock")
+        .select("company_id,position,material_code,quantity")
+        .order("material_code", { ascending: true });
+
+      const scopedProductionOrdersQuery = scopedCompanyId ? productionOrdersQuery.eq("company_id", scopedCompanyId) : productionOrdersQuery;
+      const scopedStockQuery = scopedCompanyId ? stockQuery.eq("company_id", scopedCompanyId) : stockQuery;
+
+      const [{ data: productionOrdersData, error: productionOrdersError }, { data: stockData, error: stockError }] =
+        await Promise.all([scopedProductionOrdersQuery, scopedStockQuery]);
+
+      if (productionOrdersError) {
+        throw productionOrdersError;
+      }
+      if (stockError) {
+        throw stockError;
+      }
+
+      const productionOrderIds = (productionOrdersData || []).map((row) => row.id).filter(Boolean);
+      let inputsData = [];
+      let outputsData = [];
+      if (productionOrderIds.length > 0) {
+        const [{ data: fetchedInputs, error: inputsError }, { data: fetchedOutputs, error: outputsError }] = await Promise.all([
+          supabase
+            .from("production_order_inputs")
+            .select("id,production_order_id,material_code,position,required_quantity,stock_quantity_snapshot,line_note,created_at")
+            .in("production_order_id", productionOrderIds)
+            .order("created_at", { ascending: true }),
+          supabase
+            .from("production_order_outputs")
+            .select("id,production_order_id,material_code,position,output_quantity,line_note,created_at")
+            .in("production_order_id", productionOrderIds)
+            .order("created_at", { ascending: true })
+        ]);
+
+        if (inputsError) {
+          throw inputsError;
+        }
+        if (outputsError) {
+          throw outputsError;
+        }
+        inputsData = fetchedInputs || [];
+        outputsData = fetchedOutputs || [];
+      }
+
+      if (latestLoadRowsRequestRef.current !== requestId) {
+        return;
+      }
+
+      setProductionOrders(productionOrdersData || []);
+      setProductionOrderInputs(inputsData);
+      setProductionOrderOutputs(outputsData);
+      setProductionStockRows(stockData || []);
+    } catch (loadProductionError) {
+      setProductionError(loadProductionError?.message || "Nepodarilo sa načítať výrobné objednávky.");
+      setProductionOrders([]);
+      setProductionOrderInputs([]);
+      setProductionOrderOutputs([]);
+      setProductionStockRows([]);
+    } finally {
+      setProductionLoading(false);
+    }
+  };
+
+  const handleProductionInputChange = (index, field, value) => {
+    setProductionDraftInputs((prev) =>
+      prev.map((item, currentIndex) => {
+        if (currentIndex !== index) {
+          return item;
+        }
+
+        if (field === "stockInput") {
+          const matchedOption = resolveOrderStockOption(value, productionStockOptions);
+          return {
+            ...item,
+            stockInput: matchedOption ? matchedOption.label : value,
+            stockKey: matchedOption ? matchedOption.stockKey : ""
+          };
+        }
+
+        return { ...item, [field]: value };
+      })
+    );
+  };
+
+  const handleAddProductionInput = () => {
+    setProductionDraftInputs((prev) => [...prev, createEmptyProductionInputDraft()]);
+  };
+
+  const handleRemoveProductionInput = (index) => {
+    setProductionDraftInputs((prev) =>
+      prev.length <= 1 ? [createEmptyProductionInputDraft()] : prev.filter((_, itemIndex) => itemIndex !== index)
+    );
+  };
+
+  const handleProductionOutputChange = (index, field, value) => {
+    setProductionDraftOutputs((prev) =>
+      prev.map((item, currentIndex) => (currentIndex === index ? { ...item, [field]: value } : item))
+    );
+  };
+
+  const handleAddProductionOutput = () => {
+    setProductionDraftOutputs((prev) => [...prev, createEmptyProductionOutputDraft()]);
+  };
+
+  const handleRemoveProductionOutput = (index) => {
+    setProductionDraftOutputs((prev) =>
+      prev.length <= 1 ? [createEmptyProductionOutputDraft()] : prev.filter((_, itemIndex) => itemIndex !== index)
+    );
+  };
+
+  const handleCreateProductionOrder = async (event) => {
+    event.preventDefault();
+
+    const companyId = activeCompanyId || userCompanyId;
+    const title = String(productionTitleInput || "").trim();
+    if (!companyId) {
+      setProductionError("Vyber firmu pre výrobnú objednávku.");
+      return;
+    }
+    if (!title) {
+      setProductionError("Zadaj názov výrobnej objednávky.");
+      return;
+    }
+
+    const normalizedInputs = [];
+    for (const item of productionDraftInputs) {
+      const stockRow = productionStockMap[item.stockKey];
+      if (!stockRow) {
+        continue;
+      }
+      const requiredQuantity = Number.parseInt(String(item.requiredQuantity || "0"), 10);
+      if (!Number.isFinite(requiredQuantity) || requiredQuantity < 1) {
+        setProductionError(`Zadaj platné množstvo vstupu pre ${String(stockRow.material_code || "-")}.`);
+        return;
+      }
+
+      normalizedInputs.push({
+        material_code: String(stockRow.material_code || ""),
+        position: String(stockRow.position || ""),
+        required_quantity: requiredQuantity,
+        stock_quantity_snapshot: Number(stockRow.quantity || 0),
+        line_note: String(item.lineNote || "").trim()
+      });
+    }
+
+    const normalizedOutputs = [];
+    for (const item of productionDraftOutputs) {
+      const materialCode = String(item.materialCode || "").trim();
+      const position = String(item.position || "").trim();
+      if (!materialCode && !position) {
+        continue;
+      }
+      if (!materialCode || !position) {
+        setProductionError("Každý výstup musí mať materiál aj pozíciu.");
+        return;
+      }
+      const outputQuantity = Number.parseInt(String(item.outputQuantity || "0"), 10);
+      if (!Number.isFinite(outputQuantity) || outputQuantity < 1) {
+        setProductionError(`Zadaj platné množstvo výstupu pre ${materialCode}.`);
+        return;
+      }
+
+      normalizedOutputs.push({
+        material_code: materialCode,
+        position,
+        output_quantity: outputQuantity,
+        line_note: String(item.lineNote || "").trim()
+      });
+    }
+
+    if (normalizedInputs.length === 0) {
+      setProductionError("Pridaj aspoň jeden vstup zo skladu.");
+      return;
+    }
+    if (normalizedOutputs.length === 0) {
+      setProductionError("Pridaj aspoň jeden výstup výroby.");
+      return;
+    }
+
+    setProductionSubmitting(true);
+    setProductionError("");
+
+    const { data: productionOrderRow, error: productionInsertError } = await supabase
+      .from("production_orders")
+      .insert([
+        {
+          company_id: companyId,
+          production_number: buildProductionNumber(),
+          title,
+          status: "draft",
+          note: "",
+          created_by: authUser?.id || null
+        }
+      ])
+      .select("id,company_id,production_number,title,status,note,created_at,created_by,completed_at,completed_by")
+      .single();
+
+    if (productionInsertError) {
+      setProductionError(productionInsertError.message || "Nepodarilo sa vytvoriť výrobnú objednávku.");
+      setProductionSubmitting(false);
+      return;
+    }
+
+    const [{ data: insertedInputs, error: inputsInsertError }, { data: insertedOutputs, error: outputsInsertError }] = await Promise.all([
+      supabase
+        .from("production_order_inputs")
+        .insert(normalizedInputs.map((item) => ({ ...item, production_order_id: productionOrderRow.id })))
+        .select("id,production_order_id,material_code,position,required_quantity,stock_quantity_snapshot,line_note,created_at"),
+      supabase
+        .from("production_order_outputs")
+        .insert(normalizedOutputs.map((item) => ({ ...item, production_order_id: productionOrderRow.id })))
+        .select("id,production_order_id,material_code,position,output_quantity,line_note,created_at")
+    ]);
+
+    if (inputsInsertError || outputsInsertError) {
+      setProductionError(inputsInsertError?.message || outputsInsertError?.message || "Výrobná objednávka sa vytvorila, ale položky sa nepodarilo uložiť.");
+      setProductionSubmitting(false);
+      await loadProductionModuleData();
+      return;
+    }
+
+    setProductionOrders((prev) => [productionOrderRow, ...prev]);
+    setProductionOrderInputs((prev) => [...prev, ...(insertedInputs || [])]);
+    setProductionOrderOutputs((prev) => [...prev, ...(insertedOutputs || [])]);
+    setExpandedProductionOrders((prev) => ({ ...prev, [productionOrderRow.id]: true }));
+    resetProductionDraft();
+    setProductionSubmitting(false);
+  };
+
+  const handleCompleteProductionOrder = async (productionOrder) => {
+    if (!productionOrder?.id || productionOrder.status === "completed") {
+      return;
+    }
+
+    const inputs = productionInputsByOrderId[productionOrder.id] || [];
+    const outputs = productionOutputsByOrderId[productionOrder.id] || [];
+    if (inputs.length === 0 || outputs.length === 0) {
+      setProductionError("Výrobná objednávka musí mať vstupy aj výstupy.");
+      return;
+    }
+
+    setProductionCompletingId(productionOrder.id);
+    setProductionError("");
+
+    const { data: liveStockRows, error: liveStockError } = await supabase
+      .from("stock")
+      .select("company_id,position,material_code,quantity")
+      .eq("company_id", productionOrder.company_id);
+
+    if (liveStockError) {
+      setProductionError(liveStockError.message || "Nepodarilo sa načítať aktuálny stav skladu.");
+      setProductionCompletingId("");
+      return;
+    }
+
+    const liveStockMap = Object.fromEntries(
+      (liveStockRows || []).map((row) => [makeStockKey(row.position, row.material_code, row.company_id), row])
+    );
+
+    const requiredByStockKey = {};
+    const inputsByStockKey = {};
+    for (const input of inputs) {
+      const stockKey = makeStockKey(input.position, input.material_code, productionOrder.company_id);
+      requiredByStockKey[stockKey] = (requiredByStockKey[stockKey] || 0) + Number(input.required_quantity || 0);
+      if (!inputsByStockKey[stockKey]) {
+        inputsByStockKey[stockKey] = {
+          position: input.position,
+          material_code: input.material_code,
+          totalQuantity: 0
+        };
+      }
+      inputsByStockKey[stockKey].totalQuantity += Number(input.required_quantity || 0);
+    }
+    const outputsByStockKey = {};
+    for (const output of outputs) {
+      const stockKey = makeStockKey(output.position, output.material_code, productionOrder.company_id);
+      if (!outputsByStockKey[stockKey]) {
+        outputsByStockKey[stockKey] = {
+          position: output.position,
+          material_code: output.material_code,
+          totalQuantity: 0
+        };
+      }
+      outputsByStockKey[stockKey].totalQuantity += Number(output.output_quantity || 0);
+    }
+
+    const invalidStock = Object.entries(requiredByStockKey).find(
+      ([stockKey, requiredQuantity]) => Number(liveStockMap[stockKey]?.quantity || 0) < Number(requiredQuantity || 0)
+    );
+    if (invalidStock) {
+      const stockRow = liveStockMap[invalidStock[0]];
+      setProductionError(`Na dokončenie výroby chýba materiál ${String(stockRow?.material_code || "-")}.`);
+      setProductionCompletingId("");
+      return;
+    }
+
+    for (const [stockKey, inputGroup] of Object.entries(inputsByStockKey)) {
+      const liveRow = liveStockMap[stockKey];
+      const nextQuantity = Number(liveRow?.quantity || 0) - Number(inputGroup.totalQuantity || 0);
+
+      if (nextQuantity <= 0) {
+        const { error: deleteError } = await supabase
+          .from("stock")
+          .delete()
+          .eq("company_id", productionOrder.company_id)
+          .eq("position", inputGroup.position)
+          .eq("material_code", inputGroup.material_code);
+        if (deleteError) {
+          setProductionError(deleteError.message || "Nepodarilo sa odpísať vstupný materiál.");
+          setProductionCompletingId("");
+          return;
+        }
+        delete liveStockMap[stockKey];
+      } else {
+        const { error: updateError } = await supabase
+          .from("stock")
+          .update({ quantity: nextQuantity })
+          .eq("company_id", productionOrder.company_id)
+          .eq("position", inputGroup.position)
+          .eq("material_code", inputGroup.material_code);
+        if (updateError) {
+          setProductionError(updateError.message || "Nepodarilo sa odpísať vstupný materiál.");
+          setProductionCompletingId("");
+          return;
+        }
+        liveStockMap[stockKey] = { ...liveRow, quantity: nextQuantity };
+      }
+    }
+
+    for (const [stockKey, outputGroup] of Object.entries(outputsByStockKey)) {
+      const currentQuantity = Number(liveStockMap[stockKey]?.quantity || 0);
+      const nextQuantity = currentQuantity + Number(outputGroup.totalQuantity || 0);
+      const { error: upsertError } = await supabase.from("stock").upsert(
+        [
+          {
+            company_id: productionOrder.company_id,
+            position: outputGroup.position,
+            material_code: outputGroup.material_code,
+            quantity: nextQuantity
+          }
+        ],
+        { onConflict: "company_id,position,material_code" }
+      );
+      if (upsertError) {
+        setProductionError(upsertError.message || "Nepodarilo sa naskladniť výstup výroby.");
+        setProductionCompletingId("");
+        return;
+      }
+      liveStockMap[stockKey] = {
+        company_id: productionOrder.company_id,
+        position: outputGroup.position,
+        material_code: outputGroup.material_code,
+        quantity: nextQuantity
+      };
+    }
+
+    const createdAtMs = Date.now();
+    const historyNote = `Výrobná objednávka ${productionOrder.production_number} | ${productionOrder.title}`;
+    const historyRows = [
+      ...inputs.flatMap((input) =>
+        Array.from({ length: Math.max(1, Number(input.required_quantity || 0)) }, () => ({
+          event_key: buildInventoryEventKey("production-issue"),
+          company_id: productionOrder.company_id,
+          action: "ISSUE",
+          position: input.position,
+          material_code: input.material_code,
+          note: historyNote,
+          created_at_ms: createdAtMs
+        }))
+      ),
+      ...outputs.flatMap((output) =>
+        Array.from({ length: Math.max(1, Number(output.output_quantity || 0)) }, () => ({
+          event_key: buildInventoryEventKey("production-receive"),
+          company_id: productionOrder.company_id,
+          action: "RECEIVE",
+          position: output.position,
+          material_code: output.material_code,
+          note: historyNote,
+          created_at_ms: createdAtMs
+        }))
+      )
+    ];
+
+    const { error: historyInsertError } = await supabase.from("stock_history").insert(historyRows);
+    if (historyInsertError) {
+      setProductionError(historyInsertError.message || "Sklad sa upravil, ale nepodarilo sa zapísať históriu.");
+      setProductionCompletingId("");
+      return;
+    }
+
+    const completedAt = new Date().toISOString();
+    const { error: productionUpdateError } = await supabase
+      .from("production_orders")
+      .update({ status: "completed", completed_at: completedAt, completed_by: authUser?.id || null })
+      .eq("id", productionOrder.id);
+
+    if (productionUpdateError) {
+      setProductionError(productionUpdateError.message || "Sklad sa upravil, ale nepodarilo sa uzavrieť výrobnú objednávku.");
+      setProductionCompletingId("");
+      return;
+    }
+
+    setProductionCompletingId("");
+    await loadProductionModuleData();
+  };
+
   const handleOrderDraftItemChange = (index, field, value) => {
     setOrderDraftItems((prev) =>
       prev.map((item, currentIndex) => {
@@ -2758,6 +3313,12 @@ function App() {
       setOrders([]);
       setOrderItems([]);
       setOrdersStockRows([]);
+      setProductionOrders([]);
+      setProductionOrderInputs([]);
+      setProductionOrderOutputs([]);
+      setProductionStockRows([]);
+      setProductionError("");
+      setProductionLoading(false);
       setCompanyLookupResults([]);
       setCompanyLookupLoading(false);
       setCompanyLookupError("");
@@ -2785,6 +3346,37 @@ function App() {
 
       const channel = supabase.channel(`orders-${selectedCompanyId || userCompanyId || "own"}`);
       ["customers", "orders", "order_items", "stock"].forEach((table) => {
+        channel.on("postgres_changes", { event: "*", schema: "public", table }, scheduleReload);
+      });
+      channel.subscribe();
+
+      return () => {
+        if (reloadTimer) {
+          window.clearTimeout(reloadTimer);
+        }
+        supabase.removeChannel(channel);
+      };
+    }
+
+    if (isProductionModule(selectedTable)) {
+      setRows([]);
+      setStockSnapshotRows([]);
+      setDeadStockByKey({});
+      setStockAgeStats({ avgDays: null, sampleCount: 0 });
+      setOccupancySeries([]);
+      setLoading(false);
+      loadProductionModuleData();
+
+      let reloadTimer = null;
+      const scheduleReload = () => {
+        if (reloadTimer) {
+          window.clearTimeout(reloadTimer);
+        }
+        reloadTimer = window.setTimeout(() => loadProductionModuleData(), 350);
+      };
+
+      const channel = supabase.channel(`production-${selectedCompanyId || userCompanyId || "own"}`);
+      ["production_orders", "production_order_inputs", "production_order_outputs", "stock", "stock_history"].forEach((table) => {
         channel.on("postgres_changes", { event: "*", schema: "public", table }, scheduleReload);
       });
       channel.subscribe();
@@ -2833,6 +3425,16 @@ function App() {
     if (isOrdersModule(selectedTable)) {
       const intervalId = window.setInterval(() => {
         loadOrdersModuleData();
+      }, AUTO_REFRESH_MS);
+
+      return () => {
+        window.clearInterval(intervalId);
+      };
+    }
+
+    if (isProductionModule(selectedTable)) {
+      const intervalId = window.setInterval(() => {
+        loadProductionModuleData();
       }, AUTO_REFRESH_MS);
 
       return () => {
@@ -3184,8 +3786,18 @@ function App() {
         .some((value) => String(value || "").toLowerCase().includes(normalized))
     );
   }, [orders, orderSearchTerm]);
+  const filteredProductionOrders = useMemo(() => {
+    const normalized = String(productionSearchTerm || "").trim().toLowerCase();
+    if (!normalized) {
+      return productionOrders;
+    }
+    return productionOrders.filter((order) =>
+      [order.production_number, order.title, order.status, order.note]
+        .some((value) => String(value || "").toLowerCase().includes(normalized))
+    );
+  }, [productionOrders, productionSearchTerm]);
   const sidebarSections = useMemo(() => {
-    const monitoringItems = visibleTableNames.filter((table) => !isOrdersModule(table));
+    const monitoringItems = visibleTableNames.filter((table) => !isOrdersModule(table) && !isProductionModule(table));
     const sections = [
       {
         title: isMaster ? "Dáta" : "Monitoring",
@@ -3196,7 +3808,7 @@ function App() {
     if (visibleTableNames.includes(ORDERS_MODULE)) {
       sections.push({
         title: "Workflow",
-        items: [ORDERS_MODULE]
+        items: [ORDERS_MODULE, PRODUCTION_MODULE]
       });
     }
 
@@ -3419,6 +4031,19 @@ function App() {
     setOrderItems([]);
     setOrdersStockRows([]);
     setOrdersError("");
+    setProductionOrders([]);
+    setProductionOrderInputs([]);
+    setProductionOrderOutputs([]);
+    setProductionStockRows([]);
+    setProductionError("");
+    setProductionLoading(false);
+    setProductionTitleInput("");
+    setProductionSearchTerm("");
+    setProductionDraftInputs([createEmptyProductionInputDraft()]);
+    setProductionDraftOutputs([createEmptyProductionOutputDraft()]);
+    setProductionSubmitting(false);
+    setProductionCompletingId("");
+    setExpandedProductionOrders({});
     setCustomerNameInput("");
     setCustomerEmailInput("");
     setCustomerPhoneInput("");
@@ -3675,7 +4300,7 @@ function App() {
                 )}
               </>
             )}
-            {!isOrdersModule(selectedTable) && (
+            {!isWorkflowModule(selectedTable) && (
               <button type="button" onClick={exportToExcel} className="export-btn">
                 Export do Excelu
               </button>
@@ -3685,6 +4310,10 @@ function App() {
               onClick={() => {
                 if (isOrdersModule(selectedTable)) {
                   loadOrdersModuleData();
+                  return;
+                }
+                if (isProductionModule(selectedTable)) {
+                  loadProductionModuleData();
                   return;
                 }
                 loadRows(selectedTable);
@@ -4593,7 +5222,376 @@ function App() {
         </section>
       )}
 
-      {!isMaster && !isOrdersModule(selectedTable) && (
+      {isProductionModule(selectedTable) && canAccessOrdersModule && (
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <h2>Výrobné objednávky</h2>
+              <p className="panel-meta">
+                {activeCompanyId
+                  ? `Interná výroba pre firmu ${currentCompanyLabel}`
+                  : "Vyber konkrétnu firmu, aby sa dali vytvárať výrobné objednávky."}
+              </p>
+            </div>
+          </div>
+
+          {productionError && <p className="error">{productionError}</p>}
+
+          <div className="orders-summary-grid">
+            <article className="card">
+              <p>Výrobné zákazky</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(productionOrders.length)}</strong>
+            </article>
+            <article className="card">
+              <p>Vstupy</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(productionOrderInputs.length)}</strong>
+            </article>
+            <article className="card">
+              <p>Výstupy</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(productionOrderOutputs.length)}</strong>
+            </article>
+            <article className="card">
+              <p>Skladové pozície</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(productionStockRows.length)}</strong>
+            </article>
+          </div>
+
+          <div className="orders-layout">
+            <div className="orders-column">
+              <article className="orders-panel-card">
+                <div className="panel-head">
+                  <div>
+                    <h2>Nová výrobná objednávka</h2>
+                    <p className="panel-meta">Vstupy sa odpíšu až pri naskladnení výstupu.</p>
+                  </div>
+                </div>
+                <form className="orders-form" onSubmit={handleCreateProductionOrder}>
+                  <input
+                    type="text"
+                    className="search-input"
+                    placeholder="Názov výroby alebo zákazky"
+                    value={productionTitleInput}
+                    onChange={(event) => setProductionTitleInput(event.target.value)}
+                    disabled={!activeCompanyId || productionSubmitting}
+                    required
+                  />
+
+                  <div>
+                    <div className="panel-head">
+                      <div>
+                        <h2>Vstupy zo skladu</h2>
+                        <p className="panel-meta">Vyber materiály, ktoré sa majú spotrebovať pri naskladnení výstupu.</p>
+                      </div>
+                    </div>
+                    <div className="orders-draft-list">
+                      <datalist id={PRODUCTION_INPUT_DATALIST_ID}>
+                        {productionStockOptions.map((option) => (
+                          <option key={option.stockKey} value={option.label} />
+                        ))}
+                      </datalist>
+                      {productionDraftInputs.map((item, index) => {
+                        const selectedStockRow = productionStockMap[item.stockKey];
+                        const stockQuantity = Number(selectedStockRow?.quantity || 0);
+                        const quantityMax = stockQuantity > 0 ? Math.floor(stockQuantity) : undefined;
+                        const showNote = Boolean(item.showNote || String(item.lineNote || "").trim());
+
+                        return (
+                          <div key={item.draftId || `production-input-${index}`} className="orders-draft-row">
+                            <div className="orders-draft-main">
+                              <div className="orders-draft-cell">
+                                <input
+                                  type="text"
+                                  className="search-input"
+                                  list={PRODUCTION_INPUT_DATALIST_ID}
+                                  placeholder="Vstupný materiál zo skladu"
+                                  value={item.stockInput || ""}
+                                  onChange={(event) => handleProductionInputChange(index, "stockInput", event.target.value)}
+                                  disabled={!activeCompanyId || productionSubmitting}
+                                />
+                                <p className="orders-draft-meta">
+                                  {selectedStockRow
+                                    ? `Sklad: ${String(selectedStockRow.material_code || "-")} | ${String(selectedStockRow.position || "-")}`
+                                    : "Vyber presnú skladovú položku, ktorá sa má spotrebovať."}
+                                </p>
+                              </div>
+                              <div className="orders-draft-cell">
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={quantityMax}
+                                  className="dead-stock-days-input"
+                                  placeholder="Množstvo"
+                                  value={item.requiredQuantity}
+                                  onChange={(event) => handleProductionInputChange(index, "requiredQuantity", event.target.value)}
+                                  disabled={!activeCompanyId || productionSubmitting}
+                                />
+                                <p className="orders-draft-meta">
+                                  {selectedStockRow
+                                    ? `Max zo skladu: ${new Intl.NumberFormat("sk-SK").format(stockQuantity)} ks`
+                                    : "Množstvo sa kontroluje proti skladu pri dokončení."}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="orders-draft-actions">
+                              <button
+                                type="button"
+                                className="clear-btn"
+                                onClick={() => handleProductionInputChange(index, "showNote", !showNote)}
+                                disabled={!activeCompanyId || productionSubmitting}
+                              >
+                                {showNote ? "Skryť poznámku" : "Pridať poznámku"}
+                              </button>
+                              <button type="button" className="clear-btn" onClick={() => handleRemoveProductionInput(index)}>
+                                Odobrať vstup
+                              </button>
+                            </div>
+                            {showNote && (
+                              <div className="orders-draft-note-row">
+                                <input
+                                  type="text"
+                                  className="search-input"
+                                  placeholder="Poznámka vstupu"
+                                  value={item.lineNote}
+                                  onChange={(event) => handleProductionInputChange(index, "lineNote", event.target.value)}
+                                  disabled={!activeCompanyId || productionSubmitting}
+                                />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="orders-form-actions">
+                      <button type="button" className="clear-btn" onClick={handleAddProductionInput}>
+                        Pridať vstup
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="panel-head">
+                      <div>
+                        <h2>Výstupy výroby</h2>
+                        <p className="panel-meta">Zadaj finálne položky, ktoré sa majú naskladniť.</p>
+                      </div>
+                    </div>
+                    <div className="orders-draft-list">
+                      <datalist id={PRODUCTION_OUTPUT_MATERIAL_DATALIST_ID}>
+                        {productionOutputMaterialOptions.map((materialCode) => (
+                          <option key={materialCode} value={materialCode} />
+                        ))}
+                      </datalist>
+                      {productionDraftOutputs.map((item, index) => {
+                        const showNote = Boolean(item.showNote || String(item.lineNote || "").trim());
+                        return (
+                          <div key={item.draftId || `production-output-${index}`} className="orders-draft-row">
+                            <div className="orders-draft-main production-output-main">
+                              <div className="orders-draft-cell">
+                                <input
+                                  type="text"
+                                  className="search-input"
+                                  list={PRODUCTION_OUTPUT_MATERIAL_DATALIST_ID}
+                                  placeholder="Finálna položka"
+                                  value={item.materialCode}
+                                  onChange={(event) => handleProductionOutputChange(index, "materialCode", event.target.value)}
+                                  disabled={!activeCompanyId || productionSubmitting}
+                                />
+                                <p className="orders-draft-meta">Materiál alebo kód finálneho výrobku.</p>
+                              </div>
+                              <div className="orders-draft-cell">
+                                <input
+                                  type="text"
+                                  className="search-input"
+                                  placeholder="Pozícia výstupu"
+                                  value={item.position}
+                                  onChange={(event) => handleProductionOutputChange(index, "position", event.target.value)}
+                                  disabled={!activeCompanyId || productionSubmitting}
+                                />
+                                <p className="orders-draft-meta">Kam sa má finálny výrobok naskladniť.</p>
+                              </div>
+                              <div className="orders-draft-cell">
+                                <input
+                                  type="number"
+                                  min={1}
+                                  className="dead-stock-days-input"
+                                  placeholder="Množstvo"
+                                  value={item.outputQuantity}
+                                  onChange={(event) => handleProductionOutputChange(index, "outputQuantity", event.target.value)}
+                                  disabled={!activeCompanyId || productionSubmitting}
+                                />
+                                <p className="orders-draft-meta">Naskladní sa pri dokončení výroby.</p>
+                              </div>
+                            </div>
+                            <div className="orders-draft-actions">
+                              <button
+                                type="button"
+                                className="clear-btn"
+                                onClick={() => handleProductionOutputChange(index, "showNote", !showNote)}
+                                disabled={!activeCompanyId || productionSubmitting}
+                              >
+                                {showNote ? "Skryť poznámku" : "Pridať poznámku"}
+                              </button>
+                              <button type="button" className="clear-btn" onClick={() => handleRemoveProductionOutput(index)}>
+                                Odobrať výstup
+                              </button>
+                            </div>
+                            {showNote && (
+                              <div className="orders-draft-note-row">
+                                <input
+                                  type="text"
+                                  className="search-input"
+                                  placeholder="Poznámka výstupu"
+                                  value={item.lineNote}
+                                  onChange={(event) => handleProductionOutputChange(index, "lineNote", event.target.value)}
+                                  disabled={!activeCompanyId || productionSubmitting}
+                                />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="orders-form-actions">
+                      <button type="button" className="clear-btn" onClick={handleAddProductionOutput}>
+                        Pridať výstup
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="orders-form-actions">
+                    <button type="submit" className="settings-btn" disabled={!activeCompanyId || productionSubmitting}>
+                      {productionSubmitting ? "Vytváram..." : "Vytvoriť výrobnú objednávku"}
+                    </button>
+                  </div>
+                </form>
+              </article>
+            </div>
+
+            <div className="orders-column orders-column-list">
+              <article className="orders-panel-card">
+                <div className="panel-head">
+                  <div>
+                    <h2>Zoznam výrobných objednávok</h2>
+                    <p className="panel-meta">{`${filteredProductionOrders.length} / ${productionOrders.length} zákaziek`}</p>
+                  </div>
+                </div>
+                <div className="panel-controls">
+                  <input
+                    type="search"
+                    className="search-input"
+                    placeholder="Hľadaj číslo, názov alebo stav"
+                    value={productionSearchTerm}
+                    onChange={(event) => setProductionSearchTerm(event.target.value)}
+                  />
+                </div>
+
+                {productionLoading ? (
+                  <p className="hint">Načítavam výrobné objednávky...</p>
+                ) : filteredProductionOrders.length === 0 ? (
+                  <p className="hint">Zatiaľ tu nie sú výrobné objednávky.</p>
+                ) : (
+                  <div className="orders-list">
+                    {filteredProductionOrders.map((productionOrder) => {
+                      const isOpen = Boolean(expandedProductionOrders[productionOrder.id]);
+                      const inputs = productionInputsByOrderId[productionOrder.id] || [];
+                      const outputs = productionOutputsByOrderId[productionOrder.id] || [];
+                      return (
+                        <article key={productionOrder.id} className="order-card">
+                          <button
+                            type="button"
+                            className="order-card-head"
+                            onClick={() =>
+                              setExpandedProductionOrders((prev) => ({ ...prev, [productionOrder.id]: !prev[productionOrder.id] }))
+                            }
+                          >
+                            <div>
+                              <strong>{productionOrder.title}</strong>
+                              <p>{productionOrder.production_number}</p>
+                            </div>
+                            <div className="order-card-meta">
+                              <span>{formatDate(productionOrder.created_at)}</span>
+                              <span>{`${inputs.length} vstupov / ${outputs.length} výstupov`}</span>
+                            </div>
+                          </button>
+                          {isOpen && (
+                            <div className="order-card-body">
+                              <div className="order-card-actions">
+                                <StatusPill status={String(productionOrder.status || "draft")} />
+                                {productionOrder.status !== "completed" && (
+                                  <button
+                                    type="button"
+                                    className="settings-btn"
+                                    onClick={() => handleCompleteProductionOrder(productionOrder)}
+                                    disabled={productionCompletingId === productionOrder.id}
+                                  >
+                                     {productionCompletingId === productionOrder.id ? "Naskladňujem..." : "Naskladniť a dokončiť"}
+                                  </button>
+                                )}
+                              </div>
+                              <div className="table-wrap">
+                                <table>
+                                  <thead>
+                                    <tr>
+                                      <th colSpan={4}>Vstupy zo skladu</th>
+                                    </tr>
+                                    <tr>
+                                      <th>Materiál</th>
+                                      <th>Pozícia</th>
+                                      <th>Množstvo</th>
+                                      <th>Poznámka</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {inputs.map((item) => (
+                                      <tr key={item.id}>
+                                        <td>{item.material_code}</td>
+                                        <td>{item.position}</td>
+                                        <td>{formatCell(item.required_quantity, "number")}</td>
+                                        <td>{item.line_note || "-"}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                              <div className="table-wrap">
+                                <table>
+                                  <thead>
+                                    <tr>
+                                      <th colSpan={4}>Výstupy výroby</th>
+                                    </tr>
+                                    <tr>
+                                      <th>Materiál</th>
+                                      <th>Pozícia</th>
+                                      <th>Množstvo</th>
+                                      <th>Poznámka</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {outputs.map((item) => (
+                                      <tr key={item.id}>
+                                        <td>{item.material_code}</td>
+                                        <td>{item.position}</td>
+                                        <td>{formatCell(item.output_quantity, "number")}</td>
+                                        <td>{item.line_note || "-"}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          )}
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </article>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {!isMaster && !isWorkflowModule(selectedTable) && (
       <section className="stats-grid">
         {isDailyOverviewTable(selectedTable) && dailyOverviewStats && (
           <>
@@ -4692,7 +5690,7 @@ function App() {
       </section>
       )}
 
-      {!isMaster && !isOrdersModule(selectedTable) && isDailyOverviewTable(selectedTable) && dailyOverviewStats && (
+      {!isMaster && !isWorkflowModule(selectedTable) && isDailyOverviewTable(selectedTable) && dailyOverviewStats && (
         <section className="panel">
           <div className="panel-head">
             <div>
@@ -4746,7 +5744,7 @@ function App() {
         </section>
       )}
 
-      {isDailyOverviewTable(selectedTable) && !isMaster && !isOrdersModule(selectedTable) && (
+      {isDailyOverviewTable(selectedTable) && !isMaster && !isWorkflowModule(selectedTable) && (
         <section className="panel">
           <div className="panel-head">
             <div>
@@ -4791,7 +5789,7 @@ function App() {
         </section>
       )}
 
-      {!isMaster && !isOrdersModule(selectedTable) && (
+      {!isMaster && !isWorkflowModule(selectedTable) && (
       <section className="panel">
           <div className="panel-head">
             <div>

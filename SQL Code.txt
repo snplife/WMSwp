@@ -88,6 +88,40 @@ create table if not exists public.order_items (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.production_orders (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies (id) on delete cascade,
+  production_number text not null,
+  title text not null,
+  status text not null default 'draft' check (status in ('draft', 'completed')),
+  note text not null default '',
+  created_by uuid references auth.users (id),
+  completed_by uuid references auth.users (id),
+  completed_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.production_order_inputs (
+  id uuid primary key default gen_random_uuid(),
+  production_order_id uuid not null references public.production_orders (id) on delete cascade,
+  material_code text not null,
+  position text not null,
+  required_quantity integer not null check (required_quantity > 0),
+  stock_quantity_snapshot integer not null default 0,
+  line_note text not null default '',
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.production_order_outputs (
+  id uuid primary key default gen_random_uuid(),
+  production_order_id uuid not null references public.production_orders (id) on delete cascade,
+  material_code text not null,
+  position text not null,
+  output_quantity integer not null check (output_quantity > 0),
+  line_note text not null default '',
+  created_at timestamptz not null default now()
+);
+
 -- 3) Normalize users
 update public.app_users
 set username = lower(split_part(email, '@', 1))
@@ -188,6 +222,18 @@ create index if not exists idx_orders_company_created_at
 create index if not exists idx_order_items_order
   on public.order_items (order_id);
 
+create unique index if not exists idx_production_orders_company_number_unique
+  on public.production_orders (company_id, production_number);
+
+create index if not exists idx_production_orders_company_created_at
+  on public.production_orders (company_id, created_at desc);
+
+create index if not exists idx_production_inputs_order
+  on public.production_order_inputs (production_order_id);
+
+create index if not exists idx_production_outputs_order
+  on public.production_order_outputs (production_order_id);
+
 create or replace view public.order_list_overview
 with (security_invoker = true)
 as
@@ -213,6 +259,22 @@ group by o.id, o.company_id, o.order_number, o.customer_name, o.note, o.created_
 -- select material_code, position, ordered_quantity, stock_quantity_snapshot, line_note
 -- from public.order_items
 -- where order_id = 'YOUR-ORDER-UUID'
+-- order by created_at asc;
+
+-- Zoznam výrobných objednávok:
+-- select id, company_id, production_number, title, status, created_at, completed_at
+-- from public.production_orders
+-- where company_id = 'YOUR-COMPANY-UUID'
+-- order by created_at desc;
+
+-- Detail vstupov / výstupov výrobnej objednávky:
+-- select material_code, position, required_quantity, stock_quantity_snapshot, line_note
+-- from public.production_order_inputs
+-- where production_order_id = 'YOUR-PRODUCTION-UUID'
+-- order by created_at asc;
+-- select material_code, position, output_quantity, line_note
+-- from public.production_order_outputs
+-- where production_order_id = 'YOUR-PRODUCTION-UUID'
 -- order by created_at asc;
 
 -- 7) Helper functions
@@ -315,6 +377,9 @@ alter table public.app_users enable row level security;
 alter table public.customers enable row level security;
 alter table public.orders enable row level security;
 alter table public.order_items enable row level security;
+alter table public.production_orders enable row level security;
+alter table public.production_order_inputs enable row level security;
+alter table public.production_order_outputs enable row level security;
 
 -- companies
 DROP POLICY IF EXISTS "companies_select_master" ON public.companies;
@@ -719,6 +784,259 @@ using (
         or (
           public.can_manage_orders(auth.uid())
           and o.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+-- production_orders
+DROP POLICY IF EXISTS "production_orders_select_auth" ON public.production_orders;
+DROP POLICY IF EXISTS "production_orders_insert_auth" ON public.production_orders;
+DROP POLICY IF EXISTS "production_orders_update_auth" ON public.production_orders;
+DROP POLICY IF EXISTS "production_orders_delete_auth" ON public.production_orders;
+
+create policy "production_orders_select_auth"
+on public.production_orders
+for select
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy "production_orders_insert_auth"
+on public.production_orders
+for insert
+to authenticated
+with check (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy "production_orders_update_auth"
+on public.production_orders
+for update
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+)
+with check (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy "production_orders_delete_auth"
+on public.production_orders
+for delete
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+-- production_order_inputs
+DROP POLICY IF EXISTS "production_order_inputs_select_auth" ON public.production_order_inputs;
+DROP POLICY IF EXISTS "production_order_inputs_insert_auth" ON public.production_order_inputs;
+DROP POLICY IF EXISTS "production_order_inputs_update_auth" ON public.production_order_inputs;
+DROP POLICY IF EXISTS "production_order_inputs_delete_auth" ON public.production_order_inputs;
+
+create policy "production_order_inputs_select_auth"
+on public.production_order_inputs
+for select
+to authenticated
+using (
+  exists (
+    select 1
+    from public.production_orders po
+    where po.id = production_order_inputs.production_order_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and po.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+create policy "production_order_inputs_insert_auth"
+on public.production_order_inputs
+for insert
+to authenticated
+with check (
+  exists (
+    select 1
+    from public.production_orders po
+    where po.id = production_order_inputs.production_order_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and po.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+create policy "production_order_inputs_update_auth"
+on public.production_order_inputs
+for update
+to authenticated
+using (
+  exists (
+    select 1
+    from public.production_orders po
+    where po.id = production_order_inputs.production_order_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and po.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+)
+with check (
+  exists (
+    select 1
+    from public.production_orders po
+    where po.id = production_order_inputs.production_order_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and po.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+create policy "production_order_inputs_delete_auth"
+on public.production_order_inputs
+for delete
+to authenticated
+using (
+  exists (
+    select 1
+    from public.production_orders po
+    where po.id = production_order_inputs.production_order_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and po.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+-- production_order_outputs
+DROP POLICY IF EXISTS "production_order_outputs_select_auth" ON public.production_order_outputs;
+DROP POLICY IF EXISTS "production_order_outputs_insert_auth" ON public.production_order_outputs;
+DROP POLICY IF EXISTS "production_order_outputs_update_auth" ON public.production_order_outputs;
+DROP POLICY IF EXISTS "production_order_outputs_delete_auth" ON public.production_order_outputs;
+
+create policy "production_order_outputs_select_auth"
+on public.production_order_outputs
+for select
+to authenticated
+using (
+  exists (
+    select 1
+    from public.production_orders po
+    where po.id = production_order_outputs.production_order_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and po.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+create policy "production_order_outputs_insert_auth"
+on public.production_order_outputs
+for insert
+to authenticated
+with check (
+  exists (
+    select 1
+    from public.production_orders po
+    where po.id = production_order_outputs.production_order_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and po.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+create policy "production_order_outputs_update_auth"
+on public.production_order_outputs
+for update
+to authenticated
+using (
+  exists (
+    select 1
+    from public.production_orders po
+    where po.id = production_order_outputs.production_order_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and po.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+)
+with check (
+  exists (
+    select 1
+    from public.production_orders po
+    where po.id = production_order_outputs.production_order_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and po.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+create policy "production_order_outputs_delete_auth"
+on public.production_order_outputs
+for delete
+to authenticated
+using (
+  exists (
+    select 1
+    from public.production_orders po
+    where po.id = production_order_outputs.production_order_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and po.company_id = public.user_company_id(auth.uid())
         )
       )
   )

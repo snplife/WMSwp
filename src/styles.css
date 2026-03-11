@@ -696,6 +696,10 @@ select {
   align-items: center;
 }
 
+.production-output-main {
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) 110px;
+}
+
 .orders-draft-cell {
   display: grid;
   gap: 0.3rem;
@@ -786,6 +790,9 @@ select {
 .order-card-actions {
   display: flex;
   justify-content: flex-end;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
 .daily-hour-bars {
@@ -1215,6 +1222,7 @@ tbody tr:nth-child(even) {
 .pill-in,
 .pill-restock,
 .pill-receive,
+.pill-completed,
 .pill-success {
   background: #dff8e9;
   color: #0e7443;
@@ -1230,6 +1238,7 @@ tbody tr:nth-child(even) {
 }
 
 .pill-pending,
+.pill-draft,
 .pill-adjust,
 .pill-move_all,
 .pill-undo,
@@ -1471,6 +1480,10 @@ tbody tr:nth-child(even) {
   }
 
   .orders-draft-main {
+    grid-template-columns: 1fr;
+  }
+
+  .production-output-main {
     grid-template-columns: 1fr;
   }
 

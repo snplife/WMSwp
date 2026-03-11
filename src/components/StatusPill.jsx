@@ -6,6 +6,8 @@
     issue: "výdaj",
     move: "presun",
     move_all: "presun",
+    draft: "rozpracované",
+    completed: "dokončené",
     unknown: "neznáme"
   };
   const label = statusLabels[normalized] || normalized;

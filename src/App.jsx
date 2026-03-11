@@ -7,6 +7,7 @@ import { clearSupabaseAuthStorage, noStoreFetch, supabase, supabaseAnonKey, supa
 import logo from "../logo.png";
 
 const DAILY_OVERVIEW_TABLE = "__daily_overview__";
+const ORDERS_MODULE = "__orders__";
 
 const TABLE_CONFIG = {
   stock: {
@@ -59,6 +60,18 @@ const TABLE_CONFIG = {
     orderBy: "created_at_ms",
     orderAsc: false,
     metricLabel: "Dnešné pohyby",
+    metricValue: (rows) => rows.length
+  },
+  [ORDERS_MODULE]: {
+    title: "Objednávky",
+    subtitle: "Zákazníci, rozpracované objednávky a PDF výstupy",
+    columns: [],
+    searchKeys: [],
+    statusKeys: [],
+    timeKeys: [],
+    orderBy: "created_at",
+    orderAsc: false,
+    metricLabel: "Objednávky",
     metricValue: (rows) => rows.length
   }
 };
@@ -135,6 +148,9 @@ const LANDING_FAQ = [
 ];
 
 function getTableConfig(table) {
+  if (isOrdersModule(table)) {
+    return TABLE_CONFIG[ORDERS_MODULE];
+  }
   if (isDailyOverviewTable(table)) {
     return TABLE_CONFIG[DAILY_OVERVIEW_TABLE];
   }
@@ -142,6 +158,10 @@ function getTableConfig(table) {
     return TABLE_CONFIG.stock_history;
   }
   return TABLE_CONFIG[table] || DEFAULT_CONFIG;
+}
+
+function isOrdersModule(table) {
+  return String(table || "").trim() === ORDERS_MODULE;
 }
 
 function isDailyOverviewTable(table) {
@@ -158,6 +178,9 @@ function getStartOfTodayMs() {
 }
 
 function getTableLabel(table) {
+  if (isOrdersModule(table)) {
+    return "Objednávky";
+  }
   if (isDailyOverviewTable(table)) {
     return "Denný prehľad";
   }
@@ -427,6 +450,154 @@ function downloadQrLabelsHtml(codes, logoUrl) {
   window.setTimeout(() => {
     URL.revokeObjectURL(url);
   }, 1000);
+}
+
+function printHtmlDocument(html) {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    throw new Error("Tlač je dostupná len v prehliadači.");
+  }
+
+  const frame = document.createElement("iframe");
+  frame.setAttribute("aria-hidden", "true");
+  frame.style.position = "fixed";
+  frame.style.right = "0";
+  frame.style.bottom = "0";
+  frame.style.width = "0";
+  frame.style.height = "0";
+  frame.style.border = "0";
+
+  const cleanup = () => {
+    window.setTimeout(() => {
+      frame.remove();
+    }, 1000);
+  };
+
+  frame.onload = () => {
+    const targetWindow = frame.contentWindow;
+    if (!targetWindow) {
+      cleanup();
+      return;
+    }
+
+    const handleAfterPrint = () => {
+      targetWindow.removeEventListener("afterprint", handleAfterPrint);
+      cleanup();
+    };
+
+    targetWindow.addEventListener("afterprint", handleAfterPrint);
+    window.setTimeout(() => {
+      try {
+        targetWindow.focus();
+        targetWindow.print();
+      } catch {
+        cleanup();
+      }
+    }, 150);
+  };
+
+  document.body.appendChild(frame);
+  frame.srcdoc = html;
+}
+
+function buildOrderNumber() {
+  const now = new Date();
+  const datePart = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+  const timePart = `${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}`;
+  const randomPart = Math.floor(1000 + Math.random() * 9000);
+  return `OBJ-${datePart}-${timePart}-${randomPart}`;
+}
+
+function buildOrderPrintHtml(order, customer, items, companyName) {
+  const generatedAt = new Date().toLocaleString("sk-SK");
+  const createdAt = formatDate(order?.created_at);
+  const customerName = String(order?.customer_name || customer?.name || "-");
+  const rowsHtml = (items || [])
+    .map(
+      (item, index) => `
+        <tr>
+          <td>${index + 1}</td>
+          <td>${escapeHtml(String(item.material_code || "-"))}</td>
+          <td>${escapeHtml(String(item.position || "-"))}</td>
+          <td>${escapeHtml(formatCell(item.ordered_quantity, "number"))}</td>
+          <td>${escapeHtml(formatCell(item.stock_quantity_snapshot, "number"))}</td>
+          <td>${escapeHtml(String(item.line_note || "-"))}</td>
+        </tr>
+      `
+    )
+    .join("");
+
+  return `<!doctype html>
+  <html lang="sk">
+    <head>
+      <meta charset="UTF-8" />
+      <title>${escapeHtml(String(order?.order_number || "Objednavka"))}</title>
+      <style>
+        @page { size: A4 portrait; margin: 14mm; }
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: Arial, sans-serif; color: #1b2631; }
+        .page { display: grid; gap: 8mm; }
+        .head { display: flex; justify-content: space-between; gap: 8mm; align-items: start; }
+        h1 { margin: 0 0 2mm; font-size: 20pt; }
+        .meta, .customer, .note { border: 0.3mm solid #d9e2ec; border-radius: 3mm; padding: 4mm; }
+        .meta-grid, .customer-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3mm 6mm; }
+        .label { display: block; margin-bottom: 1mm; font-size: 8pt; color: #52606d; text-transform: uppercase; letter-spacing: 0.08em; }
+        .value { font-size: 11pt; font-weight: 700; }
+        table { width: 100%; border-collapse: collapse; font-size: 10pt; }
+        th, td { border: 0.3mm solid #d9e2ec; padding: 3mm; text-align: left; vertical-align: top; }
+        th { background: #eef4f8; }
+        .foot { font-size: 8pt; color: #52606d; }
+      </style>
+    </head>
+    <body>
+      <section class="page">
+        <header class="head">
+          <div>
+            <h1>Objednávka</h1>
+            <div class="value">${escapeHtml(String(order?.order_number || "-"))}</div>
+          </div>
+          <div class="foot">Vygenerované: ${escapeHtml(generatedAt)}</div>
+        </header>
+        <section class="meta">
+          <div class="meta-grid">
+            <div><span class="label">Firma</span><div class="value">${escapeHtml(String(companyName || "-"))}</div></div>
+            <div><span class="label">Vytvorené</span><div class="value">${escapeHtml(createdAt)}</div></div>
+          </div>
+        </section>
+        <section class="customer">
+          <div class="customer-grid">
+            <div><span class="label">Zákazník</span><div class="value">${escapeHtml(customerName)}</div></div>
+            <div><span class="label">Telefón</span><div class="value">${escapeHtml(String(customer?.phone || "-"))}</div></div>
+            <div><span class="label">Email</span><div class="value">${escapeHtml(String(customer?.email || "-"))}</div></div>
+            <div><span class="label">Adresa</span><div class="value">${escapeHtml(String(customer?.address || "-"))}</div></div>
+          </div>
+        </section>
+        <section>
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Materiál</th>
+                <th>Pozícia</th>
+                <th>Objednané</th>
+                <th>Sklad pri vytvorení</th>
+                <th>Poznámka</th>
+              </tr>
+            </thead>
+            <tbody>${rowsHtml || '<tr><td colspan="6">Objednávka nemá položky.</td></tr>'}</tbody>
+          </table>
+        </section>
+        <section class="note">
+          <span class="label">Poznámka k objednávke</span>
+          <div>${escapeHtml(String(order?.note || "-"))}</div>
+        </section>
+        <footer class="foot">PDF vytvoríš cez systémové tlačové okno voľbou "Uložiť ako PDF".</footer>
+      </section>
+    </body>
+  </html>`;
+}
+
+function printOrderPdf(order, customer, items, companyName) {
+  printHtmlDocument(buildOrderPrintHtml(order, customer, items, companyName));
 }
 
 function normalizeDeadStockDays(value) {
@@ -785,6 +956,7 @@ function App() {
   const [authUsername, setAuthUsername] = useState("");
   const [userRole, setUserRole] = useState("user");
   const [userCompanyId, setUserCompanyId] = useState(null);
+  const [canManageOrders, setCanManageOrders] = useState(false);
   const [companies, setCompanies] = useState([]);
   const [companiesError, setCompaniesError] = useState("");
   const [selectedCompanyId, setSelectedCompanyId] = useState("all");
@@ -835,17 +1007,37 @@ function App() {
   const [subscriptionMaterialInput, setSubscriptionMaterialInput] = useState("");
   const [subscriptionEmailInput, setSubscriptionEmailInput] = useState("");
   const [isMaterialSubscriptionOpen, setIsMaterialSubscriptionOpen] = useState(false);
+  const [customers, setCustomers] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [orderItems, setOrderItems] = useState([]);
+  const [ordersStockRows, setOrdersStockRows] = useState([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [ordersError, setOrdersError] = useState("");
+  const [customerNameInput, setCustomerNameInput] = useState("");
+  const [customerEmailInput, setCustomerEmailInput] = useState("");
+  const [customerPhoneInput, setCustomerPhoneInput] = useState("");
+  const [customerAddressInput, setCustomerAddressInput] = useState("");
+  const [customerNoteInput, setCustomerNoteInput] = useState("");
+  const [customerSubmitting, setCustomerSubmitting] = useState(false);
+  const [selectedOrderCustomerId, setSelectedOrderCustomerId] = useState("");
+  const [orderNoteInput, setOrderNoteInput] = useState("");
+  const [orderSearchTerm, setOrderSearchTerm] = useState("");
+  const [orderDraftItems, setOrderDraftItems] = useState([{ stockKey: "", orderedQuantity: "1", lineNote: "" }]);
+  const [orderSubmitting, setOrderSubmitting] = useState(false);
+  const [expandedOrders, setExpandedOrders] = useState({});
   const latestLoadRowsRequestRef = useRef(0);
 
   const tableConfig = getTableConfig(selectedTable);
   const isMaster = userRole === "master";
+  const canAccessOrdersModule = isMaster || canManageOrders;
   const hotjarAllowed = (authReady || authInitTimedOut) && (!isLoggedIn || !isMaster);
   const visibleTableNames = useMemo(() => {
     if (isMaster) {
-      return tableNames;
+      return [...tableNames, ORDERS_MODULE];
     }
-    return [DAILY_OVERVIEW_TABLE, ...tableNames.filter((table) => table === "stock" || isTransactionsTable(table))];
-  }, [isMaster]);
+    const baseTables = [DAILY_OVERVIEW_TABLE, ...tableNames.filter((table) => table === "stock" || isTransactionsTable(table))];
+    return canAccessOrdersModule ? [...baseTables, ORDERS_MODULE] : baseTables;
+  }, [isMaster, canAccessOrdersModule]);
   const companyNameById = useMemo(
     () =>
       Object.fromEntries(
@@ -857,6 +1049,36 @@ function App() {
   const activeCompany = useMemo(
     () => companies.find((company) => company.id === activeCompanyId) || null,
     [companies, activeCompanyId]
+  );
+  const customersById = useMemo(
+    () => Object.fromEntries(customers.map((customer) => [customer.id, customer])),
+    [customers]
+  );
+  const orderItemsByOrderId = useMemo(() => {
+    const grouped = {};
+    for (const item of orderItems) {
+      const orderId = String(item.order_id || "");
+      if (!grouped[orderId]) {
+        grouped[orderId] = [];
+      }
+      grouped[orderId].push(item);
+    }
+    return grouped;
+  }, [orderItems]);
+  const ordersStockOptions = useMemo(
+    () =>
+      ordersStockRows
+        .filter((row) => Number(row.quantity || 0) > 0)
+        .map((row) => ({
+          stockKey: makeStockKey(row.position, row.material_code, row.company_id),
+          row,
+          label: `${String(row.material_code || "-")} | ${String(row.position || "-")} | ${new Intl.NumberFormat("sk-SK").format(Number(row.quantity || 0))} ks`
+        })),
+    [ordersStockRows]
+  );
+  const ordersStockMap = useMemo(
+    () => Object.fromEntries(ordersStockOptions.map((item) => [item.stockKey, item.row])),
+    [ordersStockOptions]
   );
   const showsExpiryDate = selectedTable === "stock" && Boolean(activeCompany?.tracks_expiry_date);
   const effectiveTableConfig = useMemo(() => {
@@ -1017,7 +1239,7 @@ function App() {
     for (let attempt = 0; attempt <= retries; attempt += 1) {
       const { data } = await supabase
         .from(ROLE_TABLE)
-        .select("username,email,company_id")
+        .select("username,email,company_id,can_manage_orders")
         .eq("user_id", userId)
         .maybeSingle();
 
@@ -1672,6 +1894,272 @@ function App() {
     setCompanySettingsSubmitting(false);
   };
 
+  const resetOrderDraft = () => {
+    setOrderNoteInput("");
+    setOrderDraftItems([{ stockKey: "", orderedQuantity: "1", lineNote: "" }]);
+  };
+
+  const loadOrdersModuleData = async () => {
+    if (!authReady || !isLoggedIn || !canAccessOrdersModule) {
+      setCustomers([]);
+      setOrders([]);
+      setOrderItems([]);
+      setOrdersStockRows([]);
+      setOrdersLoading(false);
+      setOrdersError("");
+      return;
+    }
+
+    setOrdersLoading(true);
+    setOrdersError("");
+
+    try {
+      let effectiveUserCompanyId = userCompanyId;
+      if (!isMaster && !effectiveUserCompanyId && authUser?.id) {
+        const resolvedCompanyId = await fetchOwnCompanyIdViaRpc(authUser.id);
+        if (resolvedCompanyId) {
+          effectiveUserCompanyId = resolvedCompanyId;
+          setUserCompanyId(resolvedCompanyId);
+          setSelectedCompanyId(resolvedCompanyId);
+        }
+      }
+
+      const companyScope = isMaster ? selectedCompanyId : effectiveUserCompanyId;
+      const scopedCompanyId = companyScope && companyScope !== "all" ? companyScope : null;
+      const customersQuery = supabase
+        .from("customers")
+        .select("id,company_id,name,email,phone,address,note,created_at,created_by")
+        .order("name", { ascending: true });
+      const ordersQuery = supabase
+        .from("orders")
+        .select("id,company_id,customer_id,customer_name,order_number,note,created_at,created_by")
+        .order("created_at", { ascending: false });
+      const stockQuery = supabase
+        .from("stock")
+        .select("company_id,position,material_code,quantity")
+        .order("material_code", { ascending: true });
+
+      const scopedCustomersQuery = scopedCompanyId ? customersQuery.eq("company_id", scopedCompanyId) : customersQuery;
+      const scopedOrdersQuery = scopedCompanyId ? ordersQuery.eq("company_id", scopedCompanyId) : ordersQuery;
+      const scopedStockQuery = scopedCompanyId ? stockQuery.eq("company_id", scopedCompanyId) : stockQuery;
+
+      const [{ data: customersData, error: customersError }, { data: ordersData, error: ordersLoadError }, { data: stockData, error: stockError }] =
+        await Promise.all([scopedCustomersQuery, scopedOrdersQuery, scopedStockQuery]);
+
+      if (customersError) {
+        throw customersError;
+      }
+      if (ordersLoadError) {
+        throw ordersLoadError;
+      }
+      if (stockError) {
+        throw stockError;
+      }
+
+      const orderIds = (ordersData || []).map((row) => row.id).filter(Boolean);
+      let itemsData = [];
+      if (orderIds.length > 0) {
+        const { data, error: itemsError } = await supabase
+          .from("order_items")
+          .select("id,order_id,material_code,position,ordered_quantity,stock_quantity_snapshot,line_note,created_at")
+          .in("order_id", orderIds)
+          .order("created_at", { ascending: true });
+
+        if (itemsError) {
+          throw itemsError;
+        }
+        itemsData = data || [];
+      }
+
+      setCustomers(customersData || []);
+      setOrders(ordersData || []);
+      setOrderItems(itemsData);
+      setOrdersStockRows(stockData || []);
+      if (!selectedOrderCustomerId && (customersData || []).length === 1) {
+        setSelectedOrderCustomerId(customersData[0].id);
+      }
+    } catch (loadOrdersError) {
+      setOrdersError(loadOrdersError?.message || "Nepodarilo sa načítať objednávky.");
+      setCustomers([]);
+      setOrders([]);
+      setOrderItems([]);
+      setOrdersStockRows([]);
+    } finally {
+      setOrdersLoading(false);
+    }
+  };
+
+  const handleOrderDraftItemChange = (index, field, value) => {
+    setOrderDraftItems((prev) =>
+      prev.map((item, currentIndex) => (currentIndex === index ? { ...item, [field]: value } : item))
+    );
+  };
+
+  const handleAddOrderDraftItem = () => {
+    setOrderDraftItems((prev) => [...prev, { stockKey: "", orderedQuantity: "1", lineNote: "" }]);
+  };
+
+  const handleRemoveOrderDraftItem = (index) => {
+    setOrderDraftItems((prev) =>
+      prev.length <= 1 ? [{ stockKey: "", orderedQuantity: "1", lineNote: "" }] : prev.filter((_, itemIndex) => itemIndex !== index)
+    );
+  };
+
+  const handleCreateCustomer = async (event) => {
+    event.preventDefault();
+
+    const companyId = activeCompanyId || userCompanyId;
+    const name = String(customerNameInput || "").trim();
+    if (!companyId) {
+      setOrdersError("Vyber firmu pre zákazníka.");
+      return;
+    }
+    if (!name) {
+      setOrdersError("Zadaj názov zákazníka.");
+      return;
+    }
+
+    setCustomerSubmitting(true);
+    setOrdersError("");
+
+    const { data, error: insertError } = await supabase
+      .from("customers")
+      .insert([
+        {
+          company_id: companyId,
+          name,
+          email: String(customerEmailInput || "").trim(),
+          phone: String(customerPhoneInput || "").trim(),
+          address: String(customerAddressInput || "").trim(),
+          note: String(customerNoteInput || "").trim(),
+          created_by: authUser?.id || null
+        }
+      ])
+      .select("id,company_id,name,email,phone,address,note,created_at,created_by")
+      .single();
+
+    if (insertError) {
+      setOrdersError(insertError.message || "Nepodarilo sa vytvoriť zákazníka.");
+      setCustomerSubmitting(false);
+      return;
+    }
+
+    setCustomers((prev) =>
+      [...prev, data].sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "sk-SK", { sensitivity: "base" }))
+    );
+    setSelectedOrderCustomerId(data.id);
+    setCustomerNameInput("");
+    setCustomerEmailInput("");
+    setCustomerPhoneInput("");
+    setCustomerAddressInput("");
+    setCustomerNoteInput("");
+    setCustomerSubmitting(false);
+  };
+
+  const handleCreateOrder = async (event) => {
+    event.preventDefault();
+
+    const companyId = activeCompanyId || userCompanyId;
+    const customer = customersById[selectedOrderCustomerId];
+    if (!companyId) {
+      setOrdersError("Vyber firmu pre objednávku.");
+      return;
+    }
+    if (!customer) {
+      setOrdersError("Vyber zákazníka.");
+      return;
+    }
+
+    const normalizedItems = [];
+    const quantityByKey = {};
+    for (const item of orderDraftItems) {
+      const stockRow = ordersStockMap[item.stockKey];
+      if (!stockRow) {
+        continue;
+      }
+      const orderedQuantity = Number.parseInt(String(item.orderedQuantity || "0"), 10);
+      if (!Number.isFinite(orderedQuantity) || orderedQuantity < 1) {
+        setOrdersError(`Zadaj platné množstvo pre ${String(stockRow.material_code || "-")}.`);
+        return;
+      }
+      quantityByKey[item.stockKey] = (quantityByKey[item.stockKey] || 0) + orderedQuantity;
+      normalizedItems.push({
+        material_code: stockRow.material_code,
+        position: stockRow.position,
+        ordered_quantity: orderedQuantity,
+        stock_quantity_snapshot: Number(stockRow.quantity || 0),
+        line_note: String(item.lineNote || "").trim()
+      });
+    }
+
+    if (normalizedItems.length === 0) {
+      setOrdersError("Pridaj aspoň jednu skladovú položku.");
+      return;
+    }
+
+    const invalidStock = Object.entries(quantityByKey).find(([stockKey, quantity]) => Number(quantity || 0) > Number(ordersStockMap[stockKey]?.quantity || 0));
+    if (invalidStock) {
+      const stockRow = ordersStockMap[invalidStock[0]];
+      setOrdersError(`Objednané množstvo pre ${String(stockRow?.material_code || "-")} je vyššie ako stav skladu.`);
+      return;
+    }
+
+    setOrderSubmitting(true);
+    setOrdersError("");
+
+    const { data: orderRow, error: orderInsertError } = await supabase
+      .from("orders")
+      .insert([
+        {
+          company_id: companyId,
+          customer_id: customer.id,
+          customer_name: customer.name,
+          order_number: buildOrderNumber(),
+          note: String(orderNoteInput || "").trim(),
+          created_by: authUser?.id || null
+        }
+      ])
+      .select("id,company_id,customer_id,customer_name,order_number,note,created_at,created_by")
+      .single();
+
+    if (orderInsertError) {
+      setOrdersError(orderInsertError.message || "Nepodarilo sa vytvoriť objednávku.");
+      setOrderSubmitting(false);
+      return;
+    }
+
+    const { data: insertedItems, error: itemInsertError } = await supabase
+      .from("order_items")
+      .insert(normalizedItems.map((item) => ({ ...item, order_id: orderRow.id })))
+      .select("id,order_id,material_code,position,ordered_quantity,stock_quantity_snapshot,line_note,created_at");
+
+    if (itemInsertError) {
+      setOrdersError(itemInsertError.message || "Objednávka sa vytvorila, ale položky sa nepodarilo uložiť.");
+      setOrderSubmitting(false);
+      await loadOrdersModuleData();
+      return;
+    }
+
+    setOrders((prev) => [orderRow, ...prev]);
+    setOrderItems((prev) => [...prev, ...(insertedItems || [])]);
+    setExpandedOrders((prev) => ({ ...prev, [orderRow.id]: true }));
+    resetOrderDraft();
+    setOrderSubmitting(false);
+  };
+
+  const handlePrintOrder = (order) => {
+    try {
+      printOrderPdf(
+        order,
+        customersById[order.customer_id] || null,
+        orderItemsByOrderId[order.id] || [],
+        companyNameById[order.company_id] || activeCompany?.name || currentCompanyLabel
+      );
+    } catch (printError) {
+      setOrdersError(printError?.message || "Nepodarilo sa vytvoriť PDF objednávky.");
+    }
+  };
+
   const fetchAllRows = async (table, config, options = {}) => {
     const { scopedCompanyId = null, selectClause = "*", historyFromMs = null } = options;
     const pageSize = 1000;
@@ -1916,6 +2404,7 @@ function App() {
         setUserRole("user");
         setAuthUsername("");
         setUserCompanyId(null);
+        setCanManageOrders(false);
         setSelectedCompanyId("all");
       } else {
         const fallbackUsername = usernameFromInternalEmail(user.email);
@@ -1926,6 +2415,7 @@ function App() {
         setUserRole(claimedRole || "user");
         setAuthUsername(String(fallbackUsername || ""));
         setUserCompanyId(claimedCompanyId);
+        setCanManageOrders(claimedRole === "master");
         if (claimedRole !== "master") {
           setSelectedCompanyId(claimedCompanyId || "");
         }
@@ -1951,6 +2441,7 @@ function App() {
           setAuthUsername(String(ownRow?.username || usernameFromInternalEmail(ownRow?.email) || fallbackUsername || ""));
           const resolvedCompanyId = claimedCompanyId || ownRow?.company_id || companyFromRpc || null;
           setUserCompanyId(resolvedCompanyId);
+          setCanManageOrders(role === "master" ? true : Boolean(ownRow?.can_manage_orders));
           if (role !== "master") {
             setSelectedCompanyId(resolvedCompanyId || "");
           }
@@ -1984,6 +2475,7 @@ function App() {
         setAuthUser(null);
         setUserRole("user");
         setAuthUsername("");
+        setCanManageOrders(false);
         setAuthReady(true);
         setAuthInitTimedOut(true);
         setAuthError(
@@ -2028,8 +2520,43 @@ function App() {
     if (!isLoggedIn) {
       setRows([]);
       setStockSnapshotRows([]);
+      setCustomers([]);
+      setOrders([]);
+      setOrderItems([]);
+      setOrdersStockRows([]);
       setLoading(false);
       return undefined;
+    }
+
+    if (isOrdersModule(selectedTable)) {
+      setRows([]);
+      setStockSnapshotRows([]);
+      setDeadStockByKey({});
+      setStockAgeStats({ avgDays: null, sampleCount: 0 });
+      setOccupancySeries([]);
+      setLoading(false);
+      loadOrdersModuleData();
+
+      let reloadTimer = null;
+      const scheduleReload = () => {
+        if (reloadTimer) {
+          window.clearTimeout(reloadTimer);
+        }
+        reloadTimer = window.setTimeout(() => loadOrdersModuleData(), 350);
+      };
+
+      const channel = supabase.channel(`orders-${selectedCompanyId || userCompanyId || "own"}`);
+      ["customers", "orders", "order_items", "stock"].forEach((table) => {
+        channel.on("postgres_changes", { event: "*", schema: "public", table }, scheduleReload);
+      });
+      channel.subscribe();
+
+      return () => {
+        if (reloadTimer) {
+          window.clearTimeout(reloadTimer);
+        }
+        supabase.removeChannel(channel);
+      };
     }
 
     setStatusFilter("all");
@@ -2058,11 +2585,21 @@ function App() {
       }
       supabase.removeChannel(channel);
     };
-  }, [selectedTable, isLoggedIn, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id, occupancyChartRange, effectiveMaxPositions, activeCompany?.tracks_expiry_date]);
+  }, [selectedTable, isLoggedIn, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id, occupancyChartRange, effectiveMaxPositions, activeCompany?.tracks_expiry_date, canAccessOrdersModule]);
 
   useEffect(() => {
     if (!authReady || !isLoggedIn) {
       return undefined;
+    }
+
+    if (isOrdersModule(selectedTable)) {
+      const intervalId = window.setInterval(() => {
+        loadOrdersModuleData();
+      }, AUTO_REFRESH_MS);
+
+      return () => {
+        window.clearInterval(intervalId);
+      };
     }
 
     const intervalId = window.setInterval(() => {
@@ -2072,7 +2609,7 @@ function App() {
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [isLoggedIn, selectedTable, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id, occupancyChartRange, effectiveMaxPositions, activeCompany?.tracks_expiry_date]);
+  }, [isLoggedIn, selectedTable, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id, occupancyChartRange, effectiveMaxPositions, activeCompany?.tracks_expiry_date, canAccessOrdersModule]);
 
   useEffect(() => {
     if (!authReady || !isLoggedIn) {
@@ -2399,6 +2936,41 @@ function App() {
     }
     return companyNameById[userCompanyId] || "Bez firmy";
   }, [isMaster, selectedCompanyId, companyNameById, userCompanyId]);
+  const filteredOrders = useMemo(() => {
+    const normalized = String(orderSearchTerm || "").trim().toLowerCase();
+    if (!normalized) {
+      return orders;
+    }
+    return orders.filter((order) =>
+      [order.order_number, order.customer_name, order.note]
+        .some((value) => String(value || "").toLowerCase().includes(normalized))
+    );
+  }, [orders, orderSearchTerm]);
+  const sidebarSections = useMemo(() => {
+    const monitoringItems = visibleTableNames.filter((table) => !isOrdersModule(table));
+    const sections = [
+      {
+        title: isMaster ? "Dáta" : "Monitoring",
+        items: monitoringItems
+      }
+    ];
+
+    if (visibleTableNames.includes(ORDERS_MODULE)) {
+      sections.push({
+        title: "Workflow",
+        items: [ORDERS_MODULE]
+      });
+    }
+
+    if (selectedTable === "stock") {
+      sections.push({
+        title: "Nástroje",
+        items: ["__stock_tools__"]
+      });
+    }
+
+    return sections;
+  }, [visibleTableNames, isMaster, selectedTable]);
 
   useEffect(() => {
     if (hotjarAllowed) {
@@ -2548,10 +3120,16 @@ function App() {
     setAuthUser(null);
     setUserRole("user");
     setUserCompanyId(null);
+    setCanManageOrders(false);
     setSelectedCompanyId("all");
     setRows([]);
     setError("");
     setLoading(false);
+    setCustomers([]);
+    setOrders([]);
+    setOrderItems([]);
+    setOrdersStockRows([]);
+    setOrdersError("");
     setManagedUsers([]);
     setCompanies([]);
     setManagedUsersError("");
@@ -2697,47 +3275,77 @@ function App() {
   }
 
   return (
-    <main className="container">
-      <section className="hero">
-        <div className="hero-top">
+    <main className="container dashboard-shell">
+      <aside className="dashboard-sidebar">
+        <div className="sidebar-brand">
           <div className="brand">
             <img src={logo} alt="Logo" className="brand-logo" />
           </div>
-          <div className="hero-badges">
-            <span className="table-badge">{selectedTable}</span>
-            {isMaster && <span className="table-badge table-badge-master">master</span>}
-            <span className="table-badge">{authUsername || "user"}</span>
-            <span className="table-badge">{currentCompanyLabel}</span>
+          <div>
+            <strong>WMS Online</strong>
+            <p>Interný skladový cockpit</p>
           </div>
         </div>
-        <h1>{tableConfig.title}</h1>
-        <p className="subtitle">{tableConfig.subtitle}</p>
+
+        <div className="sidebar-user-card">
+          <span className="table-badge">{authUsername || "user"}</span>
+          <span className="table-badge">{currentCompanyLabel}</span>
+          {isMaster && <span className="table-badge table-badge-master">master</span>}
+        </div>
+
+        {isMaster && (
+          <label className="sidebar-company-switch">
+            <span>Firma</span>
+            <select value={selectedCompanyId} onChange={(event) => handleCompanyScopeChange(event.target.value)}>
+              <option value="all">Všetky firmy</option>
+              {companies.map((company) => (
+                <option key={company.id} value={company.id}>
+                  {company.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        <nav className="sidebar-nav" aria-label="Hlavná navigácia">
+          {sidebarSections.map((section) => (
+            <section key={section.title} className="sidebar-section">
+              <p className="sidebar-section-title">{section.title}</p>
+              <div className="sidebar-tree">
+                {section.items.map((table) => (
+                  <button
+                    key={table}
+                    type="button"
+                    className={`sidebar-link ${selectedTable === table ? "sidebar-link-active" : ""}`}
+                    onClick={() => setSelectedTable(table)}
+                  >
+                    <span className="sidebar-link-bullet" />
+                    <span>{getTableLabel(table)}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ))}
+        </nav>
+      </aside>
+
+      <div className="dashboard-main">
+      <section className="hero dashboard-hero">
+        <div className="hero-top">
+          <div>
+            <p className="panel-meta">{currentCompanyLabel}</p>
+            <h1>{tableConfig.title}</h1>
+            <p className="subtitle">{tableConfig.subtitle}</p>
+          </div>
+          <div className="hero-badges">
+            <span className="table-badge">{getTableLabel(selectedTable)}</span>
+            {canAccessOrdersModule && <span className="table-badge">objednávky</span>}
+            {selectedTable === "stock" && <span className="table-badge">sklad</span>}
+          </div>
+        </div>
 
         <div className="actions-row">
-          <div className="table-switch" role="tablist" aria-label="Výber tabuľky">
-            {visibleTableNames.map((table) => (
-              <button
-                key={table}
-                type="button"
-                className={`table-btn ${table === selectedTable ? "table-btn-active" : ""}`}
-                onClick={() => setSelectedTable(table)}
-              >
-                {getTableLabel(table)}
-              </button>
-            ))}
-          </div>
-
           <div className="action-buttons">
-            {isMaster && (
-              <select value={selectedCompanyId} onChange={(event) => handleCompanyScopeChange(event.target.value)}>
-                <option value="all">Všetky firmy</option>
-                {companies.map((company) => (
-                  <option key={company.id} value={company.id}>
-                    {company.name}
-                  </option>
-                ))}
-              </select>
-            )}
             {selectedTable === "stock" && (
               <>
                 <button
@@ -2758,10 +3366,22 @@ function App() {
                 )}
               </>
             )}
-            <button type="button" onClick={exportToExcel} className="export-btn">
-              Export do Excelu
-            </button>
-            <button type="button" onClick={() => loadRows(selectedTable)} className="refresh-btn">
+            {!isOrdersModule(selectedTable) && (
+              <button type="button" onClick={exportToExcel} className="export-btn">
+                Export do Excelu
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                if (isOrdersModule(selectedTable)) {
+                  loadOrdersModuleData();
+                  return;
+                }
+                loadRows(selectedTable);
+              }}
+              className="refresh-btn"
+            >
               Obnoviť
             </button>
             <button type="button" onClick={handleSignOut} className="logout-btn" disabled={signOutSubmitting}>
@@ -3321,7 +3941,264 @@ function App() {
         </section>
       )}
 
-      {!isMaster && (
+      {isOrdersModule(selectedTable) && canAccessOrdersModule && (
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <h2>Objednávkový modul</h2>
+              <p className="panel-meta">
+                {activeCompanyId
+                  ? `Objednávky pre firmu ${currentCompanyLabel}`
+                  : "Vyber konkrétnu firmu, aby sa dali vytvárať zákazníci a objednávky."}
+              </p>
+            </div>
+          </div>
+
+          {ordersError && <p className="error">{ordersError}</p>}
+
+          <div className="orders-summary-grid">
+            <article className="card">
+              <p>Zákazníci</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(customers.length)}</strong>
+            </article>
+            <article className="card">
+              <p>Objednávky</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(orders.length)}</strong>
+            </article>
+            <article className="card">
+              <p>Položky</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(orderItems.length)}</strong>
+            </article>
+            <article className="card">
+              <p>Skladové pozície</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(ordersStockRows.length)}</strong>
+            </article>
+          </div>
+
+          <div className="orders-layout">
+            <div className="orders-column">
+              <article className="orders-panel-card">
+                <div className="panel-head">
+                  <div>
+                    <h2>Zákazníci</h2>
+                    <p className="panel-meta">Najprv založ zákazníka, potom vytvor objednávku.</p>
+                  </div>
+                </div>
+                <form className="orders-form" onSubmit={handleCreateCustomer}>
+                  <input
+                    type="text"
+                    className="search-input"
+                    placeholder="Názov zákazníka"
+                    value={customerNameInput}
+                    onChange={(event) => setCustomerNameInput(event.target.value)}
+                    disabled={!activeCompanyId || customerSubmitting}
+                    required
+                  />
+                  <input
+                    type="email"
+                    className="search-input"
+                    placeholder="Email"
+                    value={customerEmailInput}
+                    onChange={(event) => setCustomerEmailInput(event.target.value)}
+                    disabled={!activeCompanyId || customerSubmitting}
+                  />
+                  <input
+                    type="text"
+                    className="search-input"
+                    placeholder="Telefón"
+                    value={customerPhoneInput}
+                    onChange={(event) => setCustomerPhoneInput(event.target.value)}
+                    disabled={!activeCompanyId || customerSubmitting}
+                  />
+                  <input
+                    type="text"
+                    className="search-input"
+                    placeholder="Adresa"
+                    value={customerAddressInput}
+                    onChange={(event) => setCustomerAddressInput(event.target.value)}
+                    disabled={!activeCompanyId || customerSubmitting}
+                  />
+                  <textarea
+                    className="order-note-input"
+                    placeholder="Poznámka k zákazníkovi"
+                    value={customerNoteInput}
+                    onChange={(event) => setCustomerNoteInput(event.target.value)}
+                    disabled={!activeCompanyId || customerSubmitting}
+                  />
+                  <button type="submit" className="settings-btn" disabled={!activeCompanyId || customerSubmitting}>
+                    {customerSubmitting ? "Ukladám..." : "Pridať zákazníka"}
+                  </button>
+                </form>
+              </article>
+
+              <article className="orders-panel-card">
+                <div className="panel-head">
+                  <div>
+                    <h2>Nová objednávka</h2>
+                    <p className="panel-meta">Položky vyberáš priamo z aktuálnych skladových zásob.</p>
+                  </div>
+                </div>
+                <form className="orders-form" onSubmit={handleCreateOrder}>
+                  <select
+                    value={selectedOrderCustomerId}
+                    onChange={(event) => setSelectedOrderCustomerId(event.target.value)}
+                    disabled={!activeCompanyId || orderSubmitting}
+                  >
+                    <option value="">Vyber zákazníka</option>
+                    {customers.map((customer) => (
+                      <option key={customer.id} value={customer.id}>
+                        {customer.name}
+                      </option>
+                    ))}
+                  </select>
+                  <textarea
+                    className="order-note-input"
+                    placeholder="Poznámka k objednávke"
+                    value={orderNoteInput}
+                    onChange={(event) => setOrderNoteInput(event.target.value)}
+                    disabled={!activeCompanyId || orderSubmitting}
+                  />
+
+                  <div className="orders-draft-list">
+                    {orderDraftItems.map((item, index) => (
+                      <div key={`${item.stockKey}-${index}`} className="orders-draft-row">
+                        <select
+                          value={item.stockKey}
+                          onChange={(event) => handleOrderDraftItemChange(index, "stockKey", event.target.value)}
+                          disabled={!activeCompanyId || orderSubmitting}
+                        >
+                          <option value="">Vyber skladovú položku</option>
+                          {ordersStockOptions.map((option) => (
+                            <option key={option.stockKey} value={option.stockKey}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          type="number"
+                          min={1}
+                          className="dead-stock-days-input"
+                          placeholder="Množstvo"
+                          value={item.orderedQuantity}
+                          onChange={(event) => handleOrderDraftItemChange(index, "orderedQuantity", event.target.value)}
+                          disabled={!activeCompanyId || orderSubmitting}
+                        />
+                        <input
+                          type="text"
+                          className="search-input"
+                          placeholder="Poznámka položky"
+                          value={item.lineNote}
+                          onChange={(event) => handleOrderDraftItemChange(index, "lineNote", event.target.value)}
+                          disabled={!activeCompanyId || orderSubmitting}
+                        />
+                        <button type="button" className="clear-btn" onClick={() => handleRemoveOrderDraftItem(index)}>
+                          Odobrať
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="orders-form-actions">
+                    <button type="button" className="clear-btn" onClick={handleAddOrderDraftItem}>
+                      Pridať položku
+                    </button>
+                    <button type="submit" className="settings-btn" disabled={!activeCompanyId || orderSubmitting}>
+                      {orderSubmitting ? "Vytváram..." : "Vytvoriť objednávku"}
+                    </button>
+                  </div>
+                </form>
+              </article>
+            </div>
+
+            <div className="orders-column orders-column-list">
+              <article className="orders-panel-card">
+                <div className="panel-head">
+                  <div>
+                    <h2>Zoznam objednávok</h2>
+                    <p className="panel-meta">{`${filteredOrders.length} / ${orders.length} objednávok`}</p>
+                  </div>
+                </div>
+                <div className="panel-controls">
+                  <input
+                    type="search"
+                    className="search-input"
+                    placeholder="Hľadaj zákazníka alebo číslo objednávky"
+                    value={orderSearchTerm}
+                    onChange={(event) => setOrderSearchTerm(event.target.value)}
+                  />
+                </div>
+
+                {ordersLoading ? (
+                  <p className="hint">Načítavam objednávky...</p>
+                ) : filteredOrders.length === 0 ? (
+                  <p className="hint">Zatiaľ tu nie sú objednávky.</p>
+                ) : (
+                  <div className="orders-list">
+                    {filteredOrders.map((order) => {
+                      const isOpen = Boolean(expandedOrders[order.id]);
+                      const items = orderItemsByOrderId[order.id] || [];
+                      return (
+                        <article key={order.id} className="order-card">
+                          <button
+                            type="button"
+                            className="order-card-head"
+                            onClick={() => setExpandedOrders((prev) => ({ ...prev, [order.id]: !prev[order.id] }))}
+                          >
+                            <div>
+                              <strong>{order.customer_name}</strong>
+                              <p>{order.order_number}</p>
+                            </div>
+                            <div className="order-card-meta">
+                              <span>{formatDate(order.created_at)}</span>
+                              <span>{`${items.length} položiek`}</span>
+                            </div>
+                          </button>
+                          {isOpen && (
+                            <div className="order-card-body">
+                              {order.note && <p className="order-card-note">{order.note}</p>}
+                              <div className="order-card-actions">
+                                <button type="button" className="clear-btn" onClick={() => handlePrintOrder(order)}>
+                                  PDF
+                                </button>
+                              </div>
+                              <div className="table-wrap">
+                                <table>
+                                  <thead>
+                                    <tr>
+                                      <th>Materiál</th>
+                                      <th>Pozícia</th>
+                                      <th>Množstvo</th>
+                                      <th>Sklad</th>
+                                      <th>Poznámka</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {items.map((item) => (
+                                      <tr key={item.id}>
+                                        <td>{item.material_code}</td>
+                                        <td>{item.position}</td>
+                                        <td>{formatCell(item.ordered_quantity, "number")}</td>
+                                        <td>{formatCell(item.stock_quantity_snapshot, "number")}</td>
+                                        <td>{item.line_note || "-"}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          )}
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </article>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {!isMaster && !isOrdersModule(selectedTable) && (
       <section className="stats-grid">
         {isDailyOverviewTable(selectedTable) && dailyOverviewStats && (
           <>
@@ -3420,7 +4297,7 @@ function App() {
       </section>
       )}
 
-      {!isMaster && isDailyOverviewTable(selectedTable) && dailyOverviewStats && (
+      {!isMaster && !isOrdersModule(selectedTable) && isDailyOverviewTable(selectedTable) && dailyOverviewStats && (
         <section className="panel">
           <div className="panel-head">
             <div>
@@ -3474,7 +4351,7 @@ function App() {
         </section>
       )}
 
-      {isDailyOverviewTable(selectedTable) && !isMaster && (
+      {isDailyOverviewTable(selectedTable) && !isMaster && !isOrdersModule(selectedTable) && (
         <section className="panel">
           <div className="panel-head">
             <div>
@@ -3519,7 +4396,7 @@ function App() {
         </section>
       )}
 
-      {!isMaster && (
+      {!isMaster && !isOrdersModule(selectedTable) && (
       <section className="panel">
           <div className="panel-head">
             <div>
@@ -3752,6 +4629,7 @@ function App() {
       </section>
       )}
 
+      </div>
     </main>
   );
 }

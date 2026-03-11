@@ -5000,7 +5000,7 @@ function App() {
                       <span className="workflow-field-label">Telefón</span>
                       <input
                         type="text"
-                        className="search-input"
+                        className="search-input workflow-phone-input"
                         placeholder="+421..."
                         value={customerPhoneInput}
                         onChange={(event) => setCustomerPhoneInput(event.target.value)}
@@ -5100,7 +5100,7 @@ function App() {
                                     type="number"
                                     min={1}
                                     max={quantityMax}
-                                    className="dead-stock-days-input"
+                                    className="dead-stock-days-input workflow-quantity-input"
                                     placeholder="Množstvo"
                                     value={item.orderedQuantity}
                                     onChange={(event) => handleOrderDraftItemChange(index, "orderedQuantity", event.target.value)}
@@ -5349,7 +5349,7 @@ function App() {
                                   type="number"
                                   min={1}
                                   max={quantityMax}
-                                  className="dead-stock-days-input"
+                                  className="dead-stock-days-input workflow-quantity-input"
                                   placeholder="Množstvo"
                                   value={item.requiredQuantity}
                                   onChange={(event) => handleProductionInputChange(index, "requiredQuantity", event.target.value)}
@@ -5434,7 +5434,7 @@ function App() {
                                 <input
                                   type="number"
                                   min={1}
-                                  className="dead-stock-days-input"
+                                  className="dead-stock-days-input workflow-quantity-input"
                                   placeholder="Množstvo"
                                   value={item.outputQuantity}
                                   onChange={(event) => handleProductionOutputChange(index, "outputQuantity", event.target.value)}

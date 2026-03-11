@@ -680,6 +680,16 @@ select {
   gap: 0.55rem;
 }
 
+.orders-note-toggle {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.orders-note-toggle .search-input {
+  min-width: 0;
+  width: 100%;
+}
+
 .orders-draft-row {
   display: grid;
   gap: 0.5rem;

@@ -1099,6 +1099,7 @@ function App() {
   const [customerSubmitting, setCustomerSubmitting] = useState(false);
   const [selectedOrderCustomerId, setSelectedOrderCustomerId] = useState("");
   const [orderNoteInput, setOrderNoteInput] = useState("");
+  const [showOrderNoteInput, setShowOrderNoteInput] = useState(false);
   const [orderSearchTerm, setOrderSearchTerm] = useState("");
   const [orderDraftItems, setOrderDraftItems] = useState([createEmptyOrderDraftItem()]);
   const [orderSubmitting, setOrderSubmitting] = useState(false);
@@ -1975,6 +1976,7 @@ function App() {
 
   const resetOrderDraft = () => {
     setOrderNoteInput("");
+    setShowOrderNoteInput(false);
     setOrderDraftItems([createEmptyOrderDraftItem()]);
   };
 
@@ -3363,6 +3365,7 @@ function App() {
     setCustomerIcoInput("");
     setCustomerDicInput("");
     setCustomerNoteInput("");
+    setShowOrderNoteInput(false);
     setCompanyLookupResults([]);
     setCompanyLookupLoading(false);
     setCompanyLookupError("");
@@ -4346,13 +4349,28 @@ function App() {
                       </option>
                     ))}
                   </select>
-                  <textarea
-                    className="order-note-input"
-                    placeholder="Poznámka k objednávke"
-                    value={orderNoteInput}
-                    onChange={(event) => setOrderNoteInput(event.target.value)}
-                    disabled={!activeCompanyId || orderSubmitting}
-                  />
+                  <div className="orders-note-toggle">
+                    <button
+                      type="button"
+                      className="clear-btn"
+                      onClick={() => setShowOrderNoteInput((current) => !current)}
+                      disabled={!activeCompanyId || orderSubmitting}
+                    >
+                      {showOrderNoteInput || String(orderNoteInput || "").trim()
+                        ? "Skryť poznámku k objednávke"
+                        : "Pridať poznámku k objednávke"}
+                    </button>
+                    {(showOrderNoteInput || String(orderNoteInput || "").trim()) && (
+                      <input
+                        type="text"
+                        className="search-input"
+                        placeholder="Poznámka k objednávke"
+                        value={orderNoteInput}
+                        onChange={(event) => setOrderNoteInput(event.target.value)}
+                        disabled={!activeCompanyId || orderSubmitting}
+                      />
+                    )}
+                  </div>
 
                   <div className="orders-draft-list">
                     <datalist id={ORDER_STOCK_DATALIST_ID}>

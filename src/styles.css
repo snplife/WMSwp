@@ -627,6 +627,18 @@ select {
   align-items: center;
 }
 
+.orders-draft-cell {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.orders-draft-meta {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #6c7a88;
+}
+
 .orders-form-actions {
   display: flex;
   justify-content: space-between;

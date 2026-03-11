@@ -105,6 +105,7 @@ const TRANSACTIONS_TABLE = (import.meta.env.VITE_TRANSACTIONS_TABLE || "stock_hi
 const TRANSACTION_TABLE_ALIASES = Array.from(
   new Set([TRANSACTIONS_TABLE, "stock_history", "stock_transactions"].filter(Boolean))
 );
+const ORDER_STOCK_DATALIST_ID = "orders-stock-options";
 const INBOUND_ACTIONS = new Set(["RECEIVE", "MOVE", "MOVE_ALL", "ADJUST"]);
 const OCCUPANCY_RANGE_CONFIG = {
   day: { label: "Deň", bucketMs: 60 * 60 * 1000, points: 24 },
@@ -184,11 +185,56 @@ function getTableLabel(table) {
   if (isDailyOverviewTable(table)) {
     return "Denný prehľad";
   }
+  if (String(table || "").trim() === "stock") {
+    return "Sklad";
+  }
+  if (isTransactionsTable(table)) {
+    return "Transakcie";
+  }
   return table;
 }
 
 function makeStockKey(position, materialCode, companyId) {
   return `${String(companyId || "").trim()}::${String(position || "").trim()}::${String(materialCode || "").trim()}`;
+}
+
+function createEmptyOrderDraftItem() {
+  return { stockKey: "", stockInput: "", orderedQuantity: "1", lineNote: "" };
+}
+
+function normalizeOptionSearchValue(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function resolveOrderStockOption(value, options) {
+  const normalizedValue = normalizeOptionSearchValue(value);
+  if (!normalizedValue) {
+    return null;
+  }
+
+  const exactLabelMatch = options.find((option) => normalizeOptionSearchValue(option.label) === normalizedValue);
+  if (exactLabelMatch) {
+    return exactLabelMatch;
+  }
+
+  const exactMaterialMatches = options.filter(
+    (option) => normalizeOptionSearchValue(option.row?.material_code) === normalizedValue
+  );
+  if (exactMaterialMatches.length === 1) {
+    return exactMaterialMatches[0];
+  }
+
+  const exactPositionMatches = options.filter((option) => normalizeOptionSearchValue(option.row?.position) === normalizedValue);
+  if (exactPositionMatches.length === 1) {
+    return exactPositionMatches[0];
+  }
+
+  const containsMatches = options.filter((option) => normalizeOptionSearchValue(option.label).includes(normalizedValue));
+  if (containsMatches.length === 1) {
+    return containsMatches[0];
+  }
+
+  return null;
 }
 
 function makeMaterialSubscriptionKey(companyId, materialCode) {
@@ -1022,7 +1068,7 @@ function App() {
   const [selectedOrderCustomerId, setSelectedOrderCustomerId] = useState("");
   const [orderNoteInput, setOrderNoteInput] = useState("");
   const [orderSearchTerm, setOrderSearchTerm] = useState("");
-  const [orderDraftItems, setOrderDraftItems] = useState([{ stockKey: "", orderedQuantity: "1", lineNote: "" }]);
+  const [orderDraftItems, setOrderDraftItems] = useState([createEmptyOrderDraftItem()]);
   const [orderSubmitting, setOrderSubmitting] = useState(false);
   const [expandedOrders, setExpandedOrders] = useState({});
   const latestLoadRowsRequestRef = useRef(0);
@@ -1896,7 +1942,7 @@ function App() {
 
   const resetOrderDraft = () => {
     setOrderNoteInput("");
-    setOrderDraftItems([{ stockKey: "", orderedQuantity: "1", lineNote: "" }]);
+    setOrderDraftItems([createEmptyOrderDraftItem()]);
   };
 
   const loadOrdersModuleData = async () => {
@@ -1991,17 +2037,41 @@ function App() {
 
   const handleOrderDraftItemChange = (index, field, value) => {
     setOrderDraftItems((prev) =>
-      prev.map((item, currentIndex) => (currentIndex === index ? { ...item, [field]: value } : item))
+      prev.map((item, currentIndex) => {
+        if (currentIndex !== index) {
+          return item;
+        }
+
+        if (field === "stockInput") {
+          const matchedOption = resolveOrderStockOption(value, ordersStockOptions);
+          return {
+            ...item,
+            stockInput: matchedOption ? matchedOption.label : value,
+            stockKey: matchedOption ? matchedOption.stockKey : ""
+          };
+        }
+
+        if (field === "stockKey") {
+          const matchedOption = ordersStockOptions.find((option) => option.stockKey === value);
+          return {
+            ...item,
+            stockKey: value,
+            stockInput: matchedOption ? matchedOption.label : ""
+          };
+        }
+
+        return { ...item, [field]: value };
+      })
     );
   };
 
   const handleAddOrderDraftItem = () => {
-    setOrderDraftItems((prev) => [...prev, { stockKey: "", orderedQuantity: "1", lineNote: "" }]);
+    setOrderDraftItems((prev) => [...prev, createEmptyOrderDraftItem()]);
   };
 
   const handleRemoveOrderDraftItem = (index) => {
     setOrderDraftItems((prev) =>
-      prev.length <= 1 ? [{ stockKey: "", orderedQuantity: "1", lineNote: "" }] : prev.filter((_, itemIndex) => itemIndex !== index)
+      prev.length <= 1 ? [createEmptyOrderDraftItem()] : prev.filter((_, itemIndex) => itemIndex !== index)
     );
   };
 
@@ -2075,6 +2145,10 @@ function App() {
     for (const item of orderDraftItems) {
       const stockRow = ordersStockMap[item.stockKey];
       if (!stockRow) {
+        if (String(item.stockInput || "").trim()) {
+          setOrdersError(`Položka "${String(item.stockInput || "").trim()}" sa nenašla v sklade. Vyber ju z ponuky.`);
+          return;
+        }
         continue;
       }
       const orderedQuantity = Number.parseInt(String(item.orderedQuantity || "0"), 10);
@@ -2962,13 +3036,6 @@ function App() {
       });
     }
 
-    if (selectedTable === "stock") {
-      sections.push({
-        title: "Nástroje",
-        items: ["__stock_tools__"]
-      });
-    }
-
     return sections;
   }, [visibleTableNames, isMaster, selectedTable]);
 
@@ -3327,6 +3394,22 @@ function App() {
             </section>
           ))}
         </nav>
+
+        {selectedTable === "stock" && (
+          <section className="sidebar-section">
+            <p className="sidebar-section-title">Nástroje</p>
+            <div className="sidebar-tree">
+              <button
+                type="button"
+                className={`sidebar-link ${isCompanySettingsOpen ? "sidebar-link-active" : ""}`}
+                onClick={() => setIsCompanySettingsOpen((current) => !current)}
+              >
+                <span className="sidebar-link-bullet" />
+                <span>Nastavenia firmy</span>
+              </button>
+            </div>
+          </section>
+        )}
       </aside>
 
       <div className="dashboard-main">
@@ -3348,13 +3431,6 @@ function App() {
           <div className="action-buttons">
             {selectedTable === "stock" && (
               <>
-                <button
-                  type="button"
-                  className="settings-btn"
-                  onClick={() => setIsCompanySettingsOpen((current) => !current)}
-                >
-                  {isCompanySettingsOpen ? "Skryť nastavenia" : "Nastavenia firmy"}
-                </button>
                 {!isMaster && (
                   <button
                     type="button"
@@ -4060,40 +4136,69 @@ function App() {
                   />
 
                   <div className="orders-draft-list">
+                    <datalist id={ORDER_STOCK_DATALIST_ID}>
+                      {ordersStockOptions.map((option) => (
+                        <option key={option.stockKey} value={option.label} />
+                      ))}
+                    </datalist>
                     {orderDraftItems.map((item, index) => (
-                      <div key={`${item.stockKey}-${index}`} className="orders-draft-row">
-                        <select
-                          value={item.stockKey}
-                          onChange={(event) => handleOrderDraftItemChange(index, "stockKey", event.target.value)}
-                          disabled={!activeCompanyId || orderSubmitting}
-                        >
-                          <option value="">Vyber skladovú položku</option>
-                          {ordersStockOptions.map((option) => (
-                            <option key={option.stockKey} value={option.stockKey}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
-                        <input
-                          type="number"
-                          min={1}
-                          className="dead-stock-days-input"
-                          placeholder="Množstvo"
-                          value={item.orderedQuantity}
-                          onChange={(event) => handleOrderDraftItemChange(index, "orderedQuantity", event.target.value)}
-                          disabled={!activeCompanyId || orderSubmitting}
-                        />
-                        <input
-                          type="text"
-                          className="search-input"
-                          placeholder="Poznámka položky"
-                          value={item.lineNote}
-                          onChange={(event) => handleOrderDraftItemChange(index, "lineNote", event.target.value)}
-                          disabled={!activeCompanyId || orderSubmitting}
-                        />
-                        <button type="button" className="clear-btn" onClick={() => handleRemoveOrderDraftItem(index)}>
-                          Odobrať
-                        </button>
+                      <div key={`${item.stockKey || item.stockInput}-${index}`} className="orders-draft-row">
+                        {(() => {
+                          const selectedStockRow = ordersStockMap[item.stockKey];
+                          const stockQuantity = Number(selectedStockRow?.quantity || 0);
+                          const quantityMax = stockQuantity > 0 ? Math.floor(stockQuantity) : undefined;
+
+                          return (
+                            <>
+                              <div className="orders-draft-cell">
+                                <input
+                                  type="text"
+                                  className="search-input"
+                                  list={ORDER_STOCK_DATALIST_ID}
+                                  placeholder="Materiál alebo skladová položka"
+                                  value={item.stockInput || ""}
+                                  onChange={(event) => handleOrderDraftItemChange(index, "stockInput", event.target.value)}
+                                  disabled={!activeCompanyId || orderSubmitting}
+                                />
+                                <p className="orders-draft-meta">
+                                  {selectedStockRow
+                                    ? `Sklad: ${String(selectedStockRow.material_code || "-")} | ${String(selectedStockRow.position || "-")}`
+                                    : "Začni písať materiál a vyber presnú položku z ponuky."}
+                                </p>
+                              </div>
+                              <div className="orders-draft-cell">
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={quantityMax}
+                                  className="dead-stock-days-input"
+                                  placeholder="Množstvo"
+                                  value={item.orderedQuantity}
+                                  onChange={(event) => handleOrderDraftItemChange(index, "orderedQuantity", event.target.value)}
+                                  disabled={!activeCompanyId || orderSubmitting}
+                                />
+                                <p className="orders-draft-meta">
+                                  {selectedStockRow
+                                    ? `Max zo skladu: ${new Intl.NumberFormat("sk-SK").format(stockQuantity)} ks`
+                                    : "Max sa doplní po výbere skladovej položky."}
+                                </p>
+                              </div>
+                              <div className="orders-draft-cell">
+                                <input
+                                  type="text"
+                                  className="search-input"
+                                  placeholder="Poznámka položky"
+                                  value={item.lineNote}
+                                  onChange={(event) => handleOrderDraftItemChange(index, "lineNote", event.target.value)}
+                                  disabled={!activeCompanyId || orderSubmitting}
+                                />
+                              </div>
+                              <button type="button" className="clear-btn" onClick={() => handleRemoveOrderDraftItem(index)}>
+                                Odobrať
+                              </button>
+                            </>
+                          );
+                        })()}
                       </div>
                     ))}
                   </div>

@@ -728,7 +728,6 @@ function buildOrderPrintHtml(order, customer, items, companyName) {
           </div>
         </section>
         ${noteHtml}
-        <footer class="foot">PDF vytvoríš cez systémové tlačové okno voľbou "Uložiť ako PDF".</footer>
       </section>
     </body>
   </html>`;

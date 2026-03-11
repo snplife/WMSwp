@@ -604,6 +604,48 @@ select {
   gap: 0.6rem;
 }
 
+.company-lookup-field {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.company-lookup-results {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.45rem;
+  border: 1px solid #dce6f2;
+  border-radius: 14px;
+  background: #fbfdff;
+}
+
+.company-lookup-option {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #e3ebf5;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #203447;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.company-lookup-option strong {
+  font-size: 0.95rem;
+}
+
+.company-lookup-option span {
+  font-size: 0.78rem;
+  color: #6c7a88;
+}
+
+.company-lookup-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
 .order-note-input {
   min-height: 96px;
   resize: vertical;
@@ -1382,6 +1424,10 @@ tbody tr:nth-child(even) {
   }
 
   .orders-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .company-lookup-meta-grid {
     grid-template-columns: 1fr;
   }
 

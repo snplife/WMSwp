@@ -8,6 +8,7 @@ import logo from "../logo.png";
 
 const DAILY_OVERVIEW_TABLE = "__daily_overview__";
 const ORDERS_MODULE = "__orders__";
+const COMPANY_LOOKUP_DEBOUNCE_MS = 250;
 
 const TABLE_CONFIG = {
   stock: {
@@ -235,6 +236,31 @@ function resolveOrderStockOption(value, options) {
   }
 
   return null;
+}
+
+function buildCustomerNotePayload(note, registryMeta) {
+  const metadataParts = [];
+  if (registryMeta?.ico) {
+    metadataParts.push(`ICO: ${registryMeta.ico}`);
+  }
+  if (registryMeta?.dic) {
+    metadataParts.push(`DIC: ${registryMeta.dic}`);
+  }
+  if (registryMeta?.source) {
+    metadataParts.push(`Zdroj: ${registryMeta.source}`);
+  }
+
+  const noteLines = [];
+  if (metadataParts.length > 0) {
+    noteLines.push(metadataParts.join(" | "));
+  }
+
+  const trimmedNote = String(note || "").trim();
+  if (trimmedNote) {
+    noteLines.push(trimmedNote);
+  }
+
+  return noteLines.join("\n");
 }
 
 function makeMaterialSubscriptionKey(companyId, materialCode) {
@@ -1063,7 +1089,13 @@ function App() {
   const [customerEmailInput, setCustomerEmailInput] = useState("");
   const [customerPhoneInput, setCustomerPhoneInput] = useState("");
   const [customerAddressInput, setCustomerAddressInput] = useState("");
+  const [customerIcoInput, setCustomerIcoInput] = useState("");
+  const [customerDicInput, setCustomerDicInput] = useState("");
   const [customerNoteInput, setCustomerNoteInput] = useState("");
+  const [companyLookupResults, setCompanyLookupResults] = useState([]);
+  const [companyLookupLoading, setCompanyLookupLoading] = useState(false);
+  const [companyLookupError, setCompanyLookupError] = useState("");
+  const [selectedRegistryCompanyId, setSelectedRegistryCompanyId] = useState("");
   const [customerSubmitting, setCustomerSubmitting] = useState(false);
   const [selectedOrderCustomerId, setSelectedOrderCustomerId] = useState("");
   const [orderNoteInput, setOrderNoteInput] = useState("");
@@ -1072,6 +1104,7 @@ function App() {
   const [orderSubmitting, setOrderSubmitting] = useState(false);
   const [expandedOrders, setExpandedOrders] = useState({});
   const latestLoadRowsRequestRef = useRef(0);
+  const companyLookupRequestRef = useRef(0);
 
   const tableConfig = getTableConfig(selectedTable);
   const isMaster = userRole === "master";
@@ -2075,6 +2108,51 @@ function App() {
     );
   };
 
+  const handleCustomerNameInputChange = (value) => {
+    setCustomerNameInput(value);
+    setSelectedRegistryCompanyId("");
+  };
+
+  const handleSelectRegistryCompany = async (company) => {
+    const companyId = String(company?.id || "").trim();
+    if (!companyId) {
+      return;
+    }
+
+    const requestId = companyLookupRequestRef.current + 1;
+    companyLookupRequestRef.current = requestId;
+    setCompanyLookupLoading(true);
+    setCompanyLookupError("");
+
+    try {
+      const response = await noStoreFetch(`/api/v1/company-lookup?id=${encodeURIComponent(companyId)}`);
+      const payload = await response.json();
+
+      if (!response.ok || !payload?.ok || !payload?.item) {
+        throw new Error(payload?.error || "Nepodarilo sa načítať detail firmy.");
+      }
+
+      if (companyLookupRequestRef.current !== requestId) {
+        return;
+      }
+
+      setSelectedRegistryCompanyId(String(payload.item.id || companyId));
+      setCustomerNameInput(String(payload.item.name || company.name || ""));
+      setCustomerIcoInput(String(payload.item.ico || company.ico || ""));
+      setCustomerDicInput(String(payload.item.dic || company.dic || ""));
+      setCustomerAddressInput(String(payload.item.address?.formatted || ""));
+      setCompanyLookupResults([]);
+    } catch (lookupError) {
+      if (companyLookupRequestRef.current === requestId) {
+        setCompanyLookupError(lookupError?.message || "Nepodarilo sa načítať detail firmy.");
+      }
+    } finally {
+      if (companyLookupRequestRef.current === requestId) {
+        setCompanyLookupLoading(false);
+      }
+    }
+  };
+
   const handleCreateCustomer = async (event) => {
     event.preventDefault();
 
@@ -2101,7 +2179,11 @@ function App() {
           email: String(customerEmailInput || "").trim(),
           phone: String(customerPhoneInput || "").trim(),
           address: String(customerAddressInput || "").trim(),
-          note: String(customerNoteInput || "").trim(),
+          note: buildCustomerNotePayload(customerNoteInput, {
+            ico: String(customerIcoInput || "").trim(),
+            dic: String(customerDicInput || "").trim(),
+            source: selectedRegistryCompanyId ? "RÚZ" : ""
+          }),
           created_by: authUser?.id || null
         }
       ])
@@ -2122,7 +2204,12 @@ function App() {
     setCustomerEmailInput("");
     setCustomerPhoneInput("");
     setCustomerAddressInput("");
+    setCustomerIcoInput("");
+    setCustomerDicInput("");
     setCustomerNoteInput("");
+    setCompanyLookupResults([]);
+    setCompanyLookupError("");
+    setSelectedRegistryCompanyId("");
     setCustomerSubmitting(false);
   };
 
@@ -2598,6 +2685,10 @@ function App() {
       setOrders([]);
       setOrderItems([]);
       setOrdersStockRows([]);
+      setCompanyLookupResults([]);
+      setCompanyLookupLoading(false);
+      setCompanyLookupError("");
+      setSelectedRegistryCompanyId("");
       setLoading(false);
       return undefined;
     }
@@ -3040,6 +3131,64 @@ function App() {
   }, [visibleTableNames, isMaster, selectedTable]);
 
   useEffect(() => {
+    const query = String(customerNameInput || "").trim();
+
+    if (!canAccessOrdersModule || isLoggedIn === false) {
+      setCompanyLookupResults([]);
+      setCompanyLookupLoading(false);
+      setCompanyLookupError("");
+      return undefined;
+    }
+
+    if (selectedRegistryCompanyId && query.length > 0) {
+      setCompanyLookupResults([]);
+      setCompanyLookupLoading(false);
+      setCompanyLookupError("");
+      return undefined;
+    }
+
+    if (query.length < 3) {
+      setCompanyLookupResults([]);
+      setCompanyLookupLoading(false);
+      setCompanyLookupError("");
+      return undefined;
+    }
+
+    const requestId = companyLookupRequestRef.current + 1;
+    companyLookupRequestRef.current = requestId;
+    const timerId = window.setTimeout(async () => {
+      setCompanyLookupLoading(true);
+      setCompanyLookupError("");
+
+      try {
+        const response = await noStoreFetch(`/api/v1/company-lookup?q=${encodeURIComponent(query)}&limit=6`);
+        const payload = await response.json();
+
+        if (!response.ok || !payload?.ok) {
+          throw new Error(payload?.error || "Nepodarilo sa vyhľadať firmu.");
+        }
+
+        if (companyLookupRequestRef.current !== requestId) {
+          return;
+        }
+
+        setCompanyLookupResults(Array.isArray(payload.items) ? payload.items : []);
+      } catch (lookupError) {
+        if (companyLookupRequestRef.current === requestId) {
+          setCompanyLookupResults([]);
+          setCompanyLookupError(lookupError?.message || "Nepodarilo sa vyhľadať firmu.");
+        }
+      } finally {
+        if (companyLookupRequestRef.current === requestId) {
+          setCompanyLookupLoading(false);
+        }
+      }
+    }, COMPANY_LOOKUP_DEBOUNCE_MS);
+
+    return () => window.clearTimeout(timerId);
+  }, [customerNameInput, selectedRegistryCompanyId, canAccessOrdersModule, isLoggedIn]);
+
+  useEffect(() => {
     if (hotjarAllowed) {
       installHotjar();
       return undefined;
@@ -3197,6 +3346,17 @@ function App() {
     setOrderItems([]);
     setOrdersStockRows([]);
     setOrdersError("");
+    setCustomerNameInput("");
+    setCustomerEmailInput("");
+    setCustomerPhoneInput("");
+    setCustomerAddressInput("");
+    setCustomerIcoInput("");
+    setCustomerDicInput("");
+    setCustomerNoteInput("");
+    setCompanyLookupResults([]);
+    setCompanyLookupLoading(false);
+    setCompanyLookupError("");
+    setSelectedRegistryCompanyId("");
     setManagedUsers([]);
     setCompanies([]);
     setManagedUsersError("");
@@ -4061,15 +4221,58 @@ function App() {
                   </div>
                 </div>
                 <form className="orders-form" onSubmit={handleCreateCustomer}>
-                  <input
-                    type="text"
-                    className="search-input"
-                    placeholder="Názov zákazníka"
-                    value={customerNameInput}
-                    onChange={(event) => setCustomerNameInput(event.target.value)}
-                    disabled={!activeCompanyId || customerSubmitting}
-                    required
-                  />
+                  <div className="company-lookup-field">
+                    <input
+                      type="text"
+                      className="search-input"
+                      placeholder="Názov zákazníka alebo firmy"
+                      value={customerNameInput}
+                      onChange={(event) => handleCustomerNameInputChange(event.target.value)}
+                      disabled={!activeCompanyId || customerSubmitting}
+                      required
+                    />
+                    <p className="orders-draft-meta">
+                      Po 3 znakoch sa zobrazia free výsledky z Registra účtovných závierok.
+                    </p>
+                    {companyLookupLoading && <p className="orders-draft-meta">Vyhľadávam firmu...</p>}
+                    {companyLookupError && <p className="error">{companyLookupError}</p>}
+                    {companyLookupResults.length > 0 && (
+                      <div className="company-lookup-results">
+                        {companyLookupResults.map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            className="company-lookup-option"
+                            onClick={() => handleSelectRegistryCompany(item)}
+                            disabled={customerSubmitting}
+                          >
+                            <strong>{item.name}</strong>
+                            <span>
+                              {[item.ico ? `IČO: ${item.ico}` : "", item.dic ? `DIČ: ${item.dic}` : ""].filter(Boolean).join(" | ")}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="company-lookup-meta-grid">
+                    <input
+                      type="text"
+                      className="search-input"
+                      placeholder="IČO"
+                      value={customerIcoInput}
+                      onChange={(event) => setCustomerIcoInput(event.target.value)}
+                      disabled={!activeCompanyId || customerSubmitting}
+                    />
+                    <input
+                      type="text"
+                      className="search-input"
+                      placeholder="DIČ"
+                      value={customerDicInput}
+                      onChange={(event) => setCustomerDicInput(event.target.value)}
+                      disabled={!activeCompanyId || customerSubmitting}
+                    />
+                  </div>
                   <input
                     type="email"
                     className="search-input"

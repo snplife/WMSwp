@@ -5355,11 +5355,11 @@ function App() {
                                   onChange={(event) => handleProductionInputChange(index, "requiredQuantity", event.target.value)}
                                   disabled={!activeCompanyId || productionSubmitting}
                                 />
-                                <p className="workflow-helper-text">
-                                  {selectedStockRow
-                                    ? `Max zo skladu: ${new Intl.NumberFormat("sk-SK").format(stockQuantity)} ks`
-                                    : "Množstvo sa kontroluje proti skladu pri dokončení."}
-                                </p>
+                                  <p className="workflow-helper-text">
+                                    {selectedStockRow
+                                      ? `Max zo skladu: ${new Intl.NumberFormat("sk-SK").format(stockQuantity)} ks`
+                                      : ""}
+                                  </p>
                               </div>
                             </div>
                             <div className="orders-draft-actions">

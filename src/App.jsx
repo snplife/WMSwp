@@ -4988,7 +4988,7 @@ function App() {
                     </label>
                   </div>
                   </div>
-                  <div className="workflow-field-grid workflow-field-grid-tight">
+                  <div className="workflow-field-grid workflow-field-grid-tight workflow-field-grid-contact">
                     <label className="workflow-field">
                       <span className="workflow-field-label">Email</span>
                       <input
@@ -5000,7 +5000,7 @@ function App() {
                         disabled={!activeCompanyId || customerSubmitting}
                       />
                     </label>
-                    <label className="workflow-field">
+                    <label className="workflow-field workflow-field-compact">
                       <span className="workflow-field-label">Telefón</span>
                       <input
                         type="text"
@@ -5420,7 +5420,7 @@ function App() {
                         return (
                           <div key={item.draftId || `production-output-${index}`} className="orders-draft-row">
                             <div className="orders-draft-main production-output-main">
-                              <div className="orders-draft-cell">
+                              <div className="orders-draft-cell production-output-primary">
                                 <span className="draft-field-label">{`Výstup ${index + 1}`}</span>
                                 <input
                                   type="text"
@@ -5433,7 +5433,7 @@ function App() {
                                 />
                                 <p className="workflow-helper-text">Materiál alebo kód finálneho výrobku.</p>
                               </div>
-                              <div className="orders-draft-cell">
+                              <div className="orders-draft-cell production-output-secondary">
                                 <span className="draft-field-label">Pozícia</span>
                                 <input
                                   type="text"
@@ -5445,7 +5445,7 @@ function App() {
                                 />
                                 <p className="workflow-helper-text">Kam sa má finálny výrobok naskladniť.</p>
                               </div>
-                              <div className="orders-draft-cell">
+                              <div className="orders-draft-cell production-output-compact">
                                 <span className="draft-field-label">Množstvo</span>
                                 <input
                                   type="number"

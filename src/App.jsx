@@ -800,6 +800,7 @@ function App() {
   const [newUserPassword, setNewUserPassword] = useState("");
   const [newUserRole, setNewUserRole] = useState("user");
   const [newUserCompanyId, setNewUserCompanyId] = useState("");
+  const [newUserCanManageOrders, setNewUserCanManageOrders] = useState(false);
   const [newCompanyName, setNewCompanyName] = useState("");
   const [newCompanyTracksExpiryDate, setNewCompanyTracksExpiryDate] = useState(false);
   const [editingCompanyId, setEditingCompanyId] = useState("");
@@ -1057,7 +1058,7 @@ function App() {
     setManagedUsersError("");
     const { data, error: usersError } = await supabase
       .from(ROLE_TABLE)
-      .select("user_id,username,email,role,company_id,db_url,db_anon_key,created_at,updated_at,created_by")
+      .select("user_id,username,email,role,can_manage_orders,company_id,db_url,db_anon_key,created_at,updated_at,created_by")
       .order("created_at", { ascending: false });
 
     if (usersError) {
@@ -1083,6 +1084,7 @@ function App() {
     setManagedUsers(
       users.map((row) => ({
         ...row,
+        can_manage_orders: Boolean(row.can_manage_orders),
         db_url: row.db_url || DEFAULT_DB_URL || null,
         db_anon_key: row.db_anon_key || DEFAULT_DB_ANON_KEY || null
       }))
@@ -1372,6 +1374,7 @@ function App() {
         email: String(user.email || "").toLowerCase(),
         username,
         role: rowRole,
+        can_manage_orders: rowRole === "master",
         db_url: DEFAULT_DB_URL || null,
         db_anon_key: DEFAULT_DB_ANON_KEY || null,
         created_by: user.id
@@ -1432,6 +1435,7 @@ function App() {
         email,
         username,
         role: newUserRole === "master" ? "master" : "user",
+        can_manage_orders: newUserRole === "master" ? true : newUserCanManageOrders,
         company_id: newUserRole === "master" ? null : effectiveCompanyIdForUser,
         db_url: DEFAULT_DB_URL || null,
         db_anon_key: DEFAULT_DB_ANON_KEY || null,
@@ -1461,6 +1465,7 @@ function App() {
     setNewUserPassword("");
     setNewUserRole("user");
     setNewUserCompanyId("");
+    setNewUserCanManageOrders(false);
     setCreateUserSubmitting(false);
     await loadManagedUsers();
   };
@@ -1482,11 +1487,33 @@ function App() {
     setManagedUsersError("");
     const { error: updateError } = await supabase
       .from(ROLE_TABLE)
-      .update({ role: nextRole })
+      .update({
+        role: nextRole,
+        can_manage_orders: nextRole === "master" ? true : Boolean(row.can_manage_orders)
+      })
       .eq("user_id", row.user_id);
 
     if (updateError) {
       setManagedUsersError(updateError.message || "Nepodarilo sa zmeniť rolu.");
+      return;
+    }
+
+    await loadManagedUsers();
+  };
+
+  const handleManagedOrderAccessChange = async (row, nextValue) => {
+    if (!row?.user_id || row.role === "master") {
+      return;
+    }
+
+    setManagedUsersError("");
+    const { error: updateError } = await supabase
+      .from(ROLE_TABLE)
+      .update({ can_manage_orders: Boolean(nextValue) })
+      .eq("user_id", row.user_id);
+
+    if (updateError) {
+      setManagedUsersError(updateError.message || "Nepodarilo sa uložiť prístup k objednávkam.");
       return;
     }
 
@@ -2934,8 +2961,17 @@ function App() {
                 <option key={company.id} value={company.id}>
                   {company.name}
                 </option>
-              ))}
+                ))}
             </select>
+            <label className="pricing-options">
+              <input
+                type="checkbox"
+                checked={newUserRole === "master" ? true : newUserCanManageOrders}
+                onChange={(event) => setNewUserCanManageOrders(event.target.checked)}
+                disabled={newUserRole === "master"}
+              />
+              <span>Objednávky</span>
+            </label>
             <button type="submit" className="settings-btn" disabled={createUserSubmitting}>
               {createUserSubmitting ? "Vytváram..." : "Vytvoriť účet"}
             </button>
@@ -3193,6 +3229,7 @@ function App() {
                   <th>Login</th>
                   <th>Rola</th>
                   <th>Firma</th>
+                  <th>Objednávky</th>
                   <th>Supabase</th>
                   <th>Vytvorené</th>
                   <th>Akcie</th>
@@ -3222,6 +3259,20 @@ function App() {
                             </option>
                           ))}
                         </select>
+                        )}
+                    </td>
+                    <td>
+                      {row.role === "master" ? (
+                        <span className="table-badge table-badge-master">áno</span>
+                      ) : (
+                        <label className="pricing-options">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(row.can_manage_orders)}
+                            onChange={(event) => handleManagedOrderAccessChange(row, event.target.checked)}
+                          />
+                          <span>{row.can_manage_orders ? "povolené" : "zakázané"}</span>
+                        </label>
                       )}
                     </td>
                     <td>
@@ -3261,7 +3312,7 @@ function App() {
                 ))}
                 {filteredManagedUsers.length === 0 && (
                   <tr>
-                    <td colSpan={6}>Žiadne účty pre tento filter.</td>
+                    <td colSpan={7}>Žiadne účty pre tento filter.</td>
                   </tr>
                 )}
               </tbody>

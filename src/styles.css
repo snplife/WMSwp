@@ -646,6 +646,18 @@ select {
   gap: 0.6rem;
 }
 
+.company-lookup-input-field {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.company-lookup-input-field span {
+  font-size: 0.78rem;
+  color: #5f7082;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
 .order-note-input {
   min-height: 96px;
   resize: vertical;

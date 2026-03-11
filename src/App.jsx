@@ -4256,22 +4256,28 @@ function App() {
                     )}
                   </div>
                   <div className="company-lookup-meta-grid">
-                    <input
-                      type="text"
-                      className="search-input"
-                      placeholder="IČO"
-                      value={customerIcoInput}
-                      onChange={(event) => setCustomerIcoInput(event.target.value)}
-                      disabled={!activeCompanyId || customerSubmitting}
-                    />
-                    <input
-                      type="text"
-                      className="search-input"
-                      placeholder="DIČ"
-                      value={customerDicInput}
-                      onChange={(event) => setCustomerDicInput(event.target.value)}
-                      disabled={!activeCompanyId || customerSubmitting}
-                    />
+                    <label className="company-lookup-input-field">
+                      <span>IČO</span>
+                      <input
+                        type="text"
+                        className="search-input"
+                        placeholder="Napr. 31322832"
+                        value={customerIcoInput}
+                        onChange={(event) => setCustomerIcoInput(event.target.value)}
+                        disabled={!activeCompanyId || customerSubmitting}
+                      />
+                    </label>
+                    <label className="company-lookup-input-field">
+                      <span>DIČ</span>
+                      <input
+                        type="text"
+                        className="search-input"
+                        placeholder="Napr. 2020372640"
+                        value={customerDicInput}
+                        onChange={(event) => setCustomerDicInput(event.target.value)}
+                        disabled={!activeCompanyId || customerSubmitting}
+                      />
+                    </label>
                   </div>
                   <input
                     type="email"

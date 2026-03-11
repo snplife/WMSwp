@@ -2415,21 +2415,17 @@ function App() {
       if (!inputLabel) {
         continue;
       }
-      if (!stockRow) {
-        setProductionError(`Vstup ${index + 1} sa nepodarilo jednoznačne nájsť v sklade. Vyber návrh zo zoznamu.`);
-        return;
-      }
       const requiredQuantity = Number.parseInt(String(item.requiredQuantity || "0"), 10);
       if (!Number.isFinite(requiredQuantity) || requiredQuantity < 1) {
-        setProductionError(`Zadaj platné množstvo vstupu pre ${String(stockRow.material_code || "-")}.`);
+        setProductionError(`Zadaj platné množstvo vstupu pre ${String(inputLabel || stockRow?.material_code || "-")}.`);
         return;
       }
 
       normalizedInputs.push({
-        material_code: String(stockRow.material_code || ""),
-        position: String(stockRow.position || ""),
+        material_code: String(stockRow?.material_code || inputLabel),
+        position: String(stockRow?.position || ""),
         required_quantity: requiredQuantity,
-        stock_quantity_snapshot: Number(stockRow.quantity || 0),
+        stock_quantity_snapshot: Number(stockRow?.quantity || 0),
         line_note: String(item.lineNote || "").trim()
       });
     }
@@ -2456,7 +2452,7 @@ function App() {
     }
 
     if (normalizedInputs.length === 0) {
-      setProductionError("Pridaj aspoň jeden vstup zo skladu.");
+      setProductionError("Pridaj aspoň jeden vstup výroby.");
       return;
     }
     if (normalizedOutputs.length === 0) {
@@ -2544,9 +2540,10 @@ function App() {
       (liveStockRows || []).map((row) => [makeStockKey(row.position, row.material_code, row.company_id), row])
     );
 
+    const stockBoundInputs = inputs.filter((input) => String(input.position || "").trim());
     const requiredByStockKey = {};
     const inputsByStockKey = {};
-    for (const input of inputs) {
+    for (const input of stockBoundInputs) {
       const stockKey = makeStockKey(input.position, input.material_code, productionOrder.company_id);
       requiredByStockKey[stockKey] = (requiredByStockKey[stockKey] || 0) + Number(input.required_quantity || 0);
       if (!inputsByStockKey[stockKey]) {
@@ -2644,7 +2641,7 @@ function App() {
     const createdAtMs = Date.now();
     const historyNote = `Výrobná objednávka ${productionOrder.production_number} | ${productionOrder.title}`;
     const historyRows = [
-      ...inputs.flatMap((input) =>
+      ...stockBoundInputs.flatMap((input) =>
         Array.from({ length: Math.max(1, Number(input.required_quantity || 0)) }, () => ({
           event_key: buildInventoryEventKey("production-issue"),
           company_id: productionOrder.company_id,
@@ -5349,7 +5346,7 @@ function App() {
                                 <p className="workflow-helper-text">
                                   {selectedStockRow
                                     ? `Sklad: ${String(selectedStockRow.material_code || "-")} | ${String(selectedStockRow.position || "-")}`
-                                    : "Vyber presnú skladovú položku, ktorá sa má spotrebovať."}
+                                    : "Môžeš písať voľne, sklad len ponúkne doplnenie."}
                                 </p>
                               </div>
                               <div className="orders-draft-cell workflow-quantity-cell">

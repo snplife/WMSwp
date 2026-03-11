@@ -200,7 +200,14 @@ function makeStockKey(position, materialCode, companyId) {
 }
 
 function createEmptyOrderDraftItem() {
-  return { stockKey: "", stockInput: "", orderedQuantity: "1", lineNote: "", showNote: false };
+  return {
+    draftId: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    stockKey: "",
+    stockInput: "",
+    orderedQuantity: "1",
+    lineNote: "",
+    showNote: false
+  };
 }
 
 function normalizeOptionSearchValue(value) {
@@ -4352,7 +4359,7 @@ function App() {
                       ))}
                     </datalist>
                     {orderDraftItems.map((item, index) => (
-                      <div key={`${item.stockKey || item.stockInput || index}-${index}`} className="orders-draft-row">
+                      <div key={item.draftId || `draft-${index}`} className="orders-draft-row">
                         {(() => {
                           const selectedStockRow = ordersStockMap[item.stockKey];
                           const stockQuantity = Number(selectedStockRow?.quantity || 0);

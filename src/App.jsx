@@ -200,7 +200,7 @@ function makeStockKey(position, materialCode, companyId) {
 }
 
 function createEmptyOrderDraftItem() {
-  return { stockKey: "", stockInput: "", orderedQuantity: "1", lineNote: "" };
+  return { stockKey: "", stockInput: "", orderedQuantity: "1", lineNote: "", showNote: false };
 }
 
 function normalizeOptionSearchValue(value) {
@@ -2231,18 +2231,28 @@ function App() {
     const quantityByKey = {};
     for (const item of orderDraftItems) {
       const stockRow = ordersStockMap[item.stockKey];
-      if (!stockRow) {
-        if (String(item.stockInput || "").trim()) {
-          setOrdersError(`Položka "${String(item.stockInput || "").trim()}" sa nenašla v sklade. Vyber ju z ponuky.`);
-          return;
-        }
+      const itemLabel = String(item.stockInput || stockRow?.material_code || "").trim();
+      if (!itemLabel) {
         continue;
       }
+
       const orderedQuantity = Number.parseInt(String(item.orderedQuantity || "0"), 10);
       if (!Number.isFinite(orderedQuantity) || orderedQuantity < 1) {
-        setOrdersError(`Zadaj platné množstvo pre ${String(stockRow.material_code || "-")}.`);
+        setOrdersError(`Zadaj platné množstvo pre ${itemLabel}.`);
         return;
       }
+
+      if (!stockRow) {
+        normalizedItems.push({
+          material_code: itemLabel,
+          position: "",
+          ordered_quantity: orderedQuantity,
+          stock_quantity_snapshot: 0,
+          line_note: String(item.lineNote || "").trim()
+        });
+        continue;
+      }
+
       quantityByKey[item.stockKey] = (quantityByKey[item.stockKey] || 0) + orderedQuantity;
       normalizedItems.push({
         material_code: stockRow.material_code,
@@ -4351,20 +4361,22 @@ function App() {
                       ))}
                     </datalist>
                     {orderDraftItems.map((item, index) => (
-                      <div key={`${item.stockKey || item.stockInput}-${index}`} className="orders-draft-row">
+                      <div key={`${item.stockKey || item.stockInput || index}-${index}`} className="orders-draft-row">
                         {(() => {
                           const selectedStockRow = ordersStockMap[item.stockKey];
                           const stockQuantity = Number(selectedStockRow?.quantity || 0);
                           const quantityMax = stockQuantity > 0 ? Math.floor(stockQuantity) : undefined;
+                          const showNote = Boolean(item.showNote || String(item.lineNote || "").trim());
 
                           return (
                             <>
-                              <div className="orders-draft-cell">
+                              <div className="orders-draft-main">
+                                <div className="orders-draft-cell">
                                 <input
                                   type="text"
                                   className="search-input"
                                   list={ORDER_STOCK_DATALIST_ID}
-                                  placeholder="Materiál alebo skladová položka"
+                                  placeholder="Položka objednávky"
                                   value={item.stockInput || ""}
                                   onChange={(event) => handleOrderDraftItemChange(index, "stockInput", event.target.value)}
                                   disabled={!activeCompanyId || orderSubmitting}
@@ -4372,7 +4384,7 @@ function App() {
                                 <p className="orders-draft-meta">
                                   {selectedStockRow
                                     ? `Sklad: ${String(selectedStockRow.material_code || "-")} | ${String(selectedStockRow.position || "-")}`
-                                    : "Začni písať materiál a vyber presnú položku z ponuky."}
+                                    : "Píš voľne, sklad len ponúkne doplnenie."}
                                 </p>
                               </div>
                               <div className="orders-draft-cell">
@@ -4389,22 +4401,35 @@ function App() {
                                 <p className="orders-draft-meta">
                                   {selectedStockRow
                                     ? `Max zo skladu: ${new Intl.NumberFormat("sk-SK").format(stockQuantity)} ks`
-                                    : "Max sa doplní po výbere skladovej položky."}
+                                    : "Bez limitu skladu."}
                                 </p>
                               </div>
-                              <div className="orders-draft-cell">
-                                <input
-                                  type="text"
-                                  className="search-input"
-                                  placeholder="Poznámka položky"
-                                  value={item.lineNote}
-                                  onChange={(event) => handleOrderDraftItemChange(index, "lineNote", event.target.value)}
-                                  disabled={!activeCompanyId || orderSubmitting}
-                                />
+                                <div className="orders-draft-actions">
+                                  <button
+                                    type="button"
+                                    className="clear-btn"
+                                    onClick={() => handleOrderDraftItemChange(index, "showNote", !showNote)}
+                                    disabled={!activeCompanyId || orderSubmitting}
+                                  >
+                                    {showNote ? "Skryť poznámku" : "Pridať poznámku"}
+                                  </button>
+                                  <button type="button" className="clear-btn" onClick={() => handleRemoveOrderDraftItem(index)}>
+                                    Odobrať
+                                  </button>
+                                </div>
                               </div>
-                              <button type="button" className="clear-btn" onClick={() => handleRemoveOrderDraftItem(index)}>
-                                Odobrať
-                              </button>
+                              {showNote && (
+                                <div className="orders-draft-note-row">
+                                  <input
+                                    type="text"
+                                    className="search-input"
+                                    placeholder="Poznámka položky"
+                                    value={item.lineNote}
+                                    onChange={(event) => handleOrderDraftItemChange(index, "lineNote", event.target.value)}
+                                    disabled={!activeCompanyId || orderSubmitting}
+                                  />
+                                </div>
+                              )}
                             </>
                           );
                         })()}

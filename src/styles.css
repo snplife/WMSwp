@@ -642,8 +642,9 @@ select {
 
 .company-lookup-meta-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(120px, 180px));
   gap: 0.6rem;
+  justify-content: start;
 }
 
 .company-lookup-input-field {
@@ -656,6 +657,11 @@ select {
   color: #5f7082;
   font-weight: 700;
   letter-spacing: 0.03em;
+}
+
+.company-lookup-input-field .search-input {
+  min-width: 0;
+  width: 100%;
 }
 
 .order-note-input {
@@ -676,7 +682,16 @@ select {
 
 .orders-draft-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) 110px minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  padding: 0.7rem;
+  border: 1px solid #e3ebf5;
+  border-radius: 14px;
+  background: #fbfdff;
+}
+
+.orders-draft-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) 110px auto;
   gap: 0.5rem;
   align-items: center;
 }
@@ -691,6 +706,19 @@ select {
   margin: 0;
   font-size: 0.75rem;
   color: #6c7a88;
+}
+
+.orders-draft-actions {
+  display: flex;
+  gap: 0.45rem;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.orders-draft-note-row .search-input {
+  min-width: 0;
+  width: 100%;
 }
 
 .orders-form-actions {
@@ -1443,7 +1471,7 @@ tbody tr:nth-child(even) {
     grid-template-columns: 1fr;
   }
 
-  .orders-draft-row {
+  .orders-draft-main {
     grid-template-columns: 1fr;
   }
 

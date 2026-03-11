@@ -743,7 +743,7 @@ select {
 }
 
 .workflow-field-grid-contact {
-  grid-template-columns: minmax(0, 1fr) 170px;
+  grid-template-columns: minmax(0, 1fr) 132px;
   align-items: end;
 }
 
@@ -752,7 +752,11 @@ select {
 }
 
 .workflow-field-compact {
-  max-width: 170px;
+  max-width: 132px;
+}
+
+.workflow-phone-field {
+  max-width: 132px;
 }
 
 .workflow-helper-text {
@@ -859,13 +863,13 @@ select {
 
 .orders-draft-main {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 96px;
+  grid-template-columns: minmax(0, 1fr) 76px;
   gap: 0.7rem;
   align-items: start;
 }
 
 .production-output-main {
-  grid-template-columns: minmax(0, 1fr) 92px;
+  grid-template-columns: minmax(0, 1fr) 76px;
 }
 
 .production-output-primary {
@@ -903,11 +907,15 @@ select {
 
 .workflow-phone-input {
   min-width: 0;
-  max-width: 170px;
+  max-width: 132px;
 }
 
 .workflow-quantity-input {
-  width: 68px;
+  width: 54px;
+}
+
+.workflow-quantity-cell .workflow-helper-text {
+  display: none;
 }
 
 .orders-form-actions {

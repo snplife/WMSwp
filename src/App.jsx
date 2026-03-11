@@ -2405,10 +2405,19 @@ function App() {
     }
 
     const normalizedInputs = [];
-    for (const item of productionDraftInputs) {
-      const stockRow = productionStockMap[item.stockKey];
-      if (!stockRow) {
+    for (let index = 0; index < productionDraftInputs.length; index += 1) {
+      const item = productionDraftInputs[index];
+      const resolvedOption = productionStockMap[item.stockKey]
+        ? { stockKey: item.stockKey, row: productionStockMap[item.stockKey] }
+        : resolveOrderStockOption(item.stockInput, productionStockOptions);
+      const stockRow = resolvedOption?.row || null;
+      const inputLabel = String(item.stockInput || stockRow?.material_code || "").trim();
+      if (!inputLabel) {
         continue;
+      }
+      if (!stockRow) {
+        setProductionError(`Vstup ${index + 1} sa nepodarilo jednoznačne nájsť v sklade. Vyber návrh zo zoznamu.`);
+        return;
       }
       const requiredQuantity = Number.parseInt(String(item.requiredQuantity || "0"), 10);
       if (!Number.isFinite(requiredQuantity) || requiredQuantity < 1) {
@@ -2843,8 +2852,12 @@ function App() {
 
     const normalizedItems = [];
     const quantityByKey = {};
-    for (const item of orderDraftItems) {
-      const stockRow = ordersStockMap[item.stockKey];
+    for (let index = 0; index < orderDraftItems.length; index += 1) {
+      const item = orderDraftItems[index];
+      const resolvedOption = ordersStockMap[item.stockKey]
+        ? { stockKey: item.stockKey, row: ordersStockMap[item.stockKey] }
+        : resolveOrderStockOption(item.stockInput, ordersStockOptions);
+      const stockRow = resolvedOption?.row || null;
       const itemLabel = String(item.stockInput || stockRow?.material_code || "").trim();
       if (!itemLabel) {
         continue;
@@ -2857,17 +2870,12 @@ function App() {
       }
 
       if (!stockRow) {
-        normalizedItems.push({
-          material_code: itemLabel,
-          position: "",
-          ordered_quantity: orderedQuantity,
-          stock_quantity_snapshot: 0,
-          line_note: String(item.lineNote || "").trim()
-        });
-        continue;
+        setOrdersError(`Položku ${index + 1} sa nepodarilo jednoznačne nájsť v sklade. Vyber návrh zo zoznamu.`);
+        return;
       }
 
-      quantityByKey[item.stockKey] = (quantityByKey[item.stockKey] || 0) + orderedQuantity;
+      const resolvedStockKey = resolvedOption?.stockKey || item.stockKey;
+      quantityByKey[resolvedStockKey] = (quantityByKey[resolvedStockKey] || 0) + orderedQuantity;
       normalizedItems.push({
         material_code: stockRow.material_code,
         position: stockRow.position,
@@ -5153,6 +5161,7 @@ function App() {
                       {orderSubmitting ? "Vytváram..." : "Vytvoriť objednávku"}
                     </button>
                   </div>
+                  {ordersError && <p className="error">{ordersError}</p>}
                 </form>
               </article>
             </div>
@@ -5484,6 +5493,7 @@ function App() {
                       {productionSubmitting ? "Vytváram..." : "Vytvoriť výrobnú objednávku"}
                     </button>
                   </div>
+                  {productionError && <p className="error">{productionError}</p>}
                 </form>
               </article>
             </div>

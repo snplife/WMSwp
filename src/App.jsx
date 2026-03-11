@@ -586,10 +586,51 @@ function buildOrderNumber() {
   return `OBJ-${datePart}-${timePart}-${randomPart}`;
 }
 
+function buildOrderIdentityQrPayload(order) {
+  return JSON.stringify(
+    {
+      t: "wms_order",
+      id: String(order?.id || ""),
+      no: String(order?.order_number || "")
+    },
+    null,
+    0
+  );
+}
+
+function buildOrderItemsQrPayload(order, items) {
+  return JSON.stringify(
+    {
+      t: "wms_order_items",
+      id: String(order?.id || ""),
+      no: String(order?.order_number || ""),
+      it: (items || []).map((item) => ({
+        m: String(item?.material_code || ""),
+        p: String(item?.position || ""),
+        q: Number(item?.ordered_quantity || 0),
+        n: String(item?.line_note || "")
+      }))
+    },
+    null,
+    0
+  );
+}
+
 function buildOrderPrintHtml(order, customer, items, companyName) {
   const generatedAt = new Date().toLocaleString("sk-SK");
   const createdAt = formatDate(order?.created_at);
   const customerName = String(order?.customer_name || customer?.name || "-");
+  const orderNote = String(order?.note || "").trim();
+  const orderIdentityQr = buildQrImageUrl(buildOrderIdentityQrPayload(order), 180);
+  const orderItemsQr = buildQrImageUrl(buildOrderItemsQrPayload(order, items), 180);
+  const noteHtml = orderNote
+    ? `
+        <section class="note">
+          <span class="label">Poznámka k objednávke</span>
+          <div>${escapeHtml(orderNote)}</div>
+        </section>
+      `
+    : "";
   const rowsHtml = (items || [])
     .map(
       (item, index) => `
@@ -617,13 +658,18 @@ function buildOrderPrintHtml(order, customer, items, companyName) {
         .page { display: grid; gap: 8mm; }
         .head { display: flex; justify-content: space-between; gap: 8mm; align-items: start; }
         h1 { margin: 0 0 2mm; font-size: 20pt; }
-        .meta, .customer, .note { border: 0.3mm solid #d9e2ec; border-radius: 3mm; padding: 4mm; }
+        .meta, .customer, .note, .qr-section { border: 0.3mm solid #d9e2ec; border-radius: 3mm; padding: 4mm; }
         .meta-grid, .customer-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3mm 6mm; }
         .label { display: block; margin-bottom: 1mm; font-size: 8pt; color: #52606d; text-transform: uppercase; letter-spacing: 0.08em; }
         .value { font-size: 11pt; font-weight: 700; }
         table { width: 100%; border-collapse: collapse; font-size: 10pt; }
         th, td { border: 0.3mm solid #d9e2ec; padding: 3mm; text-align: left; vertical-align: top; }
         th { background: #eef4f8; }
+        .qr-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5mm; }
+        .qr-card { display: grid; gap: 2mm; justify-items: center; text-align: center; }
+        .qr-card img { width: 36mm; height: 36mm; display: block; }
+        .qr-caption { font-size: 9pt; font-weight: 700; }
+        .qr-hint { font-size: 8pt; color: #52606d; }
         .foot { font-size: 8pt; color: #52606d; }
       </style>
     </head>
@@ -640,6 +686,8 @@ function buildOrderPrintHtml(order, customer, items, companyName) {
           <div class="meta-grid">
             <div><span class="label">Firma</span><div class="value">${escapeHtml(String(companyName || "-"))}</div></div>
             <div><span class="label">Vytvorené</span><div class="value">${escapeHtml(createdAt)}</div></div>
+            <div><span class="label">ID objednávky</span><div class="value">${escapeHtml(String(order?.id || "-"))}</div></div>
+            <div><span class="label">Číslo objednávky</span><div class="value">${escapeHtml(String(order?.order_number || "-"))}</div></div>
           </div>
         </section>
         <section class="customer">
@@ -665,10 +713,21 @@ function buildOrderPrintHtml(order, customer, items, companyName) {
             <tbody>${rowsHtml || '<tr><td colspan="6">Objednávka nemá položky.</td></tr>'}</tbody>
           </table>
         </section>
-        <section class="note">
-          <span class="label">Poznámka k objednávke</span>
-          <div>${escapeHtml(String(order?.note || "-"))}</div>
+        <section class="qr-section">
+          <div class="qr-grid">
+            <article class="qr-card">
+              <span class="qr-caption">QR: ID objednávky</span>
+              <img src="${orderIdentityQr}" alt="QR ID objednávky" />
+              <div class="qr-hint">${escapeHtml(String(order?.id || "-"))}</div>
+            </article>
+            <article class="qr-card">
+              <span class="qr-caption">QR: ID a položky objednávky</span>
+              <img src="${orderItemsQr}" alt="QR ID a položky objednávky" />
+              <div class="qr-hint">Obsahuje ID, číslo objednávky a položky</div>
+            </article>
+          </div>
         </section>
+        ${noteHtml}
         <footer class="foot">PDF vytvoríš cez systémové tlačové okno voľbou "Uložiť ako PDF".</footer>
       </section>
     </body>

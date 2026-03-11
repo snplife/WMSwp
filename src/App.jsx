@@ -4880,9 +4880,10 @@ function App() {
       )}
 
       {isOrdersModule(selectedTable) && canAccessOrdersModule && (
-        <section className="panel">
-          <div className="panel-head">
+        <section className="panel workflow-shell workflow-shell-orders">
+          <div className="panel-head workflow-header">
             <div>
+              <p className="workflow-eyebrow">Externý workflow</p>
               <h2>Objednávkový modul</h2>
               <p className="panel-meta">
                 {activeCompanyId
@@ -4894,48 +4895,53 @@ function App() {
 
           {ordersError && <p className="error">{ordersError}</p>}
 
-          <div className="orders-summary-grid">
-            <article className="card">
+          <div className="orders-summary-grid workflow-summary-grid">
+            <article className="card workflow-stat-card">
               <p>Zákazníci</p>
               <strong>{new Intl.NumberFormat("sk-SK").format(customers.length)}</strong>
             </article>
-            <article className="card">
+            <article className="card workflow-stat-card">
               <p>Objednávky</p>
               <strong>{new Intl.NumberFormat("sk-SK").format(orders.length)}</strong>
             </article>
-            <article className="card">
+            <article className="card workflow-stat-card">
               <p>Položky</p>
               <strong>{new Intl.NumberFormat("sk-SK").format(orderItems.length)}</strong>
             </article>
-            <article className="card">
+            <article className="card workflow-stat-card">
               <p>Skladové pozície</p>
               <strong>{new Intl.NumberFormat("sk-SK").format(ordersStockRows.length)}</strong>
             </article>
           </div>
 
-          <div className="orders-layout">
-            <div className="orders-column">
-              <article className="orders-panel-card">
-                <div className="panel-head">
+          <div className="orders-layout workflow-grid">
+            <div className="orders-column workflow-editor-column">
+              <article className="orders-panel-card workflow-card workflow-card-soft">
+                <div className="panel-head workflow-section-head">
                   <div>
+                    <p className="workflow-section-kicker">Krok 1</p>
                     <h2>Zákazníci</h2>
                     <p className="panel-meta">Najprv založ zákazníka, potom vytvor objednávku.</p>
                   </div>
                 </div>
                 <form className="orders-form" onSubmit={handleCreateCustomer}>
-                  <div className="company-lookup-field">
-                    <input
-                      type="text"
-                      className="search-input"
-                      placeholder="Názov zákazníka alebo firmy"
-                      value={customerNameInput}
-                      onChange={(event) => handleCustomerNameInputChange(event.target.value)}
-                      disabled={!activeCompanyId || customerSubmitting}
-                      required
-                    />
-                    <p className="orders-draft-meta">
-                      Po 3 znakoch sa zobrazia free výsledky z Registra účtovných závierok.
-                    </p>
+                  <div className="workflow-form-section">
+                    <div className="company-lookup-field">
+                      <label className="workflow-field">
+                        <span className="workflow-field-label">Názov zákazníka alebo firmy</span>
+                        <input
+                          type="text"
+                          className="search-input"
+                          placeholder="Začni písať názov firmy"
+                          value={customerNameInput}
+                          onChange={(event) => handleCustomerNameInputChange(event.target.value)}
+                          disabled={!activeCompanyId || customerSubmitting}
+                          required
+                        />
+                      </label>
+                      <p className="workflow-helper-text">
+                        Po 3 znakoch sa zobrazia free výsledky z Registra účtovných závierok.
+                      </p>
                     {companyLookupLoading && <p className="orders-draft-meta">Vyhľadávam firmu...</p>}
                     {companyLookupError && <p className="error">{companyLookupError}</p>}
                     {companyLookupResults.length > 0 && (
@@ -4981,63 +4987,82 @@ function App() {
                       />
                     </label>
                   </div>
-                  <input
-                    type="email"
-                    className="search-input"
-                    placeholder="Email"
-                    value={customerEmailInput}
-                    onChange={(event) => setCustomerEmailInput(event.target.value)}
-                    disabled={!activeCompanyId || customerSubmitting}
-                  />
-                  <input
-                    type="text"
-                    className="search-input"
-                    placeholder="Telefón"
-                    value={customerPhoneInput}
-                    onChange={(event) => setCustomerPhoneInput(event.target.value)}
-                    disabled={!activeCompanyId || customerSubmitting}
-                  />
-                  <input
-                    type="text"
-                    className="search-input"
-                    placeholder="Adresa"
-                    value={customerAddressInput}
-                    onChange={(event) => setCustomerAddressInput(event.target.value)}
-                    disabled={!activeCompanyId || customerSubmitting}
-                  />
-                  <textarea
-                    className="order-note-input"
-                    placeholder="Poznámka k zákazníkovi"
-                    value={customerNoteInput}
-                    onChange={(event) => setCustomerNoteInput(event.target.value)}
-                    disabled={!activeCompanyId || customerSubmitting}
-                  />
+                  </div>
+                  <div className="workflow-field-grid workflow-field-grid-tight">
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Email</span>
+                      <input
+                        type="email"
+                        className="search-input"
+                        placeholder="kontakt@firma.sk"
+                        value={customerEmailInput}
+                        onChange={(event) => setCustomerEmailInput(event.target.value)}
+                        disabled={!activeCompanyId || customerSubmitting}
+                      />
+                    </label>
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Telefón</span>
+                      <input
+                        type="text"
+                        className="search-input"
+                        placeholder="+421..."
+                        value={customerPhoneInput}
+                        onChange={(event) => setCustomerPhoneInput(event.target.value)}
+                        disabled={!activeCompanyId || customerSubmitting}
+                      />
+                    </label>
+                  </div>
+                  <label className="workflow-field">
+                    <span className="workflow-field-label">Adresa</span>
+                    <input
+                      type="text"
+                      className="search-input"
+                      placeholder="Ulica, mesto"
+                      value={customerAddressInput}
+                      onChange={(event) => setCustomerAddressInput(event.target.value)}
+                      disabled={!activeCompanyId || customerSubmitting}
+                    />
+                  </label>
+                  <label className="workflow-field">
+                    <span className="workflow-field-label">Poznámka</span>
+                    <textarea
+                      className="order-note-input"
+                      placeholder="Interná poznámka k zákazníkovi"
+                      value={customerNoteInput}
+                      onChange={(event) => setCustomerNoteInput(event.target.value)}
+                      disabled={!activeCompanyId || customerSubmitting}
+                    />
+                  </label>
                   <button type="submit" className="settings-btn" disabled={!activeCompanyId || customerSubmitting}>
                     {customerSubmitting ? "Ukladám..." : "Pridať zákazníka"}
                   </button>
                 </form>
               </article>
 
-              <article className="orders-panel-card">
-                <div className="panel-head">
+              <article className="orders-panel-card workflow-card workflow-card-strong">
+                <div className="panel-head workflow-section-head">
                   <div>
+                    <p className="workflow-section-kicker">Krok 2</p>
                     <h2>Nová objednávka</h2>
-                    <p className="panel-meta">Položky vyberáš priamo z aktuálnych skladových zásob.</p>
+                    <p className="panel-meta">Položky zadávaš voľne, sklad len ponúkne doplnenie a maximum.</p>
                   </div>
                 </div>
                 <form className="orders-form" onSubmit={handleCreateOrder}>
-                  <select
-                    value={selectedOrderCustomerId}
-                    onChange={(event) => setSelectedOrderCustomerId(event.target.value)}
-                    disabled={!activeCompanyId || orderSubmitting}
-                  >
-                    <option value="">Vyber zákazníka</option>
-                    {customers.map((customer) => (
-                      <option key={customer.id} value={customer.id}>
-                        {customer.name}
-                      </option>
-                    ))}
-                  </select>
+                  <label className="workflow-field">
+                    <span className="workflow-field-label">Zákazník</span>
+                    <select
+                      value={selectedOrderCustomerId}
+                      onChange={(event) => setSelectedOrderCustomerId(event.target.value)}
+                      disabled={!activeCompanyId || orderSubmitting}
+                    >
+                      <option value="">Vyber zákazníka</option>
+                      {customers.map((customer) => (
+                        <option key={customer.id} value={customer.id}>
+                          {customer.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
 
                   <div className="orders-draft-list">
                     <datalist id={ORDER_STOCK_DATALIST_ID}>
@@ -5057,6 +5082,7 @@ function App() {
                             <>
                               <div className="orders-draft-main">
                                 <div className="orders-draft-cell">
+                                  <span className="draft-field-label">{`Položka ${index + 1}`}</span>
                                   <input
                                     type="text"
                                     className="search-input"
@@ -5066,13 +5092,14 @@ function App() {
                                     onChange={(event) => handleOrderDraftItemChange(index, "stockInput", event.target.value)}
                                     disabled={!activeCompanyId || orderSubmitting}
                                   />
-                                  <p className="orders-draft-meta">
+                                  <p className="workflow-helper-text">
                                     {selectedStockRow
                                       ? `Sklad: ${String(selectedStockRow.material_code || "-")} | ${String(selectedStockRow.position || "-")}`
                                       : "Píš voľne, sklad len ponúkne doplnenie."}
                                   </p>
                                 </div>
                                 <div className="orders-draft-cell">
+                                  <span className="draft-field-label">Množstvo</span>
                                   <input
                                     type="number"
                                     min={1}
@@ -5083,7 +5110,7 @@ function App() {
                                     onChange={(event) => handleOrderDraftItemChange(index, "orderedQuantity", event.target.value)}
                                     disabled={!activeCompanyId || orderSubmitting}
                                   />
-                                  <p className="orders-draft-meta">
+                                  <p className="workflow-helper-text">
                                     {selectedStockRow
                                       ? `Max zo skladu: ${new Intl.NumberFormat("sk-SK").format(stockQuantity)} ks`
                                       : "Bez limitu skladu."}
@@ -5134,9 +5161,9 @@ function App() {
               </article>
             </div>
 
-            <div className="orders-column orders-column-list">
-              <article className="orders-panel-card">
-                <div className="panel-head">
+            <div className="orders-column orders-column-list workflow-feed-column">
+              <article className="orders-panel-card workflow-card workflow-card-list">
+                <div className="panel-head workflow-section-head">
                   <div>
                     <h2>Zoznam objednávok</h2>
                     <p className="panel-meta">{`${filteredOrders.length} / ${orders.length} objednávok`}</p>
@@ -5173,8 +5200,8 @@ function App() {
                               <p>{order.order_number}</p>
                             </div>
                             <div className="order-card-meta">
-                              <span>{formatDate(order.created_at)}</span>
-                              <span>{`${items.length} položiek`}</span>
+                              <span className="order-card-badge">{formatDate(order.created_at)}</span>
+                              <span className="order-card-badge">{`${items.length} položiek`}</span>
                             </div>
                           </button>
                           {isOpen && (
@@ -5223,9 +5250,10 @@ function App() {
       )}
 
       {isProductionModule(selectedTable) && canAccessOrdersModule && (
-        <section className="panel">
-          <div className="panel-head">
+        <section className="panel workflow-shell workflow-shell-production">
+          <div className="panel-head workflow-header">
             <div>
+              <p className="workflow-eyebrow">Interný workflow</p>
               <h2>Výrobné objednávky</h2>
               <p className="panel-meta">
                 {activeCompanyId
@@ -5237,47 +5265,51 @@ function App() {
 
           {productionError && <p className="error">{productionError}</p>}
 
-          <div className="orders-summary-grid">
-            <article className="card">
+          <div className="orders-summary-grid workflow-summary-grid">
+            <article className="card workflow-stat-card">
               <p>Výrobné zákazky</p>
               <strong>{new Intl.NumberFormat("sk-SK").format(productionOrders.length)}</strong>
             </article>
-            <article className="card">
+            <article className="card workflow-stat-card">
               <p>Vstupy</p>
               <strong>{new Intl.NumberFormat("sk-SK").format(productionOrderInputs.length)}</strong>
             </article>
-            <article className="card">
+            <article className="card workflow-stat-card">
               <p>Výstupy</p>
               <strong>{new Intl.NumberFormat("sk-SK").format(productionOrderOutputs.length)}</strong>
             </article>
-            <article className="card">
+            <article className="card workflow-stat-card">
               <p>Skladové pozície</p>
               <strong>{new Intl.NumberFormat("sk-SK").format(productionStockRows.length)}</strong>
             </article>
           </div>
 
-          <div className="orders-layout">
-            <div className="orders-column">
-              <article className="orders-panel-card">
-                <div className="panel-head">
+          <div className="orders-layout workflow-grid">
+            <div className="orders-column workflow-editor-column">
+              <article className="orders-panel-card workflow-card workflow-card-strong">
+                <div className="panel-head workflow-section-head">
                   <div>
+                    <p className="workflow-section-kicker">Nová výroba</p>
                     <h2>Nová výrobná objednávka</h2>
                     <p className="panel-meta">Vstupy sa odpíšu až pri naskladnení výstupu.</p>
                   </div>
                 </div>
                 <form className="orders-form" onSubmit={handleCreateProductionOrder}>
-                  <input
-                    type="text"
-                    className="search-input"
-                    placeholder="Názov výroby alebo zákazky"
-                    value={productionTitleInput}
-                    onChange={(event) => setProductionTitleInput(event.target.value)}
-                    disabled={!activeCompanyId || productionSubmitting}
-                    required
-                  />
+                  <label className="workflow-field">
+                    <span className="workflow-field-label">Názov výroby alebo zákazky</span>
+                    <input
+                      type="text"
+                      className="search-input"
+                      placeholder="Napíš, čo sa ide vyrábať"
+                      value={productionTitleInput}
+                      onChange={(event) => setProductionTitleInput(event.target.value)}
+                      disabled={!activeCompanyId || productionSubmitting}
+                      required
+                    />
+                  </label>
 
-                  <div>
-                    <div className="panel-head">
+                  <div className="workflow-form-section">
+                    <div className="panel-head workflow-section-head workflow-subsection-head">
                       <div>
                         <h2>Vstupy zo skladu</h2>
                         <p className="panel-meta">Vyber materiály, ktoré sa majú spotrebovať pri naskladnení výstupu.</p>
@@ -5299,6 +5331,7 @@ function App() {
                           <div key={item.draftId || `production-input-${index}`} className="orders-draft-row">
                             <div className="orders-draft-main">
                               <div className="orders-draft-cell">
+                                <span className="draft-field-label">{`Vstup ${index + 1}`}</span>
                                 <input
                                   type="text"
                                   className="search-input"
@@ -5308,13 +5341,14 @@ function App() {
                                   onChange={(event) => handleProductionInputChange(index, "stockInput", event.target.value)}
                                   disabled={!activeCompanyId || productionSubmitting}
                                 />
-                                <p className="orders-draft-meta">
+                                <p className="workflow-helper-text">
                                   {selectedStockRow
                                     ? `Sklad: ${String(selectedStockRow.material_code || "-")} | ${String(selectedStockRow.position || "-")}`
                                     : "Vyber presnú skladovú položku, ktorá sa má spotrebovať."}
                                 </p>
                               </div>
                               <div className="orders-draft-cell">
+                                <span className="draft-field-label">Množstvo</span>
                                 <input
                                   type="number"
                                   min={1}
@@ -5325,7 +5359,7 @@ function App() {
                                   onChange={(event) => handleProductionInputChange(index, "requiredQuantity", event.target.value)}
                                   disabled={!activeCompanyId || productionSubmitting}
                                 />
-                                <p className="orders-draft-meta">
+                                <p className="workflow-helper-text">
                                   {selectedStockRow
                                     ? `Max zo skladu: ${new Intl.NumberFormat("sk-SK").format(stockQuantity)} ks`
                                     : "Množstvo sa kontroluje proti skladu pri dokončení."}
@@ -5368,8 +5402,8 @@ function App() {
                     </div>
                   </div>
 
-                  <div>
-                    <div className="panel-head">
+                  <div className="workflow-form-section">
+                    <div className="panel-head workflow-section-head workflow-subsection-head">
                       <div>
                         <h2>Výstupy výroby</h2>
                         <p className="panel-meta">Zadaj finálne položky, ktoré sa majú naskladniť.</p>
@@ -5387,6 +5421,7 @@ function App() {
                           <div key={item.draftId || `production-output-${index}`} className="orders-draft-row">
                             <div className="orders-draft-main production-output-main">
                               <div className="orders-draft-cell">
+                                <span className="draft-field-label">{`Výstup ${index + 1}`}</span>
                                 <input
                                   type="text"
                                   className="search-input"
@@ -5396,9 +5431,10 @@ function App() {
                                   onChange={(event) => handleProductionOutputChange(index, "materialCode", event.target.value)}
                                   disabled={!activeCompanyId || productionSubmitting}
                                 />
-                                <p className="orders-draft-meta">Materiál alebo kód finálneho výrobku.</p>
+                                <p className="workflow-helper-text">Materiál alebo kód finálneho výrobku.</p>
                               </div>
                               <div className="orders-draft-cell">
+                                <span className="draft-field-label">Pozícia</span>
                                 <input
                                   type="text"
                                   className="search-input"
@@ -5407,9 +5443,10 @@ function App() {
                                   onChange={(event) => handleProductionOutputChange(index, "position", event.target.value)}
                                   disabled={!activeCompanyId || productionSubmitting}
                                 />
-                                <p className="orders-draft-meta">Kam sa má finálny výrobok naskladniť.</p>
+                                <p className="workflow-helper-text">Kam sa má finálny výrobok naskladniť.</p>
                               </div>
                               <div className="orders-draft-cell">
+                                <span className="draft-field-label">Množstvo</span>
                                 <input
                                   type="number"
                                   min={1}
@@ -5419,7 +5456,7 @@ function App() {
                                   onChange={(event) => handleProductionOutputChange(index, "outputQuantity", event.target.value)}
                                   disabled={!activeCompanyId || productionSubmitting}
                                 />
-                                <p className="orders-draft-meta">Naskladní sa pri dokončení výroby.</p>
+                                <p className="workflow-helper-text">Naskladní sa pri dokončení výroby.</p>
                               </div>
                             </div>
                             <div className="orders-draft-actions">
@@ -5467,9 +5504,9 @@ function App() {
               </article>
             </div>
 
-            <div className="orders-column orders-column-list">
-              <article className="orders-panel-card">
-                <div className="panel-head">
+            <div className="orders-column orders-column-list workflow-feed-column">
+              <article className="orders-panel-card workflow-card workflow-card-list">
+                <div className="panel-head workflow-section-head">
                   <div>
                     <h2>Zoznam výrobných objednávok</h2>
                     <p className="panel-meta">{`${filteredProductionOrders.length} / ${productionOrders.length} zákaziek`}</p>
@@ -5509,8 +5546,8 @@ function App() {
                               <p>{productionOrder.production_number}</p>
                             </div>
                             <div className="order-card-meta">
-                              <span>{formatDate(productionOrder.created_at)}</span>
-                              <span>{`${inputs.length} vstupov / ${outputs.length} výstupov`}</span>
+                              <span className="order-card-badge">{formatDate(productionOrder.created_at)}</span>
+                              <span className="order-card-badge">{`${inputs.length} vstupov / ${outputs.length} výstupov`}</span>
                             </div>
                           </button>
                           {isOpen && (

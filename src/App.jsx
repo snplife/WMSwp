@@ -1081,7 +1081,7 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
       <title>${escapeHtml(String(quote?.quote_number || "Cenova-ponuka"))}</title>
       <style>
         @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap");
-        @page { size: A4 portrait; margin: 8mm 10mm 10mm; }
+        @page { size: A4 portrait; margin: 1mm 8mm 8mm; }
         * { box-sizing: border-box; }
         body {
           margin: 0;
@@ -1094,6 +1094,7 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
           gap: 1.4mm;
           padding: 0;
           background: #ffffff;
+          margin: 0;
         }
         .hero {
           display: grid;

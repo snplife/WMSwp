@@ -8512,10 +8512,11 @@ function App() {
                         ))}
                       </select>
                     </label>
-                    <label className="workflow-field workflow-field-compact">
+                    <label className="workflow-field workflow-field-compact invoice-date-field">
                       <span className="workflow-field-label">Splatnosť faktúry</span>
                       <input
                         type="date"
+                        className="invoice-date-input"
                         value={invoiceDueDate}
                         onChange={(event) => setInvoiceDueDate(event.target.value)}
                         disabled={!activeCompanyId || invoiceSubmitting}

@@ -785,6 +785,36 @@ select {
   align-items: end;
 }
 
+.invoice-date-field {
+  justify-self: end;
+}
+
+.invoice-date-input {
+  width: 100%;
+  min-width: 0;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid #d4deea;
+  border-radius: 10px;
+  background: var(--chip);
+  color: #203447;
+  font-family: inherit;
+  line-height: 1.2;
+  min-height: 38px;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.invoice-date-input::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.72;
+}
+
+.invoice-date-input:focus-visible {
+  outline: none;
+  border-color: #8eb4db;
+  box-shadow: 0 0 0 3px rgba(79, 127, 184, 0.14);
+}
+
 .workflow-field-grid-contact {
   grid-template-columns: minmax(0, 1fr) 132px;
   align-items: end;

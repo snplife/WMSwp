@@ -662,6 +662,18 @@ select {
 
 .workflow-shell-quotes .orders-layout {
   gap: 30px;
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+}
+
+.workflow-shell-quotes .orders-panel-card,
+.workflow-shell-quotes .workflow-feed-column,
+.workflow-shell-quotes .workflow-editor-column {
+  min-width: 0;
+}
+
+.workflow-shell-quotes .workflow-feed-column .search-input {
+  min-width: 0;
+  width: 100%;
 }
 
 .orders-column {
@@ -2020,5 +2032,11 @@ tbody tr:nth-child(even) {
   .empty-state {
     flex-direction: column;
     align-items: flex-start;
+  }
+}
+
+@media (max-width: 1180px) {
+  .workflow-shell-quotes .orders-layout {
+    grid-template-columns: 1fr;
   }
 }

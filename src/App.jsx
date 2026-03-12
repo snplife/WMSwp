@@ -6909,7 +6909,7 @@ function App() {
                       return (
                         <div key={item.draftId || `quote-draft-${index}`} className="orders-draft-row">
                           <div className="quote-draft-main">
-                            <div className="orders-draft-cell">
+                            <div className="orders-draft-cell quote-draft-primary">
                               <span className="draft-field-label">{`Položka ${index + 1}`}</span>
                               <input
                                 type="text"

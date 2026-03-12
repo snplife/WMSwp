@@ -879,9 +879,13 @@ select {
 
 .quote-draft-main {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 62px 82px 96px 96px 82px;
+  grid-template-columns: 72px 92px minmax(92px, 1fr) minmax(92px, 1fr) 86px;
   gap: 0.65rem;
   align-items: start;
+}
+
+.quote-draft-primary {
+  grid-column: 1 / -1;
 }
 
 .production-output-main {
@@ -912,21 +916,27 @@ select {
   min-width: 0;
 }
 
+.quote-draft-main .search-input,
+.quote-draft-main .dead-stock-days-input {
+  min-width: 0;
+  width: 100%;
+}
+
 .quote-compact-input {
   width: 100%;
   min-width: 0;
 }
 
 .quote-unit-input {
-  max-width: 62px;
+  max-width: none;
 }
 
 .quote-price-input {
-  width: 96px;
+  max-width: none;
 }
 
 .quote-discount-input {
-  width: 82px;
+  max-width: none;
 }
 
 .quote-draft-summary {

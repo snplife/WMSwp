@@ -1097,12 +1097,23 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
           margin: 0;
         }
         .hero {
+          position: relative;
           display: grid;
           grid-template-columns: minmax(0, 1fr) auto;
           gap: 0.6mm;
           align-items: end;
-          padding: 0 0 0.1mm;
-          border-bottom: 0.35mm solid #dbe5ef;
+          padding: 2.2mm 2.4mm 1.8mm 3.6mm;
+          border: 0.35mm solid #dbe5ef;
+          border-radius: 3.5mm;
+          background: #ffffff;
+          overflow: hidden;
+        }
+        .hero::before {
+          content: "";
+          position: absolute;
+          inset: 0 auto 0 0;
+          width: 1.6mm;
+          background: linear-gradient(180deg, #0f8a7f, #0f5f8f);
         }
         .hero-copy { display: grid; gap: 0.05mm; min-height: 0; }
         .eyebrow { font-size: 5.8pt; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #7b8b98; line-height: 1; }

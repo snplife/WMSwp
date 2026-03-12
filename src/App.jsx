@@ -6290,6 +6290,56 @@ function App() {
         .some((value) => String(value || "").toLowerCase().includes(normalized))
     );
   }, [invoices, invoiceSearchTerm]);
+  const invoiceDashboardStats = useMemo(() => {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    return invoices.reduce(
+      (acc, invoice) => {
+        const createdAt = invoice?.created_at ? new Date(invoice.created_at) : null;
+        const dueDate = invoice?.due_date ? new Date(invoice.due_date) : null;
+        const items = invoiceItemsByInvoiceId[invoice.id] || [];
+        const totals = items.reduce(
+          (sum, item) => {
+            const computed = computeQuoteLineTotals({
+              quantity: item.quantity,
+              unitPrice: item.unit_price,
+              purchasePrice: item.purchase_price,
+              discountPercent: item.discount_percent,
+              vatPercent: item.vat_percent
+            });
+            sum.net += computed.lineTotal;
+            sum.vat += computed.lineVatTotal;
+            return sum;
+          },
+          { net: 0, vat: 0 }
+        );
+
+        const isMonthlyInvoice =
+          createdAt instanceof Date &&
+          !Number.isNaN(createdAt.getTime()) &&
+          createdAt >= monthStart &&
+          createdAt < nextMonthStart;
+        const isIssuedInvoice = invoice.status === "issued" || invoice.status === "paid";
+        if (isMonthlyInvoice && isIssuedInvoice) {
+          acc.monthNet += totals.net;
+          acc.monthVat += totals.vat;
+        }
+
+        const normalizedDueDate =
+          dueDate instanceof Date && !Number.isNaN(dueDate.getTime()) ? new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate()) : null;
+        const isOverdue = normalizedDueDate && normalizedDueDate < today && invoice.status !== "paid" && invoice.status !== "cancelled";
+        if (isOverdue) {
+          acc.overdueCount += 1;
+        }
+
+        return acc;
+      },
+      { monthNet: 0, monthVat: 0, overdueCount: 0 }
+    );
+  }, [invoices, invoiceItemsByInvoiceId]);
   const filteredProductionOrders = useMemo(() => {
     const normalized = String(productionSearchTerm || "").trim().toLowerCase();
     if (!normalized) {
@@ -8467,16 +8517,16 @@ function App() {
 
           <div className="orders-summary-grid workflow-summary-grid">
             <article className="card workflow-stat-card">
-              <p>Zákazníci</p>
-              <strong>{new Intl.NumberFormat("sk-SK").format(customers.length)}</strong>
+              <p>DPH tento mesiac</p>
+              <strong>{formatCurrencyValue(invoiceDashboardStats.monthVat)}</strong>
             </article>
             <article className="card workflow-stat-card">
-              <p>Faktúry</p>
-              <strong>{new Intl.NumberFormat("sk-SK").format(invoices.length)}</strong>
+              <p>Vystavené bez DPH</p>
+              <strong>{formatCurrencyValue(invoiceDashboardStats.monthNet)}</strong>
             </article>
             <article className="card workflow-stat-card">
-              <p>Cenník</p>
-              <strong>{new Intl.NumberFormat("sk-SK").format(invoicePriceListRows.length)}</strong>
+              <p>Faktúry po splatnosti</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(invoiceDashboardStats.overdueCount)}</strong>
             </article>
           </div>
 

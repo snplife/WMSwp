@@ -1087,36 +1087,37 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
           margin: 0;
           font-family: "Space Grotesk", "Segoe UI", Arial, sans-serif;
           color: #182431;
-          background:
-            radial-gradient(circle at 12% 12%, #f7ddb0 0%, transparent 28%),
-            radial-gradient(circle at 88% 5%, #cce9fb 0%, transparent 25%),
-            linear-gradient(155deg, #f3f6ff, #e7f5f7);
+          background: #ffffff;
         }
         .page {
           display: grid;
-          gap: 1.6mm;
-          padding: 0.8mm 4mm 4.2mm;
-          border: 0.35mm solid #d7e3ef;
-          border-radius: 7mm;
-          background: rgba(255, 255, 255, 0.9);
-          box-shadow: 0 3mm 10mm rgba(23, 33, 43, 0.08);
+          gap: 1.4mm;
+          padding: 0;
+          background: #ffffff;
         }
-        .hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2mm; align-items: center; padding: 0.6mm 1.6mm; border-radius: 4mm; background: linear-gradient(135deg, #0f8a7f, #0f5f8f); color: #ffffff; }
-        .hero-copy { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3mm 1.2mm; min-height: 0; }
-        .eyebrow { font-size: 6.1pt; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.82; line-height: 1; }
-        h1 { margin: 0; font-size: 12.8pt; line-height: 0.98; }
-        .hero-subtitle { font-size: 6.2pt; line-height: 1; opacity: 0.84; }
-        .hero-meta { display: grid; gap: 0.1mm; justify-items: end; text-align: right; align-content: center; }
-        .hero-meta-label { font-size: 5.8pt; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.8; line-height: 1; }
-        .hero-meta-value { font-size: 7.8pt; font-weight: 700; line-height: 1; }
-        .hero-meta-date { font-size: 6.1pt; line-height: 1; color: rgba(255, 255, 255, 0.8); }
+        .hero {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 1.4mm;
+          align-items: end;
+          padding: 0 0 1.4mm;
+          border-bottom: 0.35mm solid #dbe5ef;
+        }
+        .hero-copy { display: grid; gap: 0.15mm; min-height: 0; }
+        .eyebrow { font-size: 6pt; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #7b8b98; line-height: 1; }
+        h1 { margin: 0; font-size: 13pt; line-height: 1; color: #182431; }
+        .hero-subtitle { font-size: 6.4pt; line-height: 1; color: #6b7b88; }
+        .hero-meta { display: grid; gap: 0.1mm; justify-items: end; text-align: right; align-content: end; }
+        .hero-meta-label { font-size: 5.8pt; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #7b8b98; line-height: 1; }
+        .hero-meta-value { font-size: 7.6pt; font-weight: 700; line-height: 1; color: #182431; }
+        .hero-meta-date { font-size: 6pt; line-height: 1; color: #6b7b88; }
         .section-label { display: block; margin-bottom: 1.2mm; font-size: 7.6pt; color: #5a6c7c; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; }
         .value { font-size: 11pt; font-weight: 700; }
         .customer, .summary, .note, .items {
           position: relative;
           border: 0.35mm solid #dbe5ef;
-          border-radius: 4.5mm;
-          background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 252, 255, 0.96));
+          border-radius: 3.5mm;
+          background: #ffffff;
           overflow: hidden;
         }
         .customer::before, .summary::before, .note::before, .items::before {
@@ -1126,9 +1127,9 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
           width: 1.6mm;
           background: linear-gradient(180deg, #0f8a7f, #0f5f8f);
         }
-        .summary-card { padding: 2.8mm 3mm; }
-        .customer, .note, .items, .summary { padding: 4mm 4mm 4mm 5mm; }
-        .customer-head, .items-head, .summary-head { display: flex; justify-content: space-between; gap: 4mm; align-items: end; margin-bottom: 2.4mm; }
+        .summary-card { padding: 2.4mm 2.6mm; }
+        .customer, .note, .items, .summary { padding: 3.2mm 3.2mm 3.2mm 4.2mm; }
+        .customer-head, .items-head, .summary-head { display: flex; justify-content: space-between; gap: 4mm; align-items: end; margin-bottom: 1.8mm; }
         .section-title { margin: 0; font-size: 11pt; color: #182431; }
         .section-subtitle { margin: 0.6mm 0 0; font-size: 8.2pt; color: #607180; }
         .party-grid, .customer-grid, .summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2.5mm 5mm; }

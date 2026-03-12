@@ -1091,7 +1091,7 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
         }
         .page {
           display: grid;
-          gap: 3mm;
+          gap: 5mm;
           padding: 0;
           background: #ffffff;
           margin: 0;

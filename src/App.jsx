@@ -1044,7 +1044,7 @@ function printOrderPdf(order, customer, items, companyName) {
 }
 
 function buildQuotePrintHtml(quote, customer, items, companyProfile) {
-  const generatedAt = new Date().toLocaleString("sk-SK");
+  const generatedAt = new Date().toLocaleDateString("sk-SK");
   const normalizedCompany =
     companyProfile && typeof companyProfile === "object" ? companyProfile : { name: String(companyProfile || "").trim() };
   const companyName = String(normalizedCompany?.name || "-");

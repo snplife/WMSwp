@@ -7,6 +7,9 @@
     move: "presun",
     move_all: "presun",
     draft: "rozpracované",
+    sent: "odoslaná",
+    accepted: "schválená",
+    rejected: "zamietnutá",
     completed: "dokončené",
     unknown: "neznáme"
   };

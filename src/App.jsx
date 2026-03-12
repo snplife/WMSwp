@@ -8,6 +8,7 @@ import { clearSupabaseAuthStorage, noStoreFetch, supabase, supabaseAnonKey, supa
 import logo from "../logo.png";
 
 const DAILY_OVERVIEW_TABLE = "__daily_overview__";
+const QUOTES_MODULE = "__quotes__";
 const ORDERS_MODULE = "__orders__";
 const PRODUCTION_MODULE = "__production__";
 const PRICE_LIST_TABLE = "price_list";
@@ -49,6 +50,18 @@ const TABLE_CONFIG = {
     orderBy: "material_code",
     orderAsc: true,
     metricLabel: "Položky cenníka",
+    metricValue: (rows) => rows.length
+  },
+  [QUOTES_MODULE]: {
+    title: "Cenové ponuky",
+    subtitle: "Cenové ponuky zo zákazníkov a cenníka",
+    columns: [],
+    searchKeys: [],
+    statusKeys: [],
+    timeKeys: [],
+    orderBy: "created_at",
+    orderAsc: false,
+    metricLabel: "Ponuky",
     metricValue: (rows) => rows.length
   },
   stock_history: {
@@ -143,6 +156,7 @@ const TRANSACTION_TABLE_ALIASES = Array.from(
   new Set([TRANSACTIONS_TABLE, "stock_history", "stock_transactions"].filter(Boolean))
 );
 const ORDER_STOCK_DATALIST_ID = "orders-stock-options";
+const QUOTE_PRICE_DATALIST_ID = "quote-price-options";
 const PRODUCTION_INPUT_DATALIST_ID = "production-input-stock-options";
 const PRODUCTION_OUTPUT_MATERIAL_DATALIST_ID = "production-output-material-options";
 const PRODUCTION_OUTPUT_DEFAULT_POSITION = "VYROBA";
@@ -189,6 +203,9 @@ const LANDING_FAQ = [
 ];
 
 function getTableConfig(table) {
+  if (isQuoteModule(table)) {
+    return TABLE_CONFIG[QUOTES_MODULE];
+  }
   if (isOrdersModule(table)) {
     return TABLE_CONFIG[ORDERS_MODULE];
   }
@@ -204,6 +221,10 @@ function getTableConfig(table) {
   return TABLE_CONFIG[table] || DEFAULT_CONFIG;
 }
 
+function isQuoteModule(table) {
+  return String(table || "").trim() === QUOTES_MODULE;
+}
+
 function isOrdersModule(table) {
   return String(table || "").trim() === ORDERS_MODULE;
 }
@@ -213,7 +234,7 @@ function isProductionModule(table) {
 }
 
 function isWorkflowModule(table) {
-  return isOrdersModule(table) || isProductionModule(table);
+  return isQuoteModule(table) || isOrdersModule(table) || isProductionModule(table);
 }
 
 function isDailyOverviewTable(table) {
@@ -230,6 +251,9 @@ function getStartOfTodayMs() {
 }
 
 function getTableLabel(table) {
+  if (isQuoteModule(table)) {
+    return "Cenové ponuky";
+  }
   if (isOrdersModule(table)) {
     return "Objednávky";
   }
@@ -266,6 +290,21 @@ function createEmptyOrderDraftItem() {
     stockKey: "",
     stockInput: "",
     orderedQuantity: "1",
+    lineNote: "",
+    showNote: false
+  };
+}
+
+function createEmptyQuoteDraftItem() {
+  return {
+    draftId: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    priceListId: "",
+    materialCode: "",
+    unit: "ks",
+    quantity: "1",
+    unitPrice: "",
+    purchasePrice: "",
+    discountPercent: "0",
     lineNote: "",
     showNote: false
   };
@@ -317,6 +356,32 @@ function resolveOrderStockOption(value, options) {
   const exactPositionMatches = options.filter((option) => normalizeOptionSearchValue(option.row?.position) === normalizedValue);
   if (exactPositionMatches.length === 1) {
     return exactPositionMatches[0];
+  }
+
+  const containsMatches = options.filter((option) => normalizeOptionSearchValue(option.label).includes(normalizedValue));
+  if (containsMatches.length === 1) {
+    return containsMatches[0];
+  }
+
+  return null;
+}
+
+function resolvePriceListOption(value, options) {
+  const normalizedValue = normalizeOptionSearchValue(value);
+  if (!normalizedValue) {
+    return null;
+  }
+
+  const exactLabelMatch = options.find((option) => normalizeOptionSearchValue(option.label) === normalizedValue);
+  if (exactLabelMatch) {
+    return exactLabelMatch;
+  }
+
+  const exactMaterialMatches = options.filter(
+    (option) => normalizeOptionSearchValue(option.row?.material_code) === normalizedValue
+  );
+  if (exactMaterialMatches.length === 1) {
+    return exactMaterialMatches[0];
   }
 
   const containsMatches = options.filter((option) => normalizeOptionSearchValue(option.label).includes(normalizedValue));
@@ -668,6 +733,14 @@ function buildOrderNumber() {
   return `OBJ-${datePart}-${timePart}-${randomPart}`;
 }
 
+function buildQuoteNumber() {
+  const now = new Date();
+  const datePart = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+  const timePart = `${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}`;
+  const randomPart = Math.floor(1000 + Math.random() * 9000);
+  return `CEN-${datePart}-${timePart}-${randomPart}`;
+}
+
 function buildProductionNumber() {
   const now = new Date();
   const datePart = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
@@ -829,6 +902,138 @@ function buildOrderPrintHtml(order, customer, items, companyName) {
 
 function printOrderPdf(order, customer, items, companyName) {
   printHtmlDocument(buildOrderPrintHtml(order, customer, items, companyName));
+}
+
+function buildQuotePrintHtml(quote, customer, items, companyName) {
+  const generatedAt = new Date().toLocaleString("sk-SK");
+  const createdAt = formatDate(quote?.created_at);
+  const customerName = String(quote?.customer_name || customer?.name || "-");
+  const quoteNote = String(quote?.note || "").trim();
+  const noteHtml = quoteNote
+    ? `
+        <section class="note">
+          <span class="label">Poznámka k ponuke</span>
+          <div>${escapeHtml(quoteNote)}</div>
+        </section>
+      `
+    : "";
+  const rowsHtml = (items || [])
+    .map((item, index) => {
+      const computed = computeQuoteLineTotals({
+        quantity: item.quantity,
+        unitPrice: item.unit_price,
+        purchasePrice: item.purchase_price,
+        discountPercent: item.discount_percent
+      });
+      return `
+        <tr>
+          <td>${index + 1}</td>
+          <td>${escapeHtml(String(item.material_code || "-"))}</td>
+          <td>${escapeHtml(String(item.unit || "ks"))}</td>
+          <td>${escapeHtml(formatCell(item.quantity, "number"))}</td>
+          <td>${escapeHtml(formatCurrencyValue(item.unit_price || 0))}</td>
+          <td>${escapeHtml(formatPercentValue(item.discount_percent || 0, 2))}</td>
+          <td>${escapeHtml(formatCurrencyValue(computed.finalUnitPrice))}</td>
+          <td>${escapeHtml(formatCurrencyValue(computed.lineTotal))}</td>
+          <td>${escapeHtml(String(item.line_note || "-"))}</td>
+        </tr>
+      `;
+    })
+    .join("");
+  const totals = (items || []).reduce(
+    (acc, item) => {
+      const computed = computeQuoteLineTotals({
+        quantity: item.quantity,
+        unitPrice: item.unit_price,
+        purchasePrice: item.purchase_price,
+        discountPercent: item.discount_percent
+      });
+      acc.total += computed.lineTotal;
+      acc.margin += computed.lineMarginTotal;
+      return acc;
+    },
+    { total: 0, margin: 0 }
+  );
+
+  return `<!doctype html>
+  <html lang="sk">
+    <head>
+      <meta charset="UTF-8" />
+      <title>${escapeHtml(String(quote?.quote_number || "Cenova-ponuka"))}</title>
+      <style>
+        @page { size: A4 portrait; margin: 12mm; }
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: Arial, sans-serif; color: #1b2631; }
+        .page { display: grid; gap: 7mm; }
+        .head { display: flex; justify-content: space-between; gap: 8mm; align-items: start; }
+        h1 { margin: 0 0 2mm; font-size: 20pt; }
+        .meta, .customer, .note, .summary { border: 0.3mm solid #d9e2ec; border-radius: 3mm; padding: 4mm; }
+        .meta-grid, .customer-grid, .summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3mm 6mm; }
+        .label { display: block; margin-bottom: 1mm; font-size: 8pt; color: #52606d; text-transform: uppercase; letter-spacing: 0.08em; }
+        .value { font-size: 11pt; font-weight: 700; }
+        table { width: 100%; border-collapse: collapse; font-size: 9pt; }
+        th, td { border: 0.3mm solid #d9e2ec; padding: 2.6mm; text-align: left; vertical-align: top; }
+        th { background: #eef4f8; }
+        .foot { font-size: 8pt; color: #52606d; }
+      </style>
+    </head>
+    <body>
+      <section class="page">
+        <header class="head">
+          <div>
+            <h1>Cenová ponuka</h1>
+            <div class="value">${escapeHtml(String(quote?.quote_number || "-"))}</div>
+          </div>
+          <div class="foot">Vygenerované: ${escapeHtml(generatedAt)}</div>
+        </header>
+        <section class="meta">
+          <div class="meta-grid">
+            <div><span class="label">Firma</span><div class="value">${escapeHtml(String(companyName || "-"))}</div></div>
+            <div><span class="label">Vytvorené</span><div class="value">${escapeHtml(createdAt)}</div></div>
+            <div><span class="label">Číslo ponuky</span><div class="value">${escapeHtml(String(quote?.quote_number || "-"))}</div></div>
+            <div><span class="label">Stav</span><div class="value">${escapeHtml(translateStatusLabel(quote?.status || "draft"))}</div></div>
+          </div>
+        </section>
+        <section class="customer">
+          <div class="customer-grid">
+            <div><span class="label">Zákazník</span><div class="value">${escapeHtml(customerName)}</div></div>
+            <div><span class="label">Telefón</span><div class="value">${escapeHtml(String(customer?.phone || "-"))}</div></div>
+            <div><span class="label">Email</span><div class="value">${escapeHtml(String(customer?.email || "-"))}</div></div>
+            <div><span class="label">Adresa</span><div class="value">${escapeHtml(String(customer?.address || "-"))}</div></div>
+          </div>
+        </section>
+        <section>
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Materiál</th>
+                <th>Jednotka</th>
+                <th>Množstvo</th>
+                <th>Cena</th>
+                <th>Zľava</th>
+                <th>Po zľave</th>
+                <th>Spolu</th>
+                <th>Poznámka</th>
+              </tr>
+            </thead>
+            <tbody>${rowsHtml || '<tr><td colspan="9">Ponuka nemá položky.</td></tr>'}</tbody>
+          </table>
+        </section>
+        <section class="summary">
+          <div class="summary-grid">
+            <div><span class="label">Celkom</span><div class="value">${escapeHtml(formatCurrencyValue(totals.total))}</div></div>
+            <div><span class="label">Marža</span><div class="value">${escapeHtml(formatCurrencyValue(totals.margin))}</div></div>
+          </div>
+        </section>
+        ${noteHtml}
+      </section>
+    </body>
+  </html>`;
+}
+
+function printQuotePdf(quote, customer, items, companyName) {
+  printHtmlDocument(buildQuotePrintHtml(quote, customer, items, companyName));
 }
 
 function buildProductionPrintHtml(productionOrder, inputs, outputs, companyName) {
@@ -1065,6 +1270,26 @@ function buildPriceListComputedRow(row) {
     max_discount_value: maxDiscountValue,
     max_discount_percent: maxDiscountPercent,
     max_discount_display: `${formatCurrencyValue(maxDiscountValue)} | ${formatPercentValue(maxDiscountPercent)}`
+  };
+}
+
+function computeQuoteLineTotals({ quantity, unitPrice, purchasePrice, discountPercent }) {
+  const safeQuantity = Number(quantity || 0);
+  const safeUnitPrice = Number(unitPrice || 0);
+  const safePurchasePrice = Number(purchasePrice || 0);
+  const safeDiscountPercent = Math.min(100, Math.max(0, Number(discountPercent || 0)));
+  const finalUnitPrice = Math.round(safeUnitPrice * (1 - safeDiscountPercent / 100) * 100) / 100;
+  const lineTotal = Math.round(finalUnitPrice * safeQuantity * 100) / 100;
+  const lineMarginTotal = Math.round((finalUnitPrice - safePurchasePrice) * safeQuantity * 100) / 100;
+
+  return {
+    quantity: safeQuantity,
+    unitPrice: safeUnitPrice,
+    purchasePrice: safePurchasePrice,
+    discountPercent: safeDiscountPercent,
+    finalUnitPrice,
+    lineTotal,
+    lineMarginTotal
   };
 }
 
@@ -1376,6 +1601,11 @@ function translateStatusLabel(status) {
     issue: "výdaj",
     move: "presun",
     move_all: "presun",
+    draft: "rozpracované",
+    sent: "odoslaná",
+    accepted: "schválená",
+    rejected: "zamietnutá",
+    completed: "dokončené",
     unknown: "neznáme"
   };
 
@@ -1487,6 +1717,17 @@ function App() {
   const [priceListImportResult, setPriceListImportResult] = useState("");
   const [priceListFormError, setPriceListFormError] = useState("");
   const [customers, setCustomers] = useState([]);
+  const [quotes, setQuotes] = useState([]);
+  const [quoteItems, setQuoteItems] = useState([]);
+  const [quotePriceListRows, setQuotePriceListRows] = useState([]);
+  const [quotesLoading, setQuotesLoading] = useState(false);
+  const [quotesError, setQuotesError] = useState("");
+  const [selectedQuoteCustomerId, setSelectedQuoteCustomerId] = useState("");
+  const [quoteSearchTerm, setQuoteSearchTerm] = useState("");
+  const [quoteDraftItems, setQuoteDraftItems] = useState([createEmptyQuoteDraftItem()]);
+  const [quoteSubmitting, setQuoteSubmitting] = useState(false);
+  const [quoteStatusSavingId, setQuoteStatusSavingId] = useState("");
+  const [expandedQuotes, setExpandedQuotes] = useState({});
   const [orders, setOrders] = useState([]);
   const [orderItems, setOrderItems] = useState([]);
   const [ordersStockRows, setOrdersStockRows] = useState([]);
@@ -1532,12 +1773,12 @@ function App() {
   const hotjarAllowed = (authReady || authInitTimedOut) && (!isLoggedIn || !isMaster);
   const visibleTableNames = useMemo(() => {
     if (isMaster) {
-      return Array.from(new Set([...tableNames, PRICE_LIST_TABLE, ORDERS_MODULE, PRODUCTION_MODULE]));
+      return Array.from(new Set([...tableNames, PRICE_LIST_TABLE, QUOTES_MODULE, ORDERS_MODULE, PRODUCTION_MODULE]));
     }
     const baseTables = Array.from(
       new Set([DAILY_OVERVIEW_TABLE, PRICE_LIST_TABLE, ...tableNames.filter((table) => table === "stock" || isTransactionsTable(table))])
     );
-    return canAccessOrdersModule ? [...baseTables, ORDERS_MODULE, PRODUCTION_MODULE] : baseTables;
+    return canAccessOrdersModule ? [...baseTables, QUOTES_MODULE, ORDERS_MODULE, PRODUCTION_MODULE] : baseTables;
   }, [isMaster, canAccessOrdersModule]);
   const companyNameById = useMemo(
     () =>
@@ -1555,6 +1796,17 @@ function App() {
     () => Object.fromEntries(customers.map((customer) => [customer.id, customer])),
     [customers]
   );
+  const quoteItemsByQuoteId = useMemo(() => {
+    const grouped = {};
+    for (const item of quoteItems) {
+      const quoteId = String(item.quote_id || "");
+      if (!grouped[quoteId]) {
+        grouped[quoteId] = [];
+      }
+      grouped[quoteId].push(item);
+    }
+    return grouped;
+  }, [quoteItems]);
   const orderItemsByOrderId = useMemo(() => {
     const grouped = {};
     for (const item of orderItems) {
@@ -1635,6 +1887,19 @@ function App() {
     }
     return map;
   }, [rows]);
+  const quotePriceListOptions = useMemo(
+    () =>
+      quotePriceListRows.map((row) => ({
+        priceListId: String(row.id || ""),
+        row,
+        label: `${String(row.material_code || "-")} | ${formatCurrencyValue(row.unit_price || 0)} / ${String(row.unit || "ks")}`
+      })),
+    [quotePriceListRows]
+  );
+  const quotePriceListMap = useMemo(
+    () => Object.fromEntries(quotePriceListOptions.map((item) => [item.priceListId, item.row])),
+    [quotePriceListOptions]
+  );
   const selectedPriceListRow = useMemo(
     () => priceListRowsByMaterial[normalizeOptionSearchValue(priceListMaterialInput)] || null,
     [priceListRowsByMaterial, priceListMaterialInput]
@@ -2735,6 +3000,105 @@ function App() {
     setCompanySettingsSubmitting(false);
   };
 
+  const resetQuoteDraft = () => {
+    setQuoteDraftItems([createEmptyQuoteDraftItem()]);
+  };
+
+  const loadQuotesModuleData = async () => {
+    if (!authReady || !isLoggedIn || !canAccessOrdersModule) {
+      setCustomers([]);
+      setQuotes([]);
+      setQuoteItems([]);
+      setQuotePriceListRows([]);
+      setQuotesLoading(false);
+      setQuotesError("");
+      return;
+    }
+
+    setQuotesLoading(true);
+    setQuotesError("");
+
+    try {
+      let effectiveUserCompanyId = userCompanyId;
+      if (!isMaster && !effectiveUserCompanyId && authUser?.id) {
+        const resolvedCompanyId = await fetchOwnCompanyIdViaRpc(authUser.id);
+        if (resolvedCompanyId) {
+          effectiveUserCompanyId = resolvedCompanyId;
+          setUserCompanyId(resolvedCompanyId);
+          setSelectedCompanyId(resolvedCompanyId);
+        }
+      }
+
+      const companyScope = isMaster ? selectedCompanyId : effectiveUserCompanyId;
+      const scopedCompanyId = companyScope && companyScope !== "all" ? companyScope : null;
+      const customersQuery = supabase
+        .from("customers")
+        .select("id,company_id,name,email,phone,address,note,created_at,created_by")
+        .order("name", { ascending: true });
+      const quotesQuery = supabase
+        .from("quotes")
+        .select("id,company_id,customer_id,customer_name,quote_number,status,note,created_at,created_by")
+        .order("created_at", { ascending: false });
+      const priceListQuery = supabase
+        .from(PRICE_LIST_TABLE)
+        .select("id,company_id,material_code,unit,unit_price,purchase_price,note,created_at,updated_at,created_by")
+        .order("material_code", { ascending: true });
+
+      const scopedCustomersQuery = scopedCompanyId ? customersQuery.eq("company_id", scopedCompanyId) : customersQuery;
+      const scopedQuotesQuery = scopedCompanyId ? quotesQuery.eq("company_id", scopedCompanyId) : quotesQuery;
+      const scopedPriceListQuery = scopedCompanyId ? priceListQuery.eq("company_id", scopedCompanyId) : priceListQuery;
+
+      const [
+        { data: customersData, error: customersError },
+        { data: quotesData, error: quotesLoadError },
+        { data: priceListData, error: priceListLoadError }
+      ] = await Promise.all([scopedCustomersQuery, scopedQuotesQuery, scopedPriceListQuery]);
+
+      if (customersError) {
+        throw customersError;
+      }
+      if (quotesLoadError) {
+        throw quotesLoadError;
+      }
+      if (priceListLoadError) {
+        throw priceListLoadError;
+      }
+
+      const quoteIds = (quotesData || []).map((row) => row.id).filter(Boolean);
+      let itemsData = [];
+      if (quoteIds.length > 0) {
+        const { data, error: itemsError } = await supabase
+          .from("quote_items")
+          .select(
+            "id,quote_id,material_code,unit,quantity,unit_price,purchase_price,discount_percent,final_unit_price,line_total,line_margin_total,line_note,created_at"
+          )
+          .in("quote_id", quoteIds)
+          .order("created_at", { ascending: true });
+
+        if (itemsError) {
+          throw itemsError;
+        }
+        itemsData = data || [];
+      }
+
+      setCustomers(customersData || []);
+      setQuotes(quotesData || []);
+      setQuoteItems(itemsData);
+      setQuotePriceListRows((priceListData || []).map((row) => buildPriceListComputedRow(row)));
+      if (!selectedQuoteCustomerId && (customersData || []).length === 1) {
+        setSelectedQuoteCustomerId(customersData[0].id);
+      }
+    } catch (loadQuotesError) {
+      setQuotesError(loadQuotesError?.message || "Nepodarilo sa načítať cenové ponuky.");
+      setCustomers([]);
+      setQuotes([]);
+      setQuoteItems([]);
+      setQuotePriceListRows([]);
+    } finally {
+      setQuotesLoading(false);
+    }
+  };
+
   const resetOrderDraft = () => {
     setOrderDraftItems([createEmptyOrderDraftItem()]);
   };
@@ -3311,6 +3675,41 @@ function App() {
     setSelectedRegistryCompanyId("");
   };
 
+  const handleQuoteDraftItemChange = (index, field, value) => {
+    setQuoteDraftItems((prev) =>
+      prev.map((item, currentIndex) => {
+        if (currentIndex !== index) {
+          return item;
+        }
+
+        if (field === "materialCode") {
+          const matchedOption = resolvePriceListOption(value, quotePriceListOptions);
+          const priceRow = matchedOption?.row || null;
+          return {
+            ...item,
+            priceListId: matchedOption ? matchedOption.priceListId : "",
+            materialCode: priceRow ? String(priceRow.material_code || "") : value,
+            unit: priceRow ? String(priceRow.unit || "ks") : item.unit,
+            unitPrice: priceRow ? String(priceRow.unit_price ?? "") : item.unitPrice,
+            purchasePrice: priceRow ? String(priceRow.purchase_price ?? "") : item.purchasePrice
+          };
+        }
+
+        return { ...item, [field]: value };
+      })
+    );
+  };
+
+  const handleAddQuoteDraftItem = () => {
+    setQuoteDraftItems((prev) => [...prev, createEmptyQuoteDraftItem()]);
+  };
+
+  const handleRemoveQuoteDraftItem = (index) => {
+    setQuoteDraftItems((prev) =>
+      prev.length <= 1 ? [createEmptyQuoteDraftItem()] : prev.filter((_, itemIndex) => itemIndex !== index)
+    );
+  };
+
   const handleSelectRegistryCompany = async (company) => {
     const companyId = String(company?.id || "").trim();
     if (!companyId) {
@@ -3397,6 +3796,7 @@ function App() {
     setCustomers((prev) =>
       [...prev, data].sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "sk-SK", { sensitivity: "base" }))
     );
+    setSelectedQuoteCustomerId(data.id);
     setSelectedOrderCustomerId(data.id);
     setCustomerNameInput("");
     setCustomerEmailInput("");
@@ -3410,6 +3810,135 @@ function App() {
     setCompanyLookupError("");
     setSelectedRegistryCompanyId("");
     setCustomerSubmitting(false);
+  };
+
+  const handleCreateQuote = async (event) => {
+    event.preventDefault();
+
+    const companyId = activeCompanyId || userCompanyId;
+    const customer = customersById[selectedQuoteCustomerId];
+    if (!companyId) {
+      setQuotesError("Vyber firmu pre cenovú ponuku.");
+      return;
+    }
+    if (!customer) {
+      setQuotesError("Vyber zákazníka.");
+      return;
+    }
+
+    const normalizedItems = [];
+    for (let index = 0; index < quoteDraftItems.length; index += 1) {
+      const item = quoteDraftItems[index];
+      const materialCode = String(item.materialCode || "").trim();
+      if (!materialCode) {
+        continue;
+      }
+
+      const quantity = normalizePriceInput(item.quantity);
+      const unitPrice = normalizePriceInput(item.unitPrice);
+      const purchasePrice = normalizePriceInput(item.purchasePrice);
+      const discountPercent =
+        String(item.discountPercent || "").trim() === "" ? 0 : normalizePriceInput(item.discountPercent);
+
+      if (quantity === null || quantity <= 0) {
+        setQuotesError(`Zadaj platné množstvo pre ${materialCode}.`);
+        return;
+      }
+      if (unitPrice === null) {
+        setQuotesError(`Zadaj platnú predajnú cenu pre ${materialCode}.`);
+        return;
+      }
+      if (purchasePrice === null) {
+        setQuotesError(`Zadaj platnú nákupnú cenu pre ${materialCode}.`);
+        return;
+      }
+      if (discountPercent === null || discountPercent < 0 || discountPercent > 100) {
+        setQuotesError(`Zadaj platnú zľavu 0 až 100 % pre ${materialCode}.`);
+        return;
+      }
+
+      const computed = computeQuoteLineTotals({ quantity, unitPrice, purchasePrice, discountPercent });
+      normalizedItems.push({
+        material_code: materialCode,
+        unit: String(item.unit || "ks").trim() || "ks",
+        quantity: computed.quantity,
+        unit_price: computed.unitPrice,
+        purchase_price: computed.purchasePrice,
+        discount_percent: computed.discountPercent,
+        final_unit_price: computed.finalUnitPrice,
+        line_total: computed.lineTotal,
+        line_margin_total: computed.lineMarginTotal,
+        line_note: String(item.lineNote || "").trim()
+      });
+    }
+
+    if (normalizedItems.length === 0) {
+      setQuotesError("Pridaj aspoň jednu položku cenovej ponuky.");
+      return;
+    }
+
+    setQuoteSubmitting(true);
+    setQuotesError("");
+
+    const { data: quoteRow, error: quoteInsertError } = await supabase
+      .from("quotes")
+      .insert([
+        {
+          company_id: companyId,
+          customer_id: customer.id,
+          customer_name: customer.name,
+          quote_number: buildQuoteNumber(),
+          status: "draft",
+          note: "",
+          created_by: authUser?.id || null
+        }
+      ])
+      .select("id,company_id,customer_id,customer_name,quote_number,status,note,created_at,created_by")
+      .single();
+
+    if (quoteInsertError) {
+      setQuotesError(quoteInsertError.message || "Nepodarilo sa vytvoriť cenovú ponuku.");
+      setQuoteSubmitting(false);
+      return;
+    }
+
+    const { data: insertedItems, error: itemInsertError } = await supabase
+      .from("quote_items")
+      .insert(normalizedItems.map((item) => ({ ...item, quote_id: quoteRow.id })))
+      .select(
+        "id,quote_id,material_code,unit,quantity,unit_price,purchase_price,discount_percent,final_unit_price,line_total,line_margin_total,line_note,created_at"
+      );
+
+    if (itemInsertError) {
+      setQuotesError(itemInsertError.message || "Ponuka sa vytvorila, ale položky sa nepodarilo uložiť.");
+      setQuoteSubmitting(false);
+      await loadQuotesModuleData();
+      return;
+    }
+
+    setQuotes((prev) => [quoteRow, ...prev]);
+    setQuoteItems((prev) => [...prev, ...(insertedItems || [])]);
+    setExpandedQuotes((prev) => ({ ...prev, [quoteRow.id]: true }));
+    resetQuoteDraft();
+    setQuoteSubmitting(false);
+  };
+
+  const handleQuoteStatusChange = async (quote, nextStatus) => {
+    if (!quote?.id || !nextStatus || quote.status === nextStatus) {
+      return;
+    }
+
+    setQuoteStatusSavingId(quote.id);
+    setQuotesError("");
+    const { error: updateError } = await supabase.from("quotes").update({ status: nextStatus }).eq("id", quote.id);
+    if (updateError) {
+      setQuotesError(updateError.message || "Nepodarilo sa zmeniť stav cenovej ponuky.");
+      setQuoteStatusSavingId("");
+      return;
+    }
+
+    setQuotes((prev) => prev.map((row) => (row.id === quote.id ? { ...row, status: nextStatus } : row)));
+    setQuoteStatusSavingId("");
   };
 
   const handleCreateOrder = async (event) => {
@@ -3526,6 +4055,19 @@ function App() {
       );
     } catch (printError) {
       setOrdersError(printError?.message || "Nepodarilo sa vytvoriť PDF objednávky.");
+    }
+  };
+
+  const handlePrintQuote = (quote) => {
+    try {
+      printQuotePdf(
+        quote,
+        customersById[quote.customer_id] || null,
+        quoteItemsByQuoteId[quote.id] || [],
+        companyNameById[quote.company_id] || activeCompany?.name || currentCompanyLabel
+      );
+    } catch (printError) {
+      setQuotesError(printError?.message || "Nepodarilo sa vytvoriť PDF cenovej ponuky.");
     }
   };
 
@@ -3905,6 +4447,11 @@ function App() {
       setRows([]);
       setStockSnapshotRows([]);
       setCustomers([]);
+      setQuotes([]);
+      setQuoteItems([]);
+      setQuotePriceListRows([]);
+      setQuotesError("");
+      setQuotesLoading(false);
       setOrders([]);
       setOrderItems([]);
       setOrdersStockRows([]);
@@ -3941,6 +4488,37 @@ function App() {
 
       const channel = supabase.channel(`orders-${selectedCompanyId || userCompanyId || "own"}`);
       ["customers", "orders", "order_items", "stock"].forEach((table) => {
+        channel.on("postgres_changes", { event: "*", schema: "public", table }, scheduleReload);
+      });
+      channel.subscribe();
+
+      return () => {
+        if (reloadTimer) {
+          window.clearTimeout(reloadTimer);
+        }
+        supabase.removeChannel(channel);
+      };
+    }
+
+    if (isQuoteModule(selectedTable)) {
+      setRows([]);
+      setStockSnapshotRows([]);
+      setDeadStockByKey({});
+      setStockAgeStats({ avgDays: null, sampleCount: 0 });
+      setOccupancySeries([]);
+      setLoading(false);
+      loadQuotesModuleData();
+
+      let reloadTimer = null;
+      const scheduleReload = () => {
+        if (reloadTimer) {
+          window.clearTimeout(reloadTimer);
+        }
+        reloadTimer = window.setTimeout(() => loadQuotesModuleData(), 350);
+      };
+
+      const channel = supabase.channel(`quotes-${selectedCompanyId || userCompanyId || "own"}`);
+      ["customers", "quotes", "quote_items", PRICE_LIST_TABLE].forEach((table) => {
         channel.on("postgres_changes", { event: "*", schema: "public", table }, scheduleReload);
       });
       channel.subscribe();
@@ -4020,6 +4598,16 @@ function App() {
     if (isOrdersModule(selectedTable)) {
       const intervalId = window.setInterval(() => {
         loadOrdersModuleData();
+      }, AUTO_REFRESH_MS);
+
+      return () => {
+        window.clearInterval(intervalId);
+      };
+    }
+
+    if (isQuoteModule(selectedTable)) {
+      const intervalId = window.setInterval(() => {
+        loadQuotesModuleData();
       }, AUTO_REFRESH_MS);
 
       return () => {
@@ -4390,6 +4978,16 @@ function App() {
         .some((value) => String(value || "").toLowerCase().includes(normalized))
     );
   }, [orders, orderSearchTerm]);
+  const filteredQuotes = useMemo(() => {
+    const normalized = String(quoteSearchTerm || "").trim().toLowerCase();
+    if (!normalized) {
+      return quotes;
+    }
+    return quotes.filter((quote) =>
+      [quote.quote_number, quote.customer_name, quote.note, quote.status]
+        .some((value) => String(value || "").toLowerCase().includes(normalized))
+    );
+  }, [quotes, quoteSearchTerm]);
   const filteredProductionOrders = useMemo(() => {
     const normalized = String(productionSearchTerm || "").trim().toLowerCase();
     if (!normalized) {
@@ -4414,7 +5012,7 @@ function App() {
     if (visibleTableNames.includes(ORDERS_MODULE) || visibleTableNames.includes(PRICE_LIST_TABLE)) {
       sections.push({
         title: "Workflow",
-        items: [ORDERS_MODULE, PRODUCTION_MODULE, PRICE_LIST_TABLE].filter((table) => visibleTableNames.includes(table))
+        items: [QUOTES_MODULE, ORDERS_MODULE, PRODUCTION_MODULE, PRICE_LIST_TABLE].filter((table) => visibleTableNames.includes(table))
       });
     }
 
@@ -4633,6 +5231,17 @@ function App() {
     setError("");
     setLoading(false);
     setCustomers([]);
+    setQuotes([]);
+    setQuoteItems([]);
+    setQuotePriceListRows([]);
+    setQuotesError("");
+    setQuotesLoading(false);
+    setSelectedQuoteCustomerId("");
+    setQuoteSearchTerm("");
+    setQuoteDraftItems([createEmptyQuoteDraftItem()]);
+    setQuoteSubmitting(false);
+    setQuoteStatusSavingId("");
+    setExpandedQuotes({});
     setOrders([]);
     setOrderItems([]);
     setOrdersStockRows([]);
@@ -4920,6 +5529,10 @@ function App() {
               onClick={() => {
                 if (isOrdersModule(selectedTable)) {
                   loadOrdersModuleData();
+                  return;
+                }
+                if (isQuoteModule(selectedTable)) {
+                  loadQuotesModuleData();
                   return;
                 }
                 if (isProductionModule(selectedTable)) {
@@ -5652,6 +6265,345 @@ function App() {
                 )}
               </tbody>
             </table>
+          </div>
+        </section>
+      )}
+
+      {isQuoteModule(selectedTable) && canAccessOrdersModule && (
+        <section className="panel workflow-shell workflow-shell-quotes">
+          <div className="panel-head workflow-header">
+            <div>
+              <p className="workflow-eyebrow">Obchodný workflow</p>
+              <h2>Cenové ponuky</h2>
+              <p className="panel-meta">
+                {activeCompanyId
+                  ? `Cenové ponuky pre firmu ${currentCompanyLabel}`
+                  : "Vyber konkrétnu firmu, aby sa dali vytvárať cenové ponuky."}
+              </p>
+            </div>
+          </div>
+
+          {quotesError && <p className="error">{quotesError}</p>}
+
+          <div className="orders-summary-grid workflow-summary-grid">
+            <article className="card workflow-stat-card">
+              <p>Zákazníci</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(customers.length)}</strong>
+            </article>
+            <article className="card workflow-stat-card">
+              <p>Ponuky</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(quotes.length)}</strong>
+            </article>
+            <article className="card workflow-stat-card">
+              <p>Cenník</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(quotePriceListRows.length)}</strong>
+            </article>
+          </div>
+
+          <div className="orders-layout workflow-grid">
+            <div className="orders-column workflow-editor-column">
+              <article className="orders-panel-card workflow-card workflow-card-strong">
+                <div className="panel-head workflow-section-head">
+                  <div>
+                    <p className="workflow-section-kicker">Nová ponuka</p>
+                    <h2>Vytvoriť cenovú ponuku</h2>
+                    <p className="panel-meta">Položky sa dopĺňajú z cenníka, ceny vieš ešte manuálne upraviť.</p>
+                  </div>
+                </div>
+
+                <form className="orders-form" onSubmit={handleCreateQuote}>
+                  <label className="workflow-field">
+                    <span className="workflow-field-label">Zákazník</span>
+                    <select
+                      value={selectedQuoteCustomerId}
+                      onChange={(event) => setSelectedQuoteCustomerId(event.target.value)}
+                      disabled={!activeCompanyId || quoteSubmitting}
+                    >
+                      <option value="">Vyber zákazníka</option>
+                      {customers.map((customer) => (
+                        <option key={customer.id} value={customer.id}>
+                          {customer.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <div className="orders-draft-list">
+                    <datalist id={QUOTE_PRICE_DATALIST_ID}>
+                      {quotePriceListOptions.map((option) => (
+                        <option key={option.priceListId} value={option.label} />
+                      ))}
+                    </datalist>
+                    {quoteDraftItems.map((item, index) => {
+                      const matchedPriceRow = quotePriceListMap[item.priceListId] || resolvePriceListOption(item.materialCode, quotePriceListOptions)?.row || null;
+                      const computed = computeQuoteLineTotals({
+                        quantity: normalizePriceInput(item.quantity) || 0,
+                        unitPrice: normalizePriceInput(item.unitPrice) || 0,
+                        purchasePrice: normalizePriceInput(item.purchasePrice) || 0,
+                        discountPercent:
+                          String(item.discountPercent || "").trim() === "" ? 0 : normalizePriceInput(item.discountPercent) || 0
+                      });
+                      const showNote = Boolean(item.showNote || String(item.lineNote || "").trim());
+
+                      return (
+                        <div key={item.draftId || `quote-draft-${index}`} className="orders-draft-row">
+                          <div className="quote-draft-main">
+                            <div className="orders-draft-cell">
+                              <span className="draft-field-label">{`Položka ${index + 1}`}</span>
+                              <input
+                                type="text"
+                                className="search-input"
+                                list={QUOTE_PRICE_DATALIST_ID}
+                                placeholder="Položka z cenníka"
+                                value={item.materialCode || ""}
+                                onChange={(event) => handleQuoteDraftItemChange(index, "materialCode", event.target.value)}
+                                disabled={!activeCompanyId || quoteSubmitting}
+                              />
+                              <p className="workflow-helper-text">
+                                {matchedPriceRow
+                                  ? `Cenník: ${formatCurrencyValue(matchedPriceRow.unit_price || 0)} / ${String(matchedPriceRow.unit || "ks")}`
+                                  : "Píš voľne alebo vyber návrh z cenníka."}
+                              </p>
+                            </div>
+                            <div className="orders-draft-cell quote-compact-cell">
+                              <span className="draft-field-label">MJ</span>
+                              <input
+                                type="text"
+                                className="search-input quote-compact-input quote-unit-input"
+                                value={item.unit}
+                                onChange={(event) => handleQuoteDraftItemChange(index, "unit", event.target.value)}
+                                disabled={!activeCompanyId || quoteSubmitting}
+                              />
+                            </div>
+                            <div className="orders-draft-cell quote-compact-cell">
+                              <span className="draft-field-label">Množstvo</span>
+                              <input
+                                type="number"
+                                min={0.01}
+                                step={0.01}
+                                className="dead-stock-days-input quote-compact-input"
+                                value={item.quantity}
+                                onChange={(event) => handleQuoteDraftItemChange(index, "quantity", event.target.value)}
+                                disabled={!activeCompanyId || quoteSubmitting}
+                              />
+                            </div>
+                            <div className="orders-draft-cell quote-compact-cell">
+                              <span className="draft-field-label">Predaj</span>
+                              <input
+                                type="number"
+                                min={0}
+                                step={0.01}
+                                className="dead-stock-days-input quote-price-input"
+                                value={item.unitPrice}
+                                onChange={(event) => handleQuoteDraftItemChange(index, "unitPrice", event.target.value)}
+                                disabled={!activeCompanyId || quoteSubmitting}
+                              />
+                            </div>
+                            <div className="orders-draft-cell quote-compact-cell">
+                              <span className="draft-field-label">Nákup</span>
+                              <input
+                                type="number"
+                                min={0}
+                                step={0.01}
+                                className="dead-stock-days-input quote-price-input"
+                                value={item.purchasePrice}
+                                onChange={(event) => handleQuoteDraftItemChange(index, "purchasePrice", event.target.value)}
+                                disabled={!activeCompanyId || quoteSubmitting}
+                              />
+                            </div>
+                            <div className="orders-draft-cell quote-compact-cell">
+                              <span className="draft-field-label">Zľava %</span>
+                              <input
+                                type="number"
+                                min={0}
+                                max={100}
+                                step={0.01}
+                                className="dead-stock-days-input quote-discount-input"
+                                value={item.discountPercent}
+                                onChange={(event) => handleQuoteDraftItemChange(index, "discountPercent", event.target.value)}
+                                disabled={!activeCompanyId || quoteSubmitting}
+                              />
+                            </div>
+                          </div>
+                          <div className="quote-draft-summary">
+                            <span>{`Po zľave: ${formatCurrencyValue(computed.finalUnitPrice)}`}</span>
+                            <span>{`Spolu: ${formatCurrencyValue(computed.lineTotal)}`}</span>
+                            <span>{`Marža: ${formatCurrencyValue(computed.lineMarginTotal)}`}</span>
+                          </div>
+                          <div className="orders-draft-actions">
+                            <button
+                              type="button"
+                              className="clear-btn"
+                              onClick={() => handleQuoteDraftItemChange(index, "showNote", !showNote)}
+                              disabled={!activeCompanyId || quoteSubmitting}
+                            >
+                              {showNote ? "Skryť poznámku" : "Pridať poznámku"}
+                            </button>
+                            <button type="button" className="clear-btn" onClick={() => handleRemoveQuoteDraftItem(index)}>
+                              Odobrať
+                            </button>
+                          </div>
+                          {showNote && (
+                            <div className="orders-draft-note-row">
+                              <input
+                                type="text"
+                                className="search-input"
+                                placeholder="Poznámka položky"
+                                value={item.lineNote}
+                                onChange={(event) => handleQuoteDraftItemChange(index, "lineNote", event.target.value)}
+                                disabled={!activeCompanyId || quoteSubmitting}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="orders-form-actions">
+                    <button type="button" className="clear-btn" onClick={handleAddQuoteDraftItem}>
+                      Pridať položku
+                    </button>
+                    <button type="submit" className="settings-btn" disabled={!activeCompanyId || quoteSubmitting}>
+                      {quoteSubmitting ? "Vytváram..." : "Vytvoriť ponuku"}
+                    </button>
+                  </div>
+                </form>
+              </article>
+            </div>
+
+            <div className="orders-column orders-column-list workflow-feed-column">
+              <article className="orders-panel-card workflow-card workflow-card-list">
+                <div className="panel-head workflow-section-head">
+                  <div>
+                    <h2>Zoznam cenových ponúk</h2>
+                    <p className="panel-meta">{`${filteredQuotes.length} / ${quotes.length} ponúk`}</p>
+                  </div>
+                </div>
+                <div className="panel-controls">
+                  <input
+                    type="search"
+                    className="search-input"
+                    placeholder="Hľadaj zákazníka, číslo alebo stav ponuky"
+                    value={quoteSearchTerm}
+                    onChange={(event) => setQuoteSearchTerm(event.target.value)}
+                  />
+                </div>
+
+                {quotesLoading ? (
+                  <p className="hint">Načítavam cenové ponuky...</p>
+                ) : filteredQuotes.length === 0 ? (
+                  <p className="hint">Zatiaľ tu nie sú cenové ponuky.</p>
+                ) : (
+                  <div className="orders-list">
+                    {filteredQuotes.map((quote) => {
+                      const isOpen = Boolean(expandedQuotes[quote.id]);
+                      const items = quoteItemsByQuoteId[quote.id] || [];
+                      const totals = items.reduce(
+                        (acc, item) => {
+                          acc.total += Number(item.line_total || 0);
+                          acc.margin += Number(item.line_margin_total || 0);
+                          return acc;
+                        },
+                        { total: 0, margin: 0 }
+                      );
+                      return (
+                        <article key={quote.id} className="order-card">
+                          <button
+                            type="button"
+                            className="order-card-head"
+                            onClick={() => setExpandedQuotes((prev) => ({ ...prev, [quote.id]: !prev[quote.id] }))}
+                          >
+                            <div>
+                              <strong>{quote.customer_name}</strong>
+                              <p>{quote.quote_number}</p>
+                            </div>
+                            <div className="order-card-meta">
+                              <span className="order-card-badge">{formatDate(quote.created_at)}</span>
+                              <span className="order-card-badge">{`${items.length} položiek`}</span>
+                              <span className="order-card-badge">{formatCurrencyValue(totals.total)}</span>
+                            </div>
+                          </button>
+                          {isOpen && (
+                            <div className="order-card-body">
+                              {quote.note && <p className="order-card-note">{quote.note}</p>}
+                              <div className="order-card-actions">
+                                <button type="button" className="clear-btn" onClick={() => handlePrintQuote(quote)}>
+                                  PDF
+                                </button>
+                                <StatusPill status={String(quote.status || "draft")} />
+                                {quote.status !== "sent" && (
+                                  <button
+                                    type="button"
+                                    className="clear-btn"
+                                    onClick={() => handleQuoteStatusChange(quote, "sent")}
+                                    disabled={quoteStatusSavingId === quote.id}
+                                  >
+                                    Odoslaná
+                                  </button>
+                                )}
+                                {quote.status !== "accepted" && (
+                                  <button
+                                    type="button"
+                                    className="clear-btn"
+                                    onClick={() => handleQuoteStatusChange(quote, "accepted")}
+                                    disabled={quoteStatusSavingId === quote.id}
+                                  >
+                                    Schváliť
+                                  </button>
+                                )}
+                                {quote.status !== "rejected" && (
+                                  <button
+                                    type="button"
+                                    className="clear-btn"
+                                    onClick={() => handleQuoteStatusChange(quote, "rejected")}
+                                    disabled={quoteStatusSavingId === quote.id}
+                                  >
+                                    Zamietnuť
+                                  </button>
+                                )}
+                              </div>
+                              <div className="table-wrap">
+                                <table>
+                                  <thead>
+                                    <tr>
+                                      <th>Materiál</th>
+                                      <th>MJ</th>
+                                      <th>Množstvo</th>
+                                      <th>Predaj</th>
+                                      <th>Zľava</th>
+                                      <th>Po zľave</th>
+                                      <th>Spolu</th>
+                                      <th>Marža</th>
+                                      <th>Poznámka</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {items.map((item) => (
+                                      <tr key={item.id}>
+                                        <td>{item.material_code}</td>
+                                        <td>{item.unit || "ks"}</td>
+                                        <td>{formatCell(item.quantity, "number")}</td>
+                                        <td>{formatCurrencyValue(item.unit_price || 0)}</td>
+                                        <td>{formatPercentValue(item.discount_percent || 0, 2)}</td>
+                                        <td>{formatCurrencyValue(item.final_unit_price || 0)}</td>
+                                        <td>{formatCurrencyValue(item.line_total || 0)}</td>
+                                        <td>{formatCurrencyValue(item.line_margin_total || 0)}</td>
+                                        <td>{item.line_note || "-"}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          )}
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </article>
+            </div>
           </div>
         </section>
       )}

@@ -91,6 +91,35 @@ create table if not exists public.orders (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.quotes (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies (id) on delete cascade,
+  customer_id uuid references public.customers (id) on delete set null,
+  customer_name text not null,
+  quote_number text not null,
+  status text not null default 'draft' check (status in ('draft', 'sent', 'accepted', 'rejected')),
+  note text not null default '',
+  created_by uuid references auth.users (id),
+  updated_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.quote_items (
+  id uuid primary key default gen_random_uuid(),
+  quote_id uuid not null references public.quotes (id) on delete cascade,
+  material_code text not null,
+  unit text not null default 'ks',
+  quantity numeric(12,2) not null check (quantity > 0),
+  unit_price numeric(12,2) not null default 0,
+  purchase_price numeric(12,2) not null default 0,
+  discount_percent numeric(5,2) not null default 0,
+  final_unit_price numeric(12,2) not null default 0,
+  line_total numeric(12,2) not null default 0,
+  line_margin_total numeric(12,2) not null default 0,
+  line_note text not null default '',
+  created_at timestamptz not null default now()
+);
+
 create table if not exists public.order_items (
   id uuid primary key default gen_random_uuid(),
   order_id uuid not null references public.orders (id) on delete cascade,
@@ -242,6 +271,15 @@ create unique index if not exists idx_orders_company_number_unique
 create index if not exists idx_orders_company_created_at
   on public.orders (company_id, created_at desc);
 
+create unique index if not exists idx_quotes_company_number_unique
+  on public.quotes (company_id, quote_number);
+
+create index if not exists idx_quotes_company_created_at
+  on public.quotes (company_id, created_at desc);
+
+create index if not exists idx_quote_items_quote
+  on public.quote_items (quote_id);
+
 create index if not exists idx_order_items_order
   on public.order_items (order_id);
 
@@ -277,6 +315,18 @@ group by o.id, o.company_id, o.order_number, o.customer_name, o.note, o.created_
 -- from public.price_list
 -- where company_id = 'YOUR-COMPANY-UUID'
 -- order by material_code asc;
+
+-- Zoznam cenových ponúk:
+-- select id, company_id, customer_name, quote_number, status, created_at
+-- from public.quotes
+-- where company_id = 'YOUR-COMPANY-UUID'
+-- order by created_at desc;
+
+-- Detail položiek cenovej ponuky:
+-- select material_code, unit, quantity, unit_price, purchase_price, discount_percent, final_unit_price, line_total, line_margin_total, line_note
+-- from public.quote_items
+-- where quote_id = 'YOUR-QUOTE-UUID'
+-- order by created_at asc;
 
 -- Zoznam objednávok pre grid/list:
 -- select id, customer_name, order_number, created_at, item_count
@@ -327,6 +377,16 @@ begin
 end;
 $$;
 
+create or replace function public.touch_quotes_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
 create or replace function public.fill_company_id_from_auth_user()
 returns trigger
 language plpgsql
@@ -354,6 +414,11 @@ drop trigger if exists trg_touch_price_list_updated_at on public.price_list;
 create trigger trg_touch_price_list_updated_at
 before update on public.price_list
 for each row execute function public.touch_price_list_updated_at();
+
+drop trigger if exists trg_touch_quotes_updated_at on public.quotes;
+create trigger trg_touch_quotes_updated_at
+before update on public.quotes
+for each row execute function public.touch_quotes_updated_at();
 
 drop trigger if exists trg_fill_stock_company_id on public.stock;
 create trigger trg_fill_stock_company_id
@@ -425,6 +490,8 @@ alter table public.stock_history enable row level security;
 alter table public.price_list enable row level security;
 alter table public.app_users enable row level security;
 alter table public.customers enable row level security;
+alter table public.quotes enable row level security;
+alter table public.quote_items enable row level security;
 alter table public.orders enable row level security;
 alter table public.order_items enable row level security;
 alter table public.production_orders enable row level security;
@@ -735,6 +802,163 @@ using (
   or (
     public.can_manage_orders(auth.uid())
     and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+-- quotes
+DROP POLICY IF EXISTS "quotes_select_auth" ON public.quotes;
+DROP POLICY IF EXISTS "quotes_insert_auth" ON public.quotes;
+DROP POLICY IF EXISTS "quotes_update_auth" ON public.quotes;
+DROP POLICY IF EXISTS "quotes_delete_auth" ON public.quotes;
+
+create policy "quotes_select_auth"
+on public.quotes
+for select
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy "quotes_insert_auth"
+on public.quotes
+for insert
+to authenticated
+with check (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy "quotes_update_auth"
+on public.quotes
+for update
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+)
+with check (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy "quotes_delete_auth"
+on public.quotes
+for delete
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+-- quote_items
+DROP POLICY IF EXISTS "quote_items_select_auth" ON public.quote_items;
+DROP POLICY IF EXISTS "quote_items_insert_auth" ON public.quote_items;
+DROP POLICY IF EXISTS "quote_items_update_auth" ON public.quote_items;
+DROP POLICY IF EXISTS "quote_items_delete_auth" ON public.quote_items;
+
+create policy "quote_items_select_auth"
+on public.quote_items
+for select
+to authenticated
+using (
+  exists (
+    select 1
+    from public.quotes q
+    where q.id = quote_items.quote_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and q.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+create policy "quote_items_insert_auth"
+on public.quote_items
+for insert
+to authenticated
+with check (
+  exists (
+    select 1
+    from public.quotes q
+    where q.id = quote_items.quote_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and q.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+create policy "quote_items_update_auth"
+on public.quote_items
+for update
+to authenticated
+using (
+  exists (
+    select 1
+    from public.quotes q
+    where q.id = quote_items.quote_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and q.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+)
+with check (
+  exists (
+    select 1
+    from public.quotes q
+    where q.id = quote_items.quote_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and q.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+create policy "quote_items_delete_auth"
+on public.quote_items
+for delete
+to authenticated
+using (
+  exists (
+    select 1
+    from public.quotes q
+    where q.id = quote_items.quote_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and q.company_id = public.user_company_id(auth.uid())
+        )
+      )
   )
 );
 

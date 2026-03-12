@@ -868,6 +868,13 @@ select {
   align-items: start;
 }
 
+.quote-draft-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 62px 82px 96px 96px 82px;
+  gap: 0.65rem;
+  align-items: start;
+}
+
 .production-output-main {
   grid-template-columns: minmax(0, 1fr) 76px;
 }
@@ -890,6 +897,36 @@ select {
   margin: 0;
   font-size: 0.75rem;
   color: #6c7a88;
+}
+
+.quote-compact-cell {
+  min-width: 0;
+}
+
+.quote-compact-input {
+  width: 100%;
+  min-width: 0;
+}
+
+.quote-unit-input {
+  max-width: 62px;
+}
+
+.quote-price-input {
+  width: 96px;
+}
+
+.quote-discount-input {
+  width: 82px;
+}
+
+.quote-draft-summary {
+  display: flex;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+  color: #526578;
+  font-size: 0.78rem;
+  font-weight: 700;
 }
 
 .orders-draft-actions {
@@ -1537,6 +1574,7 @@ tbody tr:nth-child(even) {
 .pill-restock,
 .pill-receive,
 .pill-completed,
+.pill-accepted,
 .pill-success {
   background: #dff8e9;
   color: #0e7443;
@@ -1546,6 +1584,7 @@ tbody tr:nth-child(even) {
 .pill-error,
 .pill-out,
 .pill-issue,
+.pill-rejected,
 .pill-remove {
   background: #ffe6e6;
   color: #9b1d1d;
@@ -1553,6 +1592,7 @@ tbody tr:nth-child(even) {
 
 .pill-pending,
 .pill-draft,
+.pill-sent,
 .pill-adjust,
 .pill-move_all,
 .pill-undo,
@@ -1816,6 +1856,17 @@ tbody tr:nth-child(even) {
   .orders-draft-actions {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .quote-draft-main {
+    grid-template-columns: 1fr;
+  }
+
+  .quote-price-input,
+  .quote-discount-input,
+  .quote-unit-input {
+    width: 100%;
+    max-width: none;
   }
 
   .settings-btn,

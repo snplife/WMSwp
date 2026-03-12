@@ -1102,10 +1102,10 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
           box-shadow: 0 3mm 10mm rgba(23, 33, 43, 0.08);
         }
         .hero { display: flex; justify-content: space-between; gap: 6mm; align-items: stretch; padding: 4.5mm 5mm; border-radius: 5mm; background: linear-gradient(135deg, #0f8a7f, #0f5f8f); color: #ffffff; }
-        .hero-copy { display: grid; gap: 2mm; }
-        .eyebrow { font-size: 8pt; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.82; }
-        h1 { margin: 0; font-size: 19pt; }
-        .hero-subtitle { font-size: 9pt; opacity: 0.88; }
+        .hero-copy { display: grid; gap: 0.8mm; align-content: start; }
+        .eyebrow { font-size: 7.6pt; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.82; line-height: 1.05; }
+        h1 { margin: 0; font-size: 18pt; line-height: 1.02; }
+        .hero-subtitle { font-size: 8.4pt; line-height: 1.1; opacity: 0.88; }
         .hero-card { min-width: 56mm; padding: 4mm; border-radius: 4mm; background: rgba(255, 255, 255, 0.14); }
         .hero-card .section-label, .hero-card .value { color: #ffffff; }
         .section-label { display: block; margin-bottom: 1.2mm; font-size: 7.6pt; color: #5a6c7c; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; }

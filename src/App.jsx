@@ -983,7 +983,7 @@ function buildQuotePrintHtml(quote, customer, items, companyName) {
   const noteHtml = quoteNote
     ? `
         <section class="note">
-          <span class="label">Poznámka k ponuke</span>
+          <span class="section-label">Poznámka k ponuke</span>
           <div>${escapeHtml(quoteNote)}</div>
         </section>
       `
@@ -1003,14 +1003,10 @@ function buildQuotePrintHtml(quote, customer, items, companyName) {
           <td>${escapeHtml(String(item.material_code || "-"))}</td>
           <td>${escapeHtml(String(item.unit || "ks"))}</td>
           <td>${escapeHtml(formatCell(item.quantity, "number"))}</td>
-          <td>${escapeHtml(formatCurrencyValue(item.unit_price || 0))}</td>
-          <td>${escapeHtml(formatPercentValue(item.discount_percent || 0, 2))}</td>
+          <td>${escapeHtml(`${formatCurrencyValue(item.unit_price || 0)} / ${formatPercentValue(item.discount_percent || 0, 2)}`)}</td>
           <td>${escapeHtml(formatPercentValue(item.vat_percent || 0, 2))}</td>
-          <td>${escapeHtml(formatCurrencyValue(computed.finalUnitPrice))}</td>
           <td>${escapeHtml(formatCurrencyValue(computed.lineTotal))}</td>
-          <td>${escapeHtml(formatCurrencyValue(computed.lineVatTotal))}</td>
           <td>${escapeHtml(formatCurrencyValue(computed.lineTotalWithVat))}</td>
-          <td>${escapeHtml(`${formatCurrencyValue(computed.lineMarginTotal)} | ${formatPercentValue(computed.lineMarginPercent, 2)}`)}</td>
           <td>${escapeHtml(String(item.line_note || "-"))}</td>
         </tr>
       `;
@@ -1028,10 +1024,9 @@ function buildQuotePrintHtml(quote, customer, items, companyName) {
       acc.total += computed.lineTotal;
       acc.vat += computed.lineVatTotal;
       acc.totalWithVat += computed.lineTotalWithVat;
-      acc.margin += computed.lineMarginTotal;
       return acc;
     },
-    { total: 0, vat: 0, totalWithVat: 0, margin: 0 }
+    { total: 0, vat: 0, totalWithVat: 0 }
   );
 
   return `<!doctype html>
@@ -1042,76 +1037,108 @@ function buildQuotePrintHtml(quote, customer, items, companyName) {
       <style>
         @page { size: A4 portrait; margin: 12mm; }
         * { box-sizing: border-box; }
-        body { margin: 0; font-family: Arial, sans-serif; color: #1b2631; }
-        .page { display: grid; gap: 7mm; }
-        .head { display: flex; justify-content: space-between; gap: 8mm; align-items: start; }
-        h1 { margin: 0 0 2mm; font-size: 20pt; }
-        .meta, .customer, .note, .summary { border: 0.3mm solid #d9e2ec; border-radius: 3mm; padding: 4mm; }
-        .meta-grid, .customer-grid, .summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3mm 6mm; }
-        .label { display: block; margin-bottom: 1mm; font-size: 8pt; color: #52606d; text-transform: uppercase; letter-spacing: 0.08em; }
+        body { margin: 0; font-family: Arial, sans-serif; color: #182431; background: #ffffff; }
+        .page { display: grid; gap: 6mm; }
+        .hero { display: flex; justify-content: space-between; gap: 8mm; align-items: stretch; padding: 6mm; border-radius: 5mm; background: linear-gradient(135deg, #0f8a7f, #0f5f8f); color: #ffffff; }
+        .hero-copy { display: grid; gap: 2mm; }
+        .eyebrow { font-size: 8pt; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.82; }
+        h1 { margin: 0; font-size: 19pt; }
+        .hero-subtitle { font-size: 9pt; opacity: 0.88; }
+        .hero-card { min-width: 56mm; padding: 4mm; border-radius: 4mm; background: rgba(255, 255, 255, 0.14); }
+        .hero-card .section-label, .hero-card .value { color: #ffffff; }
+        .section-label { display: block; margin-bottom: 1.2mm; font-size: 7.6pt; color: #5a6c7c; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; }
         .value { font-size: 11pt; font-weight: 700; }
-        table { width: 100%; border-collapse: collapse; font-size: 9pt; }
-        th, td { border: 0.3mm solid #d9e2ec; padding: 2.6mm; text-align: left; vertical-align: top; }
-        th { background: #eef4f8; }
-        .foot { font-size: 8pt; color: #52606d; }
+        .meta-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3mm; }
+        .meta-card, .customer, .summary, .note, .items { border: 0.35mm solid #dbe5ef; border-radius: 4mm; background: #ffffff; }
+        .meta-card, .summary-card { padding: 4mm; }
+        .customer, .note, .items, .summary { padding: 4.5mm; }
+        .customer-head, .items-head, .summary-head { display: flex; justify-content: space-between; gap: 4mm; align-items: end; margin-bottom: 3mm; }
+        .section-title { margin: 0; font-size: 11pt; color: #182431; }
+        .section-subtitle { margin: 1mm 0 0; font-size: 8.5pt; color: #607180; }
+        .customer-grid, .summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3mm 6mm; }
+        .summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .summary-card { border: 0.3mm solid #e4ebf3; border-radius: 3.5mm; background: linear-gradient(180deg, #ffffff, #f7fbff); }
+        table { width: 100%; border-collapse: collapse; font-size: 8.9pt; }
+        thead th { padding: 2.8mm; text-align: left; color: #33506b; background: #eef5fb; border-bottom: 0.35mm solid #d6e1ec; }
+        tbody td { padding: 2.8mm; vertical-align: top; border-bottom: 0.25mm solid #e6edf5; }
+        tbody tr:nth-child(even) td { background: #fbfdff; }
+        .muted { font-size: 8pt; color: #6c7a88; }
+        .foot { font-size: 8pt; color: #6c7a88; text-align: right; }
       </style>
     </head>
     <body>
       <section class="page">
-        <header class="head">
-          <div>
+        <header class="hero">
+          <div class="hero-copy">
+            <span class="eyebrow">Obchodná ponuka</span>
             <h1>Cenová ponuka</h1>
+            <div class="hero-subtitle">${escapeHtml(String(companyName || "-"))}</div>
+          </div>
+          <div class="hero-card">
+            <span class="section-label">Číslo ponuky</span>
             <div class="value">${escapeHtml(String(quote?.quote_number || "-"))}</div>
+            <div class="muted">${escapeHtml(`Vygenerované: ${generatedAt}`)}</div>
           </div>
-          <div class="foot">Vygenerované: ${escapeHtml(generatedAt)}</div>
         </header>
-        <section class="meta">
-          <div class="meta-grid">
-            <div><span class="label">Firma</span><div class="value">${escapeHtml(String(companyName || "-"))}</div></div>
-            <div><span class="label">Vytvorené</span><div class="value">${escapeHtml(createdAt)}</div></div>
-            <div><span class="label">Číslo ponuky</span><div class="value">${escapeHtml(String(quote?.quote_number || "-"))}</div></div>
-            <div><span class="label">Stav</span><div class="value">${escapeHtml(translateStatusLabel(quote?.status || "draft"))}</div></div>
-          </div>
+        <section class="meta-grid">
+          <article class="meta-card"><span class="section-label">Firma</span><div class="value">${escapeHtml(String(companyName || "-"))}</div></article>
+          <article class="meta-card"><span class="section-label">Vytvorené</span><div class="value">${escapeHtml(createdAt)}</div></article>
+          <article class="meta-card"><span class="section-label">Stav</span><div class="value">${escapeHtml(translateStatusLabel(quote?.status || "draft"))}</div></article>
+          <article class="meta-card"><span class="section-label">Zákazník</span><div class="value">${escapeHtml(customerName)}</div></article>
         </section>
         <section class="customer">
+          <div class="customer-head">
+            <div>
+              <h2 class="section-title">Kontaktné údaje</h2>
+              <p class="section-subtitle">Detail zákazníka pre túto ponuku</p>
+            </div>
+          </div>
           <div class="customer-grid">
-            <div><span class="label">Zákazník</span><div class="value">${escapeHtml(customerName)}</div></div>
-            <div><span class="label">Telefón</span><div class="value">${escapeHtml(String(customer?.phone || "-"))}</div></div>
-            <div><span class="label">Email</span><div class="value">${escapeHtml(String(customer?.email || "-"))}</div></div>
-            <div><span class="label">Adresa</span><div class="value">${escapeHtml(String(customer?.address || "-"))}</div></div>
+            <div><span class="section-label">Zákazník</span><div class="value">${escapeHtml(customerName)}</div></div>
+            <div><span class="section-label">Telefón</span><div class="value">${escapeHtml(String(customer?.phone || "-"))}</div></div>
+            <div><span class="section-label">Email</span><div class="value">${escapeHtml(String(customer?.email || "-"))}</div></div>
+            <div><span class="section-label">Adresa</span><div class="value">${escapeHtml(String(customer?.address || "-"))}</div></div>
           </div>
         </section>
-        <section>
+        <section class="items">
+          <div class="items-head">
+            <div>
+              <h2 class="section-title">Položky ponuky</h2>
+              <p class="section-subtitle">Ceny sú zobrazené bez DPH aj s DPH</p>
+            </div>
+          </div>
           <table>
             <thead>
               <tr>
                 <th>#</th>
-                <th>Materiál</th>
-                <th>Jednotka</th>
+                <th>Položka</th>
+                <th>MJ</th>
                 <th>Množstvo</th>
-                <th>Cena</th>
-                <th>Zľava</th>
+                <th>Predaj / Zľava</th>
                 <th>DPH</th>
-                <th>Po zľave</th>
                 <th>Spolu bez DPH</th>
-                <th>DPH suma</th>
                 <th>Spolu s DPH</th>
-                <th>Marža</th>
                 <th>Poznámka</th>
               </tr>
             </thead>
-            <tbody>${rowsHtml || '<tr><td colspan="12">Ponuka nemá položky.</td></tr>'}</tbody>
+            <tbody>${rowsHtml || '<tr><td colspan="9">Ponuka nemá položky.</td></tr>'}</tbody>
           </table>
         </section>
         <section class="summary">
+          <div class="summary-head">
+            <div>
+              <h2 class="section-title">Finálne sumy</h2>
+              <p class="section-subtitle">Rekapitulácia cenovej ponuky</p>
+            </div>
+          </div>
           <div class="summary-grid">
-            <div><span class="label">Bez DPH</span><div class="value">${escapeHtml(formatCurrencyValue(totals.total))}</div></div>
-            <div><span class="label">DPH</span><div class="value">${escapeHtml(formatCurrencyValue(totals.vat))}</div></div>
-            <div><span class="label">S DPH</span><div class="value">${escapeHtml(formatCurrencyValue(totals.totalWithVat))}</div></div>
-            <div><span class="label">Marža</span><div class="value">${escapeHtml(formatCurrencyValue(totals.margin))}</div></div>
+            <article class="summary-card"><span class="section-label">Bez DPH</span><div class="value">${escapeHtml(formatCurrencyValue(totals.total))}</div></article>
+            <article class="summary-card"><span class="section-label">DPH</span><div class="value">${escapeHtml(formatCurrencyValue(totals.vat))}</div></article>
+            <article class="summary-card"><span class="section-label">S DPH</span><div class="value">${escapeHtml(formatCurrencyValue(totals.totalWithVat))}</div></article>
           </div>
         </section>
         ${noteHtml}
+        <div class="foot">Cenová ponuka ${escapeHtml(String(quote?.quote_number || "-"))}</div>
       </section>
     </body>
   </html>`;

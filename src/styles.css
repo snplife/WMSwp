@@ -660,6 +660,10 @@ select {
   align-items: start;
 }
 
+.workflow-shell-quotes .orders-layout {
+  gap: 30px;
+}
+
 .orders-column {
   display: grid;
   gap: 1.05rem;

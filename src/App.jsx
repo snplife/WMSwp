@@ -975,11 +975,41 @@ function printOrderPdf(order, customer, items, companyName) {
   printHtmlDocument(buildOrderPrintHtml(order, customer, items, companyName));
 }
 
-function buildQuotePrintHtml(quote, customer, items, companyName) {
+function buildQuotePrintHtml(quote, customer, items, companyProfile) {
   const generatedAt = new Date().toLocaleString("sk-SK");
   const createdAt = formatDate(quote?.created_at);
+  const normalizedCompany =
+    companyProfile && typeof companyProfile === "object" ? companyProfile : { name: String(companyProfile || "").trim() };
+  const companyName = String(normalizedCompany?.name || "-");
   const customerName = String(quote?.customer_name || customer?.name || "-");
   const quoteNote = String(quote?.note || "").trim();
+  const supplierFields = [
+    { label: "Dodávateľ", value: companyName },
+    { label: "Adresa", value: String(normalizedCompany?.address || "").trim() || "-" },
+    { label: "IČO", value: String(normalizedCompany?.ico || "").trim() || "-" },
+    { label: "DIČ", value: String(normalizedCompany?.dic || "").trim() || "-" },
+    { label: "IČ DPH", value: String(normalizedCompany?.ic_dph || "").trim() || "-" },
+    { label: "IBAN", value: String(normalizedCompany?.bank_account || "").trim() || "-" }
+  ];
+  const customerFields = [
+    { label: "Odberateľ", value: customerName },
+    { label: "Adresa", value: String(customer?.address || "").trim() || "-" },
+    { label: "IČO", value: String(customer?.ico || "").trim() || "-" },
+    { label: "DIČ", value: String(customer?.dic || "").trim() || "-" },
+    { label: "IČ DPH", value: String(customer?.ic_dph || "").trim() || "-" },
+    { label: "Telefón / Email", value: [String(customer?.phone || "").trim(), String(customer?.email || "").trim()].filter(Boolean).join(" | ") || "-" }
+  ];
+  const buildPartyFieldsHtml = (fields) =>
+    fields
+      .map(
+        (field) => `
+          <div>
+            <span class="section-label">${escapeHtml(field.label)}</span>
+            <div class="value">${escapeHtml(field.value)}</div>
+          </div>
+        `
+      )
+      .join("");
   const noteHtml = quoteNote
     ? `
         <section class="note">
@@ -1085,8 +1115,18 @@ function buildQuotePrintHtml(quote, customer, items, companyName) {
         .customer-head, .items-head, .summary-head { display: flex; justify-content: space-between; gap: 4mm; align-items: end; margin-bottom: 3mm; }
         .section-title { margin: 0; font-size: 11pt; color: #182431; }
         .section-subtitle { margin: 1mm 0 0; font-size: 8.5pt; color: #607180; }
-        .customer-grid, .summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3mm 6mm; }
+        .party-grid, .customer-grid, .summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3mm 6mm; }
         .summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .party-card {
+          border: 0.3mm solid #e4ebf3;
+          border-radius: 3.5mm;
+          background: linear-gradient(180deg, #ffffff, #f7fbff);
+          padding: 4mm;
+          display: grid;
+          gap: 2.6mm;
+          box-shadow: inset 0 0 0 0.2mm rgba(255,255,255,0.7);
+        }
+        .party-card .section-title { font-size: 10pt; }
         .summary-card {
           border: 0.3mm solid #e4ebf3;
           border-radius: 3.5mm;
@@ -1124,15 +1164,25 @@ function buildQuotePrintHtml(quote, customer, items, companyName) {
         <section class="customer">
           <div class="customer-head">
             <div>
-              <h2 class="section-title">Kontaktné údaje</h2>
-              <p class="section-subtitle">Detail zákazníka pre túto ponuku</p>
+              <h2 class="section-title">Zmluvné strany</h2>
+              <p class="section-subtitle">Dodávateľské a odberateľské údaje pre túto ponuku</p>
             </div>
           </div>
-          <div class="customer-grid">
-            <div><span class="section-label">Zákazník</span><div class="value">${escapeHtml(customerName)}</div></div>
-            <div><span class="section-label">Telefón</span><div class="value">${escapeHtml(String(customer?.phone || "-"))}</div></div>
-            <div><span class="section-label">Email</span><div class="value">${escapeHtml(String(customer?.email || "-"))}</div></div>
-            <div><span class="section-label">Adresa</span><div class="value">${escapeHtml(String(customer?.address || "-"))}</div></div>
+          <div class="party-grid">
+            <article class="party-card">
+              <div>
+                <h3 class="section-title">Dodávateľ</h3>
+                <p class="section-subtitle">Údaje z firemných nastavení</p>
+              </div>
+              ${buildPartyFieldsHtml(supplierFields)}
+            </article>
+            <article class="party-card">
+              <div>
+                <h3 class="section-title">Odberateľ</h3>
+                <p class="section-subtitle">Údaje naviazané na zákazníka</p>
+              </div>
+              ${buildPartyFieldsHtml(customerFields)}
+            </article>
           </div>
         </section>
         <section class="items">
@@ -1179,8 +1229,8 @@ function buildQuotePrintHtml(quote, customer, items, companyName) {
   </html>`;
 }
 
-function printQuotePdf(quote, customer, items, companyName) {
-  printHtmlDocument(buildQuotePrintHtml(quote, customer, items, companyName));
+function printQuotePdf(quote, customer, items, companyProfile) {
+  printHtmlDocument(buildQuotePrintHtml(quote, customer, items, companyProfile));
 }
 
 function buildProductionPrintHtml(productionOrder, inputs, outputs, companyName) {
@@ -1957,6 +2007,13 @@ function App() {
     () =>
       Object.fromEntries(
         companies.map((company) => [company.id, company.name])
+      ),
+    [companies]
+  );
+  const companiesById = useMemo(
+    () =>
+      Object.fromEntries(
+        companies.map((company) => [company.id, company])
       ),
     [companies]
   );
@@ -4443,7 +4500,7 @@ function App() {
         quote,
         customersById[quote.customer_id] || null,
         quoteItemsByQuoteId[quote.id] || [],
-        companyNameById[quote.company_id] || activeCompany?.name || currentCompanyLabel
+        companiesById[quote.company_id] || activeCompany || { name: companyNameById[quote.company_id] || activeCompany?.name || currentCompanyLabel }
       );
     } catch (printError) {
       setQuotesError(printError?.message || "Nepodarilo sa vytvoriť PDF cenovej ponuky.");

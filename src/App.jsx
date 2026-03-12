@@ -1124,13 +1124,13 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
           width: 1.6mm;
           background: linear-gradient(180deg, #0f8a7f, #0f5f8f);
         }
-        .summary-card { padding: 4mm; }
+        .summary-card { padding: 2.8mm 3mm; }
         .customer, .note, .items, .summary { padding: 4mm 4mm 4mm 5mm; }
         .customer-head, .items-head, .summary-head { display: flex; justify-content: space-between; gap: 4mm; align-items: end; margin-bottom: 2.4mm; }
         .section-title { margin: 0; font-size: 11pt; color: #182431; }
         .section-subtitle { margin: 0.6mm 0 0; font-size: 8.2pt; color: #607180; }
         .party-grid, .customer-grid, .summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2.5mm 5mm; }
-        .summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2mm 3mm; }
         .party-card {
           border: 0.3mm solid #e4ebf3;
           border-radius: 3.5mm;
@@ -1155,6 +1155,8 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
           background: linear-gradient(180deg, #ffffff, #f7fbff);
           box-shadow: inset 0 0 0 0.2mm rgba(255,255,255,0.7);
         }
+        .summary-card .section-label { margin-bottom: 0.6mm; font-size: 6.9pt; }
+        .summary-card .value { font-size: 9.2pt; line-height: 1.25; }
         table { width: 100%; border-collapse: collapse; font-size: 8.9pt; }
         thead th { padding: 2.8mm; text-align: left; color: #33506b; background: #eef5fb; border-bottom: 0.35mm solid #d6e1ec; }
         tbody td { padding: 2.8mm; vertical-align: top; border-bottom: 0.25mm solid #e6edf5; }

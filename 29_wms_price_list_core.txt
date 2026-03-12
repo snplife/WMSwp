@@ -15,11 +15,14 @@ create table if not exists public.price_list (
   material_code text not null,
   unit text not null default 'ks',
   unit_price numeric(12,2) not null default 0,
+  purchase_price numeric(12,2) not null default 0,
   note text not null default '',
   created_by uuid references auth.users (id),
   updated_at timestamptz not null default now(),
   created_at timestamptz not null default now()
 );
+
+alter table public.price_list add column if not exists purchase_price numeric(12,2) not null default 0;
 
 create unique index if not exists idx_price_list_company_material_unique
   on public.price_list (company_id, material_code);
@@ -108,7 +111,7 @@ to authenticated
 using (company_id = public.user_company_id(auth.uid()));
 
 -- Example:
--- select material_code, unit, unit_price, note, updated_at
+-- select material_code, unit, unit_price, purchase_price, note, updated_at
 -- from public.price_list
 -- where company_id = 'YOUR-COMPANY-UUID'
 -- order by material_code asc;

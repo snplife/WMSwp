@@ -1250,7 +1250,7 @@ select {
 
 .price-list-form-grid {
   display: grid;
-  grid-template-columns: minmax(220px, 1.35fr) 96px 140px;
+  grid-template-columns: minmax(220px, 1.35fr) 96px 140px 140px;
   gap: 0.7rem;
   align-items: end;
 }
@@ -1274,6 +1274,20 @@ select {
   gap: 0.55rem;
   flex-wrap: wrap;
   align-items: center;
+}
+
+.price-list-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.price-list-preview-card {
+  min-width: 0;
+}
+
+.price-list-preview-card p {
+  margin: 0;
 }
 
 .price-list-current-card {
@@ -1828,6 +1842,10 @@ tbody tr:nth-child(even) {
   }
 
   .price-list-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .price-list-preview-grid {
     grid-template-columns: 1fr;
   }
 

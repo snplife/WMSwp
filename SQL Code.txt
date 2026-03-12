@@ -33,6 +33,7 @@ create table if not exists public.price_list (
   material_code text not null,
   unit text not null default 'ks',
   unit_price numeric(12,2) not null default 0,
+  purchase_price numeric(12,2) not null default 0,
   note text not null default '',
   created_by uuid references auth.users (id),
   updated_at timestamptz not null default now(),
@@ -56,6 +57,7 @@ create table if not exists public.app_users (
 -- 2) Add missing columns for existing installations
 alter table public.stock add column if not exists company_id uuid references public.companies (id) on delete cascade;
 alter table public.stock_history add column if not exists company_id uuid references public.companies (id) on delete cascade;
+alter table public.price_list add column if not exists purchase_price numeric(12,2) not null default 0;
 alter table public.app_users add column if not exists email text;
 alter table public.app_users add column if not exists username text;
 alter table public.app_users add column if not exists can_manage_orders boolean not null default false;
@@ -271,7 +273,7 @@ left join public.order_items oi on oi.order_id = o.id
 group by o.id, o.company_id, o.order_number, o.customer_name, o.note, o.created_at;
 
 -- Cenník pre grid/list:
--- select id, company_id, material_code, unit, unit_price, note, updated_at
+-- select id, company_id, material_code, unit, unit_price, purchase_price, note, updated_at
 -- from public.price_list
 -- where company_id = 'YOUR-COMPANY-UUID'
 -- order by material_code asc;

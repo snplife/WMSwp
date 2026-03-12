@@ -35,11 +35,14 @@ const TABLE_CONFIG = {
     columns: [
       { label: "Materiál", keys: ["material_code"], required: true },
       { label: "Jednotka", keys: ["unit"], required: true },
-      { label: "Cena", keys: ["unit_price"], kind: "currency", required: true },
+      { label: "Predajná cena", keys: ["unit_price"], kind: "currency", required: true },
+      { label: "Nákupná cena", keys: ["purchase_price"], kind: "currency", required: true },
+      { label: "Marža", keys: ["margin_value"], kind: "currency", required: true },
+      { label: "Max zľava", keys: ["max_discount_display"], required: true },
       { label: "Poznámka", keys: ["note"] },
       { label: "Upravené", keys: ["updated_at", "created_at"], kind: "date_time" }
     ],
-    searchKeys: ["material_code", "unit", "note", "unit_price"],
+    searchKeys: ["material_code", "unit", "note", "unit_price", "purchase_price", "max_discount_display"],
     statusKeys: [],
     timeKeys: ["updated_at", "created_at"],
     orderBy: "material_code",
@@ -1031,6 +1034,39 @@ function formatDate(value) {
   return parsed.toLocaleString();
 }
 
+function formatCurrencyValue(value) {
+  return new Intl.NumberFormat("sk-SK", {
+    style: "currency",
+    currency: "EUR",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(Number(value));
+}
+
+function formatPercentValue(value, maximumFractionDigits = 1) {
+  return `${new Intl.NumberFormat("sk-SK", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits
+  }).format(Number(value))} %`;
+}
+
+function buildPriceListComputedRow(row) {
+  const salePrice = Number(row?.unit_price || 0);
+  const purchasePrice = Number(row?.purchase_price || 0);
+  const marginValue = Math.round((salePrice - purchasePrice) * 100) / 100;
+  const maxDiscountValue = Math.max(0, marginValue);
+  const maxDiscountPercent = salePrice > 0 ? (maxDiscountValue / salePrice) * 100 : 0;
+
+  return {
+    ...row,
+    margin_value: marginValue,
+    margin_percent: salePrice > 0 ? (marginValue / salePrice) * 100 : 0,
+    max_discount_value: maxDiscountValue,
+    max_discount_percent: maxDiscountPercent,
+    max_discount_display: `${formatCurrencyValue(maxDiscountValue)} | ${formatPercentValue(maxDiscountPercent)}`
+  };
+}
+
 function formatCell(value, kind) {
   if (value === null || value === undefined || value === "") {
     return "-";
@@ -1057,12 +1093,7 @@ function formatCell(value, kind) {
   }
 
   if (kind === "currency") {
-    return new Intl.NumberFormat("sk-SK", {
-      style: "currency",
-      currency: "EUR",
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    }).format(Number(value));
+    return formatCurrencyValue(value);
   }
 
   return String(value);
@@ -1391,6 +1422,7 @@ function App() {
   const [priceListMaterialInput, setPriceListMaterialInput] = useState("");
   const [priceListUnitInput, setPriceListUnitInput] = useState("ks");
   const [priceListValueInput, setPriceListValueInput] = useState("");
+  const [priceListPurchaseInput, setPriceListPurchaseInput] = useState("");
   const [priceListNoteInput, setPriceListNoteInput] = useState("");
   const [priceListSubmitting, setPriceListSubmitting] = useState(false);
   const [priceListDeleting, setPriceListDeleting] = useState(false);
@@ -1547,6 +1579,25 @@ function App() {
     () => priceListRowsByMaterial[normalizeOptionSearchValue(priceListMaterialInput)] || null,
     [priceListRowsByMaterial, priceListMaterialInput]
   );
+  const priceListPreview = useMemo(() => {
+    const salePrice = normalizePriceInput(priceListValueInput);
+    const purchasePrice = normalizePriceInput(priceListPurchaseInput);
+    const safeSalePrice = salePrice ?? 0;
+    const safePurchasePrice = purchasePrice ?? 0;
+    const marginValue = Math.round((safeSalePrice - safePurchasePrice) * 100) / 100;
+    const maxDiscountValue = Math.max(0, marginValue);
+    const maxDiscountPercent = safeSalePrice > 0 ? (maxDiscountValue / safeSalePrice) * 100 : 0;
+
+    return {
+      salePrice: safeSalePrice,
+      purchasePrice: safePurchasePrice,
+      marginValue,
+      maxDiscountValue,
+      maxDiscountPercent,
+      hasValidSalePrice: salePrice !== null,
+      hasValidPurchasePrice: purchasePrice !== null
+    };
+  }, [priceListValueInput, priceListPurchaseInput]);
   const priceListMaterialSuggestions = useMemo(
     () =>
       Array.from(
@@ -1958,6 +2009,7 @@ function App() {
     setPriceListMaterialInput("");
     setPriceListUnitInput("ks");
     setPriceListValueInput("");
+    setPriceListPurchaseInput("");
     setPriceListNoteInput("");
     setPriceListFormError("");
   };
@@ -1971,6 +2023,7 @@ function App() {
     setPriceListMaterialInput(String(row.material_code || ""));
     setPriceListUnitInput(String(row.unit || "ks"));
     setPriceListValueInput(row.unit_price === null || row.unit_price === undefined ? "" : String(row.unit_price));
+    setPriceListPurchaseInput(row.purchase_price === null || row.purchase_price === undefined ? "" : String(row.purchase_price));
     setPriceListNoteInput(String(row.note || ""));
     setPriceListFormError("");
   };
@@ -1981,6 +2034,9 @@ function App() {
     if (matchedRow) {
       setPriceListUnitInput(String(matchedRow.unit || "ks"));
       setPriceListValueInput(matchedRow.unit_price === null || matchedRow.unit_price === undefined ? "" : String(matchedRow.unit_price));
+      setPriceListPurchaseInput(
+        matchedRow.purchase_price === null || matchedRow.purchase_price === undefined ? "" : String(matchedRow.purchase_price)
+      );
       setPriceListNoteInput(String(matchedRow.note || ""));
       setPriceListFormError("");
       return;
@@ -1988,6 +2044,7 @@ function App() {
 
     setPriceListUnitInput("ks");
     setPriceListValueInput("");
+    setPriceListPurchaseInput("");
     setPriceListNoteInput("");
     setPriceListFormError("");
   };
@@ -1999,6 +2056,7 @@ function App() {
     const materialCode = String(priceListMaterialInput || "").trim();
     const unit = String(priceListUnitInput || "").trim() || "ks";
     const unitPrice = normalizePriceInput(priceListValueInput);
+    const purchasePrice = normalizePriceInput(priceListPurchaseInput);
     const note = String(priceListNoteInput || "").trim();
 
     if (!companyId) {
@@ -2016,6 +2074,11 @@ function App() {
       return;
     }
 
+    if (purchasePrice === null) {
+      setPriceListFormError("Zadaj platnú nákupnú cenu, napr. 9,40.");
+      return;
+    }
+
     setPriceListSubmitting(true);
     setPriceListFormError("");
 
@@ -2026,6 +2089,7 @@ function App() {
           material_code: materialCode,
           unit,
           unit_price: unitPrice,
+          purchase_price: purchasePrice,
           note,
           created_by: selectedPriceListRow?.created_by || authUser?.id || null
         }
@@ -3153,6 +3217,7 @@ function App() {
     setCustomerIcoInput("");
     setCustomerDicInput("");
     setCustomerNoteInput("");
+    setPriceListPurchaseInput("");
     setCompanyLookupResults([]);
     setCompanyLookupError("");
     setSelectedRegistryCompanyId("");
@@ -3367,10 +3432,12 @@ function App() {
               scopedCompanyId,
               historyFromMs: isDailyOverviewTable(table) ? getStartOfTodayMs() : null
             });
+      const normalizedData =
+        sourceTable === PRICE_LIST_TABLE ? (data || []).map((row) => buildPriceListComputedRow(row)) : data || [];
       if (!isLatestRequest()) {
         return;
       }
-      setRows(data || []);
+      setRows(normalizedData);
 
       const stockRows =
         sourceTable === "stock"
@@ -4841,6 +4908,18 @@ function App() {
                   disabled={!activeCompanyId || priceListSubmitting || priceListDeleting}
                 />
               </label>
+              <label className="settings-field price-list-value-field">
+                <span>Nákupná cena</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  className="search-input"
+                  placeholder="9,40"
+                  value={priceListPurchaseInput}
+                  onChange={(event) => setPriceListPurchaseInput(event.target.value)}
+                  disabled={!activeCompanyId || priceListSubmitting || priceListDeleting}
+                />
+              </label>
             </div>
 
             <datalist id="price-list-material-options">
@@ -4860,6 +4939,26 @@ function App() {
                 disabled={!activeCompanyId || priceListSubmitting || priceListDeleting}
               />
             </label>
+
+            <div className="price-list-preview-grid">
+              <article className={`card price-list-preview-card ${priceListPreview.marginValue < 0 ? "card-alert" : ""}`}>
+                <p>Marža</p>
+                <strong>{formatCurrencyValue(priceListPreview.marginValue)}</strong>
+                <p className="occupancy-meta">
+                  {priceListPreview.hasValidSalePrice ? formatPercentValue(priceListPreview.salePrice > 0 ? (priceListPreview.marginValue / priceListPreview.salePrice) * 100 : 0) : "-"}
+                </p>
+              </article>
+              <article className="card price-list-preview-card">
+                <p>Max zľava</p>
+                <strong>{formatCurrencyValue(priceListPreview.maxDiscountValue)}</strong>
+                <p className="occupancy-meta">{formatPercentValue(priceListPreview.maxDiscountPercent)}</p>
+              </article>
+              <article className="card price-list-preview-card">
+                <p>Min. predaj</p>
+                <strong>{formatCurrencyValue(priceListPreview.purchasePrice)}</strong>
+                <p className="occupancy-meta">pod túto cenu ideš do mínusu</p>
+              </article>
+            </div>
 
             <div className="price-list-form-actions">
               <button type="submit" className="settings-btn" disabled={!activeCompanyId || priceListSubmitting || priceListDeleting}>
@@ -4901,7 +5000,9 @@ function App() {
           {selectedPriceListRow ? (
             <div className="price-list-current-card">
               <strong>{selectedPriceListRow.material_code}</strong>
-              <p>{`${formatCell(selectedPriceListRow.unit_price, "currency")} / ${selectedPriceListRow.unit || "ks"}`}</p>
+              <p>{`Predaj: ${formatCell(selectedPriceListRow.unit_price, "currency")} / ${selectedPriceListRow.unit || "ks"}`}</p>
+              <p>{`Nákup: ${formatCell(selectedPriceListRow.purchase_price, "currency")} | Marža: ${formatCell(selectedPriceListRow.margin_value, "currency")}`}</p>
+              <span>{`Max zľava: ${selectedPriceListRow.max_discount_display}`}</span>
               <span>{`Posledná úprava: ${formatCell(selectedPriceListRow.updated_at || selectedPriceListRow.created_at, "date_time")}`}</span>
             </div>
           ) : (

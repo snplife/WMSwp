@@ -3164,20 +3164,20 @@ function App() {
       return;
     }
 
-    const { data: expiryUpdatedCompany, error: expiryUpdateError } = await supabase
+    const companyProfilePayload = {
+      name: String(companyProfileNameInput || "").trim() || activeCompany?.name || "",
+      tracks_expiry_date: companyTracksExpiryDateInput,
+      ico: String(companyProfileIcoInput || "").trim(),
+      dic: String(companyProfileDicInput || "").trim(),
+      ic_dph: String(companyProfileIcDphInput || "").trim(),
+      address: String(companyProfileAddressInput || "").trim(),
+      bank_account: String(companyProfileBankAccountInput || "").trim()
+    };
+
+    const { error: expiryUpdateError } = await supabase
       .from("companies")
-      .update({
-        name: String(companyProfileNameInput || "").trim() || activeCompany?.name || "",
-        tracks_expiry_date: companyTracksExpiryDateInput,
-        ico: String(companyProfileIcoInput || "").trim(),
-        dic: String(companyProfileDicInput || "").trim(),
-        ic_dph: String(companyProfileIcDphInput || "").trim(),
-        address: String(companyProfileAddressInput || "").trim(),
-        bank_account: String(companyProfileBankAccountInput || "").trim()
-      })
-      .eq("id", updatedCompany.id)
-      .select("id,name,created_at,max_positions,tracks_expiry_date,ico,dic,ic_dph,address,bank_account")
-      .single();
+      .update(companyProfilePayload)
+      .eq("id", updatedCompany.id);
 
     if (expiryUpdateError) {
       setCompanySettingsError(expiryUpdateError.message || "Nepodarilo sa uložiť sledovanie expirácie.");
@@ -3185,11 +3185,21 @@ function App() {
       return;
     }
 
+    const expiryUpdatedCompany = {
+      ...activeCompany,
+      ...updatedCompany,
+      ...companyProfilePayload,
+      id: updatedCompany.id,
+      max_positions: normalizeMaxPositions(updatedCompany.max_positions),
+      tracks_expiry_date: Boolean(companyProfilePayload.tracks_expiry_date)
+    };
+
     setCompanies((prev) =>
       prev.map((company) =>
         company.id === expiryUpdatedCompany.id
           ? {
               ...company,
+              ...expiryUpdatedCompany,
               max_positions: normalizeMaxPositions(expiryUpdatedCompany.max_positions),
               tracks_expiry_date: Boolean(expiryUpdatedCompany.tracks_expiry_date)
             }

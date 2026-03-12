@@ -1250,7 +1250,7 @@ select {
 
 .price-list-form-grid {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) 82px 120px 120px;
+  grid-template-columns: minmax(220px, 1fr) 68px 104px 104px;
   gap: 0.7rem;
   align-items: end;
 }
@@ -1262,11 +1262,11 @@ select {
 }
 
 .price-list-unit-field .search-input {
-  max-width: 82px;
+  max-width: 68px;
 }
 
 .price-list-value-field .search-input {
-  max-width: 120px;
+  max-width: 104px;
 }
 
 .price-list-form-actions {

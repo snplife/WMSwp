@@ -1094,22 +1094,22 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
         }
         .page {
           display: grid;
-          gap: 4mm;
-          padding: 3.2mm 5mm 5mm;
+          gap: 1.6mm;
+          padding: 0.8mm 4mm 4.2mm;
           border: 0.35mm solid #d7e3ef;
           border-radius: 7mm;
           background: rgba(255, 255, 255, 0.9);
           box-shadow: 0 3mm 10mm rgba(23, 33, 43, 0.08);
         }
-        .hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3mm; align-items: center; padding: 2mm 3mm; border-radius: 5mm; background: linear-gradient(135deg, #0f8a7f, #0f5f8f); color: #ffffff; }
-        .hero-copy { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.8mm 2mm; min-height: 0; }
-        .eyebrow { font-size: 6.6pt; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.82; line-height: 1; }
-        h1 { margin: 0; font-size: 14pt; line-height: 1; }
-        .hero-subtitle { font-size: 6.8pt; line-height: 1; opacity: 0.84; }
-        .hero-meta { display: grid; gap: 0.3mm; justify-items: end; text-align: right; align-content: start; }
-        .hero-meta-label { font-size: 6.5pt; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.8; line-height: 1; }
-        .hero-meta-value { font-size: 8.6pt; font-weight: 700; line-height: 1.05; }
-        .hero-meta-date { font-size: 6.8pt; line-height: 1.05; color: rgba(255, 255, 255, 0.8); }
+        .hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2mm; align-items: center; padding: 0.6mm 1.6mm; border-radius: 4mm; background: linear-gradient(135deg, #0f8a7f, #0f5f8f); color: #ffffff; }
+        .hero-copy { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3mm 1.2mm; min-height: 0; }
+        .eyebrow { font-size: 6.1pt; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.82; line-height: 1; }
+        h1 { margin: 0; font-size: 12.8pt; line-height: 0.98; }
+        .hero-subtitle { font-size: 6.2pt; line-height: 1; opacity: 0.84; }
+        .hero-meta { display: grid; gap: 0.1mm; justify-items: end; text-align: right; align-content: center; }
+        .hero-meta-label { font-size: 5.8pt; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.8; line-height: 1; }
+        .hero-meta-value { font-size: 7.8pt; font-weight: 700; line-height: 1; }
+        .hero-meta-date { font-size: 6.1pt; line-height: 1; color: rgba(255, 255, 255, 0.8); }
         .section-label { display: block; margin-bottom: 1.2mm; font-size: 7.6pt; color: #5a6c7c; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; }
         .value { font-size: 11pt; font-weight: 700; }
         .customer, .summary, .note, .items {

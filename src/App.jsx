@@ -1102,7 +1102,7 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
           grid-template-columns: minmax(0, 1fr) auto;
           gap: 0.6mm;
           align-items: end;
-          padding: 2.2mm 2.4mm 1.8mm 3.6mm;
+          padding: 3mm 3mm 3mm 4.6mm;
           border: 0.35mm solid #dbe5ef;
           border-radius: 3.5mm;
           background: #ffffff;
@@ -1139,8 +1139,8 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
           width: 1.6mm;
           background: linear-gradient(180deg, #0f8a7f, #0f5f8f);
         }
-        .summary-card { padding: 2.4mm 2.6mm; }
-        .customer, .note, .items, .summary { padding: 3.2mm 3.2mm 3.2mm 4.2mm; }
+        .summary-card { padding: 3mm; }
+        .customer, .note, .items, .summary { padding: 3mm 3mm 3mm 4.6mm; }
         .customer-head, .items-head, .summary-head { display: flex; justify-content: space-between; gap: 4mm; align-items: end; margin-bottom: 1.8mm; }
         .section-title { margin: 0; font-size: 11pt; color: #182431; }
         .section-subtitle { margin: 0.6mm 0 0; font-size: 8.2pt; color: #607180; }
@@ -1150,7 +1150,7 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
           border: 0.3mm solid #e4ebf3;
           border-radius: 3.5mm;
           background: linear-gradient(180deg, #ffffff, #f7fbff);
-          padding: 3.2mm;
+          padding: 3mm;
           display: grid;
           gap: 2.2mm;
           box-shadow: inset 0 0 0 0.2mm rgba(255,255,255,0.7);

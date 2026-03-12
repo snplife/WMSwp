@@ -322,6 +322,7 @@ function createEmptyOrderDraftItem() {
 function createEmptyQuoteDraftItem() {
   return {
     draftId: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    quoteItemId: "",
     priceListId: "",
     materialCode: "",
     unit: "ks",
@@ -1971,6 +1972,7 @@ function App() {
   const [quotePriceListRows, setQuotePriceListRows] = useState([]);
   const [quotesLoading, setQuotesLoading] = useState(false);
   const [quotesError, setQuotesError] = useState("");
+  const [editingQuoteId, setEditingQuoteId] = useState("");
   const [selectedQuoteCustomerId, setSelectedQuoteCustomerId] = useState("");
   const [quoteSearchTerm, setQuoteSearchTerm] = useState("");
   const [quoteDraftItems, setQuoteDraftItems] = useState([createEmptyQuoteDraftItem()]);
@@ -3309,8 +3311,24 @@ function App() {
   };
 
   const resetQuoteDraft = () => {
+    setEditingQuoteId("");
     setQuoteDraftItems([createEmptyQuoteDraftItem()]);
   };
+
+  const createQuoteDraftItemFromRow = (row) => ({
+    draftId: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    quoteItemId: String(row?.id || ""),
+    priceListId: "",
+    materialCode: String(row?.material_code || ""),
+    unit: String(row?.unit || "ks"),
+    quantity: String(row?.quantity ?? "1"),
+    unitPrice: String(row?.unit_price ?? ""),
+    purchasePrice: String(row?.purchase_price ?? ""),
+    discountPercent: String(row?.discount_percent ?? "0"),
+    vatPercent: String(row?.vat_percent ?? "23"),
+    lineNote: String(row?.line_note || ""),
+    showNote: Boolean(String(row?.line_note || "").trim())
+  });
 
   const resetCustomerForm = () => {
     setEditingCustomerId("");
@@ -4279,6 +4297,25 @@ function App() {
     setCustomerDeletingId("");
   };
 
+  const handleEditQuote = (quote) => {
+    const quoteId = String(quote?.id || "").trim();
+    if (!quoteId) {
+      return;
+    }
+
+    const items = quoteItemsByQuoteId[quoteId] || [];
+    setEditingQuoteId(quoteId);
+    setSelectedQuoteCustomerId(String(quote?.customer_id || ""));
+    setQuoteDraftItems(items.length > 0 ? items.map((item) => createQuoteDraftItemFromRow(item)) : [createEmptyQuoteDraftItem()]);
+    setExpandedQuotes((prev) => ({ ...prev, [quoteId]: true }));
+    setQuotesError("");
+  };
+
+  const handleCancelQuoteEdit = () => {
+    resetQuoteDraft();
+    setQuotesError("");
+  };
+
   const handleCreateQuote = async (event) => {
     event.preventDefault();
 
@@ -4327,17 +4364,20 @@ function App() {
 
       const computed = computeQuoteLineTotals({ quantity, unitPrice, purchasePrice, discountPercent, vatPercent });
       normalizedItems.push({
-        material_code: materialCode,
-        unit: String(item.unit || "ks").trim() || "ks",
-        quantity: computed.quantity,
-        unit_price: computed.unitPrice,
-        purchase_price: computed.purchasePrice,
-        discount_percent: computed.discountPercent,
-        vat_percent: computed.vatPercent,
-        final_unit_price: computed.finalUnitPrice,
-        line_total: computed.lineTotal,
-        line_margin_total: computed.lineMarginTotal,
-        line_note: String(item.lineNote || "").trim()
+        draft: item,
+        row: {
+          material_code: materialCode,
+          unit: String(item.unit || "ks").trim() || "ks",
+          quantity: computed.quantity,
+          unit_price: computed.unitPrice,
+          purchase_price: computed.purchasePrice,
+          discount_percent: computed.discountPercent,
+          vat_percent: computed.vatPercent,
+          final_unit_price: computed.finalUnitPrice,
+          line_total: computed.lineTotal,
+          line_margin_total: computed.lineMarginTotal,
+          line_note: String(item.lineNote || "").trim()
+        }
       });
     }
 
@@ -4348,6 +4388,101 @@ function App() {
 
     setQuoteSubmitting(true);
     setQuotesError("");
+
+    if (editingQuoteId) {
+      const existingItems = quoteItemsByQuoteId[editingQuoteId] || [];
+      const existingItemIds = new Set(existingItems.map((item) => String(item.id || "")).filter(Boolean));
+      const payloadBase = {
+        customer_id: customer.id,
+        customer_name: customer.name
+      };
+
+      const { data: updatedQuoteRow, error: quoteUpdateError } = await supabase
+        .from("quotes")
+        .update(payloadBase)
+        .eq("id", editingQuoteId)
+        .select("id,company_id,customer_id,customer_name,quote_number,status,note,created_at,created_by")
+        .single();
+
+      if (quoteUpdateError) {
+        setQuotesError(quoteUpdateError.message || "Nepodarilo sa upraviť cenovú ponuku.");
+        setQuoteSubmitting(false);
+        return;
+      }
+
+      const existingRows = [];
+      const newRows = [];
+      const keptIds = new Set();
+
+      normalizedItems.forEach(({ draft, row }) => {
+        const quoteItemId = String(draft?.quoteItemId || "").trim();
+        const rowPayload = { ...row, quote_id: editingQuoteId };
+        if (quoteItemId) {
+          keptIds.add(quoteItemId);
+          existingRows.push({ ...rowPayload, id: quoteItemId });
+        } else {
+          newRows.push(rowPayload);
+        }
+      });
+
+      let updatedItems = [];
+
+      if (existingRows.length > 0) {
+        const { data: upsertedItems, error: upsertError } = await supabase
+          .from("quote_items")
+          .upsert(existingRows, { onConflict: "id" })
+          .select("*");
+        if (upsertError) {
+          setQuotesError(upsertError.message || "Nepodarilo sa upraviť položky cenovej ponuky.");
+          setQuoteSubmitting(false);
+          return;
+        }
+        updatedItems = [...updatedItems, ...(upsertedItems || [])];
+      }
+
+      if (newRows.length > 0) {
+        const { data: insertedItems, error: insertItemsError } = await supabase
+          .from("quote_items")
+          .insert(newRows)
+          .select("*");
+        if (insertItemsError) {
+          setQuotesError(insertItemsError.message || "Nepodarilo sa doplniť nové položky cenovej ponuky.");
+          setQuoteSubmitting(false);
+          return;
+        }
+        updatedItems = [...updatedItems, ...(insertedItems || [])];
+      }
+
+      const removedIds = Array.from(existingItemIds).filter((id) => !keptIds.has(id));
+      if (removedIds.length > 0) {
+        const { error: deleteItemsError } = await supabase.from("quote_items").delete().in("id", removedIds);
+        if (deleteItemsError) {
+          setQuotesError(deleteItemsError.message || "Nepodarilo sa odstrániť zmazané položky cenovej ponuky.");
+          setQuoteSubmitting(false);
+          return;
+        }
+      }
+
+      const mergedEditedItems = normalizedItems.map(({ draft, row: rowData }, index) => {
+        const quoteItemId = String(draft?.quoteItemId || "").trim();
+        const matchedRow = updatedItems.find((row) => String(row.id || "") === quoteItemId) || updatedItems.find((row) =>
+          String(row.material_code || "") === String(rowData.material_code || "") &&
+          Number(row.quantity || 0) === Number(rowData.quantity || 0) &&
+          String(row.line_note || "") === String(rowData.line_note || "")
+        );
+        return matchedRow || { ...rowData, id: quoteItemId || `draft-${index}`, quote_id: editingQuoteId };
+      });
+
+      setQuotes((prev) => prev.map((row) => (row.id === updatedQuoteRow.id ? updatedQuoteRow : row)));
+      setQuoteItems((prev) => [
+        ...prev.filter((row) => String(row.quote_id || "") !== editingQuoteId),
+        ...mergedEditedItems
+      ]);
+      setExpandedQuotes((prev) => ({ ...prev, [editingQuoteId]: true }));
+      resetQuoteDraft();
+      setQuoteSubmitting(false);
+      return;
+    }
 
     const { data: quoteRow, error: quoteInsertError } = await supabase
       .from("quotes")
@@ -4373,10 +4508,8 @@ function App() {
 
     const { data: insertedItems, error: itemInsertError } = await supabase
       .from("quote_items")
-      .insert(normalizedItems.map((item) => ({ ...item, quote_id: quoteRow.id })))
-      .select(
-        "*"
-      );
+      .insert(normalizedItems.map(({ row }) => ({ ...row, quote_id: quoteRow.id })))
+      .select("*");
 
     if (itemInsertError) {
       setQuotesError(itemInsertError.message || "Ponuka sa vytvorila, ale položky sa nepodarilo uložiť.");
@@ -7327,9 +7460,13 @@ function App() {
               <article className="orders-panel-card workflow-card workflow-card-strong">
                 <div className="panel-head workflow-section-head">
                   <div>
-                    <p className="workflow-section-kicker">Nová ponuka</p>
-                    <h2>Vytvoriť cenovú ponuku</h2>
-                    <p className="panel-meta">Položky sa dopĺňajú z cenníka, ceny vieš ešte manuálne upraviť.</p>
+                    <p className="workflow-section-kicker">{editingQuoteId ? "Úprava ponuky" : "Nová ponuka"}</p>
+                    <h2>{editingQuoteId ? "Upraviť cenovú ponuku" : "Vytvoriť cenovú ponuku"}</h2>
+                    <p className="panel-meta">
+                      {editingQuoteId
+                        ? "Uprav zákazníka a položky, potom ulož zmeny do existujúcej ponuky."
+                        : "Položky sa dopĺňajú z cenníka, ceny vieš ešte manuálne upraviť."}
+                    </p>
                   </div>
                 </div>
 
@@ -7491,8 +7628,13 @@ function App() {
                     <button type="button" className="clear-btn" onClick={handleAddQuoteDraftItem}>
                       Pridať položku
                     </button>
+                    {editingQuoteId && (
+                      <button type="button" className="clear-btn" onClick={handleCancelQuoteEdit} disabled={quoteSubmitting}>
+                        Zrušiť úpravu
+                      </button>
+                    )}
                     <button type="submit" className="settings-btn" disabled={!activeCompanyId || quoteSubmitting}>
-                      {quoteSubmitting ? "Vytváram..." : "Vytvoriť ponuku"}
+                      {quoteSubmitting ? (editingQuoteId ? "Ukladám..." : "Vytváram...") : editingQuoteId ? "Uložiť zmeny" : "Vytvoriť ponuku"}
                     </button>
                   </div>
                 </form>
@@ -7563,6 +7705,9 @@ function App() {
                             <div className="order-card-body">
                               {quote.note && <p className="order-card-note">{quote.note}</p>}
                               <div className="order-card-actions">
+                                <button type="button" className="clear-btn" onClick={() => handleEditQuote(quote)}>
+                                  Upraviť
+                                </button>
                                 <button type="button" className="clear-btn" onClick={() => handlePrintQuote(quote)}>
                                   PDF
                                 </button>

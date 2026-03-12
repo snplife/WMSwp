@@ -10,6 +10,9 @@
     sent: "odoslaná",
     accepted: "schválená",
     rejected: "zamietnutá",
+    issued: "vystavená",
+    paid: "uhradená",
+    cancelled: "stornovaná",
     completed: "dokončené",
     unknown: "neznáme"
   };

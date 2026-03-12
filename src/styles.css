@@ -674,17 +674,22 @@ select {
   align-items: start;
 }
 
-.workflow-shell-quotes .orders-layout {
+.workflow-shell-quotes .orders-layout,
+.workflow-shell-invoices .orders-layout {
   grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
 }
 
 .workflow-shell-quotes .orders-panel-card,
 .workflow-shell-quotes .workflow-feed-column,
-.workflow-shell-quotes .workflow-editor-column {
+.workflow-shell-quotes .workflow-editor-column,
+.workflow-shell-invoices .orders-panel-card,
+.workflow-shell-invoices .workflow-feed-column,
+.workflow-shell-invoices .workflow-editor-column {
   min-width: 0;
 }
 
-.workflow-shell-quotes .workflow-feed-column .search-input {
+.workflow-shell-quotes .workflow-feed-column .search-input,
+.workflow-shell-invoices .workflow-feed-column .search-input {
   min-width: 0;
   width: 100%;
 }
@@ -2055,7 +2060,8 @@ tbody tr:nth-child(even) {
 }
 
 @media (max-width: 1180px) {
-  .workflow-shell-quotes .orders-layout {
+  .workflow-shell-quotes .orders-layout,
+  .workflow-shell-invoices .orders-layout {
     grid-template-columns: 1fr;
   }
 }

@@ -10,6 +10,7 @@ import logo from "../logo.png";
 const DAILY_OVERVIEW_TABLE = "__daily_overview__";
 const CUSTOMERS_MODULE = "__customers__";
 const QUOTES_MODULE = "__quotes__";
+const INVOICES_MODULE = "__invoices__";
 const ORDERS_MODULE = "__orders__";
 const PRODUCTION_MODULE = "__production__";
 const PRICE_LIST_TABLE = "price_list";
@@ -76,6 +77,18 @@ const TABLE_CONFIG = {
     orderBy: "created_at",
     orderAsc: false,
     metricLabel: "Ponuky",
+    metricValue: (rows) => rows.length
+  },
+  [INVOICES_MODULE]: {
+    title: "Fakturácia",
+    subtitle: "Faktúry zo zákazníkov a cenníka",
+    columns: [],
+    searchKeys: [],
+    statusKeys: [],
+    timeKeys: [],
+    orderBy: "created_at",
+    orderAsc: false,
+    metricLabel: "Faktúry",
     metricValue: (rows) => rows.length
   },
   stock_history: {
@@ -223,6 +236,9 @@ function getTableConfig(table) {
   if (isQuoteModule(table)) {
     return TABLE_CONFIG[QUOTES_MODULE];
   }
+  if (isInvoiceModule(table)) {
+    return TABLE_CONFIG[INVOICES_MODULE];
+  }
   if (isOrdersModule(table)) {
     return TABLE_CONFIG[ORDERS_MODULE];
   }
@@ -246,6 +262,10 @@ function isQuoteModule(table) {
   return String(table || "").trim() === QUOTES_MODULE;
 }
 
+function isInvoiceModule(table) {
+  return String(table || "").trim() === INVOICES_MODULE;
+}
+
 function isOrdersModule(table) {
   return String(table || "").trim() === ORDERS_MODULE;
 }
@@ -255,7 +275,7 @@ function isProductionModule(table) {
 }
 
 function isWorkflowModule(table) {
-  return isCustomerModule(table) || isQuoteModule(table) || isOrdersModule(table) || isProductionModule(table);
+  return isCustomerModule(table) || isQuoteModule(table) || isInvoiceModule(table) || isOrdersModule(table) || isProductionModule(table);
 }
 
 function isDailyOverviewTable(table) {
@@ -277,6 +297,9 @@ function getTableLabel(table) {
   }
   if (isQuoteModule(table)) {
     return "Cenové ponuky";
+  }
+  if (isInvoiceModule(table)) {
+    return "Fakturácia";
   }
   if (isOrdersModule(table)) {
     return "Objednávky";
@@ -323,6 +346,23 @@ function createEmptyQuoteDraftItem() {
   return {
     draftId: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
     quoteItemId: "",
+    priceListId: "",
+    materialCode: "",
+    unit: "ks",
+    quantity: "1",
+    unitPrice: "",
+    purchasePrice: "",
+    discountPercent: "0",
+    vatPercent: "23",
+    lineNote: "",
+    showNote: false
+  };
+}
+
+function createEmptyInvoiceDraftItem() {
+  return {
+    draftId: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    invoiceItemId: "",
     priceListId: "",
     materialCode: "",
     unit: "ks",
@@ -813,6 +853,14 @@ function buildQuoteNumber() {
   return `CEN-${datePart}-${timePart}-${randomPart}`;
 }
 
+function buildInvoiceNumber() {
+  const now = new Date();
+  const datePart = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+  const timePart = `${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}`;
+  const randomPart = Math.floor(1000 + Math.random() * 9000);
+  return `FAK-${datePart}-${timePart}-${randomPart}`;
+}
+
 function buildProductionNumber() {
   const now = new Date();
   const datePart = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
@@ -1265,6 +1313,28 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
 
 function printQuotePdf(quote, customer, items, companyProfile) {
   printHtmlDocument(buildQuotePrintHtml(quote, customer, items, companyProfile));
+}
+
+function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
+  return buildQuotePrintHtml(
+    {
+      ...invoice,
+      quote_number: invoice?.invoice_number || invoice?.quote_number || "",
+      status: invoice?.status || "draft"
+    },
+    customer,
+    items,
+    companyProfile
+  )
+    .replace(/Cenova-ponuka/g, "Faktura")
+    .replace(/Cenová ponuka/g, "Faktúra")
+    .replace(/Obchodná ponuka/g, "Fakturácia")
+    .replace(/Číslo ponuky/g, "Číslo faktúry")
+    .replace(/Rekapitulácia cenovej ponuky/g, "Rekapitulácia faktúry");
+}
+
+function printInvoicePdf(invoice, customer, items, companyProfile) {
+  printHtmlDocument(buildInvoicePrintHtml(invoice, customer, items, companyProfile));
 }
 
 function buildProductionPrintHtml(productionOrder, inputs, outputs, companyName) {
@@ -1979,6 +2049,18 @@ function App() {
   const [quoteSubmitting, setQuoteSubmitting] = useState(false);
   const [quoteStatusSavingId, setQuoteStatusSavingId] = useState("");
   const [expandedQuotes, setExpandedQuotes] = useState({});
+  const [invoices, setInvoices] = useState([]);
+  const [invoiceItems, setInvoiceItems] = useState([]);
+  const [invoicePriceListRows, setInvoicePriceListRows] = useState([]);
+  const [invoicesLoading, setInvoicesLoading] = useState(false);
+  const [invoicesError, setInvoicesError] = useState("");
+  const [editingInvoiceId, setEditingInvoiceId] = useState("");
+  const [selectedInvoiceCustomerId, setSelectedInvoiceCustomerId] = useState("");
+  const [invoiceSearchTerm, setInvoiceSearchTerm] = useState("");
+  const [invoiceDraftItems, setInvoiceDraftItems] = useState([createEmptyInvoiceDraftItem()]);
+  const [invoiceSubmitting, setInvoiceSubmitting] = useState(false);
+  const [invoiceStatusSavingId, setInvoiceStatusSavingId] = useState("");
+  const [expandedInvoices, setExpandedInvoices] = useState({});
   const [orders, setOrders] = useState([]);
   const [orderItems, setOrderItems] = useState([]);
   const [ordersStockRows, setOrdersStockRows] = useState([]);
@@ -2031,12 +2113,12 @@ function App() {
   const hotjarAllowed = (authReady || authInitTimedOut) && (!isLoggedIn || !isMaster);
   const visibleTableNames = useMemo(() => {
     if (isMaster) {
-      return Array.from(new Set([...tableNames, PRICE_LIST_TABLE, CUSTOMERS_MODULE, QUOTES_MODULE, ORDERS_MODULE, PRODUCTION_MODULE]));
+      return Array.from(new Set([...tableNames, PRICE_LIST_TABLE, CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE, PRODUCTION_MODULE]));
     }
     const baseTables = Array.from(
       new Set([DAILY_OVERVIEW_TABLE, PRICE_LIST_TABLE, ...tableNames.filter((table) => table === "stock" || isTransactionsTable(table))])
     );
-    return canAccessOrdersModule ? [...baseTables, CUSTOMERS_MODULE, QUOTES_MODULE, ORDERS_MODULE, PRODUCTION_MODULE] : baseTables;
+    return canAccessOrdersModule ? [...baseTables, CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE, PRODUCTION_MODULE] : baseTables;
   }, [isMaster, canAccessOrdersModule]);
   const companyNameById = useMemo(
     () =>
@@ -2068,7 +2150,7 @@ function App() {
       if (!order.customer_id) {
         return;
       }
-      usage[order.customer_id] = usage[order.customer_id] || { orders: 0, quotes: 0 };
+      usage[order.customer_id] = usage[order.customer_id] || { orders: 0, quotes: 0, invoices: 0 };
       usage[order.customer_id].orders += 1;
     });
 
@@ -2076,12 +2158,20 @@ function App() {
       if (!quote.customer_id) {
         return;
       }
-      usage[quote.customer_id] = usage[quote.customer_id] || { orders: 0, quotes: 0 };
+      usage[quote.customer_id] = usage[quote.customer_id] || { orders: 0, quotes: 0, invoices: 0 };
       usage[quote.customer_id].quotes += 1;
     });
 
+    invoices.forEach((invoice) => {
+      if (!invoice.customer_id) {
+        return;
+      }
+      usage[invoice.customer_id] = usage[invoice.customer_id] || { orders: 0, quotes: 0, invoices: 0 };
+      usage[invoice.customer_id].invoices += 1;
+    });
+
     return usage;
-  }, [orders, quotes]);
+  }, [orders, quotes, invoices]);
   const quoteItemsByQuoteId = useMemo(() => {
     const grouped = {};
     for (const item of quoteItems) {
@@ -2093,6 +2183,17 @@ function App() {
     }
     return grouped;
   }, [quoteItems]);
+  const invoiceItemsByInvoiceId = useMemo(() => {
+    const grouped = {};
+    for (const item of invoiceItems) {
+      const invoiceId = String(item.invoice_id || "");
+      if (!grouped[invoiceId]) {
+        grouped[invoiceId] = [];
+      }
+      grouped[invoiceId].push(item);
+    }
+    return grouped;
+  }, [invoiceItems]);
   const orderItemsByOrderId = useMemo(() => {
     const grouped = {};
     for (const item of orderItems) {
@@ -2185,6 +2286,19 @@ function App() {
   const quotePriceListMap = useMemo(
     () => Object.fromEntries(quotePriceListOptions.map((item) => [item.priceListId, item.row])),
     [quotePriceListOptions]
+  );
+  const invoicePriceListOptions = useMemo(
+    () =>
+      invoicePriceListRows.map((row) => ({
+        priceListId: String(row.id || ""),
+        row,
+        label: `${String(row.material_code || "-")} | ${formatCurrencyValue(row.unit_price || 0)} / ${String(row.unit || "ks")}`
+      })),
+    [invoicePriceListRows]
+  );
+  const invoicePriceListMap = useMemo(
+    () => Object.fromEntries(invoicePriceListOptions.map((item) => [item.priceListId, item.row])),
+    [invoicePriceListOptions]
   );
   const selectedPriceListRow = useMemo(
     () => priceListRowsByMaterial[normalizeOptionSearchValue(priceListMaterialInput)] || null,
@@ -3315,9 +3429,29 @@ function App() {
     setQuoteDraftItems([createEmptyQuoteDraftItem()]);
   };
 
+  const resetInvoiceDraft = () => {
+    setEditingInvoiceId("");
+    setInvoiceDraftItems([createEmptyInvoiceDraftItem()]);
+  };
+
   const createQuoteDraftItemFromRow = (row) => ({
     draftId: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
     quoteItemId: String(row?.id || ""),
+    priceListId: "",
+    materialCode: String(row?.material_code || ""),
+    unit: String(row?.unit || "ks"),
+    quantity: String(row?.quantity ?? "1"),
+    unitPrice: String(row?.unit_price ?? ""),
+    purchasePrice: String(row?.purchase_price ?? ""),
+    discountPercent: String(row?.discount_percent ?? "0"),
+    vatPercent: String(row?.vat_percent ?? "23"),
+    lineNote: String(row?.line_note || ""),
+    showNote: Boolean(String(row?.line_note || "").trim())
+  });
+
+  const createInvoiceDraftItemFromRow = (row) => ({
+    draftId: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    invoiceItemId: String(row?.id || ""),
     priceListId: "",
     materialCode: String(row?.material_code || ""),
     unit: String(row?.unit || "ks"),
@@ -3382,6 +3516,7 @@ function App() {
       setCustomers([]);
       setOrders([]);
       setQuotes([]);
+      setInvoices([]);
       setCustomersLoading(false);
       setCustomersError("");
       return;
@@ -3400,12 +3535,23 @@ function App() {
         .from("quotes")
         .select("id,customer_id")
         .order("created_at", { ascending: false });
+      const invoicesQuery = supabase
+        .from("invoices")
+        .select("id,customer_id")
+        .order("created_at", { ascending: false });
       const scopedOrdersQuery = scopedCompanyId ? ordersQuery.eq("company_id", scopedCompanyId) : ordersQuery;
       const scopedQuotesQuery = scopedCompanyId ? quotesQuery.eq("company_id", scopedCompanyId) : quotesQuery;
-      const [customersData, { data: ordersData, error: ordersLoadError }, { data: quotesData, error: quotesLoadError }] = await Promise.all([
+      const scopedInvoicesQuery = scopedCompanyId ? invoicesQuery.eq("company_id", scopedCompanyId) : invoicesQuery;
+      const [
+        customersData,
+        { data: ordersData, error: ordersLoadError },
+        { data: quotesData, error: quotesLoadError },
+        { data: invoicesData, error: invoicesLoadError }
+      ] = await Promise.all([
         fetchScopedCustomers(scopedCompanyId),
         scopedOrdersQuery,
-        scopedQuotesQuery
+        scopedQuotesQuery,
+        scopedInvoicesQuery
       ]);
       if (ordersLoadError) {
         throw ordersLoadError;
@@ -3413,13 +3559,18 @@ function App() {
       if (quotesLoadError) {
         throw quotesLoadError;
       }
+      if (invoicesLoadError) {
+        throw invoicesLoadError;
+      }
       setCustomers(customersData);
       setOrders(ordersData || []);
       setQuotes(quotesData || []);
+      setInvoices(invoicesData || []);
     } catch (loadCustomersError) {
       setCustomers([]);
       setOrders([]);
       setQuotes([]);
+      setInvoices([]);
       setCustomersError(loadCustomersError?.message || "Nepodarilo sa načítať zákazníkov.");
     } finally {
       setCustomersLoading(false);
@@ -3498,6 +3649,79 @@ function App() {
       setQuotePriceListRows([]);
     } finally {
       setQuotesLoading(false);
+    }
+  };
+
+  const loadInvoicesModuleData = async () => {
+    if (!authReady || !isLoggedIn || !canAccessOrdersModule) {
+      setCustomers([]);
+      setInvoices([]);
+      setInvoiceItems([]);
+      setInvoicePriceListRows([]);
+      setInvoicesLoading(false);
+      setInvoicesError("");
+      return;
+    }
+
+    setInvoicesLoading(true);
+    setInvoicesError("");
+
+    try {
+      const scopedCompanyId = await resolveCustomerScope();
+      const invoicesQuery = supabase
+        .from("invoices")
+        .select("id,company_id,customer_id,customer_name,invoice_number,status,note,created_at,created_by")
+        .order("created_at", { ascending: false });
+      const priceListQuery = supabase
+        .from(PRICE_LIST_TABLE)
+        .select("id,company_id,material_code,unit,unit_price,purchase_price,note,created_at,updated_at,created_by")
+        .order("material_code", { ascending: true });
+
+      const scopedInvoicesQuery = scopedCompanyId ? invoicesQuery.eq("company_id", scopedCompanyId) : invoicesQuery;
+      const scopedPriceListQuery = scopedCompanyId ? priceListQuery.eq("company_id", scopedCompanyId) : priceListQuery;
+
+      const [
+        customersData,
+        { data: invoicesData, error: invoicesLoadError },
+        { data: priceListData, error: priceListLoadError }
+      ] = await Promise.all([fetchScopedCustomers(scopedCompanyId), scopedInvoicesQuery, scopedPriceListQuery]);
+      if (invoicesLoadError) {
+        throw invoicesLoadError;
+      }
+      if (priceListLoadError) {
+        throw priceListLoadError;
+      }
+
+      const invoiceIds = (invoicesData || []).map((row) => row.id).filter(Boolean);
+      let itemsData = [];
+      if (invoiceIds.length > 0) {
+        const { data, error: itemsError } = await supabase
+          .from("invoice_items")
+          .select("*")
+          .in("invoice_id", invoiceIds)
+          .order("created_at", { ascending: true });
+
+        if (itemsError) {
+          throw itemsError;
+        }
+        itemsData = data || [];
+      }
+
+      setCustomers(customersData || []);
+      setInvoices(invoicesData || []);
+      setInvoiceItems(itemsData);
+      setInvoicePriceListRows((priceListData || []).map((row) => buildPriceListComputedRow(row)));
+      if (!selectedInvoiceCustomerId && (customersData || []).length === 1) {
+        setSelectedInvoiceCustomerId(customersData[0].id);
+      }
+    } catch (loadInvoicesError) {
+      setInvoicesError(loadInvoicesError?.message || "Nepodarilo sa načítať fakturáciu.");
+      setCustomers([]);
+      setInvoices([]);
+      setInvoiceItems([]);
+      setInvoicePriceListRows([]);
+    } finally {
+      setInvoicesLoading(false);
     }
   };
 
@@ -4092,6 +4316,41 @@ function App() {
     );
   };
 
+  const handleInvoiceDraftItemChange = (index, field, value) => {
+    setInvoiceDraftItems((prev) =>
+      prev.map((item, currentIndex) => {
+        if (currentIndex !== index) {
+          return item;
+        }
+
+        if (field === "materialCode") {
+          const matchedOption = resolvePriceListOption(value, invoicePriceListOptions);
+          const priceRow = matchedOption?.row || null;
+          return {
+            ...item,
+            priceListId: matchedOption ? matchedOption.priceListId : "",
+            materialCode: priceRow ? String(priceRow.material_code || "") : value,
+            unit: priceRow ? String(priceRow.unit || "ks") : item.unit,
+            unitPrice: priceRow ? String(priceRow.unit_price ?? "") : item.unitPrice,
+            purchasePrice: priceRow ? String(priceRow.purchase_price ?? "") : item.purchasePrice
+          };
+        }
+
+        return { ...item, [field]: value };
+      })
+    );
+  };
+
+  const handleAddInvoiceDraftItem = () => {
+    setInvoiceDraftItems((prev) => [...prev, createEmptyInvoiceDraftItem()]);
+  };
+
+  const handleRemoveInvoiceDraftItem = (index) => {
+    setInvoiceDraftItems((prev) =>
+      prev.length <= 1 ? [createEmptyInvoiceDraftItem()] : prev.filter((_, itemIndex) => itemIndex !== index)
+    );
+  };
+
   const handleSelectRegistryCompany = async (company) => {
     const companyId = String(company?.id || "").trim();
     if (!companyId) {
@@ -4268,8 +4527,9 @@ function App() {
 
     const linkedOrder = orders.find((item) => item.customer_id === customerId);
     const linkedQuote = quotes.find((item) => item.customer_id === customerId);
-    if (linkedOrder || linkedQuote) {
-      const linkLabel = linkedOrder ? "objednávkach" : "cenových ponukách";
+    const linkedInvoice = invoices.find((item) => item.customer_id === customerId);
+    if (linkedOrder || linkedQuote || linkedInvoice) {
+      const linkLabel = linkedOrder ? "objednávkach" : linkedQuote ? "cenových ponukách" : "fakturách";
       setCustomersError(`Zákazník je už použitý v ${linkLabel}, preto ho nemažem.`);
       return;
     }
@@ -4543,6 +4803,252 @@ function App() {
     setQuoteStatusSavingId("");
   };
 
+  const handleEditInvoice = (invoice) => {
+    const invoiceId = String(invoice?.id || "").trim();
+    if (!invoiceId) {
+      return;
+    }
+
+    const items = invoiceItemsByInvoiceId[invoiceId] || [];
+    setEditingInvoiceId(invoiceId);
+    setSelectedInvoiceCustomerId(String(invoice?.customer_id || ""));
+    setInvoiceDraftItems(items.length > 0 ? items.map((item) => createInvoiceDraftItemFromRow(item)) : [createEmptyInvoiceDraftItem()]);
+    setExpandedInvoices((prev) => ({ ...prev, [invoiceId]: true }));
+    setInvoicesError("");
+  };
+
+  const handleCancelInvoiceEdit = () => {
+    resetInvoiceDraft();
+    setInvoicesError("");
+  };
+
+  const handleCreateInvoice = async (event) => {
+    event.preventDefault();
+
+    const companyId = activeCompanyId || userCompanyId;
+    const customer = customersById[selectedInvoiceCustomerId];
+    if (!companyId) {
+      setInvoicesError("Vyber firmu pre faktúru.");
+      return;
+    }
+    if (!customer) {
+      setInvoicesError("Vyber zákazníka.");
+      return;
+    }
+
+    const normalizedItems = [];
+    for (let index = 0; index < invoiceDraftItems.length; index += 1) {
+      const item = invoiceDraftItems[index];
+      const materialCode = String(item.materialCode || "").trim();
+      if (!materialCode) {
+        continue;
+      }
+
+      const quantity = normalizePriceInput(item.quantity);
+      const unitPrice = normalizePriceInput(item.unitPrice);
+      const purchasePrice = normalizePriceInput(item.purchasePrice) ?? 0;
+      const discountPercent =
+        String(item.discountPercent || "").trim() === "" ? 0 : normalizePriceInput(item.discountPercent);
+      const vatPercent = String(item.vatPercent || "").trim() === "" ? 0 : normalizePriceInput(item.vatPercent);
+
+      if (quantity === null || quantity <= 0) {
+        setInvoicesError(`Zadaj platné množstvo pre ${materialCode}.`);
+        return;
+      }
+      if (unitPrice === null) {
+        setInvoicesError(`Zadaj platnú predajnú cenu pre ${materialCode}.`);
+        return;
+      }
+      if (discountPercent === null || discountPercent < 0 || discountPercent > 100) {
+        setInvoicesError(`Zadaj platnú zľavu 0 až 100 % pre ${materialCode}.`);
+        return;
+      }
+      if (vatPercent === null || !QUOTE_VAT_OPTIONS.includes(vatPercent)) {
+        setInvoicesError(`DPH pre ${materialCode} môže byť len 0 %, 5 %, 19 % alebo 23 %.`);
+        return;
+      }
+
+      const computed = computeQuoteLineTotals({ quantity, unitPrice, purchasePrice, discountPercent, vatPercent });
+      normalizedItems.push({
+        draft: item,
+        row: {
+          material_code: materialCode,
+          unit: String(item.unit || "ks").trim() || "ks",
+          quantity: computed.quantity,
+          unit_price: computed.unitPrice,
+          purchase_price: computed.purchasePrice,
+          discount_percent: computed.discountPercent,
+          vat_percent: computed.vatPercent,
+          final_unit_price: computed.finalUnitPrice,
+          line_total: computed.lineTotal,
+          line_margin_total: computed.lineMarginTotal,
+          line_note: String(item.lineNote || "").trim()
+        }
+      });
+    }
+
+    if (normalizedItems.length === 0) {
+      setInvoicesError("Pridaj aspoň jednu položku faktúry.");
+      return;
+    }
+
+    setInvoiceSubmitting(true);
+    setInvoicesError("");
+
+    if (editingInvoiceId) {
+      const existingItems = invoiceItemsByInvoiceId[editingInvoiceId] || [];
+      const existingItemIds = new Set(existingItems.map((item) => String(item.id || "")).filter(Boolean));
+      const payloadBase = {
+        customer_id: customer.id,
+        customer_name: customer.name
+      };
+
+      const { data: updatedInvoiceRow, error: invoiceUpdateError } = await supabase
+        .from("invoices")
+        .update(payloadBase)
+        .eq("id", editingInvoiceId)
+        .select("id,company_id,customer_id,customer_name,invoice_number,status,note,created_at,created_by")
+        .single();
+
+      if (invoiceUpdateError) {
+        setInvoicesError(invoiceUpdateError.message || "Nepodarilo sa upraviť faktúru.");
+        setInvoiceSubmitting(false);
+        return;
+      }
+
+      const existingRows = [];
+      const newRows = [];
+      const keptIds = new Set();
+
+      normalizedItems.forEach(({ draft, row }) => {
+        const invoiceItemId = String(draft?.invoiceItemId || "").trim();
+        const rowPayload = { ...row, invoice_id: editingInvoiceId };
+        if (invoiceItemId) {
+          keptIds.add(invoiceItemId);
+          existingRows.push({ ...rowPayload, id: invoiceItemId });
+        } else {
+          newRows.push(rowPayload);
+        }
+      });
+
+      let updatedItems = [];
+
+      if (existingRows.length > 0) {
+        const { data: upsertedItems, error: upsertError } = await supabase
+          .from("invoice_items")
+          .upsert(existingRows, { onConflict: "id" })
+          .select("*");
+        if (upsertError) {
+          setInvoicesError(upsertError.message || "Nepodarilo sa upraviť položky faktúry.");
+          setInvoiceSubmitting(false);
+          return;
+        }
+        updatedItems = [...updatedItems, ...(upsertedItems || [])];
+      }
+
+      if (newRows.length > 0) {
+        const { data: insertedItems, error: insertItemsError } = await supabase
+          .from("invoice_items")
+          .insert(newRows)
+          .select("*");
+        if (insertItemsError) {
+          setInvoicesError(insertItemsError.message || "Nepodarilo sa doplniť nové položky faktúry.");
+          setInvoiceSubmitting(false);
+          return;
+        }
+        updatedItems = [...updatedItems, ...(insertedItems || [])];
+      }
+
+      const removedIds = Array.from(existingItemIds).filter((id) => !keptIds.has(id));
+      if (removedIds.length > 0) {
+        const { error: deleteItemsError } = await supabase.from("invoice_items").delete().in("id", removedIds);
+        if (deleteItemsError) {
+          setInvoicesError(deleteItemsError.message || "Nepodarilo sa odstrániť zmazané položky faktúry.");
+          setInvoiceSubmitting(false);
+          return;
+        }
+      }
+
+      const mergedEditedItems = normalizedItems.map(({ draft, row: rowData }, index) => {
+        const invoiceItemId = String(draft?.invoiceItemId || "").trim();
+        const matchedRow = updatedItems.find((row) => String(row.id || "") === invoiceItemId) || updatedItems.find((row) =>
+          String(row.material_code || "") === String(rowData.material_code || "") &&
+          Number(row.quantity || 0) === Number(rowData.quantity || 0) &&
+          String(row.line_note || "") === String(rowData.line_note || "")
+        );
+        return matchedRow || { ...rowData, id: invoiceItemId || `draft-${index}`, invoice_id: editingInvoiceId };
+      });
+
+      setInvoices((prev) => prev.map((row) => (row.id === updatedInvoiceRow.id ? updatedInvoiceRow : row)));
+      setInvoiceItems((prev) => [
+        ...prev.filter((row) => String(row.invoice_id || "") !== editingInvoiceId),
+        ...mergedEditedItems
+      ]);
+      setExpandedInvoices((prev) => ({ ...prev, [editingInvoiceId]: true }));
+      resetInvoiceDraft();
+      setInvoiceSubmitting(false);
+      return;
+    }
+
+    const { data: invoiceRow, error: invoiceInsertError } = await supabase
+      .from("invoices")
+      .insert([
+        {
+          company_id: companyId,
+          customer_id: customer.id,
+          customer_name: customer.name,
+          invoice_number: buildInvoiceNumber(),
+          status: "draft",
+          note: "",
+          created_by: authUser?.id || null
+        }
+      ])
+      .select("id,company_id,customer_id,customer_name,invoice_number,status,note,created_at,created_by")
+      .single();
+
+    if (invoiceInsertError) {
+      setInvoicesError(invoiceInsertError.message || "Nepodarilo sa vytvoriť faktúru.");
+      setInvoiceSubmitting(false);
+      return;
+    }
+
+    const { data: insertedItems, error: itemInsertError } = await supabase
+      .from("invoice_items")
+      .insert(normalizedItems.map(({ row }) => ({ ...row, invoice_id: invoiceRow.id })))
+      .select("*");
+
+    if (itemInsertError) {
+      setInvoicesError(itemInsertError.message || "Faktúra sa vytvorila, ale položky sa nepodarilo uložiť.");
+      setInvoiceSubmitting(false);
+      await loadInvoicesModuleData();
+      return;
+    }
+
+    setInvoices((prev) => [invoiceRow, ...prev]);
+    setInvoiceItems((prev) => [...prev, ...(insertedItems || [])]);
+    setExpandedInvoices((prev) => ({ ...prev, [invoiceRow.id]: true }));
+    resetInvoiceDraft();
+    setInvoiceSubmitting(false);
+  };
+
+  const handleInvoiceStatusChange = async (invoice, nextStatus) => {
+    if (!invoice?.id || !nextStatus || invoice.status === nextStatus) {
+      return;
+    }
+
+    setInvoiceStatusSavingId(invoice.id);
+    setInvoicesError("");
+    const { error: updateError } = await supabase.from("invoices").update({ status: nextStatus }).eq("id", invoice.id);
+    if (updateError) {
+      setInvoicesError(updateError.message || "Nepodarilo sa zmeniť stav faktúry.");
+      setInvoiceStatusSavingId("");
+      return;
+    }
+
+    setInvoices((prev) => prev.map((row) => (row.id === invoice.id ? { ...row, status: nextStatus } : row)));
+    setInvoiceStatusSavingId("");
+  };
+
   const handleCreateOrder = async (event) => {
     event.preventDefault();
 
@@ -4670,6 +5176,19 @@ function App() {
       );
     } catch (printError) {
       setQuotesError(printError?.message || "Nepodarilo sa vytvoriť PDF cenovej ponuky.");
+    }
+  };
+
+  const handlePrintInvoice = (invoice) => {
+    try {
+      printInvoicePdf(
+        invoice,
+        customersById[invoice.customer_id] || null,
+        invoiceItemsByInvoiceId[invoice.id] || [],
+        companiesById[invoice.company_id] || activeCompany || { name: companyNameById[invoice.company_id] || activeCompany?.name || currentCompanyLabel }
+      );
+    } catch (printError) {
+      setInvoicesError(printError?.message || "Nepodarilo sa vytvoriť PDF faktúry.");
     }
   };
 
@@ -5058,6 +5577,12 @@ function App() {
       setQuotePriceListRows([]);
       setQuotesError("");
       setQuotesLoading(false);
+      setInvoices([]);
+      setInvoiceItems([]);
+      setInvoicePriceListRows([]);
+      setInvoicesError("");
+      setInvoicesLoading(false);
+      setEditingInvoiceId("");
       setOrders([]);
       setOrderItems([]);
       setOrdersStockRows([]);
@@ -5104,7 +5629,7 @@ function App() {
       };
 
       const channel = supabase.channel(`customers-${selectedCompanyId || userCompanyId || "own"}`);
-      ["customers", "orders", "quotes"].forEach((table) => {
+      ["customers", "orders", "quotes", "invoices"].forEach((table) => {
         channel.on("postgres_changes", { event: "*", schema: "public", table }, scheduleReload);
       });
       channel.subscribe();
@@ -5167,6 +5692,37 @@ function App() {
 
       const channel = supabase.channel(`quotes-${selectedCompanyId || userCompanyId || "own"}`);
       ["customers", "quotes", "quote_items", PRICE_LIST_TABLE].forEach((table) => {
+        channel.on("postgres_changes", { event: "*", schema: "public", table }, scheduleReload);
+      });
+      channel.subscribe();
+
+      return () => {
+        if (reloadTimer) {
+          window.clearTimeout(reloadTimer);
+        }
+        supabase.removeChannel(channel);
+      };
+    }
+
+    if (isInvoiceModule(selectedTable)) {
+      setRows([]);
+      setStockSnapshotRows([]);
+      setDeadStockByKey({});
+      setStockAgeStats({ avgDays: null, sampleCount: 0 });
+      setOccupancySeries([]);
+      setLoading(false);
+      loadInvoicesModuleData();
+
+      let reloadTimer = null;
+      const scheduleReload = () => {
+        if (reloadTimer) {
+          window.clearTimeout(reloadTimer);
+        }
+        reloadTimer = window.setTimeout(() => loadInvoicesModuleData(), 350);
+      };
+
+      const channel = supabase.channel(`invoices-${selectedCompanyId || userCompanyId || "own"}`);
+      ["customers", "invoices", "invoice_items", PRICE_LIST_TABLE].forEach((table) => {
         channel.on("postgres_changes", { event: "*", schema: "public", table }, scheduleReload);
       });
       channel.subscribe();
@@ -5677,6 +6233,16 @@ function App() {
         .some((value) => String(value || "").toLowerCase().includes(normalized))
     );
   }, [quotes, quoteSearchTerm]);
+  const filteredInvoices = useMemo(() => {
+    const normalized = String(invoiceSearchTerm || "").trim().toLowerCase();
+    if (!normalized) {
+      return invoices;
+    }
+    return invoices.filter((invoice) =>
+      [invoice.invoice_number, invoice.customer_name, invoice.note, invoice.status]
+        .some((value) => String(value || "").toLowerCase().includes(normalized))
+    );
+  }, [invoices, invoiceSearchTerm]);
   const filteredProductionOrders = useMemo(() => {
     const normalized = String(productionSearchTerm || "").trim().toLowerCase();
     if (!normalized) {
@@ -5689,7 +6255,13 @@ function App() {
   }, [productionOrders, productionSearchTerm]);
   const sidebarSections = useMemo(() => {
     const monitoringItems = visibleTableNames.filter(
-      (table) => !isCustomerModule(table) && !isOrdersModule(table) && !isProductionModule(table) && !isQuoteModule(table) && table !== PRICE_LIST_TABLE
+      (table) =>
+        !isCustomerModule(table) &&
+        !isOrdersModule(table) &&
+        !isProductionModule(table) &&
+        !isQuoteModule(table) &&
+        !isInvoiceModule(table) &&
+        table !== PRICE_LIST_TABLE
     );
     const sections = [
       {
@@ -5698,10 +6270,15 @@ function App() {
       }
     ];
 
-    if (visibleTableNames.includes(CUSTOMERS_MODULE) || visibleTableNames.includes(ORDERS_MODULE) || visibleTableNames.includes(PRICE_LIST_TABLE)) {
+    if (
+      visibleTableNames.includes(CUSTOMERS_MODULE) ||
+      visibleTableNames.includes(ORDERS_MODULE) ||
+      visibleTableNames.includes(INVOICES_MODULE) ||
+      visibleTableNames.includes(PRICE_LIST_TABLE)
+    ) {
       sections.push({
         title: "Workflow",
-        items: [CUSTOMERS_MODULE, QUOTES_MODULE, ORDERS_MODULE, PRODUCTION_MODULE, PRICE_LIST_TABLE].filter((table) =>
+        items: [CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE, PRODUCTION_MODULE, PRICE_LIST_TABLE].filter((table) =>
           visibleTableNames.includes(table)
         )
       });
@@ -5989,6 +6566,18 @@ function App() {
     setQuotePriceListRows([]);
     setQuotesError("");
     setQuotesLoading(false);
+    setInvoices([]);
+    setInvoiceItems([]);
+    setInvoicePriceListRows([]);
+    setInvoicesError("");
+    setInvoicesLoading(false);
+    setEditingInvoiceId("");
+    setSelectedInvoiceCustomerId("");
+    setInvoiceSearchTerm("");
+    setInvoiceDraftItems([createEmptyInvoiceDraftItem()]);
+    setInvoiceSubmitting(false);
+    setInvoiceStatusSavingId("");
+    setExpandedInvoices({});
     setSelectedQuoteCustomerId("");
     setQuoteSearchTerm("");
     setQuoteDraftItems([createEmptyQuoteDraftItem()]);
@@ -7343,7 +7932,7 @@ function App() {
                     <p className="panel-meta">Žiadni zákazníci pre tento filter.</p>
                   ) : (
                     filteredCustomers.map((customer) => {
-                      const usage = customerUsageById[customer.id] || { orders: 0, quotes: 0 };
+                      const usage = customerUsageById[customer.id] || { orders: 0, quotes: 0, invoices: 0 };
                       return (
                         <article key={customer.id} className="order-card customer-card">
                           <div className="order-card-head customer-card-head">
@@ -7358,6 +7947,7 @@ function App() {
                             <div className="order-meta customer-inline-meta">
                               <span>{`Objednávky ${usage.orders}`}</span>
                               <span>{`Ponuky ${usage.quotes}`}</span>
+                              <span>{`Faktúry ${usage.invoices}`}</span>
                             </div>
                           </div>
                           <div className="order-detail customer-card-body">
@@ -7402,6 +7992,16 @@ function App() {
                                 }}
                               >
                                 Do ponuky
+                              </button>
+                              <button
+                                type="button"
+                                className="clear-btn"
+                                onClick={() => {
+                                  setSelectedInvoiceCustomerId(customer.id);
+                                  setSelectedTable(INVOICES_MODULE);
+                                }}
+                              >
+                                Do faktúry
                               </button>
                               <button
                                 type="button"
@@ -7787,6 +8387,383 @@ function App() {
                                     })}
                                    </tbody>
                                  </table>
+                              </div>
+                            </div>
+                          )}
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </article>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {isInvoiceModule(selectedTable) && canAccessOrdersModule && (
+        <section className="panel workflow-shell workflow-shell-invoices">
+          <div className="panel-head workflow-header">
+            <div>
+              <p className="workflow-eyebrow">Fakturačný workflow</p>
+              <h2>Fakturácia</h2>
+              <p className="panel-meta">
+                {activeCompanyId
+                  ? `Fakturácia pre firmu ${currentCompanyLabel}`
+                  : "Vyber konkrétnu firmu, aby sa dali vytvárať faktúry."}
+              </p>
+            </div>
+          </div>
+
+          {invoicesError && <p className="error">{invoicesError}</p>}
+
+          <div className="orders-summary-grid workflow-summary-grid">
+            <article className="card workflow-stat-card">
+              <p>Zákazníci</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(customers.length)}</strong>
+            </article>
+            <article className="card workflow-stat-card">
+              <p>Faktúry</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(invoices.length)}</strong>
+            </article>
+            <article className="card workflow-stat-card">
+              <p>Cenník</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(invoicePriceListRows.length)}</strong>
+            </article>
+          </div>
+
+          <div className="orders-layout workflow-grid">
+            <div className="orders-column workflow-editor-column">
+              <article className="orders-panel-card workflow-card workflow-card-strong">
+                <div className="panel-head workflow-section-head">
+                  <div>
+                    <p className="workflow-section-kicker">{editingInvoiceId ? "Úprava faktúry" : "Nová faktúra"}</p>
+                    <h2>{editingInvoiceId ? "Upraviť faktúru" : "Vytvoriť faktúru"}</h2>
+                    <p className="panel-meta">
+                      {editingInvoiceId
+                        ? "Uprav zákazníka a položky, potom ulož zmeny do existujúcej faktúry."
+                        : "Položky sa dopĺňajú z cenníka, ceny vieš ešte manuálne upraviť."}
+                    </p>
+                  </div>
+                </div>
+
+                <form className="orders-form" onSubmit={handleCreateInvoice}>
+                  <label className="workflow-field">
+                    <span className="workflow-field-label">Zákazník</span>
+                    <select
+                      value={selectedInvoiceCustomerId}
+                      onChange={(event) => setSelectedInvoiceCustomerId(event.target.value)}
+                      disabled={!activeCompanyId || invoiceSubmitting}
+                    >
+                      <option value="">Vyber zákazníka</option>
+                      {customers.map((customer) => (
+                        <option key={customer.id} value={customer.id}>
+                          {customer.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <div className="orders-draft-list">
+                    <datalist id="invoice-price-options">
+                      {invoicePriceListOptions.map((option) => (
+                        <option key={option.priceListId} value={option.label} />
+                      ))}
+                    </datalist>
+                    {invoiceDraftItems.map((item, index) => {
+                      const matchedPriceRow = invoicePriceListMap[item.priceListId] || resolvePriceListOption(item.materialCode, invoicePriceListOptions)?.row || null;
+                      const computed = computeQuoteLineTotals({
+                        quantity: normalizePriceInput(item.quantity) || 0,
+                        unitPrice: normalizePriceInput(item.unitPrice) || 0,
+                        purchasePrice: normalizePriceInput(item.purchasePrice) || 0,
+                        discountPercent:
+                          String(item.discountPercent || "").trim() === "" ? 0 : normalizePriceInput(item.discountPercent) || 0,
+                        vatPercent: String(item.vatPercent || "").trim() === "" ? 0 : normalizePriceInput(item.vatPercent) || 0
+                      });
+                      const showNote = Boolean(item.showNote || String(item.lineNote || "").trim());
+
+                      return (
+                        <div key={item.draftId || `invoice-draft-${index}`} className="orders-draft-row">
+                          <div className="quote-draft-main">
+                            <div className="orders-draft-cell quote-draft-primary">
+                              <span className="draft-field-label">{`Položka ${index + 1}`}</span>
+                              <input
+                                type="text"
+                                className="search-input"
+                                list="invoice-price-options"
+                                placeholder="Položka z cenníka"
+                                value={item.materialCode || ""}
+                                onChange={(event) => handleInvoiceDraftItemChange(index, "materialCode", event.target.value)}
+                                disabled={!activeCompanyId || invoiceSubmitting}
+                              />
+                              <p className="workflow-helper-text">
+                                {matchedPriceRow
+                                  ? `Cenník: ${formatCurrencyValue(matchedPriceRow.unit_price || 0)} / ${String(matchedPriceRow.unit || "ks")} | Marža ${formatCurrencyValue(matchedPriceRow.margin_value || 0)}`
+                                  : "Píš voľne alebo vyber návrh z cenníka."}
+                              </p>
+                            </div>
+                            <div className="orders-draft-cell quote-compact-cell">
+                              <span className="draft-field-label">MJ</span>
+                              <input
+                                type="text"
+                                className="search-input quote-compact-input quote-unit-input"
+                                value={item.unit}
+                                onChange={(event) => handleInvoiceDraftItemChange(index, "unit", event.target.value)}
+                                disabled={!activeCompanyId || invoiceSubmitting}
+                              />
+                            </div>
+                            <div className="orders-draft-cell quote-compact-cell">
+                              <span className="draft-field-label">Množstvo</span>
+                              <input
+                                type="number"
+                                min={0.01}
+                                step={0.01}
+                                className="dead-stock-days-input quote-compact-input"
+                                value={item.quantity}
+                                onChange={(event) => handleInvoiceDraftItemChange(index, "quantity", event.target.value)}
+                                disabled={!activeCompanyId || invoiceSubmitting}
+                              />
+                            </div>
+                            <div className="orders-draft-cell quote-compact-cell">
+                              <span className="draft-field-label">Predajná cena</span>
+                              <input
+                                type="number"
+                                min={0}
+                                step={0.01}
+                                className="dead-stock-days-input quote-price-input"
+                                value={item.unitPrice}
+                                onChange={(event) => handleInvoiceDraftItemChange(index, "unitPrice", event.target.value)}
+                                disabled={!activeCompanyId || invoiceSubmitting}
+                              />
+                            </div>
+                            <div className="orders-draft-cell quote-compact-cell">
+                              <span className="draft-field-label">Zľava %</span>
+                              <input
+                                type="number"
+                                min={0}
+                                max={100}
+                                step={0.01}
+                                className="dead-stock-days-input quote-discount-input"
+                                value={item.discountPercent}
+                                onChange={(event) => handleInvoiceDraftItemChange(index, "discountPercent", event.target.value)}
+                                disabled={!activeCompanyId || invoiceSubmitting}
+                              />
+                            </div>
+                            <div className="orders-draft-cell quote-compact-cell">
+                              <span className="draft-field-label">DPH %</span>
+                              <select
+                                className="quote-select-input"
+                                value={item.vatPercent}
+                                onChange={(event) => handleInvoiceDraftItemChange(index, "vatPercent", event.target.value)}
+                                disabled={!activeCompanyId || invoiceSubmitting}
+                              >
+                                {QUOTE_VAT_OPTIONS.map((rate) => (
+                                  <option key={rate} value={String(rate)}>
+                                    {`${rate} %`}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+                          <div className="quote-draft-summary">
+                            <span>{`Po zľave: ${formatCurrencyValue(computed.finalUnitPrice)}`}</span>
+                            <span>{`Bez DPH: ${formatCurrencyValue(computed.lineTotal)}`}</span>
+                            <span>{`S DPH: ${formatCurrencyValue(computed.lineTotalWithVat)}`}</span>
+                            <span>{`Marža: ${formatCurrencyValue(computed.lineMarginTotal)} | ${formatPercentValue(computed.lineMarginPercent, 2)}`}</span>
+                          </div>
+                          <div className="orders-draft-actions">
+                            <button
+                              type="button"
+                              className="clear-btn"
+                              onClick={() => handleInvoiceDraftItemChange(index, "showNote", !showNote)}
+                              disabled={!activeCompanyId || invoiceSubmitting}
+                            >
+                              {showNote ? "Skryť poznámku" : "Pridať poznámku"}
+                            </button>
+                            <button type="button" className="clear-btn" onClick={() => handleRemoveInvoiceDraftItem(index)}>
+                              Odobrať
+                            </button>
+                          </div>
+                          {showNote && (
+                            <div className="orders-draft-note-row">
+                              <input
+                                type="text"
+                                className="search-input"
+                                placeholder="Poznámka položky"
+                                value={item.lineNote}
+                                onChange={(event) => handleInvoiceDraftItemChange(index, "lineNote", event.target.value)}
+                                disabled={!activeCompanyId || invoiceSubmitting}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="orders-form-actions">
+                    <button type="button" className="clear-btn" onClick={handleAddInvoiceDraftItem}>
+                      Pridať položku
+                    </button>
+                    {editingInvoiceId && (
+                      <button type="button" className="clear-btn" onClick={handleCancelInvoiceEdit} disabled={invoiceSubmitting}>
+                        Zrušiť úpravu
+                      </button>
+                    )}
+                    <button type="submit" className="settings-btn" disabled={!activeCompanyId || invoiceSubmitting}>
+                      {invoiceSubmitting ? (editingInvoiceId ? "Ukladám..." : "Vytváram...") : editingInvoiceId ? "Uložiť zmeny" : "Vytvoriť faktúru"}
+                    </button>
+                  </div>
+                </form>
+              </article>
+            </div>
+
+            <div className="orders-column orders-column-list workflow-feed-column">
+              <article className="orders-panel-card workflow-card workflow-card-list">
+                <div className="panel-head workflow-section-head">
+                  <div>
+                    <h2>Zoznam faktúr</h2>
+                    <p className="panel-meta">{`${filteredInvoices.length} / ${invoices.length} faktúr`}</p>
+                  </div>
+                </div>
+                <div className="panel-controls">
+                  <input
+                    type="search"
+                    className="search-input"
+                    placeholder="Hľadaj zákazníka, číslo alebo stav faktúry"
+                    value={invoiceSearchTerm}
+                    onChange={(event) => setInvoiceSearchTerm(event.target.value)}
+                  />
+                </div>
+
+                {invoicesLoading ? (
+                  <p className="hint">Načítavam faktúry...</p>
+                ) : filteredInvoices.length === 0 ? (
+                  <p className="hint">Zatiaľ tu nie sú faktúry.</p>
+                ) : (
+                  <div className="orders-list">
+                    {filteredInvoices.map((invoice) => {
+                      const isOpen = Boolean(expandedInvoices[invoice.id]);
+                      const items = invoiceItemsByInvoiceId[invoice.id] || [];
+                      const totals = items.reduce(
+                        (acc, item) => {
+                          const computed = computeQuoteLineTotals({
+                            quantity: item.quantity,
+                            unitPrice: item.unit_price,
+                            purchasePrice: item.purchase_price,
+                            discountPercent: item.discount_percent,
+                            vatPercent: item.vat_percent
+                          });
+                          acc.total += computed.lineTotal;
+                          acc.totalWithVat += computed.lineTotalWithVat;
+                          acc.margin += computed.lineMarginTotal;
+                          return acc;
+                        },
+                        { total: 0, totalWithVat: 0, margin: 0 }
+                      );
+                      return (
+                        <article key={invoice.id} className="order-card">
+                          <button
+                            type="button"
+                            className="order-card-head"
+                            onClick={() => setExpandedInvoices((prev) => ({ ...prev, [invoice.id]: !prev[invoice.id] }))}
+                          >
+                            <div>
+                              <strong>{invoice.customer_name}</strong>
+                              <p>{invoice.invoice_number}</p>
+                            </div>
+                            <div className="order-card-meta">
+                              <span className="order-card-badge">{formatDate(invoice.created_at)}</span>
+                              <span className="order-card-badge">{`${items.length} položiek`}</span>
+                              <span className="order-card-badge">{`S DPH ${formatCurrencyValue(totals.totalWithVat)}`}</span>
+                            </div>
+                          </button>
+                          {isOpen && (
+                            <div className="order-card-body">
+                              {invoice.note && <p className="order-card-note">{invoice.note}</p>}
+                              <div className="order-card-actions">
+                                <button type="button" className="clear-btn" onClick={() => handleEditInvoice(invoice)}>
+                                  Upraviť
+                                </button>
+                                <button type="button" className="clear-btn" onClick={() => handlePrintInvoice(invoice)}>
+                                  PDF
+                                </button>
+                                <StatusPill status={String(invoice.status || "draft")} />
+                                {invoice.status !== "issued" && (
+                                  <button
+                                    type="button"
+                                    className="clear-btn"
+                                    onClick={() => handleInvoiceStatusChange(invoice, "issued")}
+                                    disabled={invoiceStatusSavingId === invoice.id}
+                                  >
+                                    Vystavená
+                                  </button>
+                                )}
+                                {invoice.status !== "paid" && (
+                                  <button
+                                    type="button"
+                                    className="clear-btn"
+                                    onClick={() => handleInvoiceStatusChange(invoice, "paid")}
+                                    disabled={invoiceStatusSavingId === invoice.id}
+                                  >
+                                    Uhradená
+                                  </button>
+                                )}
+                                {invoice.status !== "cancelled" && (
+                                  <button
+                                    type="button"
+                                    className="clear-btn"
+                                    onClick={() => handleInvoiceStatusChange(invoice, "cancelled")}
+                                    disabled={invoiceStatusSavingId === invoice.id}
+                                  >
+                                    Storno
+                                  </button>
+                                )}
+                              </div>
+                              <div className="table-wrap">
+                                <table>
+                                  <thead>
+                                    <tr>
+                                      <th>Materiál</th>
+                                      <th>MJ</th>
+                                      <th>Množstvo</th>
+                                      <th>Predaj</th>
+                                      <th>Zľava</th>
+                                      <th>DPH</th>
+                                      <th>Po zľave</th>
+                                      <th>Bez DPH</th>
+                                      <th>S DPH</th>
+                                      <th>Marža</th>
+                                      <th>Poznámka</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {items.map((item) => {
+                                      const computed = computeQuoteLineTotals({
+                                        quantity: item.quantity,
+                                        unitPrice: item.unit_price,
+                                        purchasePrice: item.purchase_price,
+                                        discountPercent: item.discount_percent,
+                                        vatPercent: item.vat_percent
+                                      });
+                                      return (
+                                        <tr key={item.id}>
+                                          <td>{item.material_code}</td>
+                                          <td>{item.unit || "ks"}</td>
+                                          <td>{formatCell(item.quantity, "number")}</td>
+                                          <td>{formatCurrencyValue(item.unit_price || 0)}</td>
+                                          <td>{formatPercentValue(item.discount_percent || 0, 2)}</td>
+                                          <td>{formatPercentValue(item.vat_percent || 0, 2)}</td>
+                                          <td>{formatCurrencyValue(item.final_unit_price || 0)}</td>
+                                          <td>{formatCurrencyValue(item.line_total || 0)}</td>
+                                          <td>{formatCurrencyValue(computed.lineTotalWithVat)}</td>
+                                          <td>{`${formatCurrencyValue(item.line_margin_total || 0)} | ${formatPercentValue(computed.lineMarginPercent, 2)}`}</td>
+                                          <td>{item.line_note || "-"}</td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
                               </div>
                             </div>
                           )}

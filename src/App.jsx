@@ -1101,11 +1101,11 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
           background: rgba(255, 255, 255, 0.9);
           box-shadow: 0 3mm 10mm rgba(23, 33, 43, 0.08);
         }
-        .hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3.2mm; align-items: start; padding: 2.4mm 3.2mm; border-radius: 5mm; background: linear-gradient(135deg, #0f8a7f, #0f5f8f); color: #ffffff; }
-        .hero-copy { display: grid; gap: 0.2mm; align-content: start; }
-        .eyebrow { font-size: 7pt; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.82; line-height: 1; }
-        h1 { margin: 0; font-size: 15.5pt; line-height: 0.98; }
-        .hero-subtitle { font-size: 7.2pt; line-height: 1; opacity: 0.84; }
+        .hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3mm; align-items: center; padding: 2mm 3mm; border-radius: 5mm; background: linear-gradient(135deg, #0f8a7f, #0f5f8f); color: #ffffff; }
+        .hero-copy { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.8mm 2mm; min-height: 0; }
+        .eyebrow { font-size: 6.6pt; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.82; line-height: 1; }
+        h1 { margin: 0; font-size: 14pt; line-height: 1; }
+        .hero-subtitle { font-size: 6.8pt; line-height: 1; opacity: 0.84; }
         .hero-meta { display: grid; gap: 0.3mm; justify-items: end; text-align: right; align-content: start; }
         .hero-meta-label { font-size: 6.5pt; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.8; line-height: 1; }
         .hero-meta-value { font-size: 8.6pt; font-weight: 700; line-height: 1.05; }

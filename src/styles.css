@@ -1262,10 +1262,14 @@ select {
 }
 
 .price-list-unit-field .search-input {
+  min-width: 0;
+  width: 68px;
   max-width: 68px;
 }
 
 .price-list-value-field .search-input {
+  min-width: 0;
+  width: 104px;
   max-width: 104px;
 }
 

@@ -27,6 +27,18 @@ create table if not exists public.stock_history (
   created_at_ms bigint not null
 );
 
+create table if not exists public.price_list (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies (id) on delete cascade,
+  material_code text not null,
+  unit text not null default 'ks',
+  unit_price numeric(12,2) not null default 0,
+  note text not null default '',
+  created_by uuid references auth.users (id),
+  updated_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
 create table if not exists public.app_users (
   user_id uuid primary key references auth.users (id) on delete cascade,
   email text not null,
@@ -207,6 +219,15 @@ create index if not exists idx_stock_history_material
 create index if not exists idx_stock_history_position
   on public.stock_history (position);
 
+create unique index if not exists idx_price_list_company_material_unique
+  on public.price_list (company_id, material_code);
+
+create index if not exists idx_price_list_company
+  on public.price_list (company_id);
+
+create index if not exists idx_price_list_material
+  on public.price_list (material_code);
+
 create unique index if not exists idx_customers_company_name_unique
   on public.customers (company_id, lower(name));
 
@@ -249,6 +270,12 @@ from public.orders o
 left join public.order_items oi on oi.order_id = o.id
 group by o.id, o.company_id, o.order_number, o.customer_name, o.note, o.created_at;
 
+-- Cenník pre grid/list:
+-- select id, company_id, material_code, unit, unit_price, note, updated_at
+-- from public.price_list
+-- where company_id = 'YOUR-COMPANY-UUID'
+-- order by material_code asc;
+
 -- Zoznam objednávok pre grid/list:
 -- select id, customer_name, order_number, created_at, item_count
 -- from public.order_list_overview
@@ -288,6 +315,16 @@ begin
 end;
 $$;
 
+create or replace function public.touch_price_list_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
 create or replace function public.fill_company_id_from_auth_user()
 returns trigger
 language plpgsql
@@ -311,6 +348,11 @@ create trigger trg_touch_app_users_updated_at
 before update on public.app_users
 for each row execute function public.touch_app_users_updated_at();
 
+drop trigger if exists trg_touch_price_list_updated_at on public.price_list;
+create trigger trg_touch_price_list_updated_at
+before update on public.price_list
+for each row execute function public.touch_price_list_updated_at();
+
 drop trigger if exists trg_fill_stock_company_id on public.stock;
 create trigger trg_fill_stock_company_id
 before insert on public.stock
@@ -319,6 +361,11 @@ for each row execute function public.fill_company_id_from_auth_user();
 drop trigger if exists trg_fill_stock_history_company_id on public.stock_history;
 create trigger trg_fill_stock_history_company_id
 before insert on public.stock_history
+for each row execute function public.fill_company_id_from_auth_user();
+
+drop trigger if exists trg_fill_price_list_company_id on public.price_list;
+create trigger trg_fill_price_list_company_id
+before insert on public.price_list
 for each row execute function public.fill_company_id_from_auth_user();
 
 create or replace function public.is_master(uid uuid default auth.uid())
@@ -373,6 +420,7 @@ grant execute on function public.can_manage_orders(uuid) to authenticated;
 alter table public.companies enable row level security;
 alter table public.stock enable row level security;
 alter table public.stock_history enable row level security;
+alter table public.price_list enable row level security;
 alter table public.app_users enable row level security;
 alter table public.customers enable row level security;
 alter table public.orders enable row level security;
@@ -529,6 +577,62 @@ with check (company_id = public.user_company_id(auth.uid()));
 
 create policy "stock_history_delete_user_company"
 on public.stock_history
+for delete
+to authenticated
+using (company_id = public.user_company_id(auth.uid()));
+
+-- price_list
+DROP POLICY IF EXISTS "price_list_select_auth" ON public.price_list;
+DROP POLICY IF EXISTS "price_list_insert_master" ON public.price_list;
+DROP POLICY IF EXISTS "price_list_update_master" ON public.price_list;
+DROP POLICY IF EXISTS "price_list_delete_master" ON public.price_list;
+DROP POLICY IF EXISTS "price_list_insert_user_company" ON public.price_list;
+DROP POLICY IF EXISTS "price_list_update_user_company" ON public.price_list;
+DROP POLICY IF EXISTS "price_list_delete_user_company" ON public.price_list;
+
+create policy "price_list_select_auth"
+on public.price_list
+for select
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or company_id = public.user_company_id(auth.uid())
+);
+
+create policy "price_list_insert_master"
+on public.price_list
+for insert
+to authenticated
+with check (public.is_master(auth.uid()));
+
+create policy "price_list_update_master"
+on public.price_list
+for update
+to authenticated
+using (public.is_master(auth.uid()))
+with check (public.is_master(auth.uid()));
+
+create policy "price_list_delete_master"
+on public.price_list
+for delete
+to authenticated
+using (public.is_master(auth.uid()));
+
+create policy "price_list_insert_user_company"
+on public.price_list
+for insert
+to authenticated
+with check (company_id = public.user_company_id(auth.uid()));
+
+create policy "price_list_update_user_company"
+on public.price_list
+for update
+to authenticated
+using (company_id = public.user_company_id(auth.uid()))
+with check (company_id = public.user_company_id(auth.uid()));
+
+create policy "price_list_delete_user_company"
+on public.price_list
 for delete
 to authenticated
 using (company_id = public.user_company_id(auth.uid()));

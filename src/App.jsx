@@ -9,6 +9,7 @@ import logo from "../logo.png";
 const DAILY_OVERVIEW_TABLE = "__daily_overview__";
 const ORDERS_MODULE = "__orders__";
 const PRODUCTION_MODULE = "__production__";
+const PRICE_LIST_TABLE = "price_list";
 const COMPANY_LOOKUP_DEBOUNCE_MS = 250;
 
 const TABLE_CONFIG = {
@@ -27,6 +28,24 @@ const TABLE_CONFIG = {
     orderAsc: true,
     metricLabel: "Celkové množstvo",
     metricValue: (rows) => rows.reduce((sum, row) => sum + Number(row.quantity || 0), 0)
+  },
+  [PRICE_LIST_TABLE]: {
+    title: "Cenník",
+    subtitle: "Jednotkové ceny materiálov podľa firmy",
+    columns: [
+      { label: "Materiál", keys: ["material_code"], required: true },
+      { label: "Jednotka", keys: ["unit"], required: true },
+      { label: "Cena", keys: ["unit_price"], kind: "currency", required: true },
+      { label: "Poznámka", keys: ["note"] },
+      { label: "Upravené", keys: ["updated_at", "created_at"], kind: "date_time" }
+    ],
+    searchKeys: ["material_code", "unit", "note", "unit_price"],
+    statusKeys: [],
+    timeKeys: ["updated_at", "created_at"],
+    orderBy: "material_code",
+    orderAsc: true,
+    metricLabel: "Položky cenníka",
+    metricValue: (rows) => rows.length
   },
   stock_history: {
     title: "História zásob",
@@ -219,10 +238,18 @@ function getTableLabel(table) {
   if (String(table || "").trim() === "stock") {
     return "Sklad";
   }
+  if (String(table || "").trim() === PRICE_LIST_TABLE) {
+    return "Cenník";
+  }
   if (isTransactionsTable(table)) {
     return "Transakcie";
   }
   return table;
+}
+
+function isCompanyScopedTable(table) {
+  const normalized = String(table || "").trim();
+  return normalized === "stock" || normalized === PRICE_LIST_TABLE || isTransactionsTable(normalized);
 }
 
 function makeStockKey(position, materialCode, companyId) {
@@ -1025,7 +1052,37 @@ function formatCell(value, kind) {
     return parsed.toLocaleDateString("sk-SK");
   }
 
+  if (kind === "date_time") {
+    return formatDate(value);
+  }
+
+  if (kind === "currency") {
+    return new Intl.NumberFormat("sk-SK", {
+      style: "currency",
+      currency: "EUR",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    }).format(Number(value));
+  }
+
   return String(value);
+}
+
+function normalizePriceInput(value) {
+  const normalized = String(value || "")
+    .trim()
+    .replace(/\s+/g, "")
+    .replace(",", ".");
+  if (!normalized) {
+    return null;
+  }
+
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return null;
+  }
+
+  return Math.round(parsed * 100) / 100;
 }
 
 function normalizeForSearch(value) {
@@ -1331,6 +1388,13 @@ function App() {
   const [subscriptionMaterialInput, setSubscriptionMaterialInput] = useState("");
   const [subscriptionEmailInput, setSubscriptionEmailInput] = useState("");
   const [isMaterialSubscriptionOpen, setIsMaterialSubscriptionOpen] = useState(false);
+  const [priceListMaterialInput, setPriceListMaterialInput] = useState("");
+  const [priceListUnitInput, setPriceListUnitInput] = useState("ks");
+  const [priceListValueInput, setPriceListValueInput] = useState("");
+  const [priceListNoteInput, setPriceListNoteInput] = useState("");
+  const [priceListSubmitting, setPriceListSubmitting] = useState(false);
+  const [priceListDeleting, setPriceListDeleting] = useState(false);
+  const [priceListFormError, setPriceListFormError] = useState("");
   const [customers, setCustomers] = useState([]);
   const [orders, setOrders] = useState([]);
   const [orderItems, setOrderItems] = useState([]);
@@ -1376,9 +1440,11 @@ function App() {
   const hotjarAllowed = (authReady || authInitTimedOut) && (!isLoggedIn || !isMaster);
   const visibleTableNames = useMemo(() => {
     if (isMaster) {
-      return [...tableNames, ORDERS_MODULE, PRODUCTION_MODULE];
+      return Array.from(new Set([...tableNames, PRICE_LIST_TABLE, ORDERS_MODULE, PRODUCTION_MODULE]));
     }
-    const baseTables = [DAILY_OVERVIEW_TABLE, ...tableNames.filter((table) => table === "stock" || isTransactionsTable(table))];
+    const baseTables = Array.from(
+      new Set([DAILY_OVERVIEW_TABLE, PRICE_LIST_TABLE, ...tableNames.filter((table) => table === "stock" || isTransactionsTable(table))])
+    );
     return canAccessOrdersModule ? [...baseTables, ORDERS_MODULE, PRODUCTION_MODULE] : baseTables;
   }, [isMaster, canAccessOrdersModule]);
   const companyNameById = useMemo(
@@ -1466,6 +1532,31 @@ function App() {
         a.localeCompare(b, "sk-SK", { sensitivity: "base" })
       ),
     [productionStockRows]
+  );
+  const priceListRowsByMaterial = useMemo(() => {
+    const map = {};
+    for (const row of rows) {
+      const key = normalizeOptionSearchValue(row.material_code);
+      if (key) {
+        map[key] = row;
+      }
+    }
+    return map;
+  }, [rows]);
+  const selectedPriceListRow = useMemo(
+    () => priceListRowsByMaterial[normalizeOptionSearchValue(priceListMaterialInput)] || null,
+    [priceListRowsByMaterial, priceListMaterialInput]
+  );
+  const priceListMaterialSuggestions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          [...rows, ...stockSnapshotRows]
+            .map((row) => String(row.material_code || "").trim())
+            .filter(Boolean)
+        )
+      ).sort((a, b) => a.localeCompare(b, "sk-SK", { sensitivity: "base" })),
+    [rows, stockSnapshotRows]
   );
   const showsExpiryDate = selectedTable === "stock" && Boolean(activeCompany?.tracks_expiry_date);
   const effectiveTableConfig = useMemo(() => {
@@ -1861,6 +1952,117 @@ function App() {
 
     setMaterialSubscriptions((prev) => prev.filter((item) => item.id !== existingSubscription.id));
     setMaterialSubscriptionSavingKey("");
+  };
+
+  const resetPriceListForm = () => {
+    setPriceListMaterialInput("");
+    setPriceListUnitInput("ks");
+    setPriceListValueInput("");
+    setPriceListNoteInput("");
+    setPriceListFormError("");
+  };
+
+  const fillPriceListFormFromRow = (row) => {
+    if (!row) {
+      resetPriceListForm();
+      return;
+    }
+
+    setPriceListMaterialInput(String(row.material_code || ""));
+    setPriceListUnitInput(String(row.unit || "ks"));
+    setPriceListValueInput(row.unit_price === null || row.unit_price === undefined ? "" : String(row.unit_price));
+    setPriceListNoteInput(String(row.note || ""));
+    setPriceListFormError("");
+  };
+
+  const handlePriceListMaterialChange = (value) => {
+    setPriceListMaterialInput(value);
+    const matchedRow = priceListRowsByMaterial[normalizeOptionSearchValue(value)] || null;
+    if (matchedRow) {
+      setPriceListUnitInput(String(matchedRow.unit || "ks"));
+      setPriceListValueInput(matchedRow.unit_price === null || matchedRow.unit_price === undefined ? "" : String(matchedRow.unit_price));
+      setPriceListNoteInput(String(matchedRow.note || ""));
+      setPriceListFormError("");
+      return;
+    }
+
+    setPriceListUnitInput("ks");
+    setPriceListValueInput("");
+    setPriceListNoteInput("");
+    setPriceListFormError("");
+  };
+
+  const handleSavePriceListItem = async (event) => {
+    event.preventDefault();
+
+    const companyId = activeCompanyId || userCompanyId || null;
+    const materialCode = String(priceListMaterialInput || "").trim();
+    const unit = String(priceListUnitInput || "").trim() || "ks";
+    const unitPrice = normalizePriceInput(priceListValueInput);
+    const note = String(priceListNoteInput || "").trim();
+
+    if (!companyId) {
+      setPriceListFormError("Vyber konkrétnu firmu, aby sa dal uložiť cenník.");
+      return;
+    }
+
+    if (!materialCode) {
+      setPriceListFormError("Zadaj materiál pre cenník.");
+      return;
+    }
+
+    if (unitPrice === null) {
+      setPriceListFormError("Zadaj platnú cenu, napr. 12,50.");
+      return;
+    }
+
+    setPriceListSubmitting(true);
+    setPriceListFormError("");
+
+    const { error: upsertError } = await supabase.from(PRICE_LIST_TABLE).upsert(
+      [
+        {
+          company_id: companyId,
+          material_code: materialCode,
+          unit,
+          unit_price: unitPrice,
+          note,
+          created_by: selectedPriceListRow?.created_by || authUser?.id || null
+        }
+      ],
+      { onConflict: "company_id,material_code" }
+    );
+
+    if (upsertError) {
+      setPriceListFormError(upsertError.message || "Nepodarilo sa uložiť položku cenníka.");
+      setPriceListSubmitting(false);
+      return;
+    }
+
+    await loadRows(PRICE_LIST_TABLE);
+    setPriceListSubmitting(false);
+  };
+
+  const handleDeletePriceListItem = async () => {
+    const existingRow = selectedPriceListRow;
+    if (!existingRow?.id) {
+      setPriceListFormError("Najprv vyber existujúcu položku cenníka na zmazanie.");
+      return;
+    }
+
+    setPriceListDeleting(true);
+    setPriceListFormError("");
+
+    const { error: deleteError } = await supabase.from(PRICE_LIST_TABLE).delete().eq("id", existingRow.id);
+    if (deleteError) {
+      setPriceListFormError(deleteError.message || "Nepodarilo sa zmazať položku cenníka.");
+      setPriceListDeleting(false);
+      return;
+    }
+
+    resetPriceListForm();
+    await loadRows(PRICE_LIST_TABLE);
+    setPriceListDeleting(false);
   };
 
   const handleCreateCompany = async (event) => {
@@ -3095,7 +3297,7 @@ function App() {
 
     while (true) {
       let query = supabase.from(table).select(selectClause).range(from, from + pageSize - 1);
-      if (scopedCompanyId && (table === "stock" || isTransactionsTable(table))) {
+      if (scopedCompanyId && isCompanyScopedTable(table)) {
         query = query.eq("company_id", scopedCompanyId);
       }
       if (historyFromMs && isTransactionsTable(table)) {
@@ -3606,6 +3808,15 @@ function App() {
   useEffect(() => {
     loadMaterialSubscriptions();
   }, [authReady, isLoggedIn, selectedTable, activeCompanyId, selectedCompanyId, isMaster, userCompanyId, rows]);
+
+  useEffect(() => {
+    if (selectedTable !== PRICE_LIST_TABLE) {
+      setPriceListFormError("");
+      return;
+    }
+
+    resetPriceListForm();
+  }, [selectedTable, activeCompanyId]);
 
   useEffect(() => {
     if (!visibleTableNames.includes(selectedTable)) {
@@ -4215,6 +4426,9 @@ function App() {
       setSubscriptionMaterialInput("");
       setSubscriptionEmailInput("");
       setIsMaterialSubscriptionOpen(false);
+      resetPriceListForm();
+      setPriceListSubmitting(false);
+      setPriceListDeleting(false);
       setSignOutSubmitting(false);
     }
   };
@@ -4573,6 +4787,127 @@ function App() {
             </div>
           ) : (
             <p className="settings-hint">Zatiaľ nemáš nastavený žiadny odber materiálu.</p>
+          )}
+        </section>
+      )}
+
+      {selectedTable === PRICE_LIST_TABLE && (
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <h2>Editor cenníka</h2>
+              <p className="panel-meta">
+                {activeCompanyId
+                  ? `Ceny materiálov pre firmu ${currentCompanyLabel}`
+                  : "Vyber konkrétnu firmu, aby sa dal upravovať cenník."}
+              </p>
+            </div>
+          </div>
+
+          <form className="price-list-form" onSubmit={handleSavePriceListItem}>
+            <div className="price-list-form-grid">
+              <label className="settings-field price-list-material-field">
+                <span>Materiál</span>
+                <input
+                  type="text"
+                  className="search-input"
+                  list="price-list-material-options"
+                  placeholder="Materiál, napr. MAT-001"
+                  value={priceListMaterialInput}
+                  onChange={(event) => handlePriceListMaterialChange(event.target.value)}
+                  disabled={!activeCompanyId || priceListSubmitting || priceListDeleting}
+                />
+              </label>
+              <label className="settings-field price-list-unit-field">
+                <span>Jednotka</span>
+                <input
+                  type="text"
+                  className="search-input"
+                  placeholder="ks"
+                  value={priceListUnitInput}
+                  onChange={(event) => setPriceListUnitInput(event.target.value)}
+                  disabled={!activeCompanyId || priceListSubmitting || priceListDeleting}
+                />
+              </label>
+              <label className="settings-field price-list-value-field">
+                <span>Cena bez DPH</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  className="search-input"
+                  placeholder="12,50"
+                  value={priceListValueInput}
+                  onChange={(event) => setPriceListValueInput(event.target.value)}
+                  disabled={!activeCompanyId || priceListSubmitting || priceListDeleting}
+                />
+              </label>
+            </div>
+
+            <datalist id="price-list-material-options">
+              {priceListMaterialSuggestions.map((materialCode) => (
+                <option key={materialCode} value={materialCode} />
+              ))}
+            </datalist>
+
+            <label className="settings-field">
+              <span>Poznámka</span>
+              <input
+                type="text"
+                className="search-input"
+                placeholder="Voliteľná poznámka k cene"
+                value={priceListNoteInput}
+                onChange={(event) => setPriceListNoteInput(event.target.value)}
+                disabled={!activeCompanyId || priceListSubmitting || priceListDeleting}
+              />
+            </label>
+
+            <div className="price-list-form-actions">
+              <button type="submit" className="settings-btn" disabled={!activeCompanyId || priceListSubmitting || priceListDeleting}>
+                {priceListSubmitting ? "Ukladám..." : selectedPriceListRow ? "Uložiť zmenu" : "Pridať do cenníka"}
+              </button>
+              <button
+                type="button"
+                className="clear-btn"
+                onClick={resetPriceListForm}
+                disabled={priceListSubmitting || priceListDeleting}
+              >
+                Vyčistiť
+              </button>
+              {selectedPriceListRow && (
+                <>
+                  <button
+                    type="button"
+                    className="clear-btn"
+                    onClick={() => fillPriceListFormFromRow(selectedPriceListRow)}
+                    disabled={priceListSubmitting || priceListDeleting}
+                  >
+                    Obnoviť hodnoty
+                  </button>
+                  <button
+                    type="button"
+                    className="clear-btn"
+                    onClick={handleDeletePriceListItem}
+                    disabled={priceListSubmitting || priceListDeleting}
+                  >
+                    {priceListDeleting ? "Mažem..." : "Zmazať položku"}
+                  </button>
+                </>
+              )}
+            </div>
+          </form>
+
+          {priceListFormError && <p className="error">{priceListFormError}</p>}
+
+          {selectedPriceListRow ? (
+            <div className="price-list-current-card">
+              <strong>{selectedPriceListRow.material_code}</strong>
+              <p>{`${formatCell(selectedPriceListRow.unit_price, "currency")} / ${selectedPriceListRow.unit || "ks"}`}</p>
+              <span>{`Posledná úprava: ${formatCell(selectedPriceListRow.updated_at || selectedPriceListRow.created_at, "date_time")}`}</span>
+            </div>
+          ) : (
+            <p className="settings-hint">
+              Zadaj materiál a cenu. Ak materiál v cenníku už existuje, po presnom názve sa načítajú aktuálne hodnoty.
+            </p>
           )}
         </section>
       )}

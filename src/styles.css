@@ -1243,6 +1243,63 @@ select {
   margin-bottom: 0.8rem;
 }
 
+.price-list-form {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.price-list-form-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.35fr) 96px 140px;
+  gap: 0.7rem;
+  align-items: end;
+}
+
+.price-list-material-field,
+.price-list-unit-field,
+.price-list-value-field {
+  min-width: 0;
+}
+
+.price-list-unit-field .search-input {
+  max-width: 96px;
+}
+
+.price-list-value-field .search-input {
+  max-width: 140px;
+}
+
+.price-list-form-actions {
+  display: flex;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.price-list-current-card {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid #e1eaf4;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #fbfdff, #f6faff);
+}
+
+.price-list-current-card p,
+.price-list-current-card span {
+  margin: 0;
+}
+
+.price-list-current-card p {
+  color: #234159;
+  font-weight: 700;
+}
+
+.price-list-current-card span {
+  color: #708092;
+  font-size: 0.82rem;
+}
+
 .subscription-list-panel {
   display: grid;
   gap: 0.45rem;
@@ -1768,6 +1825,15 @@ tbody tr:nth-child(even) {
 
   .company-settings-form {
     grid-template-columns: 1fr;
+  }
+
+  .price-list-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .price-list-unit-field .search-input,
+  .price-list-value-field .search-input {
+    max-width: none;
   }
 
   .orders-form-actions {

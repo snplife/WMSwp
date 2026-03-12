@@ -1080,18 +1080,18 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
       <meta charset="UTF-8" />
       <title>${escapeHtml(String(quote?.quote_number || "Cenova-ponuka"))}</title>
       <style>
-        @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap");
-        @page { size: A4 portrait; margin: 1mm 8mm 8mm; }
+        @import url("https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap");
+        @page { size: A4 portrait; margin: 0mm 8mm 8mm; }
         * { box-sizing: border-box; }
         body {
           margin: 0;
-          font-family: "Space Grotesk", "Segoe UI", Arial, sans-serif;
+          font-family: "Roboto", "Segoe UI", Arial, sans-serif;
           color: #182431;
           background: #ffffff;
         }
         .page {
           display: grid;
-          gap: 0.4mm;
+          gap: 0.2mm;
           padding: 0;
           background: #ffffff;
           margin: 0;
@@ -1099,19 +1099,19 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
         .hero {
           display: grid;
           grid-template-columns: minmax(0, 1fr) auto;
-          gap: 1mm;
+          gap: 0.6mm;
           align-items: end;
-          padding: 0 0 0.3mm;
+          padding: 0 0 0.1mm;
           border-bottom: 0.35mm solid #dbe5ef;
         }
-        .hero-copy { display: grid; gap: 0.15mm; min-height: 0; }
-        .eyebrow { font-size: 6pt; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #7b8b98; line-height: 1; }
-        h1 { margin: 0; font-size: 13pt; line-height: 1; color: #182431; }
-        .hero-subtitle { font-size: 6.4pt; line-height: 1; color: #6b7b88; }
+        .hero-copy { display: grid; gap: 0.05mm; min-height: 0; }
+        .eyebrow { font-size: 5.8pt; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #7b8b98; line-height: 1; }
+        h1 { margin: 0; font-size: 12.2pt; line-height: 0.98; color: #182431; }
+        .hero-subtitle { font-size: 6pt; line-height: 1; color: #6b7b88; }
         .hero-meta { display: grid; gap: 0.1mm; justify-items: end; text-align: right; align-content: end; }
-        .hero-meta-label { font-size: 5.8pt; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #7b8b98; line-height: 1; }
-        .hero-meta-value { font-size: 7.6pt; font-weight: 700; line-height: 1; color: #182431; }
-        .hero-meta-date { font-size: 6pt; line-height: 1; color: #6b7b88; }
+        .hero-meta-label { font-size: 5.6pt; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #7b8b98; line-height: 1; }
+        .hero-meta-value { font-size: 7.2pt; font-weight: 700; line-height: 1; color: #182431; }
+        .hero-meta-date { font-size: 5.8pt; line-height: 1; color: #6b7b88; }
         .section-label { display: block; margin-bottom: 1.2mm; font-size: 7.6pt; color: #5a6c7c; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; }
         .value { font-size: 11pt; font-weight: 700; }
         .customer, .summary, .note, .items {

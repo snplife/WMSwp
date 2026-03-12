@@ -488,23 +488,6 @@ function hydrateCustomerRecord(row) {
   };
 }
 
-function buildIcDphFromDic(dic) {
-  const normalizedDic = String(dic || "")
-    .trim()
-    .replace(/\s+/g, "")
-    .replace(/^SK/i, "");
-  return normalizedDic ? `SK${normalizedDic}` : "";
-}
-
-function syncIcDphWithDic(currentIcDph, previousDic, nextDic) {
-  const normalizedCurrent = String(currentIcDph || "").trim();
-  const previousAutoValue = buildIcDphFromDic(previousDic);
-  if (!normalizedCurrent || normalizedCurrent === previousAutoValue) {
-    return buildIcDphFromDic(nextDic);
-  }
-  return normalizedCurrent;
-}
-
 function makeMaterialSubscriptionKey(companyId, materialCode) {
   return `${String(companyId || "").trim()}::${String(materialCode || "").trim()}`;
 }
@@ -3188,7 +3171,7 @@ function App() {
         tracks_expiry_date: companyTracksExpiryDateInput,
         ico: String(companyProfileIcoInput || "").trim(),
         dic: String(companyProfileDicInput || "").trim(),
-        ic_dph: String(companyProfileIcDphInput || "").trim() || buildIcDphFromDic(companyProfileDicInput),
+        ic_dph: String(companyProfileIcDphInput || "").trim(),
         address: String(companyProfileAddressInput || "").trim(),
         bank_account: String(companyProfileBankAccountInput || "").trim()
       })
@@ -3218,7 +3201,7 @@ function App() {
     setCompanyProfileNameInput(String(expiryUpdatedCompany.name || ""));
     setCompanyProfileIcoInput(String(expiryUpdatedCompany.ico || ""));
     setCompanyProfileDicInput(String(expiryUpdatedCompany.dic || ""));
-    setCompanyProfileIcDphInput(String(expiryUpdatedCompany.ic_dph || buildIcDphFromDic(expiryUpdatedCompany.dic || "")));
+    setCompanyProfileIcDphInput(String(expiryUpdatedCompany.ic_dph || ""));
     setCompanyProfileAddressInput(String(expiryUpdatedCompany.address || ""));
     setCompanyProfileBankAccountInput(String(expiryUpdatedCompany.bank_account || ""));
 
@@ -4019,7 +4002,7 @@ function App() {
       setCustomerIcoInput(String(payload.item.ico || company.ico || ""));
       const resolvedDic = String(payload.item.dic || company.dic || "");
       setCustomerDicInput(resolvedDic);
-      setCustomerIcDphInput(buildIcDphFromDic(resolvedDic));
+      setCustomerIcDphInput(String(payload.item.ic_dph || company.ic_dph || ""));
       setCustomerAddressInput(String(payload.item.address?.formatted || ""));
       setCompanyLookupResults([]);
     } catch (lookupError) {
@@ -4061,7 +4044,7 @@ function App() {
       setCompanyProfileIcoInput(String(payload.item.ico || company.ico || ""));
       const resolvedDic = String(payload.item.dic || company.dic || "");
       setCompanyProfileDicInput(resolvedDic);
-      setCompanyProfileIcDphInput(buildIcDphFromDic(resolvedDic));
+      setCompanyProfileIcDphInput(String(payload.item.ic_dph || company.ic_dph || ""));
       setCompanyProfileAddressInput(String(payload.item.address?.formatted || ""));
       setCompanyProfileLookupResults([]);
     } catch (lookupError) {
@@ -4103,7 +4086,7 @@ function App() {
       address: String(customerAddressInput || "").trim(),
       ico: String(customerIcoInput || "").trim(),
       dic: String(customerDicInput || "").trim(),
-      ic_dph: String(customerIcDphInput || "").trim() || buildIcDphFromDic(customerDicInput),
+        ic_dph: String(customerIcDphInput || "").trim(),
       note: String(customerNoteInput || "").trim(),
       created_by: authUser?.id || null
     };
@@ -4152,7 +4135,7 @@ function App() {
     setCustomerAddressInput(String(hydratedCustomer.address || ""));
     setCustomerIcoInput(String(hydratedCustomer.ico || ""));
     setCustomerDicInput(String(hydratedCustomer.dic || ""));
-    setCustomerIcDphInput(String(hydratedCustomer.ic_dph || buildIcDphFromDic(hydratedCustomer.dic || "")));
+    setCustomerIcDphInput(String(hydratedCustomer.ic_dph || ""));
     setCustomerNoteInput(String(hydratedCustomer.note || ""));
     setSelectedRegistryCompanyId("");
     setCompanyLookupResults([]);
@@ -5189,7 +5172,7 @@ function App() {
     setCompanyProfileNameInput(String(activeCompany?.name || ""));
     setCompanyProfileIcoInput(String(activeCompany?.ico || ""));
     setCompanyProfileDicInput(String(activeCompany?.dic || ""));
-    setCompanyProfileIcDphInput(String(activeCompany?.ic_dph || buildIcDphFromDic(activeCompany?.dic || "")));
+    setCompanyProfileIcDphInput(String(activeCompany?.ic_dph || ""));
     setCompanyProfileAddressInput(String(activeCompany?.address || ""));
     setCompanyProfileBankAccountInput(String(activeCompany?.bank_account || ""));
     setCompanyProfileLookupResults([]);
@@ -6151,7 +6134,9 @@ function App() {
                         >
                           <strong>{item.name}</strong>
                           <span>
-                            {[item.ico ? `IČO: ${item.ico}` : "", item.dic ? `DIČ: ${item.dic}` : ""].filter(Boolean).join(" | ")}
+                            {[item.ico ? `IČO: ${item.ico}` : "", item.dic ? `DIČ: ${item.dic}` : "", item.ic_dph ? `IČ DPH: ${item.ic_dph}` : ""]
+                              .filter(Boolean)
+                              .join(" | ")}
                           </span>
                         </button>
                       ))}
@@ -6176,12 +6161,7 @@ function App() {
                       type="text"
                       className="search-input"
                       value={companyProfileDicInput}
-                      onChange={(event) => {
-                        const nextDic = event.target.value;
-                        const previousDic = companyProfileDicInput;
-                        setCompanyProfileDicInput(nextDic);
-                        setCompanyProfileIcDphInput((prev) => syncIcDphWithDic(prev, previousDic, nextDic));
-                      }}
+                      onChange={(event) => setCompanyProfileDicInput(event.target.value)}
                       disabled={!activeCompanyId || companySettingsSubmitting}
                     />
                   </label>
@@ -7001,7 +6981,9 @@ function App() {
                             >
                               <strong>{item.name}</strong>
                               <span>
-                                {[item.ico ? `IČO: ${item.ico}` : "", item.dic ? `DIČ: ${item.dic}` : ""].filter(Boolean).join(" | ")}
+                                {[item.ico ? `IČO: ${item.ico}` : "", item.dic ? `DIČ: ${item.dic}` : "", item.ic_dph ? `IČ DPH: ${item.ic_dph}` : ""]
+                                  .filter(Boolean)
+                                  .join(" | ")}
                               </span>
                             </button>
                           ))}
@@ -7027,12 +7009,7 @@ function App() {
                           className="search-input"
                           placeholder="Napr. 2020372640"
                           value={customerDicInput}
-                          onChange={(event) => {
-                            const nextDic = event.target.value;
-                            const previousDic = customerDicInput;
-                            setCustomerDicInput(nextDic);
-                            setCustomerIcDphInput((prev) => syncIcDphWithDic(prev, previousDic, nextDic));
-                          }}
+                          onChange={(event) => setCustomerDicInput(event.target.value)}
                           disabled={!activeCompanyId || customerSubmitting}
                         />
                       </label>
@@ -7656,7 +7633,9 @@ function App() {
                           >
                             <strong>{item.name}</strong>
                             <span>
-                              {[item.ico ? `IČO: ${item.ico}` : "", item.dic ? `DIČ: ${item.dic}` : ""].filter(Boolean).join(" | ")}
+                              {[item.ico ? `IČO: ${item.ico}` : "", item.dic ? `DIČ: ${item.dic}` : "", item.ic_dph ? `IČ DPH: ${item.ic_dph}` : ""]
+                                .filter(Boolean)
+                                .join(" | ")}
                             </span>
                           </button>
                         ))}
@@ -7682,12 +7661,7 @@ function App() {
                           className="search-input"
                           placeholder="Napr. 2020372640"
                           value={customerDicInput}
-                          onChange={(event) => {
-                            const nextDic = event.target.value;
-                            const previousDic = customerDicInput;
-                            setCustomerDicInput(nextDic);
-                            setCustomerIcDphInput((prev) => syncIcDphWithDic(prev, previousDic, nextDic));
-                          }}
+                          onChange={(event) => setCustomerDicInput(event.target.value)}
                           disabled={!activeCompanyId || customerSubmitting}
                         />
                       </label>

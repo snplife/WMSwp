@@ -2,6 +2,14 @@ import { clampInteger, sendJson, sendMethodNotAllowed } from "../_lib/http.js";
 
 const RUZ_BASE_URL = "https://www.registeruz.sk/cruz-public";
 
+function buildIcDph(dic) {
+  const normalizedDic = String(dic || "")
+    .trim()
+    .replace(/\s+/g, "")
+    .replace(/^SK/i, "");
+  return normalizedDic ? `SK${normalizedDic}` : "";
+}
+
 function decodeHtml(value) {
   return String(value || "")
     .replace(/<[^>]*>/g, "")
@@ -62,6 +70,7 @@ export default async function handler(req, res) {
           name: String(detail?.nazovUJ || "").trim(),
           ico: String(detail?.ico || "").trim(),
           dic: String(detail?.dic || "").trim(),
+          ic_dph: buildIcDph(detail?.dic),
           address,
           source: "registeruz"
         }
@@ -84,7 +93,8 @@ export default async function handler(req, res) {
           id: String(item?.id || "").trim(),
           name: decodeHtml(item?.entityName),
           ico: String(item?.entNumber || "").trim(),
-          dic: String(item?.taxNumber || "").trim()
+          dic: String(item?.taxNumber || "").trim(),
+          ic_dph: buildIcDph(item?.taxNumber)
         }))
       : [];
 

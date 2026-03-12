@@ -496,6 +496,15 @@ function buildIcDphFromDic(dic) {
   return normalizedDic ? `SK${normalizedDic}` : "";
 }
 
+function syncIcDphWithDic(currentIcDph, previousDic, nextDic) {
+  const normalizedCurrent = String(currentIcDph || "").trim();
+  const previousAutoValue = buildIcDphFromDic(previousDic);
+  if (!normalizedCurrent || normalizedCurrent === previousAutoValue) {
+    return buildIcDphFromDic(nextDic);
+  }
+  return normalizedCurrent;
+}
+
 function makeMaterialSubscriptionKey(companyId, materialCode) {
   return `${String(companyId || "").trim()}::${String(materialCode || "").trim()}`;
 }
@@ -3179,7 +3188,7 @@ function App() {
         tracks_expiry_date: companyTracksExpiryDateInput,
         ico: String(companyProfileIcoInput || "").trim(),
         dic: String(companyProfileDicInput || "").trim(),
-        ic_dph: buildIcDphFromDic(companyProfileDicInput),
+        ic_dph: String(companyProfileIcDphInput || "").trim() || buildIcDphFromDic(companyProfileDicInput),
         address: String(companyProfileAddressInput || "").trim(),
         bank_account: String(companyProfileBankAccountInput || "").trim()
       })
@@ -3209,7 +3218,7 @@ function App() {
     setCompanyProfileNameInput(String(expiryUpdatedCompany.name || ""));
     setCompanyProfileIcoInput(String(expiryUpdatedCompany.ico || ""));
     setCompanyProfileDicInput(String(expiryUpdatedCompany.dic || ""));
-    setCompanyProfileIcDphInput(buildIcDphFromDic(expiryUpdatedCompany.dic || ""));
+    setCompanyProfileIcDphInput(String(expiryUpdatedCompany.ic_dph || buildIcDphFromDic(expiryUpdatedCompany.dic || "")));
     setCompanyProfileAddressInput(String(expiryUpdatedCompany.address || ""));
     setCompanyProfileBankAccountInput(String(expiryUpdatedCompany.bank_account || ""));
 
@@ -4094,7 +4103,7 @@ function App() {
       address: String(customerAddressInput || "").trim(),
       ico: String(customerIcoInput || "").trim(),
       dic: String(customerDicInput || "").trim(),
-      ic_dph: buildIcDphFromDic(customerDicInput),
+      ic_dph: String(customerIcDphInput || "").trim() || buildIcDphFromDic(customerDicInput),
       note: String(customerNoteInput || "").trim(),
       created_by: authUser?.id || null
     };
@@ -4143,7 +4152,7 @@ function App() {
     setCustomerAddressInput(String(hydratedCustomer.address || ""));
     setCustomerIcoInput(String(hydratedCustomer.ico || ""));
     setCustomerDicInput(String(hydratedCustomer.dic || ""));
-    setCustomerIcDphInput(buildIcDphFromDic(hydratedCustomer.dic || ""));
+    setCustomerIcDphInput(String(hydratedCustomer.ic_dph || buildIcDphFromDic(hydratedCustomer.dic || "")));
     setCustomerNoteInput(String(hydratedCustomer.note || ""));
     setSelectedRegistryCompanyId("");
     setCompanyLookupResults([]);
@@ -5180,7 +5189,7 @@ function App() {
     setCompanyProfileNameInput(String(activeCompany?.name || ""));
     setCompanyProfileIcoInput(String(activeCompany?.ico || ""));
     setCompanyProfileDicInput(String(activeCompany?.dic || ""));
-    setCompanyProfileIcDphInput(buildIcDphFromDic(activeCompany?.dic || ""));
+    setCompanyProfileIcDphInput(String(activeCompany?.ic_dph || buildIcDphFromDic(activeCompany?.dic || "")));
     setCompanyProfileAddressInput(String(activeCompany?.address || ""));
     setCompanyProfileBankAccountInput(String(activeCompany?.bank_account || ""));
     setCompanyProfileLookupResults([]);
@@ -6169,8 +6178,9 @@ function App() {
                       value={companyProfileDicInput}
                       onChange={(event) => {
                         const nextDic = event.target.value;
+                        const previousDic = companyProfileDicInput;
                         setCompanyProfileDicInput(nextDic);
-                        setCompanyProfileIcDphInput(buildIcDphFromDic(nextDic));
+                        setCompanyProfileIcDphInput((prev) => syncIcDphWithDic(prev, previousDic, nextDic));
                       }}
                       disabled={!activeCompanyId || companySettingsSubmitting}
                     />
@@ -6181,7 +6191,7 @@ function App() {
                       type="text"
                       className="search-input"
                       value={companyProfileIcDphInput}
-                      readOnly
+                      onChange={(event) => setCompanyProfileIcDphInput(event.target.value)}
                       disabled={!activeCompanyId || companySettingsSubmitting}
                     />
                   </label>
@@ -7019,8 +7029,9 @@ function App() {
                           value={customerDicInput}
                           onChange={(event) => {
                             const nextDic = event.target.value;
+                            const previousDic = customerDicInput;
                             setCustomerDicInput(nextDic);
-                            setCustomerIcDphInput(buildIcDphFromDic(nextDic));
+                            setCustomerIcDphInput((prev) => syncIcDphWithDic(prev, previousDic, nextDic));
                           }}
                           disabled={!activeCompanyId || customerSubmitting}
                         />
@@ -7032,7 +7043,7 @@ function App() {
                           className="search-input"
                           placeholder="Napr. SK2020372640"
                           value={customerIcDphInput}
-                          readOnly
+                          onChange={(event) => setCustomerIcDphInput(event.target.value)}
                           disabled={!activeCompanyId || customerSubmitting}
                         />
                       </label>
@@ -7673,8 +7684,9 @@ function App() {
                           value={customerDicInput}
                           onChange={(event) => {
                             const nextDic = event.target.value;
+                            const previousDic = customerDicInput;
                             setCustomerDicInput(nextDic);
-                            setCustomerIcDphInput(buildIcDphFromDic(nextDic));
+                            setCustomerIcDphInput((prev) => syncIcDphWithDic(prev, previousDic, nextDic));
                           }}
                           disabled={!activeCompanyId || customerSubmitting}
                         />
@@ -7686,7 +7698,7 @@ function App() {
                           className="search-input"
                           placeholder="Napr. SK2020372640"
                           value={customerIcDphInput}
-                          readOnly
+                          onChange={(event) => setCustomerIcDphInput(event.target.value)}
                           disabled={!activeCompanyId || customerSubmitting}
                         />
                       </label>

@@ -1081,7 +1081,7 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
       <title>${escapeHtml(String(quote?.quote_number || "Cenova-ponuka"))}</title>
       <style>
         @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap");
-        @page { size: A4 portrait; margin: 12mm; }
+        @page { size: A4 portrait; margin: 8mm 10mm 10mm; }
         * { box-sizing: border-box; }
         body {
           margin: 0;
@@ -1094,14 +1094,14 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
         }
         .page {
           display: grid;
-          gap: 6mm;
-          padding: 7mm;
+          gap: 4.5mm;
+          padding: 4.5mm 5.5mm 5.5mm;
           border: 0.35mm solid #d7e3ef;
           border-radius: 7mm;
           background: rgba(255, 255, 255, 0.9);
           box-shadow: 0 3mm 10mm rgba(23, 33, 43, 0.08);
         }
-        .hero { display: flex; justify-content: space-between; gap: 8mm; align-items: stretch; padding: 6mm; border-radius: 5mm; background: linear-gradient(135deg, #0f8a7f, #0f5f8f); color: #ffffff; }
+        .hero { display: flex; justify-content: space-between; gap: 6mm; align-items: stretch; padding: 4.5mm 5mm; border-radius: 5mm; background: linear-gradient(135deg, #0f8a7f, #0f5f8f); color: #ffffff; }
         .hero-copy { display: grid; gap: 2mm; }
         .eyebrow { font-size: 8pt; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.82; }
         h1 { margin: 0; font-size: 19pt; }

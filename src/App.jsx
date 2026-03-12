@@ -1343,6 +1343,25 @@ function printQuotePdf(quote, customer, items, companyProfile) {
 }
 
 function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
+  const dueDateLabel = invoice?.due_date ? formatDate(invoice.due_date) : "";
+  const issuedAtLabel = invoice?.created_at ? formatDate(invoice.created_at) : "-";
+  const invoiceMetaSectionHtml = dueDateLabel
+    ? `
+        <section class="summary">
+          <div class="summary-grid" style="grid-template-columns: repeat(2, minmax(0, 1fr));">
+            <article class="summary-card">
+              <span class="section-label">Vystavené</span>
+              <div class="value">${escapeHtml(issuedAtLabel)}</div>
+            </article>
+            <article class="summary-card">
+              <span class="section-label">Splatnosť faktúry</span>
+              <div class="value">${escapeHtml(dueDateLabel)}</div>
+            </article>
+          </div>
+        </section>
+      `
+    : "";
+
   return buildQuotePrintHtml(
     {
       ...invoice,
@@ -1353,6 +1372,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
     items,
     companyProfile
   )
+    .replace(/\s*<span class="hero-meta-label">Splatnosť<\/span>\s*<div class="hero-meta-value">.*?<\/div>/, "")
     .replace(/Cenova-ponuka/g, "Faktura")
     .replace(/Cenová ponuka/g, "Faktúra")
     .replace(/Obchodná ponuka/g, "Fakturácia")
@@ -1360,6 +1380,8 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
     .replace(/Položky ponuky/g, "Položky faktúry")
     .replace(/Poznámka k ponuke/g, "Poznámka k faktúre")
     .replace(/Dodávateľské a odberateľské údaje pre túto ponuku/g, "Dodávateľské a odberateľské údaje pre túto faktúru")
+    .replace('<section class="customer">', `${invoiceMetaSectionHtml}
+        <section class="customer">`)
     .replace(/Rekapitulácia cenovej ponuky/g, "Rekapitulácia faktúry");
 }
 

@@ -1,0 +1,10 @@
+-- 33_wms_quotes_vat_update.txt
+-- Add VAT support to quote items.
+-- Run after 31_wms_quotes_core.txt.
+
+alter table public.quote_items
+add column if not exists vat_percent numeric(5,2) not null default 23;
+
+update public.quote_items
+set vat_percent = 23
+where vat_percent is null;

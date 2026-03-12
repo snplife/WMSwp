@@ -328,6 +328,7 @@ function createEmptyQuoteDraftItem() {
     unitPrice: "",
     purchasePrice: "",
     discountPercent: "0",
+    vatPercent: "23",
     lineNote: "",
     showNote: false
   };
@@ -992,7 +993,8 @@ function buildQuotePrintHtml(quote, customer, items, companyName) {
         quantity: item.quantity,
         unitPrice: item.unit_price,
         purchasePrice: item.purchase_price,
-        discountPercent: item.discount_percent
+        discountPercent: item.discount_percent,
+        vatPercent: item.vat_percent
       });
       return `
         <tr>
@@ -1002,8 +1004,12 @@ function buildQuotePrintHtml(quote, customer, items, companyName) {
           <td>${escapeHtml(formatCell(item.quantity, "number"))}</td>
           <td>${escapeHtml(formatCurrencyValue(item.unit_price || 0))}</td>
           <td>${escapeHtml(formatPercentValue(item.discount_percent || 0, 2))}</td>
+          <td>${escapeHtml(formatPercentValue(item.vat_percent || 0, 2))}</td>
           <td>${escapeHtml(formatCurrencyValue(computed.finalUnitPrice))}</td>
           <td>${escapeHtml(formatCurrencyValue(computed.lineTotal))}</td>
+          <td>${escapeHtml(formatCurrencyValue(computed.lineVatTotal))}</td>
+          <td>${escapeHtml(formatCurrencyValue(computed.lineTotalWithVat))}</td>
+          <td>${escapeHtml(`${formatCurrencyValue(computed.lineMarginTotal)} | ${formatPercentValue(computed.lineMarginPercent, 2)}`)}</td>
           <td>${escapeHtml(String(item.line_note || "-"))}</td>
         </tr>
       `;
@@ -1015,13 +1021,16 @@ function buildQuotePrintHtml(quote, customer, items, companyName) {
         quantity: item.quantity,
         unitPrice: item.unit_price,
         purchasePrice: item.purchase_price,
-        discountPercent: item.discount_percent
+        discountPercent: item.discount_percent,
+        vatPercent: item.vat_percent
       });
       acc.total += computed.lineTotal;
+      acc.vat += computed.lineVatTotal;
+      acc.totalWithVat += computed.lineTotalWithVat;
       acc.margin += computed.lineMarginTotal;
       return acc;
     },
-    { total: 0, margin: 0 }
+    { total: 0, vat: 0, totalWithVat: 0, margin: 0 }
   );
 
   return `<!doctype html>
@@ -1081,17 +1090,23 @@ function buildQuotePrintHtml(quote, customer, items, companyName) {
                 <th>Množstvo</th>
                 <th>Cena</th>
                 <th>Zľava</th>
+                <th>DPH</th>
                 <th>Po zľave</th>
-                <th>Spolu</th>
+                <th>Spolu bez DPH</th>
+                <th>DPH suma</th>
+                <th>Spolu s DPH</th>
+                <th>Marža</th>
                 <th>Poznámka</th>
               </tr>
             </thead>
-            <tbody>${rowsHtml || '<tr><td colspan="9">Ponuka nemá položky.</td></tr>'}</tbody>
+            <tbody>${rowsHtml || '<tr><td colspan="12">Ponuka nemá položky.</td></tr>'}</tbody>
           </table>
         </section>
         <section class="summary">
           <div class="summary-grid">
-            <div><span class="label">Celkom</span><div class="value">${escapeHtml(formatCurrencyValue(totals.total))}</div></div>
+            <div><span class="label">Bez DPH</span><div class="value">${escapeHtml(formatCurrencyValue(totals.total))}</div></div>
+            <div><span class="label">DPH</span><div class="value">${escapeHtml(formatCurrencyValue(totals.vat))}</div></div>
+            <div><span class="label">S DPH</span><div class="value">${escapeHtml(formatCurrencyValue(totals.totalWithVat))}</div></div>
             <div><span class="label">Marža</span><div class="value">${escapeHtml(formatCurrencyValue(totals.margin))}</div></div>
           </div>
         </section>
@@ -1342,23 +1357,31 @@ function buildPriceListComputedRow(row) {
   };
 }
 
-function computeQuoteLineTotals({ quantity, unitPrice, purchasePrice, discountPercent }) {
+function computeQuoteLineTotals({ quantity, unitPrice, purchasePrice, discountPercent, vatPercent }) {
   const safeQuantity = Number(quantity || 0);
   const safeUnitPrice = Number(unitPrice || 0);
   const safePurchasePrice = Number(purchasePrice || 0);
   const safeDiscountPercent = Math.min(100, Math.max(0, Number(discountPercent || 0)));
+  const safeVatPercent = Math.min(100, Math.max(0, Number(vatPercent || 0)));
   const finalUnitPrice = Math.round(safeUnitPrice * (1 - safeDiscountPercent / 100) * 100) / 100;
   const lineTotal = Math.round(finalUnitPrice * safeQuantity * 100) / 100;
   const lineMarginTotal = Math.round((finalUnitPrice - safePurchasePrice) * safeQuantity * 100) / 100;
+  const lineMarginPercent = finalUnitPrice > 0 ? Math.round(((finalUnitPrice - safePurchasePrice) / finalUnitPrice) * 10000) / 100 : 0;
+  const lineVatTotal = Math.round(lineTotal * (safeVatPercent / 100) * 100) / 100;
+  const lineTotalWithVat = Math.round((lineTotal + lineVatTotal) * 100) / 100;
 
   return {
     quantity: safeQuantity,
     unitPrice: safeUnitPrice,
     purchasePrice: safePurchasePrice,
     discountPercent: safeDiscountPercent,
+    vatPercent: safeVatPercent,
     finalUnitPrice,
     lineTotal,
-    lineMarginTotal
+    lineMarginTotal,
+    lineMarginPercent,
+    lineVatTotal,
+    lineTotalWithVat
   };
 }
 
@@ -3242,7 +3265,7 @@ function App() {
         const { data, error: itemsError } = await supabase
           .from("quote_items")
           .select(
-            "id,quote_id,material_code,unit,quantity,unit_price,purchase_price,discount_percent,final_unit_price,line_total,line_margin_total,line_note,created_at"
+            "*"
           )
           .in("quote_id", quoteIds)
           .order("created_at", { ascending: true });
@@ -4048,9 +4071,10 @@ function App() {
 
       const quantity = normalizePriceInput(item.quantity);
       const unitPrice = normalizePriceInput(item.unitPrice);
-      const purchasePrice = normalizePriceInput(item.purchasePrice);
+      const purchasePrice = normalizePriceInput(item.purchasePrice) ?? 0;
       const discountPercent =
         String(item.discountPercent || "").trim() === "" ? 0 : normalizePriceInput(item.discountPercent);
+      const vatPercent = String(item.vatPercent || "").trim() === "" ? 0 : normalizePriceInput(item.vatPercent);
 
       if (quantity === null || quantity <= 0) {
         setQuotesError(`Zadaj platné množstvo pre ${materialCode}.`);
@@ -4060,16 +4084,16 @@ function App() {
         setQuotesError(`Zadaj platnú predajnú cenu pre ${materialCode}.`);
         return;
       }
-      if (purchasePrice === null) {
-        setQuotesError(`Zadaj platnú nákupnú cenu pre ${materialCode}.`);
-        return;
-      }
       if (discountPercent === null || discountPercent < 0 || discountPercent > 100) {
         setQuotesError(`Zadaj platnú zľavu 0 až 100 % pre ${materialCode}.`);
         return;
       }
+      if (vatPercent === null || vatPercent < 0 || vatPercent > 100) {
+        setQuotesError(`Zadaj platné DPH 0 až 100 % pre ${materialCode}.`);
+        return;
+      }
 
-      const computed = computeQuoteLineTotals({ quantity, unitPrice, purchasePrice, discountPercent });
+      const computed = computeQuoteLineTotals({ quantity, unitPrice, purchasePrice, discountPercent, vatPercent });
       normalizedItems.push({
         material_code: materialCode,
         unit: String(item.unit || "ks").trim() || "ks",
@@ -4077,6 +4101,7 @@ function App() {
         unit_price: computed.unitPrice,
         purchase_price: computed.purchasePrice,
         discount_percent: computed.discountPercent,
+        vat_percent: computed.vatPercent,
         final_unit_price: computed.finalUnitPrice,
         line_total: computed.lineTotal,
         line_margin_total: computed.lineMarginTotal,
@@ -4118,7 +4143,7 @@ function App() {
       .from("quote_items")
       .insert(normalizedItems.map((item) => ({ ...item, quote_id: quoteRow.id })))
       .select(
-        "id,quote_id,material_code,unit,quantity,unit_price,purchase_price,discount_percent,final_unit_price,line_total,line_margin_total,line_note,created_at"
+        "*"
       );
 
     if (itemInsertError) {
@@ -6902,7 +6927,8 @@ function App() {
                         unitPrice: normalizePriceInput(item.unitPrice) || 0,
                         purchasePrice: normalizePriceInput(item.purchasePrice) || 0,
                         discountPercent:
-                          String(item.discountPercent || "").trim() === "" ? 0 : normalizePriceInput(item.discountPercent) || 0
+                          String(item.discountPercent || "").trim() === "" ? 0 : normalizePriceInput(item.discountPercent) || 0,
+                        vatPercent: String(item.vatPercent || "").trim() === "" ? 0 : normalizePriceInput(item.vatPercent) || 0
                       });
                       const showNote = Boolean(item.showNote || String(item.lineNote || "").trim());
 
@@ -6922,7 +6948,7 @@ function App() {
                               />
                               <p className="workflow-helper-text">
                                 {matchedPriceRow
-                                  ? `Cenník: ${formatCurrencyValue(matchedPriceRow.unit_price || 0)} / ${String(matchedPriceRow.unit || "ks")}`
+                                  ? `Cenník: ${formatCurrencyValue(matchedPriceRow.unit_price || 0)} / ${String(matchedPriceRow.unit || "ks")} | Marža ${formatCurrencyValue(matchedPriceRow.margin_value || 0)}`
                                   : "Píš voľne alebo vyber návrh z cenníka."}
                               </p>
                             </div>
@@ -6949,7 +6975,7 @@ function App() {
                               />
                             </div>
                             <div className="orders-draft-cell quote-compact-cell">
-                              <span className="draft-field-label">Predaj</span>
+                              <span className="draft-field-label">Predajná cena</span>
                               <input
                                 type="number"
                                 min={0}
@@ -6957,18 +6983,6 @@ function App() {
                                 className="dead-stock-days-input quote-price-input"
                                 value={item.unitPrice}
                                 onChange={(event) => handleQuoteDraftItemChange(index, "unitPrice", event.target.value)}
-                                disabled={!activeCompanyId || quoteSubmitting}
-                              />
-                            </div>
-                            <div className="orders-draft-cell quote-compact-cell">
-                              <span className="draft-field-label">Nákup</span>
-                              <input
-                                type="number"
-                                min={0}
-                                step={0.01}
-                                className="dead-stock-days-input quote-price-input"
-                                value={item.purchasePrice}
-                                onChange={(event) => handleQuoteDraftItemChange(index, "purchasePrice", event.target.value)}
                                 disabled={!activeCompanyId || quoteSubmitting}
                               />
                             </div>
@@ -6985,11 +6999,25 @@ function App() {
                                 disabled={!activeCompanyId || quoteSubmitting}
                               />
                             </div>
+                            <div className="orders-draft-cell quote-compact-cell">
+                              <span className="draft-field-label">DPH %</span>
+                              <input
+                                type="number"
+                                min={0}
+                                max={100}
+                                step={0.01}
+                                className="dead-stock-days-input quote-discount-input"
+                                value={item.vatPercent}
+                                onChange={(event) => handleQuoteDraftItemChange(index, "vatPercent", event.target.value)}
+                                disabled={!activeCompanyId || quoteSubmitting}
+                              />
+                            </div>
                           </div>
                           <div className="quote-draft-summary">
                             <span>{`Po zľave: ${formatCurrencyValue(computed.finalUnitPrice)}`}</span>
-                            <span>{`Spolu: ${formatCurrencyValue(computed.lineTotal)}`}</span>
-                            <span>{`Marža: ${formatCurrencyValue(computed.lineMarginTotal)}`}</span>
+                            <span>{`Bez DPH: ${formatCurrencyValue(computed.lineTotal)}`}</span>
+                            <span>{`S DPH: ${formatCurrencyValue(computed.lineTotalWithVat)}`}</span>
+                            <span>{`Marža: ${formatCurrencyValue(computed.lineMarginTotal)} | ${formatPercentValue(computed.lineMarginPercent, 2)}`}</span>
                           </div>
                           <div className="orders-draft-actions">
                             <button
@@ -7062,11 +7090,19 @@ function App() {
                       const items = quoteItemsByQuoteId[quote.id] || [];
                       const totals = items.reduce(
                         (acc, item) => {
-                          acc.total += Number(item.line_total || 0);
-                          acc.margin += Number(item.line_margin_total || 0);
+                          const computed = computeQuoteLineTotals({
+                            quantity: item.quantity,
+                            unitPrice: item.unit_price,
+                            purchasePrice: item.purchase_price,
+                            discountPercent: item.discount_percent,
+                            vatPercent: item.vat_percent
+                          });
+                          acc.total += computed.lineTotal;
+                          acc.totalWithVat += computed.lineTotalWithVat;
+                          acc.margin += computed.lineMarginTotal;
                           return acc;
                         },
-                        { total: 0, margin: 0 }
+                        { total: 0, totalWithVat: 0, margin: 0 }
                       );
                       return (
                         <article key={quote.id} className="order-card">
@@ -7082,7 +7118,7 @@ function App() {
                             <div className="order-card-meta">
                               <span className="order-card-badge">{formatDate(quote.created_at)}</span>
                               <span className="order-card-badge">{`${items.length} položiek`}</span>
-                              <span className="order-card-badge">{formatCurrencyValue(totals.total)}</span>
+                              <span className="order-card-badge">{`S DPH ${formatCurrencyValue(totals.totalWithVat)}`}</span>
                             </div>
                           </button>
                           {isOpen && (
@@ -7131,30 +7167,43 @@ function App() {
                                       <th>Materiál</th>
                                       <th>MJ</th>
                                       <th>Množstvo</th>
-                                      <th>Predaj</th>
-                                      <th>Zľava</th>
-                                      <th>Po zľave</th>
-                                      <th>Spolu</th>
-                                      <th>Marža</th>
-                                      <th>Poznámka</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {items.map((item) => (
-                                      <tr key={item.id}>
-                                        <td>{item.material_code}</td>
-                                        <td>{item.unit || "ks"}</td>
-                                        <td>{formatCell(item.quantity, "number")}</td>
-                                        <td>{formatCurrencyValue(item.unit_price || 0)}</td>
-                                        <td>{formatPercentValue(item.discount_percent || 0, 2)}</td>
-                                        <td>{formatCurrencyValue(item.final_unit_price || 0)}</td>
-                                        <td>{formatCurrencyValue(item.line_total || 0)}</td>
-                                        <td>{formatCurrencyValue(item.line_margin_total || 0)}</td>
-                                        <td>{item.line_note || "-"}</td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
+                                       <th>Predaj</th>
+                                       <th>Zľava</th>
+                                       <th>DPH</th>
+                                       <th>Po zľave</th>
+                                       <th>Bez DPH</th>
+                                       <th>S DPH</th>
+                                       <th>Marža</th>
+                                       <th>Poznámka</th>
+                                     </tr>
+                                   </thead>
+                                   <tbody>
+                                    {items.map((item) => {
+                                      const computed = computeQuoteLineTotals({
+                                        quantity: item.quantity,
+                                        unitPrice: item.unit_price,
+                                        purchasePrice: item.purchase_price,
+                                        discountPercent: item.discount_percent,
+                                        vatPercent: item.vat_percent
+                                      });
+                                      return (
+                                        <tr key={item.id}>
+                                          <td>{item.material_code}</td>
+                                          <td>{item.unit || "ks"}</td>
+                                          <td>{formatCell(item.quantity, "number")}</td>
+                                          <td>{formatCurrencyValue(item.unit_price || 0)}</td>
+                                          <td>{formatPercentValue(item.discount_percent || 0, 2)}</td>
+                                          <td>{formatPercentValue(item.vat_percent || 0, 2)}</td>
+                                          <td>{formatCurrencyValue(item.final_unit_price || 0)}</td>
+                                          <td>{formatCurrencyValue(item.line_total || 0)}</td>
+                                          <td>{formatCurrencyValue(computed.lineTotalWithVat)}</td>
+                                          <td>{`${formatCurrencyValue(item.line_margin_total || 0)} | ${formatPercentValue(computed.lineMarginPercent, 2)}`}</td>
+                                          <td>{item.line_note || "-"}</td>
+                                        </tr>
+                                      );
+                                    })}
+                                   </tbody>
+                                 </table>
                               </div>
                             </div>
                           )}

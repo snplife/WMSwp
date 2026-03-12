@@ -977,7 +977,6 @@ function printOrderPdf(order, customer, items, companyName) {
 
 function buildQuotePrintHtml(quote, customer, items, companyProfile) {
   const generatedAt = new Date().toLocaleString("sk-SK");
-  const createdAt = formatDate(quote?.created_at);
   const normalizedCompany =
     companyProfile && typeof companyProfile === "object" ? companyProfile : { name: String(companyProfile || "").trim() };
   const companyName = String(normalizedCompany?.name || "-");
@@ -1111,22 +1110,21 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
         .hero-card .section-label, .hero-card .value { color: #ffffff; }
         .section-label { display: block; margin-bottom: 1.2mm; font-size: 7.6pt; color: #5a6c7c; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; }
         .value { font-size: 11pt; font-weight: 700; }
-        .meta-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3mm; }
-        .meta-card, .customer, .summary, .note, .items {
+        .customer, .summary, .note, .items {
           position: relative;
           border: 0.35mm solid #dbe5ef;
           border-radius: 4.5mm;
           background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 252, 255, 0.96));
           overflow: hidden;
         }
-        .meta-card::before, .customer::before, .summary::before, .note::before, .items::before {
+        .customer::before, .summary::before, .note::before, .items::before {
           content: "";
           position: absolute;
           inset: 0 auto 0 0;
           width: 1.6mm;
           background: linear-gradient(180deg, #0f8a7f, #0f5f8f);
         }
-        .meta-card, .summary-card { padding: 4mm; }
+        .summary-card { padding: 4mm; }
         .customer, .note, .items, .summary { padding: 4mm 4mm 4mm 5mm; }
         .customer-head, .items-head, .summary-head { display: flex; justify-content: space-between; gap: 4mm; align-items: end; margin-bottom: 2.4mm; }
         .section-title { margin: 0; font-size: 11pt; color: #182431; }
@@ -1179,12 +1177,6 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
             <div class="muted">${escapeHtml(`Vygenerované: ${generatedAt}`)}</div>
           </div>
         </header>
-        <section class="meta-grid">
-          <article class="meta-card"><span class="section-label">Firma</span><div class="value">${escapeHtml(String(companyName || "-"))}</div></article>
-          <article class="meta-card"><span class="section-label">Vytvorené</span><div class="value">${escapeHtml(createdAt)}</div></article>
-          <article class="meta-card"><span class="section-label">Stav</span><div class="value">${escapeHtml(translateStatusLabel(quote?.status || "draft"))}</div></article>
-          <article class="meta-card"><span class="section-label">Zákazník</span><div class="value">${escapeHtml(customerName)}</div></article>
-        </section>
         <section class="customer">
           <div class="customer-head">
             <div>

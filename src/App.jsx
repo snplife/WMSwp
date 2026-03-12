@@ -5199,10 +5199,6 @@ function App() {
 
           {priceListFormError && <p className="error">{priceListFormError}</p>}
           {priceListImportResult && <p className="settings-hint">{priceListImportResult}</p>}
-          <p className="settings-hint">
-            Import čaká stĺpce: <code>material_code</code> alebo <code>materiál</code>, <code>cena bez dph</code>,
-            <code>nakupna cena</code>, voliteľne <code>jednotka</code>, <code>poznámka</code>.
-          </p>
 
           {selectedPriceListRow ? (
             <div className="price-list-current-card">

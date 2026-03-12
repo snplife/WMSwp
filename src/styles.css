@@ -1250,7 +1250,7 @@ select {
 
 .price-list-form-grid {
   display: grid;
-  grid-template-columns: minmax(220px, 1.35fr) 96px 140px 140px;
+  grid-template-columns: minmax(220px, 1fr) 82px 120px 120px;
   gap: 0.7rem;
   align-items: end;
 }
@@ -1262,11 +1262,11 @@ select {
 }
 
 .price-list-unit-field .search-input {
-  max-width: 96px;
+  max-width: 82px;
 }
 
 .price-list-value-field .search-input {
-  max-width: 140px;
+  max-width: 120px;
 }
 
 .price-list-form-actions {
@@ -1274,6 +1274,24 @@ select {
   gap: 0.55rem;
   flex-wrap: wrap;
   align-items: center;
+}
+
+.price-list-import-btn {
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.price-list-import-btn-disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.price-list-import-input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
 }
 
 .price-list-preview-grid {

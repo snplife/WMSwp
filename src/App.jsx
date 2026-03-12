@@ -1,6 +1,7 @@
 ﻿import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { useRef } from "react";
+import * as XLSX from "xlsx";
 import { installHotjar, uninstallHotjar } from "./hotjar";
 import StatusPill from "./components/StatusPill";
 import { clearSupabaseAuthStorage, noStoreFetch, supabase, supabaseAnonKey, supabaseUrl, tableNames } from "./supabaseClient";
@@ -1116,6 +1117,62 @@ function normalizePriceInput(value) {
   return Math.round(parsed * 100) / 100;
 }
 
+function normalizeImportHeader(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function resolvePriceListImportColumn(headers, aliases) {
+  for (const alias of aliases) {
+    const match = headers.find((header) => normalizeImportHeader(header) === alias);
+    if (match) {
+      return match;
+    }
+  }
+  return "";
+}
+
+async function readSpreadsheetRows(file) {
+  const fileName = String(file?.name || "").toLowerCase();
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer, {
+    type: "array",
+    raw: false,
+    dense: false,
+    codepage: 65001,
+    WTF: false
+  });
+  const sheetName = workbook.SheetNames[0];
+  if (!sheetName) {
+    throw new Error("Súbor neobsahuje žiadny hárok.");
+  }
+
+  const sheet = workbook.Sheets[sheetName];
+  if (!sheet) {
+    throw new Error("Nepodarilo sa načítať prvý hárok zo súboru.");
+  }
+
+  const rows = XLSX.utils.sheet_to_json(sheet, {
+    defval: "",
+    raw: false,
+    blankrows: false
+  });
+
+  if (!Array.isArray(rows) || rows.length === 0) {
+    throw new Error(
+      fileName.endsWith(".csv")
+        ? "CSV súbor je prázdny alebo nemá hlavičku."
+        : "Súbor je prázdny alebo neobsahuje tabuľkové dáta."
+    );
+  }
+
+  return rows;
+}
+
 function normalizeForSearch(value) {
   return String(value ?? "")
     .toLowerCase()
@@ -1426,6 +1483,8 @@ function App() {
   const [priceListNoteInput, setPriceListNoteInput] = useState("");
   const [priceListSubmitting, setPriceListSubmitting] = useState(false);
   const [priceListDeleting, setPriceListDeleting] = useState(false);
+  const [priceListImportSubmitting, setPriceListImportSubmitting] = useState(false);
+  const [priceListImportResult, setPriceListImportResult] = useState("");
   const [priceListFormError, setPriceListFormError] = useState("");
   const [customers, setCustomers] = useState([]);
   const [orders, setOrders] = useState([]);
@@ -1465,6 +1524,7 @@ function App() {
   const [expandedProductionOrders, setExpandedProductionOrders] = useState({});
   const latestLoadRowsRequestRef = useRef(0);
   const companyLookupRequestRef = useRef(0);
+  const priceListImportInputRef = useRef(null);
 
   const tableConfig = getTableConfig(selectedTable);
   const isMaster = userRole === "master";
@@ -2011,6 +2071,7 @@ function App() {
     setPriceListValueInput("");
     setPriceListPurchaseInput("");
     setPriceListNoteInput("");
+    setPriceListImportResult("");
     setPriceListFormError("");
   };
 
@@ -2127,6 +2188,133 @@ function App() {
     resetPriceListForm();
     await loadRows(PRICE_LIST_TABLE);
     setPriceListDeleting(false);
+  };
+
+  const handlePriceListImport = async (event) => {
+    const file = event.target.files?.[0] || null;
+    const clearInput = () => {
+      if (priceListImportInputRef.current) {
+        priceListImportInputRef.current.value = "";
+      }
+    };
+
+    if (!file) {
+      return;
+    }
+
+    const companyId = activeCompanyId || userCompanyId || null;
+    if (!companyId) {
+      setPriceListFormError("Vyber konkrétnu firmu, aby sa dal importovať cenník.");
+      clearInput();
+      return;
+    }
+
+    setPriceListImportSubmitting(true);
+    setPriceListImportResult("");
+    setPriceListFormError("");
+
+    try {
+      const rawRows = await readSpreadsheetRows(file);
+      const headers = Object.keys(rawRows[0] || {});
+      const materialColumn = resolvePriceListImportColumn(headers, [
+        "material_code",
+        "material",
+        "material_kod",
+        "materialkod",
+        "sku",
+        "kod",
+        "kod_materialu"
+      ]);
+      const unitColumn = resolvePriceListImportColumn(headers, ["unit", "jednotka", "mj", "m_j"]);
+      const salePriceColumn = resolvePriceListImportColumn(headers, [
+        "unit_price",
+        "predajna_cena",
+        "predajna",
+        "cena_bez_dph",
+        "predajna_cenabez_dph",
+        "sale_price",
+        "price"
+      ]);
+      const purchasePriceColumn = resolvePriceListImportColumn(headers, [
+        "purchase_price",
+        "nakupna_cena",
+        "nakupna",
+        "cost_price",
+        "cost"
+      ]);
+      const noteColumn = resolvePriceListImportColumn(headers, ["note", "poznamka", "comment", "komentar"]);
+
+      if (!materialColumn || !salePriceColumn || !purchasePriceColumn) {
+        throw new Error(
+          "Import potrebuje stĺpce materiál, predajná cena a nákupná cena. Povolené názvy sú napr. material_code, cena bez dph, nakupna cena."
+        );
+      }
+
+      const invalidRows = [];
+      const dedupedRows = new Map();
+
+      rawRows.forEach((row, index) => {
+        const rowNumber = index + 2;
+        const materialCode = String(row?.[materialColumn] || "").trim();
+        const unit = String(row?.[unitColumn] || "").trim() || "ks";
+        const salePrice = normalizePriceInput(row?.[salePriceColumn]);
+        const purchasePrice = normalizePriceInput(row?.[purchasePriceColumn]);
+        const note = String(row?.[noteColumn] || "").trim();
+
+        if (!materialCode) {
+          invalidRows.push(`Riadok ${rowNumber}: chýba materiál.`);
+          return;
+        }
+
+        if (salePrice === null) {
+          invalidRows.push(`Riadok ${rowNumber}: neplatná predajná cena pri ${materialCode}.`);
+          return;
+        }
+
+        if (purchasePrice === null) {
+          invalidRows.push(`Riadok ${rowNumber}: neplatná nákupná cena pri ${materialCode}.`);
+          return;
+        }
+
+        dedupedRows.set(normalizeOptionSearchValue(materialCode), {
+          company_id: companyId,
+          material_code: materialCode,
+          unit,
+          unit_price: salePrice,
+          purchase_price: purchasePrice,
+          note,
+          created_by: authUser?.id || null
+        });
+      });
+
+      const rowsToImport = Array.from(dedupedRows.values());
+      if (rowsToImport.length === 0) {
+        throw new Error(invalidRows[0] || "V súbore nie sú žiadne použiteľné riadky.");
+      }
+
+      const chunkSize = 250;
+      for (let index = 0; index < rowsToImport.length; index += chunkSize) {
+        const chunk = rowsToImport.slice(index, index + chunkSize);
+        const { error: importError } = await supabase.from(PRICE_LIST_TABLE).upsert(chunk, {
+          onConflict: "company_id,material_code"
+        });
+        if (importError) {
+          throw importError;
+        }
+      }
+
+      await loadRows(PRICE_LIST_TABLE);
+      setPriceListImportResult(
+        invalidRows.length > 0
+          ? `Naimportovaných ${rowsToImport.length} položiek. Preskočené riadky: ${invalidRows.slice(0, 3).join(" | ")}`
+          : `Naimportovaných ${rowsToImport.length} položiek z ${file.name}.`
+      );
+    } catch (importError) {
+      setPriceListFormError(importError?.message || "Nepodarilo sa importovať cenník.");
+    } finally {
+      setPriceListImportSubmitting(false);
+      clearInput();
+    }
   };
 
   const handleCreateCompany = async (event) => {
@@ -4213,7 +4401,9 @@ function App() {
     );
   }, [productionOrders, productionSearchTerm]);
   const sidebarSections = useMemo(() => {
-    const monitoringItems = visibleTableNames.filter((table) => !isOrdersModule(table) && !isProductionModule(table));
+    const monitoringItems = visibleTableNames.filter(
+      (table) => !isOrdersModule(table) && !isProductionModule(table) && table !== PRICE_LIST_TABLE
+    );
     const sections = [
       {
         title: isMaster ? "Dáta" : "Monitoring",
@@ -4221,10 +4411,10 @@ function App() {
       }
     ];
 
-    if (visibleTableNames.includes(ORDERS_MODULE)) {
+    if (visibleTableNames.includes(ORDERS_MODULE) || visibleTableNames.includes(PRICE_LIST_TABLE)) {
       sections.push({
         title: "Workflow",
-        items: [ORDERS_MODULE, PRODUCTION_MODULE]
+        items: [ORDERS_MODULE, PRODUCTION_MODULE, PRICE_LIST_TABLE].filter((table) => visibleTableNames.includes(table))
       });
     }
 
@@ -4496,6 +4686,7 @@ function App() {
       resetPriceListForm();
       setPriceListSubmitting(false);
       setPriceListDeleting(false);
+      setPriceListImportSubmitting(false);
       setSignOutSubmitting(false);
     }
   };
@@ -4964,11 +5155,22 @@ function App() {
               <button type="submit" className="settings-btn" disabled={!activeCompanyId || priceListSubmitting || priceListDeleting}>
                 {priceListSubmitting ? "Ukladám..." : selectedPriceListRow ? "Uložiť zmenu" : "Pridať do cenníka"}
               </button>
+              <label className={`clear-btn price-list-import-btn ${!activeCompanyId || priceListImportSubmitting ? "price-list-import-btn-disabled" : ""}`}>
+                {priceListImportSubmitting ? "Importujem..." : "Import CSV/XLS/XLSX"}
+                <input
+                  ref={priceListImportInputRef}
+                  type="file"
+                  accept=".csv,.xls,.xlsx"
+                  className="price-list-import-input"
+                  onChange={handlePriceListImport}
+                  disabled={!activeCompanyId || priceListImportSubmitting || priceListSubmitting || priceListDeleting}
+                />
+              </label>
               <button
                 type="button"
                 className="clear-btn"
                 onClick={resetPriceListForm}
-                disabled={priceListSubmitting || priceListDeleting}
+                disabled={priceListSubmitting || priceListDeleting || priceListImportSubmitting}
               >
                 Vyčistiť
               </button>
@@ -4978,7 +5180,7 @@ function App() {
                     type="button"
                     className="clear-btn"
                     onClick={() => fillPriceListFormFromRow(selectedPriceListRow)}
-                    disabled={priceListSubmitting || priceListDeleting}
+                    disabled={priceListSubmitting || priceListDeleting || priceListImportSubmitting}
                   >
                     Obnoviť hodnoty
                   </button>
@@ -4986,7 +5188,7 @@ function App() {
                     type="button"
                     className="clear-btn"
                     onClick={handleDeletePriceListItem}
-                    disabled={priceListSubmitting || priceListDeleting}
+                    disabled={priceListSubmitting || priceListDeleting || priceListImportSubmitting}
                   >
                     {priceListDeleting ? "Mažem..." : "Zmazať položku"}
                   </button>
@@ -4996,6 +5198,11 @@ function App() {
           </form>
 
           {priceListFormError && <p className="error">{priceListFormError}</p>}
+          {priceListImportResult && <p className="settings-hint">{priceListImportResult}</p>}
+          <p className="settings-hint">
+            Import čaká stĺpce: <code>material_code</code> alebo <code>materiál</code>, <code>cena bez dph</code>,
+            <code>nakupna cena</code>, voliteľne <code>jednotka</code>, <code>poznámka</code>.
+          </p>
 
           {selectedPriceListRow ? (
             <div className="price-list-current-card">

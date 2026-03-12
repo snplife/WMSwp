@@ -954,6 +954,12 @@ select {
   max-width: none;
 }
 
+.quote-select-input {
+  width: 100%;
+  min-width: 0;
+  background: #ffffff;
+}
+
 .quote-draft-summary {
   display: flex;
   gap: 0.55rem;

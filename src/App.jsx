@@ -13,6 +13,7 @@ const QUOTES_MODULE = "__quotes__";
 const ORDERS_MODULE = "__orders__";
 const PRODUCTION_MODULE = "__production__";
 const PRICE_LIST_TABLE = "price_list";
+const QUOTE_VAT_OPTIONS = [0, 5, 19, 23];
 const COMPANY_LOOKUP_DEBOUNCE_MS = 250;
 
 const TABLE_CONFIG = {
@@ -1362,7 +1363,8 @@ function computeQuoteLineTotals({ quantity, unitPrice, purchasePrice, discountPe
   const safeUnitPrice = Number(unitPrice || 0);
   const safePurchasePrice = Number(purchasePrice || 0);
   const safeDiscountPercent = Math.min(100, Math.max(0, Number(discountPercent || 0)));
-  const safeVatPercent = Math.min(100, Math.max(0, Number(vatPercent || 0)));
+  const requestedVatPercent = Number(vatPercent || 0);
+  const safeVatPercent = QUOTE_VAT_OPTIONS.includes(requestedVatPercent) ? requestedVatPercent : 23;
   const finalUnitPrice = Math.round(safeUnitPrice * (1 - safeDiscountPercent / 100) * 100) / 100;
   const lineTotal = Math.round(finalUnitPrice * safeQuantity * 100) / 100;
   const lineMarginTotal = Math.round((finalUnitPrice - safePurchasePrice) * safeQuantity * 100) / 100;
@@ -4088,8 +4090,8 @@ function App() {
         setQuotesError(`Zadaj platnú zľavu 0 až 100 % pre ${materialCode}.`);
         return;
       }
-      if (vatPercent === null || vatPercent < 0 || vatPercent > 100) {
-        setQuotesError(`Zadaj platné DPH 0 až 100 % pre ${materialCode}.`);
+      if (vatPercent === null || !QUOTE_VAT_OPTIONS.includes(vatPercent)) {
+        setQuotesError(`DPH pre ${materialCode} môže byť len 0 %, 5 %, 19 % alebo 23 %.`);
         return;
       }
 
@@ -7001,16 +7003,18 @@ function App() {
                             </div>
                             <div className="orders-draft-cell quote-compact-cell">
                               <span className="draft-field-label">DPH %</span>
-                              <input
-                                type="number"
-                                min={0}
-                                max={100}
-                                step={0.01}
-                                className="dead-stock-days-input quote-discount-input"
+                              <select
+                                className="quote-select-input"
                                 value={item.vatPercent}
                                 onChange={(event) => handleQuoteDraftItemChange(index, "vatPercent", event.target.value)}
                                 disabled={!activeCompanyId || quoteSubmitting}
-                              />
+                              >
+                                {QUOTE_VAT_OPTIONS.map((rate) => (
+                                  <option key={rate} value={String(rate)}>
+                                    {`${rate} %`}
+                                  </option>
+                                ))}
+                              </select>
                             </div>
                           </div>
                           <div className="quote-draft-summary">

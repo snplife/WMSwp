@@ -1091,7 +1091,7 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
         }
         .page {
           display: grid;
-          gap: 1.4mm;
+          gap: 0.4mm;
           padding: 0;
           background: #ffffff;
           margin: 0;
@@ -1099,9 +1099,9 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
         .hero {
           display: grid;
           grid-template-columns: minmax(0, 1fr) auto;
-          gap: 1.4mm;
+          gap: 1mm;
           align-items: end;
-          padding: 0 0 1.4mm;
+          padding: 0 0 0.3mm;
           border-bottom: 0.35mm solid #dbe5ef;
         }
         .hero-copy { display: grid; gap: 0.15mm; min-height: 0; }

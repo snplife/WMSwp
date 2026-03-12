@@ -1,0 +1,19 @@
+-- 34_wms_company_profile_fields.txt
+-- Add company profile fields for workflow PDFs and global settings.
+-- Safe additive migration.
+
+alter table public.companies
+add column if not exists ico text,
+add column if not exists dic text,
+add column if not exists ic_dph text,
+add column if not exists address text,
+add column if not exists bank_account text;
+
+create index if not exists idx_companies_ico
+  on public.companies (ico);
+
+create index if not exists idx_companies_dic
+  on public.companies (dic);
+
+create index if not exists idx_companies_ic_dph
+  on public.companies (ic_dph);

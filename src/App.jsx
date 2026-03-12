@@ -1846,6 +1846,16 @@ function App() {
   const [isCompanySettingsOpen, setIsCompanySettingsOpen] = useState(false);
   const [companyMaxPositionsInput, setCompanyMaxPositionsInput] = useState(String(ENV_DEFAULT_MAX_POSITIONS));
   const [companyTracksExpiryDateInput, setCompanyTracksExpiryDateInput] = useState(false);
+  const [companyProfileNameInput, setCompanyProfileNameInput] = useState("");
+  const [companyProfileIcoInput, setCompanyProfileIcoInput] = useState("");
+  const [companyProfileDicInput, setCompanyProfileDicInput] = useState("");
+  const [companyProfileIcDphInput, setCompanyProfileIcDphInput] = useState("");
+  const [companyProfileAddressInput, setCompanyProfileAddressInput] = useState("");
+  const [companyProfileBankAccountInput, setCompanyProfileBankAccountInput] = useState("");
+  const [companyProfileLookupResults, setCompanyProfileLookupResults] = useState([]);
+  const [companyProfileLookupLoading, setCompanyProfileLookupLoading] = useState(false);
+  const [companyProfileLookupError, setCompanyProfileLookupError] = useState("");
+  const [selectedCompanyProfileRegistryId, setSelectedCompanyProfileRegistryId] = useState("");
   const [companySettingsSubmitting, setCompanySettingsSubmitting] = useState(false);
   const [companySettingsError, setCompanySettingsError] = useState("");
   const [qrRackPrefix, setQrRackPrefix] = useState("A");
@@ -1927,6 +1937,7 @@ function App() {
   const [expandedProductionOrders, setExpandedProductionOrders] = useState({});
   const latestLoadRowsRequestRef = useRef(0);
   const companyLookupRequestRef = useRef(0);
+  const companyProfileLookupRequestRef = useRef(0);
   const priceListImportInputRef = useRef(null);
 
   const tableConfig = getTableConfig(selectedTable);
@@ -2355,7 +2366,7 @@ function App() {
     setCompaniesError("");
     const { data, error: companiesError } = await supabase
       .from("companies")
-      .select("id,name,created_at,max_positions,tracks_expiry_date")
+      .select("id,name,created_at,max_positions,tracks_expiry_date,ico,dic,ic_dph,address,bank_account")
       .order("name", { ascending: true });
 
     if (companiesError) {
@@ -2780,7 +2791,7 @@ function App() {
     const { data: inserted, error: createError } = await supabase
       .from("companies")
       .insert([{ name, tracks_expiry_date: newCompanyTracksExpiryDate }])
-      .select("id,name,created_at,max_positions,tracks_expiry_date")
+      .select("id,name,created_at,max_positions,tracks_expiry_date,ico,dic,ic_dph,address,bank_account")
       .single();
 
     if (createError) {
@@ -2826,7 +2837,7 @@ function App() {
       .from("companies")
       .update({ name, tracks_expiry_date: editingCompanyTracksExpiryDate })
       .eq("id", companyId)
-      .select("id,name,created_at,max_positions,tracks_expiry_date")
+      .select("id,name,created_at,max_positions,tracks_expiry_date,ico,dic,ic_dph,address,bank_account")
       .single();
 
     if (updateError) {
@@ -3155,9 +3166,17 @@ function App() {
 
     const { data: expiryUpdatedCompany, error: expiryUpdateError } = await supabase
       .from("companies")
-      .update({ tracks_expiry_date: companyTracksExpiryDateInput })
+      .update({
+        name: String(companyProfileNameInput || "").trim() || activeCompany?.name || "",
+        tracks_expiry_date: companyTracksExpiryDateInput,
+        ico: String(companyProfileIcoInput || "").trim(),
+        dic: String(companyProfileDicInput || "").trim(),
+        ic_dph: String(companyProfileIcDphInput || "").trim(),
+        address: String(companyProfileAddressInput || "").trim(),
+        bank_account: String(companyProfileBankAccountInput || "").trim()
+      })
       .eq("id", updatedCompany.id)
-      .select("id,name,created_at,max_positions,tracks_expiry_date")
+      .select("id,name,created_at,max_positions,tracks_expiry_date,ico,dic,ic_dph,address,bank_account")
       .single();
 
     if (expiryUpdateError) {
@@ -3179,6 +3198,12 @@ function App() {
     );
     setCompanyMaxPositionsInput(String(normalizeMaxPositions(expiryUpdatedCompany.max_positions)));
     setCompanyTracksExpiryDateInput(Boolean(expiryUpdatedCompany.tracks_expiry_date));
+    setCompanyProfileNameInput(String(expiryUpdatedCompany.name || ""));
+    setCompanyProfileIcoInput(String(expiryUpdatedCompany.ico || ""));
+    setCompanyProfileDicInput(String(expiryUpdatedCompany.dic || ""));
+    setCompanyProfileIcDphInput(String(expiryUpdatedCompany.ic_dph || ""));
+    setCompanyProfileAddressInput(String(expiryUpdatedCompany.address || ""));
+    setCompanyProfileBankAccountInput(String(expiryUpdatedCompany.bank_account || ""));
 
     setCompanySettingsSubmitting(false);
   };
@@ -3990,6 +4015,46 @@ function App() {
     }
   };
 
+  const handleSelectCompanyProfileRegistry = async (company) => {
+    const companyId = String(company?.id || "").trim();
+    if (!companyId) {
+      return;
+    }
+
+    const requestId = companyProfileLookupRequestRef.current + 1;
+    companyProfileLookupRequestRef.current = requestId;
+    setCompanyProfileLookupLoading(true);
+    setCompanyProfileLookupError("");
+
+    try {
+      const response = await noStoreFetch(`/api/v1/company-lookup?id=${encodeURIComponent(companyId)}`);
+      const payload = await response.json();
+
+      if (!response.ok || !payload?.ok || !payload?.item) {
+        throw new Error(payload?.error || "Nepodarilo sa načítať detail firmy.");
+      }
+
+      if (companyProfileLookupRequestRef.current !== requestId) {
+        return;
+      }
+
+      setSelectedCompanyProfileRegistryId(String(payload.item.id || companyId));
+      setCompanyProfileNameInput(String(payload.item.name || company.name || ""));
+      setCompanyProfileIcoInput(String(payload.item.ico || company.ico || ""));
+      setCompanyProfileDicInput(String(payload.item.dic || company.dic || ""));
+      setCompanyProfileAddressInput(String(payload.item.address?.formatted || ""));
+      setCompanyProfileLookupResults([]);
+    } catch (lookupError) {
+      if (companyProfileLookupRequestRef.current === requestId) {
+        setCompanyProfileLookupError(lookupError?.message || "Nepodarilo sa načítať detail firmy.");
+      }
+    } finally {
+      if (companyProfileLookupRequestRef.current === requestId) {
+        setCompanyProfileLookupLoading(false);
+      }
+    }
+  };
+
   const handleCreateCustomer = async (event) => {
     event.preventDefault();
 
@@ -4769,7 +4834,17 @@ function App() {
       setCompanyLookupResults([]);
       setCompanyLookupLoading(false);
       setCompanyLookupError("");
+      setCompanyProfileLookupResults([]);
+      setCompanyProfileLookupLoading(false);
+      setCompanyProfileLookupError("");
       setSelectedRegistryCompanyId("");
+      setSelectedCompanyProfileRegistryId("");
+      setCompanyProfileNameInput("");
+      setCompanyProfileIcoInput("");
+      setCompanyProfileDicInput("");
+      setCompanyProfileIcDphInput("");
+      setCompanyProfileAddressInput("");
+      setCompanyProfileBankAccountInput("");
       setCustomerIcDphInput("");
       setLoading(false);
       return undefined;
@@ -5091,7 +5166,27 @@ function App() {
     setCompanySettingsError("");
     setCompanyMaxPositionsInput(String(normalizeMaxPositions(activeCompany?.max_positions ?? ENV_DEFAULT_MAX_POSITIONS)));
     setCompanyTracksExpiryDateInput(Boolean(activeCompany?.tracks_expiry_date));
-  }, [activeCompany?.id, activeCompany?.max_positions, activeCompany?.tracks_expiry_date]);
+    setCompanyProfileNameInput(String(activeCompany?.name || ""));
+    setCompanyProfileIcoInput(String(activeCompany?.ico || ""));
+    setCompanyProfileDicInput(String(activeCompany?.dic || ""));
+    setCompanyProfileIcDphInput(String(activeCompany?.ic_dph || ""));
+    setCompanyProfileAddressInput(String(activeCompany?.address || ""));
+    setCompanyProfileBankAccountInput(String(activeCompany?.bank_account || ""));
+    setCompanyProfileLookupResults([]);
+    setCompanyProfileLookupLoading(false);
+    setCompanyProfileLookupError("");
+    setSelectedCompanyProfileRegistryId("");
+  }, [
+    activeCompany?.id,
+    activeCompany?.name,
+    activeCompany?.max_positions,
+    activeCompany?.tracks_expiry_date,
+    activeCompany?.ico,
+    activeCompany?.dic,
+    activeCompany?.ic_dph,
+    activeCompany?.address,
+    activeCompany?.bank_account
+  ]);
 
   const filteredManagedUsers = useMemo(() => {
     const normalizedSearch = String(masterUserSearch || "").trim().toLowerCase();
@@ -5438,6 +5533,64 @@ function App() {
   }, [customerNameInput, selectedRegistryCompanyId, canAccessOrdersModule, isLoggedIn]);
 
   useEffect(() => {
+    const query = String(companyProfileNameInput || "").trim();
+
+    if (selectedTable !== "stock" || !isCompanySettingsOpen || !activeCompanyId || isLoggedIn === false) {
+      setCompanyProfileLookupResults([]);
+      setCompanyProfileLookupLoading(false);
+      setCompanyProfileLookupError("");
+      return undefined;
+    }
+
+    if (selectedCompanyProfileRegistryId && query.length > 0) {
+      setCompanyProfileLookupResults([]);
+      setCompanyProfileLookupLoading(false);
+      setCompanyProfileLookupError("");
+      return undefined;
+    }
+
+    if (query.length < 3) {
+      setCompanyProfileLookupResults([]);
+      setCompanyProfileLookupLoading(false);
+      setCompanyProfileLookupError("");
+      return undefined;
+    }
+
+    const requestId = companyProfileLookupRequestRef.current + 1;
+    companyProfileLookupRequestRef.current = requestId;
+    const timerId = window.setTimeout(async () => {
+      setCompanyProfileLookupLoading(true);
+      setCompanyProfileLookupError("");
+
+      try {
+        const response = await noStoreFetch(`/api/v1/company-lookup?q=${encodeURIComponent(query)}&limit=6`);
+        const payload = await response.json();
+
+        if (!response.ok || !payload?.ok) {
+          throw new Error(payload?.error || "Nepodarilo sa vyhľadať firmu.");
+        }
+
+        if (companyProfileLookupRequestRef.current !== requestId) {
+          return;
+        }
+
+        setCompanyProfileLookupResults(Array.isArray(payload.items) ? payload.items : []);
+      } catch (lookupError) {
+        if (companyProfileLookupRequestRef.current === requestId) {
+          setCompanyProfileLookupResults([]);
+          setCompanyProfileLookupError(lookupError?.message || "Nepodarilo sa vyhľadať firmu.");
+        }
+      } finally {
+        if (companyProfileLookupRequestRef.current === requestId) {
+          setCompanyProfileLookupLoading(false);
+        }
+      }
+    }, COMPANY_LOOKUP_DEBOUNCE_MS);
+
+    return () => window.clearTimeout(timerId);
+  }, [companyProfileNameInput, selectedCompanyProfileRegistryId, selectedTable, isCompanySettingsOpen, activeCompanyId, isLoggedIn]);
+
+  useEffect(() => {
     if (hotjarAllowed) {
       installHotjar();
       return undefined;
@@ -5635,7 +5788,17 @@ function App() {
     setCompanyLookupResults([]);
     setCompanyLookupLoading(false);
     setCompanyLookupError("");
+    setCompanyProfileLookupResults([]);
+    setCompanyProfileLookupLoading(false);
+    setCompanyProfileLookupError("");
     setSelectedRegistryCompanyId("");
+    setSelectedCompanyProfileRegistryId("");
+    setCompanyProfileNameInput("");
+    setCompanyProfileIcoInput("");
+    setCompanyProfileDicInput("");
+    setCompanyProfileIcDphInput("");
+    setCompanyProfileAddressInput("");
+    setCompanyProfileBankAccountInput("");
     setManagedUsers([]);
     setCompanies([]);
     setManagedUsersError("");
@@ -5929,45 +6092,147 @@ function App() {
               <h2>Nastavenia firmy</h2>
               <p className="panel-meta">
                 {activeCompany
-                  ? `Kapacita skladu pre firmu ${activeCompany.name}`
-                  : "Vyber konkrétnu firmu, aby sa dala upraviť kapacita skladu."}
+                  ? `Kapacita skladu a firemné údaje pre ${activeCompany.name}`
+                  : "Vyber konkrétnu firmu, aby sa dali upraviť firemné nastavenia."}
               </p>
             </div>
           </div>
 
           <form className="company-settings-form" onSubmit={handleSaveCompanyMaxPositions}>
-            <label className="settings-field" htmlFor="company-max-positions">
-              <span>Počet miest na sklade</span>
-              <input
-                id="company-max-positions"
-                type="number"
-                min={1}
-                max={1000000}
-                className="dead-stock-days-input"
-                value={companyMaxPositionsInput}
-                onChange={(event) => setCompanyMaxPositionsInput(event.target.value)}
-                disabled={!activeCompanyId || companySettingsSubmitting}
-              />
-            </label>
-            <label className="settings-field">
-              <span>Food & beverage / expirácia</span>
-              <label className="pricing-options">
-                <input
-                  type="checkbox"
-                  checked={companyTracksExpiryDateInput}
-                  onChange={(event) => setCompanyTracksExpiryDateInput(event.target.checked)}
-                  disabled={!activeCompanyId || companySettingsSubmitting}
-                />
-                <span>Sledovať dátum spotreby pre túto firmu</span>
-              </label>
-            </label>
-            <button type="submit" className="settings-btn" disabled={!activeCompanyId || companySettingsSubmitting}>
-              {companySettingsSubmitting ? "Ukladám..." : "Uložiť kapacitu"}
-            </button>
+            <div className="company-settings-column">
+              <div className="workflow-form-section company-profile-section">
+                <div className="company-lookup-field">
+                  <label className="settings-field">
+                    <span>Názov firmy</span>
+                    <input
+                      type="text"
+                      className="search-input"
+                      placeholder="Začni písať názov firmy"
+                      value={companyProfileNameInput}
+                      onChange={(event) => {
+                        setCompanyProfileNameInput(event.target.value);
+                        setSelectedCompanyProfileRegistryId("");
+                      }}
+                      disabled={!activeCompanyId || companySettingsSubmitting}
+                    />
+                  </label>
+                  <p className="settings-hint">Po 3 znakoch sa zobrazia free výsledky z Registra účtovných závierok.</p>
+                  {companyProfileLookupLoading && <p className="orders-draft-meta">Vyhľadávam firmu...</p>}
+                  {companyProfileLookupError && <p className="error">{companyProfileLookupError}</p>}
+                  {companyProfileLookupResults.length > 0 && (
+                    <div className="company-lookup-results">
+                      {companyProfileLookupResults.map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          className="company-lookup-option"
+                          onClick={() => handleSelectCompanyProfileRegistry(item)}
+                          disabled={companySettingsSubmitting}
+                        >
+                          <strong>{item.name}</strong>
+                          <span>
+                            {[item.ico ? `IČO: ${item.ico}` : "", item.dic ? `DIČ: ${item.dic}` : ""].filter(Boolean).join(" | ")}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="customer-registry-grid">
+                  <label className="company-lookup-input-field">
+                    <span>IČO</span>
+                    <input
+                      type="text"
+                      className="search-input"
+                      value={companyProfileIcoInput}
+                      onChange={(event) => setCompanyProfileIcoInput(event.target.value)}
+                      disabled={!activeCompanyId || companySettingsSubmitting}
+                    />
+                  </label>
+                  <label className="company-lookup-input-field">
+                    <span>DIČ</span>
+                    <input
+                      type="text"
+                      className="search-input"
+                      value={companyProfileDicInput}
+                      onChange={(event) => setCompanyProfileDicInput(event.target.value)}
+                      disabled={!activeCompanyId || companySettingsSubmitting}
+                    />
+                  </label>
+                  <label className="company-lookup-input-field">
+                    <span>IČ DPH</span>
+                    <input
+                      type="text"
+                      className="search-input"
+                      value={companyProfileIcDphInput}
+                      onChange={(event) => setCompanyProfileIcDphInput(event.target.value)}
+                      disabled={!activeCompanyId || companySettingsSubmitting}
+                    />
+                  </label>
+                </div>
+
+                <label className="settings-field">
+                  <span>Adresa</span>
+                  <input
+                    type="text"
+                    className="search-input"
+                    value={companyProfileAddressInput}
+                    onChange={(event) => setCompanyProfileAddressInput(event.target.value)}
+                    disabled={!activeCompanyId || companySettingsSubmitting}
+                  />
+                </label>
+
+                <label className="settings-field company-bank-field">
+                  <span>Číslo účtu / IBAN</span>
+                  <input
+                    type="text"
+                    className="search-input"
+                    placeholder="SK12 3456 7890 1234 5678 9012"
+                    value={companyProfileBankAccountInput}
+                    onChange={(event) => setCompanyProfileBankAccountInput(event.target.value)}
+                    disabled={!activeCompanyId || companySettingsSubmitting}
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div className="company-settings-column">
+              <div className="workflow-form-section company-capacity-section">
+                <label className="settings-field" htmlFor="company-max-positions">
+                  <span>Počet miest na sklade</span>
+                  <input
+                    id="company-max-positions"
+                    type="number"
+                    min={1}
+                    max={1000000}
+                    className="dead-stock-days-input"
+                    value={companyMaxPositionsInput}
+                    onChange={(event) => setCompanyMaxPositionsInput(event.target.value)}
+                    disabled={!activeCompanyId || companySettingsSubmitting}
+                  />
+                </label>
+                <label className="settings-field">
+                  <span>Food & beverage / expirácia</span>
+                  <label className="pricing-options">
+                    <input
+                      type="checkbox"
+                      checked={companyTracksExpiryDateInput}
+                      onChange={(event) => setCompanyTracksExpiryDateInput(event.target.checked)}
+                      disabled={!activeCompanyId || companySettingsSubmitting}
+                    />
+                    <span>Sledovať dátum spotreby pre túto firmu</span>
+                  </label>
+                </label>
+                <button type="submit" className="settings-btn" disabled={!activeCompanyId || companySettingsSubmitting}>
+                  {companySettingsSubmitting ? "Ukladám..." : "Uložiť nastavenia firmy"}
+                </button>
+              </div>
+            </div>
           </form>
           {companySettingsError && <p className="error">{companySettingsError}</p>}
           <p className="settings-hint">
-            Táto hodnota sa ukladá pre firmu a používa sa pri výpočte obsadenosti a voľných miest.
+            Firemný profil sa uloží pre aktuálne vybranú firmu a vie sa použiť v ďalších workflow PDF výstupoch.
           </p>
         </section>
       )}

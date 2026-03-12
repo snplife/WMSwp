@@ -1094,20 +1094,23 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
         }
         .page {
           display: grid;
-          gap: 4.5mm;
-          padding: 4.5mm 5.5mm 5.5mm;
+          gap: 4mm;
+          padding: 3.2mm 5mm 5mm;
           border: 0.35mm solid #d7e3ef;
           border-radius: 7mm;
           background: rgba(255, 255, 255, 0.9);
           box-shadow: 0 3mm 10mm rgba(23, 33, 43, 0.08);
         }
-        .hero { display: flex; justify-content: space-between; gap: 6mm; align-items: stretch; padding: 4.5mm 5mm; border-radius: 5mm; background: linear-gradient(135deg, #0f8a7f, #0f5f8f); color: #ffffff; }
-        .hero-copy { display: grid; gap: 0.8mm; align-content: start; }
+        .hero { display: flex; justify-content: space-between; gap: 4.5mm; align-items: flex-start; padding: 3.2mm 4mm; border-radius: 5mm; background: linear-gradient(135deg, #0f8a7f, #0f5f8f); color: #ffffff; }
+        .hero-copy { display: grid; gap: 0.45mm; align-content: start; }
         .eyebrow { font-size: 7.6pt; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.82; line-height: 1.05; }
-        h1 { margin: 0; font-size: 18pt; line-height: 1.02; }
-        .hero-subtitle { font-size: 8.4pt; line-height: 1.1; opacity: 0.88; }
-        .hero-card { min-width: 56mm; padding: 4mm; border-radius: 4mm; background: rgba(255, 255, 255, 0.14); }
+        h1 { margin: 0; font-size: 17pt; line-height: 1; }
+        .hero-subtitle { font-size: 8pt; line-height: 1.05; opacity: 0.88; }
+        .hero-card { min-width: 50mm; padding: 2.6mm 3mm; border-radius: 3.2mm; background: rgba(255, 255, 255, 0.14); align-self: flex-start; }
         .hero-card .section-label, .hero-card .value { color: #ffffff; }
+        .hero-card .section-label { margin-bottom: 0.5mm; font-size: 6.9pt; }
+        .hero-card .value { font-size: 9.4pt; line-height: 1.1; }
+        .hero-card .muted { font-size: 7.1pt; line-height: 1.1; color: rgba(255, 255, 255, 0.82); }
         .section-label { display: block; margin-bottom: 1.2mm; font-size: 7.6pt; color: #5a6c7c; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; }
         .value { font-size: 11pt; font-weight: 700; }
         .customer, .summary, .note, .items {

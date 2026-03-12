@@ -986,24 +986,40 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
   const supplierFields = [
     { label: "Dodávateľ", value: companyName },
     { label: "Adresa", value: String(normalizedCompany?.address || "").trim() || "-" },
-    { label: "IČO", value: String(normalizedCompany?.ico || "").trim() || "-" },
-    { label: "DIČ", value: String(normalizedCompany?.dic || "").trim() || "-" },
-    { label: "IČ DPH", value: String(normalizedCompany?.ic_dph || "").trim() || "-" },
+    {
+      label: "Identifikácia",
+      value:
+        [
+          String(normalizedCompany?.ico || "").trim() ? `IČO ${String(normalizedCompany?.ico || "").trim()}` : "",
+          String(normalizedCompany?.dic || "").trim() ? `DIČ ${String(normalizedCompany?.dic || "").trim()}` : "",
+          String(normalizedCompany?.ic_dph || "").trim() ? `IČ DPH ${String(normalizedCompany?.ic_dph || "").trim()}` : ""
+        ]
+          .filter(Boolean)
+          .join(" | ") || "-"
+    },
     { label: "IBAN", value: String(normalizedCompany?.bank_account || "").trim() || "-" }
   ];
   const customerFields = [
     { label: "Odberateľ", value: customerName },
     { label: "Adresa", value: String(customer?.address || "").trim() || "-" },
-    { label: "IČO", value: String(customer?.ico || "").trim() || "-" },
-    { label: "DIČ", value: String(customer?.dic || "").trim() || "-" },
-    { label: "IČ DPH", value: String(customer?.ic_dph || "").trim() || "-" },
+    {
+      label: "Identifikácia",
+      value:
+        [
+          String(customer?.ico || "").trim() ? `IČO ${String(customer?.ico || "").trim()}` : "",
+          String(customer?.dic || "").trim() ? `DIČ ${String(customer?.dic || "").trim()}` : "",
+          String(customer?.ic_dph || "").trim() ? `IČ DPH ${String(customer?.ic_dph || "").trim()}` : ""
+        ]
+          .filter(Boolean)
+          .join(" | ") || "-"
+    },
     { label: "Telefón / Email", value: [String(customer?.phone || "").trim(), String(customer?.email || "").trim()].filter(Boolean).join(" | ") || "-" }
   ];
   const buildPartyFieldsHtml = (fields) =>
     fields
       .map(
         (field) => `
-          <div>
+          <div class="${field.label === "Dodávateľ" || field.label === "Odberateľ" || field.label === "Adresa" ? "party-field--full" : ""}">
             <span class="section-label">${escapeHtml(field.label)}</span>
             <div class="value">${escapeHtml(field.value)}</div>
           </div>
@@ -1111,22 +1127,30 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
           background: linear-gradient(180deg, #0f8a7f, #0f5f8f);
         }
         .meta-card, .summary-card { padding: 4mm; }
-        .customer, .note, .items, .summary { padding: 4.5mm 4.5mm 4.5mm 5.5mm; }
-        .customer-head, .items-head, .summary-head { display: flex; justify-content: space-between; gap: 4mm; align-items: end; margin-bottom: 3mm; }
+        .customer, .note, .items, .summary { padding: 4mm 4mm 4mm 5mm; }
+        .customer-head, .items-head, .summary-head { display: flex; justify-content: space-between; gap: 4mm; align-items: end; margin-bottom: 2.4mm; }
         .section-title { margin: 0; font-size: 11pt; color: #182431; }
-        .section-subtitle { margin: 1mm 0 0; font-size: 8.5pt; color: #607180; }
-        .party-grid, .customer-grid, .summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3mm 6mm; }
+        .section-subtitle { margin: 0.6mm 0 0; font-size: 8.2pt; color: #607180; }
+        .party-grid, .customer-grid, .summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2.5mm 5mm; }
         .summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
         .party-card {
           border: 0.3mm solid #e4ebf3;
           border-radius: 3.5mm;
           background: linear-gradient(180deg, #ffffff, #f7fbff);
-          padding: 4mm;
+          padding: 3.2mm;
           display: grid;
-          gap: 2.6mm;
+          gap: 2.2mm;
           box-shadow: inset 0 0 0 0.2mm rgba(255,255,255,0.7);
         }
         .party-card .section-title { font-size: 10pt; }
+        .party-fields {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 2.2mm 4mm;
+        }
+        .party-field--full { grid-column: 1 / -1; }
+        .party-card .section-label { margin-bottom: 0.7mm; font-size: 7pt; }
+        .party-card .value { font-size: 8.7pt; line-height: 1.35; }
         .summary-card {
           border: 0.3mm solid #e4ebf3;
           border-radius: 3.5mm;
@@ -1174,14 +1198,14 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
                 <h3 class="section-title">Dodávateľ</h3>
                 <p class="section-subtitle">Údaje z firemných nastavení</p>
               </div>
-              ${buildPartyFieldsHtml(supplierFields)}
+              <div class="party-fields">${buildPartyFieldsHtml(supplierFields)}</div>
             </article>
             <article class="party-card">
               <div>
                 <h3 class="section-title">Odberateľ</h3>
                 <p class="section-subtitle">Údaje naviazané na zákazníka</p>
               </div>
-              ${buildPartyFieldsHtml(customerFields)}
+              <div class="party-fields">${buildPartyFieldsHtml(customerFields)}</div>
             </article>
           </div>
         </section>

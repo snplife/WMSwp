@@ -1035,10 +1035,27 @@ function buildQuotePrintHtml(quote, customer, items, companyName) {
       <meta charset="UTF-8" />
       <title>${escapeHtml(String(quote?.quote_number || "Cenova-ponuka"))}</title>
       <style>
+        @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap");
         @page { size: A4 portrait; margin: 12mm; }
         * { box-sizing: border-box; }
-        body { margin: 0; font-family: Arial, sans-serif; color: #182431; background: #ffffff; }
-        .page { display: grid; gap: 6mm; }
+        body {
+          margin: 0;
+          font-family: "Space Grotesk", "Segoe UI", Arial, sans-serif;
+          color: #182431;
+          background:
+            radial-gradient(circle at 12% 12%, #f7ddb0 0%, transparent 28%),
+            radial-gradient(circle at 88% 5%, #cce9fb 0%, transparent 25%),
+            linear-gradient(155deg, #f3f6ff, #e7f5f7);
+        }
+        .page {
+          display: grid;
+          gap: 6mm;
+          padding: 7mm;
+          border: 0.35mm solid #d7e3ef;
+          border-radius: 7mm;
+          background: rgba(255, 255, 255, 0.9);
+          box-shadow: 0 3mm 10mm rgba(23, 33, 43, 0.08);
+        }
         .hero { display: flex; justify-content: space-between; gap: 8mm; align-items: stretch; padding: 6mm; border-radius: 5mm; background: linear-gradient(135deg, #0f8a7f, #0f5f8f); color: #ffffff; }
         .hero-copy { display: grid; gap: 2mm; }
         .eyebrow { font-size: 8pt; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.82; }
@@ -1049,15 +1066,33 @@ function buildQuotePrintHtml(quote, customer, items, companyName) {
         .section-label { display: block; margin-bottom: 1.2mm; font-size: 7.6pt; color: #5a6c7c; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; }
         .value { font-size: 11pt; font-weight: 700; }
         .meta-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3mm; }
-        .meta-card, .customer, .summary, .note, .items { border: 0.35mm solid #dbe5ef; border-radius: 4mm; background: #ffffff; }
+        .meta-card, .customer, .summary, .note, .items {
+          position: relative;
+          border: 0.35mm solid #dbe5ef;
+          border-radius: 4.5mm;
+          background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 252, 255, 0.96));
+          overflow: hidden;
+        }
+        .meta-card::before, .customer::before, .summary::before, .note::before, .items::before {
+          content: "";
+          position: absolute;
+          inset: 0 auto 0 0;
+          width: 1.6mm;
+          background: linear-gradient(180deg, #0f8a7f, #0f5f8f);
+        }
         .meta-card, .summary-card { padding: 4mm; }
-        .customer, .note, .items, .summary { padding: 4.5mm; }
+        .customer, .note, .items, .summary { padding: 4.5mm 4.5mm 4.5mm 5.5mm; }
         .customer-head, .items-head, .summary-head { display: flex; justify-content: space-between; gap: 4mm; align-items: end; margin-bottom: 3mm; }
         .section-title { margin: 0; font-size: 11pt; color: #182431; }
         .section-subtitle { margin: 1mm 0 0; font-size: 8.5pt; color: #607180; }
         .customer-grid, .summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3mm 6mm; }
         .summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-        .summary-card { border: 0.3mm solid #e4ebf3; border-radius: 3.5mm; background: linear-gradient(180deg, #ffffff, #f7fbff); }
+        .summary-card {
+          border: 0.3mm solid #e4ebf3;
+          border-radius: 3.5mm;
+          background: linear-gradient(180deg, #ffffff, #f7fbff);
+          box-shadow: inset 0 0 0 0.2mm rgba(255,255,255,0.7);
+        }
         table { width: 100%; border-collapse: collapse; font-size: 8.9pt; }
         thead th { padding: 2.8mm; text-align: left; color: #33506b; background: #eef5fb; border-bottom: 0.35mm solid #d6e1ec; }
         tbody td { padding: 2.8mm; vertical-align: top; border-bottom: 0.25mm solid #e6edf5; }

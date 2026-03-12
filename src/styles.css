@@ -595,6 +595,10 @@ select {
   background: linear-gradient(135deg, rgba(35, 118, 173, 0.12), rgba(255, 255, 255, 0));
 }
 
+.workflow-shell-customers::before {
+  background: linear-gradient(135deg, rgba(16, 127, 108, 0.12), rgba(255, 255, 255, 0));
+}
+
 .workflow-shell-production::before {
   background: linear-gradient(135deg, rgba(0, 120, 110, 0.16), rgba(255, 255, 255, 0));
 }
@@ -812,11 +816,16 @@ select {
   color: #6c7a88;
 }
 
-.company-lookup-meta-grid {
+.company-lookup-meta-grid,
+.customer-registry-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(120px, 190px));
   gap: 0.6rem;
   justify-content: start;
+}
+
+.customer-registry-grid {
+  grid-template-columns: repeat(3, minmax(120px, 190px));
 }
 
 .company-lookup-input-field {
@@ -945,6 +954,50 @@ select {
 .workflow-phone-input {
   min-width: 0;
   max-width: 132px;
+}
+
+.workflow-list-search {
+  min-width: min(320px, 100%);
+}
+
+.customer-database-list {
+  gap: 0.9rem;
+}
+
+.customer-card-head {
+  align-items: start;
+}
+
+.customer-inline-meta {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.customer-card-body {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.customer-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.customer-meta-grid p {
+  margin: 0.28rem 0 0;
+  color: #274054;
+}
+
+.customer-meta-grid-wide {
+  grid-column: 1 / -1;
+}
+
+.customer-card-actions {
+  display: flex;
+  gap: 0.55rem;
+  flex-wrap: wrap;
 }
 
 .workflow-quantity-input {
@@ -1833,7 +1886,8 @@ tbody tr:nth-child(even) {
     grid-template-columns: 1fr;
   }
 
-  .company-lookup-meta-grid {
+  .company-lookup-meta-grid,
+  .customer-registry-grid {
     grid-template-columns: 1fr;
   }
 
@@ -1867,6 +1921,15 @@ tbody tr:nth-child(even) {
   .quote-unit-input {
     width: 100%;
     max-width: none;
+  }
+
+  .customer-meta-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .workflow-list-search {
+    min-width: 0;
+    width: 100%;
   }
 
   .settings-btn,

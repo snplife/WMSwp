@@ -8,6 +8,7 @@ import { clearSupabaseAuthStorage, noStoreFetch, supabase, supabaseAnonKey, supa
 import logo from "../logo.png";
 
 const DAILY_OVERVIEW_TABLE = "__daily_overview__";
+const CUSTOMERS_MODULE = "__customers__";
 const QUOTES_MODULE = "__quotes__";
 const ORDERS_MODULE = "__orders__";
 const PRODUCTION_MODULE = "__production__";
@@ -50,6 +51,18 @@ const TABLE_CONFIG = {
     orderBy: "material_code",
     orderAsc: true,
     metricLabel: "Položky cenníka",
+    metricValue: (rows) => rows.length
+  },
+  [CUSTOMERS_MODULE]: {
+    title: "Zákazníci",
+    subtitle: "Databáza zákazníkov pre objednávky a cenové ponuky",
+    columns: [],
+    searchKeys: [],
+    statusKeys: [],
+    timeKeys: [],
+    orderBy: "created_at",
+    orderAsc: false,
+    metricLabel: "Zákazníci",
     metricValue: (rows) => rows.length
   },
   [QUOTES_MODULE]: {
@@ -203,6 +216,9 @@ const LANDING_FAQ = [
 ];
 
 function getTableConfig(table) {
+  if (isCustomerModule(table)) {
+    return TABLE_CONFIG[CUSTOMERS_MODULE];
+  }
   if (isQuoteModule(table)) {
     return TABLE_CONFIG[QUOTES_MODULE];
   }
@@ -221,6 +237,10 @@ function getTableConfig(table) {
   return TABLE_CONFIG[table] || DEFAULT_CONFIG;
 }
 
+function isCustomerModule(table) {
+  return String(table || "").trim() === CUSTOMERS_MODULE;
+}
+
 function isQuoteModule(table) {
   return String(table || "").trim() === QUOTES_MODULE;
 }
@@ -234,7 +254,7 @@ function isProductionModule(table) {
 }
 
 function isWorkflowModule(table) {
-  return isQuoteModule(table) || isOrdersModule(table) || isProductionModule(table);
+  return isCustomerModule(table) || isQuoteModule(table) || isOrdersModule(table) || isProductionModule(table);
 }
 
 function isDailyOverviewTable(table) {
@@ -251,6 +271,9 @@ function getStartOfTodayMs() {
 }
 
 function getTableLabel(table) {
+  if (isCustomerModule(table)) {
+    return "Zákazníci";
+  }
   if (isQuoteModule(table)) {
     return "Cenové ponuky";
   }
@@ -415,6 +438,52 @@ function buildCustomerNotePayload(note, registryMeta) {
   }
 
   return noteLines.join("\n");
+}
+
+function parseLegacyCustomerNote(note) {
+  const source = String(note || "");
+  const lines = source.split(/\r?\n/);
+  const firstLine = String(lines[0] || "").trim();
+  const isLegacyMetaLine = /^(ICO:|DIC:|IC DPH:|Zdroj:)/i.test(firstLine);
+
+  const parsed = {
+    ico: "",
+    dic: "",
+    icDph: "",
+    source: "",
+    cleanNote: source.trim()
+  };
+
+  if (!isLegacyMetaLine) {
+    return parsed;
+  }
+
+  firstLine.split("|").forEach((part) => {
+    const chunk = String(part || "").trim();
+    if (/^ICO:/i.test(chunk)) {
+      parsed.ico = chunk.replace(/^ICO:\s*/i, "").trim();
+    } else if (/^DIC:/i.test(chunk)) {
+      parsed.dic = chunk.replace(/^DIC:\s*/i, "").trim();
+    } else if (/^IC DPH:/i.test(chunk)) {
+      parsed.icDph = chunk.replace(/^IC DPH:\s*/i, "").trim();
+    } else if (/^Zdroj:/i.test(chunk)) {
+      parsed.source = chunk.replace(/^Zdroj:\s*/i, "").trim();
+    }
+  });
+
+  parsed.cleanNote = lines.slice(1).join("\n").trim();
+  return parsed;
+}
+
+function hydrateCustomerRecord(row) {
+  const legacy = parseLegacyCustomerNote(row?.note);
+  return {
+    ...row,
+    ico: String(row?.ico || legacy.ico || "").trim(),
+    dic: String(row?.dic || legacy.dic || "").trim(),
+    ic_dph: String(row?.ic_dph || legacy.icDph || "").trim(),
+    note: legacy.cleanNote
+  };
 }
 
 function makeMaterialSubscriptionKey(companyId, materialCode) {
@@ -1733,18 +1802,24 @@ function App() {
   const [ordersStockRows, setOrdersStockRows] = useState([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [ordersError, setOrdersError] = useState("");
+  const [customersLoading, setCustomersLoading] = useState(false);
+  const [customersError, setCustomersError] = useState("");
+  const [customerSearchTerm, setCustomerSearchTerm] = useState("");
+  const [editingCustomerId, setEditingCustomerId] = useState("");
   const [customerNameInput, setCustomerNameInput] = useState("");
   const [customerEmailInput, setCustomerEmailInput] = useState("");
   const [customerPhoneInput, setCustomerPhoneInput] = useState("");
   const [customerAddressInput, setCustomerAddressInput] = useState("");
   const [customerIcoInput, setCustomerIcoInput] = useState("");
   const [customerDicInput, setCustomerDicInput] = useState("");
+  const [customerIcDphInput, setCustomerIcDphInput] = useState("");
   const [customerNoteInput, setCustomerNoteInput] = useState("");
   const [companyLookupResults, setCompanyLookupResults] = useState([]);
   const [companyLookupLoading, setCompanyLookupLoading] = useState(false);
   const [companyLookupError, setCompanyLookupError] = useState("");
   const [selectedRegistryCompanyId, setSelectedRegistryCompanyId] = useState("");
   const [customerSubmitting, setCustomerSubmitting] = useState(false);
+  const [customerDeletingId, setCustomerDeletingId] = useState("");
   const [selectedOrderCustomerId, setSelectedOrderCustomerId] = useState("");
   const [orderSearchTerm, setOrderSearchTerm] = useState("");
   const [orderDraftItems, setOrderDraftItems] = useState([createEmptyOrderDraftItem()]);
@@ -1773,12 +1848,12 @@ function App() {
   const hotjarAllowed = (authReady || authInitTimedOut) && (!isLoggedIn || !isMaster);
   const visibleTableNames = useMemo(() => {
     if (isMaster) {
-      return Array.from(new Set([...tableNames, PRICE_LIST_TABLE, QUOTES_MODULE, ORDERS_MODULE, PRODUCTION_MODULE]));
+      return Array.from(new Set([...tableNames, PRICE_LIST_TABLE, CUSTOMERS_MODULE, QUOTES_MODULE, ORDERS_MODULE, PRODUCTION_MODULE]));
     }
     const baseTables = Array.from(
       new Set([DAILY_OVERVIEW_TABLE, PRICE_LIST_TABLE, ...tableNames.filter((table) => table === "stock" || isTransactionsTable(table))])
     );
-    return canAccessOrdersModule ? [...baseTables, QUOTES_MODULE, ORDERS_MODULE, PRODUCTION_MODULE] : baseTables;
+    return canAccessOrdersModule ? [...baseTables, CUSTOMERS_MODULE, QUOTES_MODULE, ORDERS_MODULE, PRODUCTION_MODULE] : baseTables;
   }, [isMaster, canAccessOrdersModule]);
   const companyNameById = useMemo(
     () =>
@@ -1796,6 +1871,27 @@ function App() {
     () => Object.fromEntries(customers.map((customer) => [customer.id, customer])),
     [customers]
   );
+  const customerUsageById = useMemo(() => {
+    const usage = {};
+
+    orders.forEach((order) => {
+      if (!order.customer_id) {
+        return;
+      }
+      usage[order.customer_id] = usage[order.customer_id] || { orders: 0, quotes: 0 };
+      usage[order.customer_id].orders += 1;
+    });
+
+    quotes.forEach((quote) => {
+      if (!quote.customer_id) {
+        return;
+      }
+      usage[quote.customer_id] = usage[quote.customer_id] || { orders: 0, quotes: 0 };
+      usage[quote.customer_id].quotes += 1;
+    });
+
+    return usage;
+  }, [orders, quotes]);
   const quoteItemsByQuoteId = useMemo(() => {
     const grouped = {};
     for (const item of quoteItems) {
@@ -3004,6 +3100,102 @@ function App() {
     setQuoteDraftItems([createEmptyQuoteDraftItem()]);
   };
 
+  const resetCustomerForm = () => {
+    setEditingCustomerId("");
+    setCustomerNameInput("");
+    setCustomerEmailInput("");
+    setCustomerPhoneInput("");
+    setCustomerAddressInput("");
+    setCustomerIcoInput("");
+    setCustomerDicInput("");
+    setCustomerIcDphInput("");
+    setCustomerNoteInput("");
+    setSelectedRegistryCompanyId("");
+    setCompanyLookupResults([]);
+    setCompanyLookupError("");
+    setCompanyLookupLoading(false);
+  };
+
+  const resolveCustomerScope = async () => {
+    let effectiveUserCompanyId = userCompanyId;
+    if (!isMaster && !effectiveUserCompanyId && authUser?.id) {
+      const resolvedCompanyId = await fetchOwnCompanyIdViaRpc(authUser.id);
+      if (resolvedCompanyId) {
+        effectiveUserCompanyId = resolvedCompanyId;
+        setUserCompanyId(resolvedCompanyId);
+        setSelectedCompanyId(resolvedCompanyId);
+      }
+    }
+
+    const companyScope = isMaster ? selectedCompanyId : effectiveUserCompanyId;
+    return companyScope && companyScope !== "all" ? companyScope : null;
+  };
+
+  const fetchScopedCustomers = async (scopedCompanyId) => {
+    const customersQuery = supabase
+      .from("customers")
+      .select("id,company_id,name,email,phone,address,ico,dic,ic_dph,note,created_at,created_by")
+      .order("name", { ascending: true });
+
+    const scopedCustomersQuery = scopedCompanyId ? customersQuery.eq("company_id", scopedCompanyId) : customersQuery;
+    const { data, error: customersLoadError } = await scopedCustomersQuery;
+
+    if (customersLoadError) {
+      throw customersLoadError;
+    }
+
+    return (data || []).map((row) => hydrateCustomerRecord(row));
+  };
+
+  const loadCustomersModuleData = async () => {
+    if (!authReady || !isLoggedIn || !canAccessOrdersModule) {
+      setCustomers([]);
+      setOrders([]);
+      setQuotes([]);
+      setCustomersLoading(false);
+      setCustomersError("");
+      return;
+    }
+
+    setCustomersLoading(true);
+    setCustomersError("");
+
+    try {
+      const scopedCompanyId = await resolveCustomerScope();
+      const ordersQuery = supabase
+        .from("orders")
+        .select("id,customer_id")
+        .order("created_at", { ascending: false });
+      const quotesQuery = supabase
+        .from("quotes")
+        .select("id,customer_id")
+        .order("created_at", { ascending: false });
+      const scopedOrdersQuery = scopedCompanyId ? ordersQuery.eq("company_id", scopedCompanyId) : ordersQuery;
+      const scopedQuotesQuery = scopedCompanyId ? quotesQuery.eq("company_id", scopedCompanyId) : quotesQuery;
+      const [customersData, { data: ordersData, error: ordersLoadError }, { data: quotesData, error: quotesLoadError }] = await Promise.all([
+        fetchScopedCustomers(scopedCompanyId),
+        scopedOrdersQuery,
+        scopedQuotesQuery
+      ]);
+      if (ordersLoadError) {
+        throw ordersLoadError;
+      }
+      if (quotesLoadError) {
+        throw quotesLoadError;
+      }
+      setCustomers(customersData);
+      setOrders(ordersData || []);
+      setQuotes(quotesData || []);
+    } catch (loadCustomersError) {
+      setCustomers([]);
+      setOrders([]);
+      setQuotes([]);
+      setCustomersError(loadCustomersError?.message || "Nepodarilo sa načítať zákazníkov.");
+    } finally {
+      setCustomersLoading(false);
+    }
+  };
+
   const loadQuotesModuleData = async () => {
     if (!authReady || !isLoggedIn || !canAccessOrdersModule) {
       setCustomers([]);
@@ -3019,22 +3211,7 @@ function App() {
     setQuotesError("");
 
     try {
-      let effectiveUserCompanyId = userCompanyId;
-      if (!isMaster && !effectiveUserCompanyId && authUser?.id) {
-        const resolvedCompanyId = await fetchOwnCompanyIdViaRpc(authUser.id);
-        if (resolvedCompanyId) {
-          effectiveUserCompanyId = resolvedCompanyId;
-          setUserCompanyId(resolvedCompanyId);
-          setSelectedCompanyId(resolvedCompanyId);
-        }
-      }
-
-      const companyScope = isMaster ? selectedCompanyId : effectiveUserCompanyId;
-      const scopedCompanyId = companyScope && companyScope !== "all" ? companyScope : null;
-      const customersQuery = supabase
-        .from("customers")
-        .select("id,company_id,name,email,phone,address,note,created_at,created_by")
-        .order("name", { ascending: true });
+      const scopedCompanyId = await resolveCustomerScope();
       const quotesQuery = supabase
         .from("quotes")
         .select("id,company_id,customer_id,customer_name,quote_number,status,note,created_at,created_by")
@@ -3044,19 +3221,14 @@ function App() {
         .select("id,company_id,material_code,unit,unit_price,purchase_price,note,created_at,updated_at,created_by")
         .order("material_code", { ascending: true });
 
-      const scopedCustomersQuery = scopedCompanyId ? customersQuery.eq("company_id", scopedCompanyId) : customersQuery;
       const scopedQuotesQuery = scopedCompanyId ? quotesQuery.eq("company_id", scopedCompanyId) : quotesQuery;
       const scopedPriceListQuery = scopedCompanyId ? priceListQuery.eq("company_id", scopedCompanyId) : priceListQuery;
 
       const [
-        { data: customersData, error: customersError },
+        customersData,
         { data: quotesData, error: quotesLoadError },
         { data: priceListData, error: priceListLoadError }
-      ] = await Promise.all([scopedCustomersQuery, scopedQuotesQuery, scopedPriceListQuery]);
-
-      if (customersError) {
-        throw customersError;
-      }
+      ] = await Promise.all([fetchScopedCustomers(scopedCompanyId), scopedQuotesQuery, scopedPriceListQuery]);
       if (quotesLoadError) {
         throw quotesLoadError;
       }
@@ -3118,22 +3290,7 @@ function App() {
     setOrdersError("");
 
     try {
-      let effectiveUserCompanyId = userCompanyId;
-      if (!isMaster && !effectiveUserCompanyId && authUser?.id) {
-        const resolvedCompanyId = await fetchOwnCompanyIdViaRpc(authUser.id);
-        if (resolvedCompanyId) {
-          effectiveUserCompanyId = resolvedCompanyId;
-          setUserCompanyId(resolvedCompanyId);
-          setSelectedCompanyId(resolvedCompanyId);
-        }
-      }
-
-      const companyScope = isMaster ? selectedCompanyId : effectiveUserCompanyId;
-      const scopedCompanyId = companyScope && companyScope !== "all" ? companyScope : null;
-      const customersQuery = supabase
-        .from("customers")
-        .select("id,company_id,name,email,phone,address,note,created_at,created_by")
-        .order("name", { ascending: true });
+      const scopedCompanyId = await resolveCustomerScope();
       const ordersQuery = supabase
         .from("orders")
         .select("id,company_id,customer_id,customer_name,order_number,note,created_at,created_by")
@@ -3143,16 +3300,11 @@ function App() {
         .select("company_id,position,material_code,quantity")
         .order("material_code", { ascending: true });
 
-      const scopedCustomersQuery = scopedCompanyId ? customersQuery.eq("company_id", scopedCompanyId) : customersQuery;
       const scopedOrdersQuery = scopedCompanyId ? ordersQuery.eq("company_id", scopedCompanyId) : ordersQuery;
       const scopedStockQuery = scopedCompanyId ? stockQuery.eq("company_id", scopedCompanyId) : stockQuery;
 
-      const [{ data: customersData, error: customersError }, { data: ordersData, error: ordersLoadError }, { data: stockData, error: stockError }] =
-        await Promise.all([scopedCustomersQuery, scopedOrdersQuery, scopedStockQuery]);
-
-      if (customersError) {
-        throw customersError;
-      }
+      const [customersData, { data: ordersData, error: ordersLoadError }, { data: stockData, error: stockError }] =
+        await Promise.all([fetchScopedCustomers(scopedCompanyId), scopedOrdersQuery, scopedStockQuery]);
       if (ordersLoadError) {
         throw ordersLoadError;
       }
@@ -3737,6 +3889,7 @@ function App() {
       setCustomerNameInput(String(payload.item.name || company.name || ""));
       setCustomerIcoInput(String(payload.item.ico || company.ico || ""));
       setCustomerDicInput(String(payload.item.dic || company.dic || ""));
+      setCustomerIcDphInput(String(payload.item.icDph || payload.item.ic_dph || company.icDph || ""));
       setCustomerAddressInput(String(payload.item.address?.formatted || ""));
       setCompanyLookupResults([]);
     } catch (lookupError) {
@@ -3757,59 +3910,118 @@ function App() {
     const name = String(customerNameInput || "").trim();
     if (!companyId) {
       setOrdersError("Vyber firmu pre zákazníka.");
+      setCustomersError("Vyber firmu pre zákazníka.");
       return;
     }
     if (!name) {
       setOrdersError("Zadaj názov zákazníka.");
+      setCustomersError("Zadaj názov zákazníka.");
       return;
     }
 
     setCustomerSubmitting(true);
     setOrdersError("");
+    setCustomersError("");
 
-    const { data, error: insertError } = await supabase
-      .from("customers")
-      .insert([
-        {
-          company_id: companyId,
-          name,
-          email: String(customerEmailInput || "").trim(),
-          phone: String(customerPhoneInput || "").trim(),
-          address: String(customerAddressInput || "").trim(),
-          note: buildCustomerNotePayload(customerNoteInput, {
-            ico: String(customerIcoInput || "").trim(),
-            dic: String(customerDicInput || "").trim(),
-            source: selectedRegistryCompanyId ? "RÚZ" : ""
-          }),
-          created_by: authUser?.id || null
-        }
-      ])
-      .select("id,company_id,name,email,phone,address,note,created_at,created_by")
-      .single();
+    const customerPayload = {
+      company_id: companyId,
+      name,
+      email: String(customerEmailInput || "").trim(),
+      phone: String(customerPhoneInput || "").trim(),
+      address: String(customerAddressInput || "").trim(),
+      ico: String(customerIcoInput || "").trim(),
+      dic: String(customerDicInput || "").trim(),
+      ic_dph: String(customerIcDphInput || "").trim(),
+      note: String(customerNoteInput || "").trim(),
+      created_by: authUser?.id || null
+    };
+
+    const customerQuery = editingCustomerId
+      ? supabase
+          .from("customers")
+          .update(customerPayload)
+          .eq("id", editingCustomerId)
+          .select("id,company_id,name,email,phone,address,ico,dic,ic_dph,note,created_at,created_by")
+          .single()
+      : supabase
+          .from("customers")
+          .insert([customerPayload])
+          .select("id,company_id,name,email,phone,address,ico,dic,ic_dph,note,created_at,created_by")
+          .single();
+
+    const { data, error: insertError } = await customerQuery;
 
     if (insertError) {
-      setOrdersError(insertError.message || "Nepodarilo sa vytvoriť zákazníka.");
+      const errorMessage = insertError.message || "Nepodarilo sa uložiť zákazníka.";
+      setOrdersError(errorMessage);
+      setCustomersError(errorMessage);
       setCustomerSubmitting(false);
       return;
     }
 
+    const hydratedCustomer = hydrateCustomerRecord(data);
     setCustomers((prev) =>
-      [...prev, data].sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "sk-SK", { sensitivity: "base" }))
+      [...prev.filter((item) => item.id !== hydratedCustomer.id), hydratedCustomer].sort((a, b) =>
+        String(a.name || "").localeCompare(String(b.name || ""), "sk-SK", { sensitivity: "base" })
+      )
     );
-    setSelectedQuoteCustomerId(data.id);
-    setSelectedOrderCustomerId(data.id);
-    setCustomerNameInput("");
-    setCustomerEmailInput("");
-    setCustomerPhoneInput("");
-    setCustomerAddressInput("");
-    setCustomerIcoInput("");
-    setCustomerDicInput("");
-    setCustomerNoteInput("");
-    setPriceListPurchaseInput("");
+    setSelectedQuoteCustomerId(hydratedCustomer.id);
+    setSelectedOrderCustomerId(hydratedCustomer.id);
+    resetCustomerForm();
+    setCustomerSubmitting(false);
+  };
+
+  const handleEditCustomer = (customer) => {
+    const hydratedCustomer = hydrateCustomerRecord(customer);
+    setEditingCustomerId(hydratedCustomer.id);
+    setCustomerNameInput(String(hydratedCustomer.name || ""));
+    setCustomerEmailInput(String(hydratedCustomer.email || ""));
+    setCustomerPhoneInput(String(hydratedCustomer.phone || ""));
+    setCustomerAddressInput(String(hydratedCustomer.address || ""));
+    setCustomerIcoInput(String(hydratedCustomer.ico || ""));
+    setCustomerDicInput(String(hydratedCustomer.dic || ""));
+    setCustomerIcDphInput(String(hydratedCustomer.ic_dph || ""));
+    setCustomerNoteInput(String(hydratedCustomer.note || ""));
+    setSelectedRegistryCompanyId("");
     setCompanyLookupResults([]);
     setCompanyLookupError("");
-    setSelectedRegistryCompanyId("");
-    setCustomerSubmitting(false);
+  };
+
+  const handleDeleteCustomer = async (customer) => {
+    const customerId = String(customer?.id || "").trim();
+    if (!customerId) {
+      return;
+    }
+
+    const linkedOrder = orders.find((item) => item.customer_id === customerId);
+    const linkedQuote = quotes.find((item) => item.customer_id === customerId);
+    if (linkedOrder || linkedQuote) {
+      const linkLabel = linkedOrder ? "objednávkach" : "cenových ponukách";
+      setCustomersError(`Zákazník je už použitý v ${linkLabel}, preto ho nemažem.`);
+      return;
+    }
+
+    setCustomerDeletingId(customerId);
+    setCustomersError("");
+
+    const { error: deleteError } = await supabase.from("customers").delete().eq("id", customerId);
+    if (deleteError) {
+      setCustomersError(deleteError.message || "Nepodarilo sa vymazať zákazníka.");
+      setCustomerDeletingId("");
+      return;
+    }
+
+    setCustomers((prev) => prev.filter((item) => item.id !== customerId));
+    if (editingCustomerId === customerId) {
+      resetCustomerForm();
+    }
+    if (selectedOrderCustomerId === customerId) {
+      setSelectedOrderCustomerId("");
+    }
+    if (selectedQuoteCustomerId === customerId) {
+      setSelectedQuoteCustomerId("");
+    }
+    setCustomerDeletingId("");
   };
 
   const handleCreateQuote = async (event) => {
@@ -4447,6 +4659,10 @@ function App() {
       setRows([]);
       setStockSnapshotRows([]);
       setCustomers([]);
+      setCustomersError("");
+      setCustomersLoading(false);
+      setCustomerSearchTerm("");
+      setEditingCustomerId("");
       setQuotes([]);
       setQuoteItems([]);
       setQuotePriceListRows([]);
@@ -4465,8 +4681,40 @@ function App() {
       setCompanyLookupLoading(false);
       setCompanyLookupError("");
       setSelectedRegistryCompanyId("");
+      setCustomerIcDphInput("");
       setLoading(false);
       return undefined;
+    }
+
+    if (isCustomerModule(selectedTable)) {
+      setRows([]);
+      setStockSnapshotRows([]);
+      setDeadStockByKey({});
+      setStockAgeStats({ avgDays: null, sampleCount: 0 });
+      setOccupancySeries([]);
+      setLoading(false);
+      loadCustomersModuleData();
+
+      let reloadTimer = null;
+      const scheduleReload = () => {
+        if (reloadTimer) {
+          window.clearTimeout(reloadTimer);
+        }
+        reloadTimer = window.setTimeout(() => loadCustomersModuleData(), 350);
+      };
+
+      const channel = supabase.channel(`customers-${selectedCompanyId || userCompanyId || "own"}`);
+      ["customers", "orders", "quotes"].forEach((table) => {
+        channel.on("postgres_changes", { event: "*", schema: "public", table }, scheduleReload);
+      });
+      channel.subscribe();
+
+      return () => {
+        if (reloadTimer) {
+          window.clearTimeout(reloadTimer);
+        }
+        supabase.removeChannel(channel);
+      };
     }
 
     if (isOrdersModule(selectedTable)) {
@@ -4593,6 +4841,16 @@ function App() {
   useEffect(() => {
     if (!authReady || !isLoggedIn) {
       return undefined;
+    }
+
+    if (isCustomerModule(selectedTable)) {
+      const intervalId = window.setInterval(() => {
+        loadCustomersModuleData();
+      }, AUTO_REFRESH_MS);
+
+      return () => {
+        window.clearInterval(intervalId);
+      };
     }
 
     if (isOrdersModule(selectedTable)) {
@@ -4978,6 +5236,17 @@ function App() {
         .some((value) => String(value || "").toLowerCase().includes(normalized))
     );
   }, [orders, orderSearchTerm]);
+  const filteredCustomers = useMemo(() => {
+    const normalized = String(customerSearchTerm || "").trim().toLowerCase();
+    if (!normalized) {
+      return customers;
+    }
+
+    return customers.filter((customer) =>
+      [customer.name, customer.ico, customer.dic, customer.ic_dph, customer.phone, customer.email, customer.address, customer.note]
+        .some((value) => String(value || "").toLowerCase().includes(normalized))
+    );
+  }, [customers, customerSearchTerm]);
   const filteredQuotes = useMemo(() => {
     const normalized = String(quoteSearchTerm || "").trim().toLowerCase();
     if (!normalized) {
@@ -5000,7 +5269,7 @@ function App() {
   }, [productionOrders, productionSearchTerm]);
   const sidebarSections = useMemo(() => {
     const monitoringItems = visibleTableNames.filter(
-      (table) => !isOrdersModule(table) && !isProductionModule(table) && table !== PRICE_LIST_TABLE
+      (table) => !isCustomerModule(table) && !isOrdersModule(table) && !isProductionModule(table) && !isQuoteModule(table) && table !== PRICE_LIST_TABLE
     );
     const sections = [
       {
@@ -5009,10 +5278,12 @@ function App() {
       }
     ];
 
-    if (visibleTableNames.includes(ORDERS_MODULE) || visibleTableNames.includes(PRICE_LIST_TABLE)) {
+    if (visibleTableNames.includes(CUSTOMERS_MODULE) || visibleTableNames.includes(ORDERS_MODULE) || visibleTableNames.includes(PRICE_LIST_TABLE)) {
       sections.push({
         title: "Workflow",
-        items: [QUOTES_MODULE, ORDERS_MODULE, PRODUCTION_MODULE, PRICE_LIST_TABLE].filter((table) => visibleTableNames.includes(table))
+        items: [CUSTOMERS_MODULE, QUOTES_MODULE, ORDERS_MODULE, PRODUCTION_MODULE, PRICE_LIST_TABLE].filter((table) =>
+          visibleTableNames.includes(table)
+        )
       });
     }
 
@@ -5231,6 +5502,10 @@ function App() {
     setError("");
     setLoading(false);
     setCustomers([]);
+    setCustomersError("");
+    setCustomersLoading(false);
+    setCustomerSearchTerm("");
+    setEditingCustomerId("");
     setQuotes([]);
     setQuoteItems([]);
     setQuotePriceListRows([]);
@@ -5265,7 +5540,9 @@ function App() {
     setCustomerAddressInput("");
     setCustomerIcoInput("");
     setCustomerDicInput("");
+    setCustomerIcDphInput("");
     setCustomerNoteInput("");
+    setCustomerDeletingId("");
     setCompanyLookupResults([]);
     setCompanyLookupLoading(false);
     setCompanyLookupError("");
@@ -5529,6 +5806,10 @@ function App() {
               onClick={() => {
                 if (isOrdersModule(selectedTable)) {
                   loadOrdersModuleData();
+                  return;
+                }
+                if (isCustomerModule(selectedTable)) {
+                  loadCustomersModuleData();
                   return;
                 }
                 if (isQuoteModule(selectedTable)) {
@@ -6269,6 +6550,286 @@ function App() {
         </section>
       )}
 
+      {isCustomerModule(selectedTable) && canAccessOrdersModule && (
+        <section className="panel workflow-shell workflow-shell-customers">
+          <div className="panel-head workflow-header">
+            <div>
+              <p className="workflow-eyebrow">Workflow databáza</p>
+              <h2>Zákazníci</h2>
+              <p className="panel-meta">
+                {activeCompanyId
+                  ? `Zákaznícka databáza pre firmu ${currentCompanyLabel}`
+                  : "Vyber konkrétnu firmu, aby sa dali spravovať zákazníci."}
+              </p>
+            </div>
+          </div>
+
+          {customersError && <p className="error">{customersError}</p>}
+
+          <div className="orders-summary-grid workflow-summary-grid">
+            <article className="card workflow-stat-card">
+              <p>Zákazníci</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(customers.length)}</strong>
+            </article>
+            <article className="card workflow-stat-card">
+              <p>Objednávky</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(orders.length)}</strong>
+            </article>
+            <article className="card workflow-stat-card">
+              <p>Ponuky</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(quotes.length)}</strong>
+            </article>
+          </div>
+
+          <div className="orders-layout workflow-grid">
+            <div className="orders-column workflow-editor-column">
+              <article className="orders-panel-card workflow-card workflow-card-strong">
+                <div className="panel-head workflow-section-head">
+                  <div>
+                    <p className="workflow-section-kicker">{editingCustomerId ? "Úprava" : "Nový zákazník"}</p>
+                    <h2>{editingCustomerId ? "Upraviť zákazníka" : "Pridať zákazníka"}</h2>
+                    <p className="panel-meta">Zákazník sa potom použije v objednávkach aj cenových ponukách.</p>
+                  </div>
+                </div>
+
+                <form className="orders-form" onSubmit={handleCreateCustomer}>
+                  <div className="workflow-form-section">
+                    <div className="company-lookup-field">
+                      <label className="workflow-field">
+                        <span className="workflow-field-label">Názov zákazníka alebo firmy</span>
+                        <input
+                          type="text"
+                          className="search-input"
+                          placeholder="Začni písať názov firmy"
+                          value={customerNameInput}
+                          onChange={(event) => handleCustomerNameInputChange(event.target.value)}
+                          disabled={!activeCompanyId || customerSubmitting}
+                          required
+                        />
+                      </label>
+                      <p className="workflow-helper-text">Po 3 znakoch sa zobrazia free výsledky z Registra účtovných závierok.</p>
+                      {companyLookupLoading && <p className="orders-draft-meta">Vyhľadávam firmu...</p>}
+                      {companyLookupError && <p className="error">{companyLookupError}</p>}
+                      {companyLookupResults.length > 0 && (
+                        <div className="company-lookup-results">
+                          {companyLookupResults.map((item) => (
+                            <button
+                              key={item.id}
+                              type="button"
+                              className="company-lookup-option"
+                              onClick={() => handleSelectRegistryCompany(item)}
+                              disabled={customerSubmitting}
+                            >
+                              <strong>{item.name}</strong>
+                              <span>
+                                {[item.ico ? `IČO: ${item.ico}` : "", item.dic ? `DIČ: ${item.dic}` : ""].filter(Boolean).join(" | ")}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="customer-registry-grid">
+                      <label className="company-lookup-input-field">
+                        <span>IČO</span>
+                        <input
+                          type="text"
+                          className="search-input"
+                          placeholder="Napr. 31322832"
+                          value={customerIcoInput}
+                          onChange={(event) => setCustomerIcoInput(event.target.value)}
+                          disabled={!activeCompanyId || customerSubmitting}
+                        />
+                      </label>
+                      <label className="company-lookup-input-field">
+                        <span>DIČ</span>
+                        <input
+                          type="text"
+                          className="search-input"
+                          placeholder="Napr. 2020372640"
+                          value={customerDicInput}
+                          onChange={(event) => setCustomerDicInput(event.target.value)}
+                          disabled={!activeCompanyId || customerSubmitting}
+                        />
+                      </label>
+                      <label className="company-lookup-input-field">
+                        <span>IČ DPH</span>
+                        <input
+                          type="text"
+                          className="search-input"
+                          placeholder="Napr. SK2020372640"
+                          value={customerIcDphInput}
+                          onChange={(event) => setCustomerIcDphInput(event.target.value)}
+                          disabled={!activeCompanyId || customerSubmitting}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                  <div className="workflow-field-grid workflow-field-grid-tight workflow-field-grid-contact">
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Email</span>
+                      <input
+                        type="email"
+                        className="search-input"
+                        placeholder="kontakt@firma.sk"
+                        value={customerEmailInput}
+                        onChange={(event) => setCustomerEmailInput(event.target.value)}
+                        disabled={!activeCompanyId || customerSubmitting}
+                      />
+                    </label>
+                    <label className="workflow-field workflow-field-compact workflow-phone-field">
+                      <span className="workflow-field-label">Telefón</span>
+                      <input
+                        type="text"
+                        className="search-input workflow-phone-input"
+                        placeholder="+421..."
+                        value={customerPhoneInput}
+                        onChange={(event) => setCustomerPhoneInput(event.target.value)}
+                        disabled={!activeCompanyId || customerSubmitting}
+                      />
+                    </label>
+                  </div>
+                  <label className="workflow-field">
+                    <span className="workflow-field-label">Adresa</span>
+                    <input
+                      type="text"
+                      className="search-input"
+                      placeholder="Ulica, mesto"
+                      value={customerAddressInput}
+                      onChange={(event) => setCustomerAddressInput(event.target.value)}
+                      disabled={!activeCompanyId || customerSubmitting}
+                    />
+                  </label>
+                  <label className="workflow-field">
+                    <span className="workflow-field-label">Poznámka</span>
+                    <textarea
+                      className="order-note-input"
+                      placeholder="Interná poznámka k zákazníkovi"
+                      value={customerNoteInput}
+                      onChange={(event) => setCustomerNoteInput(event.target.value)}
+                      disabled={!activeCompanyId || customerSubmitting}
+                    />
+                  </label>
+                  <div className="orders-form-actions">
+                    <button type="submit" className="settings-btn" disabled={!activeCompanyId || customerSubmitting}>
+                      {customerSubmitting ? "Ukladám..." : editingCustomerId ? "Uložiť zákazníka" : "Pridať zákazníka"}
+                    </button>
+                    {editingCustomerId && (
+                      <button type="button" className="clear-btn" onClick={resetCustomerForm} disabled={customerSubmitting}>
+                        Zrušiť úpravu
+                      </button>
+                    )}
+                  </div>
+                </form>
+              </article>
+            </div>
+
+            <div className="workflow-feed-column">
+              <article className="orders-panel-card workflow-card workflow-card-list">
+                <div className="panel-head workflow-section-head">
+                  <div>
+                    <p className="workflow-section-kicker">Databáza</p>
+                    <h2>Zoznam zákazníkov</h2>
+                    <p className="panel-meta">Vyhľadaj zákazníka, uprav údaje alebo ho použi v ďalšom workflow.</p>
+                  </div>
+                  <input
+                    type="search"
+                    className="search-input workflow-list-search"
+                    placeholder="Hľadaj názov, IČO, DIČ, email..."
+                    value={customerSearchTerm}
+                    onChange={(event) => setCustomerSearchTerm(event.target.value)}
+                    disabled={!activeCompanyId}
+                  />
+                </div>
+
+                <div className="orders-list customer-database-list">
+                  {customersLoading ? (
+                    <p className="panel-meta">Načítavam zákazníkov...</p>
+                  ) : filteredCustomers.length === 0 ? (
+                    <p className="panel-meta">Žiadni zákazníci pre tento filter.</p>
+                  ) : (
+                    filteredCustomers.map((customer) => {
+                      const usage = customerUsageById[customer.id] || { orders: 0, quotes: 0 };
+                      return (
+                        <article key={customer.id} className="order-card customer-card">
+                          <div className="order-card-head customer-card-head">
+                            <div>
+                              <strong>{customer.name}</strong>
+                              <div className="order-meta customer-inline-meta">
+                                <span>{customer.ico ? `IČO ${customer.ico}` : "bez IČO"}</span>
+                                <span>{customer.dic ? `DIČ ${customer.dic}` : "bez DIČ"}</span>
+                                <span>{customer.ic_dph ? `IČ DPH ${customer.ic_dph}` : "bez IČ DPH"}</span>
+                              </div>
+                            </div>
+                            <div className="order-meta customer-inline-meta">
+                              <span>{`Objednávky ${usage.orders}`}</span>
+                              <span>{`Ponuky ${usage.quotes}`}</span>
+                            </div>
+                          </div>
+                          <div className="order-detail customer-card-body">
+                            <div className="customer-meta-grid">
+                              <div>
+                                <span className="draft-field-label">Email</span>
+                                <p>{customer.email || "-"}</p>
+                              </div>
+                              <div>
+                                <span className="draft-field-label">Telefón</span>
+                                <p>{customer.phone || "-"}</p>
+                              </div>
+                              <div className="customer-meta-grid-wide">
+                                <span className="draft-field-label">Adresa</span>
+                                <p>{customer.address || "-"}</p>
+                              </div>
+                              <div className="customer-meta-grid-wide">
+                                <span className="draft-field-label">Poznámka</span>
+                                <p>{customer.note || "-"}</p>
+                              </div>
+                            </div>
+                            <div className="customer-card-actions">
+                              <button type="button" className="clear-btn" onClick={() => handleEditCustomer(customer)}>
+                                Upraviť
+                              </button>
+                              <button
+                                type="button"
+                                className="clear-btn"
+                                onClick={() => {
+                                  setSelectedOrderCustomerId(customer.id);
+                                  setSelectedTable(ORDERS_MODULE);
+                                }}
+                              >
+                                Do objednávky
+                              </button>
+                              <button
+                                type="button"
+                                className="clear-btn"
+                                onClick={() => {
+                                  setSelectedQuoteCustomerId(customer.id);
+                                  setSelectedTable(QUOTES_MODULE);
+                                }}
+                              >
+                                Do ponuky
+                              </button>
+                              <button
+                                type="button"
+                                className="clear-btn"
+                                onClick={() => handleDeleteCustomer(customer)}
+                                disabled={customerDeletingId === customer.id}
+                              >
+                                {customerDeletingId === customer.id ? "Mažem..." : "Zmazať"}
+                              </button>
+                            </div>
+                          </div>
+                        </article>
+                      );
+                    })
+                  )}
+                </div>
+              </article>
+            </div>
+          </div>
+        </section>
+      )}
+
       {isQuoteModule(selectedTable) && canAccessOrdersModule && (
         <section className="panel workflow-shell workflow-shell-quotes">
           <div className="panel-head workflow-header">
@@ -6692,10 +7253,10 @@ function App() {
                       </div>
                     )}
                   </div>
-                  <div className="company-lookup-meta-grid">
-                    <label className="company-lookup-input-field">
-                      <span>IČO</span>
-                      <input
+                    <div className="customer-registry-grid">
+                      <label className="company-lookup-input-field">
+                        <span>IČO</span>
+                        <input
                         type="text"
                         className="search-input"
                         placeholder="Napr. 31322832"
@@ -6712,10 +7273,21 @@ function App() {
                         placeholder="Napr. 2020372640"
                         value={customerDicInput}
                         onChange={(event) => setCustomerDicInput(event.target.value)}
-                        disabled={!activeCompanyId || customerSubmitting}
-                      />
-                    </label>
-                  </div>
+                          disabled={!activeCompanyId || customerSubmitting}
+                        />
+                      </label>
+                      <label className="company-lookup-input-field">
+                        <span>IČ DPH</span>
+                        <input
+                          type="text"
+                          className="search-input"
+                          placeholder="Napr. SK2020372640"
+                          value={customerIcDphInput}
+                          onChange={(event) => setCustomerIcDphInput(event.target.value)}
+                          disabled={!activeCompanyId || customerSubmitting}
+                        />
+                      </label>
+                    </div>
                   </div>
                   <div className="workflow-field-grid workflow-field-grid-tight workflow-field-grid-contact">
                     <label className="workflow-field">

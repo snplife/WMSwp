@@ -376,6 +376,25 @@ function createEmptyInvoiceDraftItem() {
   };
 }
 
+function formatDateInputValue(value) {
+  if (!value) {
+    return "";
+  }
+  const date = value instanceof Date ? new Date(value.getTime()) : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return localDate.toISOString().slice(0, 10);
+}
+
+function getDefaultInvoiceDueDate() {
+  const date = new Date();
+  date.setHours(12, 0, 0, 0);
+  date.setDate(date.getDate() + 14);
+  return formatDateInputValue(date);
+}
+
 function createEmptyProductionInputDraft() {
   return {
     draftId: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
@@ -1082,6 +1101,13 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
         </section>
       `
     : "";
+  const dueDateLabel = quote?.due_date ? formatDate(quote.due_date) : "";
+  const dueDateMetaHtml = dueDateLabel
+    ? `
+            <span class="hero-meta-label">Splatnosť</span>
+            <div class="hero-meta-value">${escapeHtml(dueDateLabel)}</div>
+      `
+    : "";
   const rowsHtml = (items || [])
     .map((item, index) => {
       const computed = computeQuoteLineTotals({
@@ -1240,6 +1266,7 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
           <div class="hero-meta">
             <span class="hero-meta-label">Číslo ponuky</span>
             <div class="hero-meta-value">${escapeHtml(String(quote?.quote_number || "-"))}</div>
+            ${dueDateMetaHtml}
             <div class="hero-meta-date">${escapeHtml(`Vygenerované: ${generatedAt}`)}</div>
           </div>
         </header>
@@ -1330,6 +1357,9 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
     .replace(/Cenová ponuka/g, "Faktúra")
     .replace(/Obchodná ponuka/g, "Fakturácia")
     .replace(/Číslo ponuky/g, "Číslo faktúry")
+    .replace(/Položky ponuky/g, "Položky faktúry")
+    .replace(/Poznámka k ponuke/g, "Poznámka k faktúre")
+    .replace(/Dodávateľské a odberateľské údaje pre túto ponuku/g, "Dodávateľské a odberateľské údaje pre túto faktúru")
     .replace(/Rekapitulácia cenovej ponuky/g, "Rekapitulácia faktúry");
 }
 
@@ -2056,6 +2086,7 @@ function App() {
   const [invoicesError, setInvoicesError] = useState("");
   const [editingInvoiceId, setEditingInvoiceId] = useState("");
   const [selectedInvoiceCustomerId, setSelectedInvoiceCustomerId] = useState("");
+  const [invoiceDueDate, setInvoiceDueDate] = useState(getDefaultInvoiceDueDate());
   const [invoiceSearchTerm, setInvoiceSearchTerm] = useState("");
   const [invoiceDraftItems, setInvoiceDraftItems] = useState([createEmptyInvoiceDraftItem()]);
   const [invoiceSubmitting, setInvoiceSubmitting] = useState(false);
@@ -3431,6 +3462,7 @@ function App() {
 
   const resetInvoiceDraft = () => {
     setEditingInvoiceId("");
+    setInvoiceDueDate(getDefaultInvoiceDueDate());
     setInvoiceDraftItems([createEmptyInvoiceDraftItem()]);
   };
 
@@ -3670,7 +3702,7 @@ function App() {
       const scopedCompanyId = await resolveCustomerScope();
       const invoicesQuery = supabase
         .from("invoices")
-        .select("id,company_id,customer_id,customer_name,invoice_number,status,note,created_at,created_by")
+        .select("id,company_id,customer_id,customer_name,invoice_number,due_date,status,note,created_at,created_by")
         .order("created_at", { ascending: false });
       const priceListQuery = supabase
         .from(PRICE_LIST_TABLE)
@@ -4812,6 +4844,7 @@ function App() {
     const items = invoiceItemsByInvoiceId[invoiceId] || [];
     setEditingInvoiceId(invoiceId);
     setSelectedInvoiceCustomerId(String(invoice?.customer_id || ""));
+    setInvoiceDueDate(formatDateInputValue(invoice?.due_date) || getDefaultInvoiceDueDate());
     setInvoiceDraftItems(items.length > 0 ? items.map((item) => createInvoiceDraftItemFromRow(item)) : [createEmptyInvoiceDraftItem()]);
     setExpandedInvoices((prev) => ({ ...prev, [invoiceId]: true }));
     setInvoicesError("");
@@ -4833,6 +4866,11 @@ function App() {
     }
     if (!customer) {
       setInvoicesError("Vyber zákazníka.");
+      return;
+    }
+    const normalizedDueDate = String(invoiceDueDate || "").trim();
+    if (!normalizedDueDate) {
+      setInvoicesError("Zadaj splatnosť faktúry.");
       return;
     }
 
@@ -4900,14 +4938,15 @@ function App() {
       const existingItemIds = new Set(existingItems.map((item) => String(item.id || "")).filter(Boolean));
       const payloadBase = {
         customer_id: customer.id,
-        customer_name: customer.name
+        customer_name: customer.name,
+        due_date: normalizedDueDate
       };
 
       const { data: updatedInvoiceRow, error: invoiceUpdateError } = await supabase
         .from("invoices")
         .update(payloadBase)
         .eq("id", editingInvoiceId)
-        .select("id,company_id,customer_id,customer_name,invoice_number,status,note,created_at,created_by")
+        .select("id,company_id,customer_id,customer_name,invoice_number,due_date,status,note,created_at,created_by")
         .single();
 
       if (invoiceUpdateError) {
@@ -4998,12 +5037,13 @@ function App() {
           customer_id: customer.id,
           customer_name: customer.name,
           invoice_number: buildInvoiceNumber(),
+          due_date: normalizedDueDate,
           status: "draft",
           note: "",
           created_by: authUser?.id || null
         }
       ])
-      .select("id,company_id,customer_id,customer_name,invoice_number,status,note,created_at,created_by")
+      .select("id,company_id,customer_id,customer_name,invoice_number,due_date,status,note,created_at,created_by")
       .single();
 
     if (invoiceInsertError) {
@@ -5583,6 +5623,13 @@ function App() {
       setInvoicesError("");
       setInvoicesLoading(false);
       setEditingInvoiceId("");
+      setSelectedInvoiceCustomerId("");
+      setInvoiceDueDate(getDefaultInvoiceDueDate());
+      setInvoiceSearchTerm("");
+      setInvoiceDraftItems([createEmptyInvoiceDraftItem()]);
+      setInvoiceSubmitting(false);
+      setInvoiceStatusSavingId("");
+      setExpandedInvoices({});
       setOrders([]);
       setOrderItems([]);
       setOrdersStockRows([]);
@@ -6239,7 +6286,7 @@ function App() {
       return invoices;
     }
     return invoices.filter((invoice) =>
-      [invoice.invoice_number, invoice.customer_name, invoice.note, invoice.status]
+      [invoice.invoice_number, invoice.customer_name, invoice.note, invoice.status, formatDate(invoice.due_date)]
         .some((value) => String(value || "").toLowerCase().includes(normalized))
     );
   }, [invoices, invoiceSearchTerm]);
@@ -6573,6 +6620,7 @@ function App() {
     setInvoicesLoading(false);
     setEditingInvoiceId("");
     setSelectedInvoiceCustomerId("");
+    setInvoiceDueDate(getDefaultInvoiceDueDate());
     setInvoiceSearchTerm("");
     setInvoiceDraftItems([createEmptyInvoiceDraftItem()]);
     setInvoiceSubmitting(false);
@@ -8448,21 +8496,32 @@ function App() {
                 </div>
 
                 <form className="orders-form" onSubmit={handleCreateInvoice}>
-                  <label className="workflow-field">
-                    <span className="workflow-field-label">Zákazník</span>
-                    <select
-                      value={selectedInvoiceCustomerId}
-                      onChange={(event) => setSelectedInvoiceCustomerId(event.target.value)}
-                      disabled={!activeCompanyId || invoiceSubmitting}
-                    >
-                      <option value="">Vyber zákazníka</option>
-                      {customers.map((customer) => (
-                        <option key={customer.id} value={customer.id}>
-                          {customer.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  <div className="workflow-field-grid invoice-form-grid">
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Zákazník</span>
+                      <select
+                        value={selectedInvoiceCustomerId}
+                        onChange={(event) => setSelectedInvoiceCustomerId(event.target.value)}
+                        disabled={!activeCompanyId || invoiceSubmitting}
+                      >
+                        <option value="">Vyber zákazníka</option>
+                        {customers.map((customer) => (
+                          <option key={customer.id} value={customer.id}>
+                            {customer.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="workflow-field workflow-field-compact">
+                      <span className="workflow-field-label">Splatnosť faktúry</span>
+                      <input
+                        type="date"
+                        value={invoiceDueDate}
+                        onChange={(event) => setInvoiceDueDate(event.target.value)}
+                        disabled={!activeCompanyId || invoiceSubmitting}
+                      />
+                    </label>
+                  </div>
 
                   <div className="orders-draft-list">
                     <datalist id="invoice-price-options">
@@ -8674,6 +8733,7 @@ function App() {
                             </div>
                             <div className="order-card-meta">
                               <span className="order-card-badge">{formatDate(invoice.created_at)}</span>
+                              <span className="order-card-badge">{`Splatnosť ${formatDate(invoice.due_date)}`}</span>
                               <span className="order-card-badge">{`${items.length} položiek`}</span>
                               <span className="order-card-badge">{`S DPH ${formatCurrencyValue(totals.totalWithVat)}`}</span>
                             </div>

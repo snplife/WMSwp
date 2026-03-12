@@ -780,6 +780,11 @@ select {
   gap: 0.7rem;
 }
 
+.invoice-form-grid {
+  grid-template-columns: minmax(0, 1fr) 172px;
+  align-items: end;
+}
+
 .workflow-field-grid-contact {
   grid-template-columns: minmax(0, 1fr) 132px;
   align-items: end;

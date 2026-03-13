@@ -1365,7 +1365,6 @@ function printQuotePdf(quote, customer, items, companyProfile) {
 }
 
 function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
-  const generatedAt = new Date().toLocaleDateString("sk-SK");
   const normalizedCompany =
     companyProfile && typeof companyProfile === "object" ? companyProfile : { name: String(companyProfile || "").trim() };
   const companyName = String(normalizedCompany?.name || "-");
@@ -1481,7 +1480,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         }
         .page {
           display: grid;
-          gap: 4mm;
+          gap: 2.2mm;
           padding: 0;
         }
         .hero,
@@ -1497,74 +1496,74 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         .hero {
           display: grid;
           grid-template-columns: minmax(0, 1fr) auto;
-          gap: 8mm;
-          padding: 7mm;
+          gap: 5mm;
+          padding: 4.2mm 4.6mm;
         }
         .hero-label {
-          font-size: 8pt;
+          font-size: 5.7pt;
           letter-spacing: 0.14em;
           text-transform: uppercase;
           color: #6e6e73;
           font-weight: 700;
         }
         .hero h1 {
-          margin: 1.2mm 0 1.8mm;
-          font-size: 23pt;
+          margin: 0.8mm 0 1.1mm;
+          font-size: 14pt;
           line-height: 0.95;
           font-weight: 700;
           letter-spacing: -0.03em;
         }
         .hero-subtitle {
-          font-size: 10pt;
+          font-size: 7pt;
           color: #6e6e73;
         }
         .hero-right {
-          min-width: 56mm;
+          min-width: 40mm;
           display: grid;
-          gap: 2.5mm;
+          gap: 1.2mm;
           align-content: start;
           justify-items: end;
           text-align: right;
         }
         .amount-label {
-          font-size: 7pt;
+          font-size: 5.4pt;
           text-transform: uppercase;
           letter-spacing: 0.14em;
           color: #8e8e93;
           font-weight: 700;
         }
         .amount-value {
-          font-size: 20pt;
+          font-size: 12.8pt;
           line-height: 1;
           font-weight: 700;
           letter-spacing: -0.04em;
         }
         .amount-note {
-          font-size: 8.2pt;
+          font-size: 5.9pt;
           color: #6e6e73;
         }
         .meta-strip {
           display: grid;
-          grid-template-columns: repeat(4, minmax(0, 1fr));
-          gap: 2.6mm;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 1.5mm;
         }
         .meta-chip {
-          padding: 3.2mm 3.4mm;
-          border-radius: 4mm;
+          padding: 2mm 2.2mm;
+          border-radius: 2.8mm;
           background: linear-gradient(180deg, #fbfbfd 0%, #f2f2f7 100%);
           border: 0.25mm solid #ececf1;
         }
         .chip-label,
         .section-kicker {
-          font-size: 6.6pt;
+          font-size: 4.9pt;
           text-transform: uppercase;
           letter-spacing: 0.14em;
           color: #8e8e93;
           font-weight: 700;
         }
         .chip-value {
-          margin-top: 1.1mm;
-          font-size: 10pt;
+          margin-top: 0.7mm;
+          font-size: 7pt;
           line-height: 1.2;
           color: #111111;
           font-weight: 600;
@@ -1572,18 +1571,18 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         .parties {
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 4mm;
+          gap: 2.2mm;
         }
         .panel {
-          padding: 5mm;
+          padding: 3.1mm;
         }
         .panel h2,
         .pay-card h3,
         .note-panel h3,
         .items-panel h2,
         .totals-panel h2 {
-          margin: 1mm 0 0;
-          font-size: 12.4pt;
+          margin: 0.5mm 0 0;
+          font-size: 8.8pt;
           line-height: 1;
           letter-spacing: -0.02em;
           font-weight: 700;
@@ -1592,30 +1591,30 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         .panel-subtitle,
         .note-panel p,
         .pay-card p {
-          margin: 1.2mm 0 0;
-          font-size: 8.6pt;
+          margin: 0.8mm 0 0;
+          font-size: 6.1pt;
           line-height: 1.45;
           color: #6e6e73;
         }
         .detail-grid {
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 3mm 5mm;
-          margin-top: 3.4mm;
+          gap: 1.8mm 3.2mm;
+          margin-top: 2.1mm;
         }
         .detail-grid--single {
           grid-template-columns: 1fr;
         }
         .detail-label {
-          font-size: 6.7pt;
+          font-size: 4.8pt;
           text-transform: uppercase;
           letter-spacing: 0.12em;
           color: #8e8e93;
           font-weight: 700;
-          margin-bottom: 0.8mm;
+          margin-bottom: 0.45mm;
         }
         .detail-value {
-          font-size: 9.1pt;
+          font-size: 6.5pt;
           line-height: 1.35;
           font-weight: 600;
           color: #1d1d1f;
@@ -1623,69 +1622,69 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         .payment-rail {
           display: grid;
           grid-template-columns: minmax(0, 1.6fr) minmax(0, 0.85fr);
-          gap: 3mm;
-          padding: 3mm;
+          gap: 1.8mm;
+          padding: 1.9mm;
           align-items: start;
         }
         .bank-card,
         .pay-card {
-          border-radius: 4mm;
+          border-radius: 2.8mm;
           background: linear-gradient(180deg, #fbfbfd 0%, #f7f7fa 100%);
           border: 0.25mm solid #ececf1;
-          padding: 3.6mm 3.8mm;
+          padding: 2.2mm 2.4mm;
         }
         .bank-card-grid {
           display: grid;
           grid-template-columns: 1.2fr 1.6fr repeat(3, minmax(0, 0.72fr));
-          gap: 2mm;
-          margin-top: 2.8mm;
+          gap: 1.2mm;
+          margin-top: 1.7mm;
         }
         .bank-box {
-          padding: 2.2mm 2.4mm;
-          border-radius: 3.2mm;
+          padding: 1.3mm 1.5mm;
+          border-radius: 2.2mm;
           background: #ffffff;
           border: 0.25mm solid #ededf2;
         }
         .bank-box .detail-label {
-          margin-bottom: 0.55mm;
-          font-size: 6.1pt;
+          margin-bottom: 0.35mm;
+          font-size: 4.6pt;
         }
         .bank-box .detail-value {
-          font-size: 8pt;
+          font-size: 5.8pt;
           line-height: 1.2;
         }
         .pay-card-inner {
           display: grid;
           grid-template-columns: auto;
-          gap: 2mm;
-          margin-top: 2.8mm;
+          gap: 1.2mm;
+          margin-top: 1.7mm;
         }
         .pay-card img {
-          width: 27mm;
-          height: 27mm;
+          width: 17mm;
+          height: 17mm;
           display: block;
-          padding: 1.2mm;
-          border-radius: 3mm;
+          padding: 0.7mm;
+          border-radius: 2mm;
           background: #ffffff;
           border: 0.25mm solid #ececf1;
         }
         .pay-copy {
           display: grid;
-          gap: 1.1mm;
+          gap: 0.6mm;
         }
         .pay-line {
           display: grid;
-          gap: 0.3mm;
+          gap: 0.15mm;
         }
         .pay-line span {
-          font-size: 6.2pt;
+          font-size: 4.5pt;
           text-transform: uppercase;
           letter-spacing: 0.12em;
           color: #8e8e93;
           font-weight: 700;
         }
         .pay-line strong {
-          font-size: 7.8pt;
+          font-size: 5.6pt;
           line-height: 1.25;
           color: #111111;
           font-weight: 600;
@@ -1696,20 +1695,20 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         .items-panel,
         .totals-panel,
         .note-panel {
-          padding: 5mm;
+          padding: 3.1mm;
         }
         .items-head,
         .totals-head {
           display: flex;
           justify-content: space-between;
-          gap: 6mm;
+          gap: 3mm;
           align-items: end;
-          margin-bottom: 3mm;
+          margin-bottom: 1.8mm;
         }
         .items-subtitle,
         .totals-subtitle {
-          margin: 1.2mm 0 0;
-          font-size: 8.6pt;
+          margin: 0.8mm 0 0;
+          font-size: 6pt;
           color: #6e6e73;
         }
         table {
@@ -1718,20 +1717,20 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           table-layout: fixed;
         }
         thead th {
-          padding: 0 0 2mm;
+          padding: 0 0 1.2mm;
           border-bottom: 0.3mm solid #dcdce1;
           text-align: left;
-          font-size: 7pt;
+          font-size: 5.1pt;
           text-transform: uppercase;
           letter-spacing: 0.12em;
           color: #8e8e93;
           font-weight: 700;
         }
         tbody td {
-          padding: 2.6mm 0;
+          padding: 1.45mm 0;
           border-bottom: 0.25mm solid #ececf1;
           vertical-align: top;
-          font-size: 8.8pt;
+          font-size: 6.1pt;
           color: #1d1d1f;
         }
         tbody tr:last-child td {
@@ -1739,20 +1738,20 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           padding-bottom: 0;
         }
         .cell-index {
-          width: 8mm;
+          width: 5mm;
           color: #8e8e93;
         }
         .cell-right {
           text-align: right;
         }
         .item-title {
-          font-size: 9pt;
+          font-size: 6.4pt;
           font-weight: 600;
           line-height: 1.3;
         }
         .item-meta {
-          margin-top: 0.6mm;
-          font-size: 7.4pt;
+          margin-top: 0.3mm;
+          font-size: 5pt;
           color: #8e8e93;
           line-height: 1.35;
         }
@@ -1762,11 +1761,11 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         .totals-grid {
           display: grid;
           grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 2.6mm;
+          gap: 1.5mm;
         }
         .total-card {
-          padding: 3.4mm 3.8mm;
-          border-radius: 4mm;
+          padding: 2mm 2.2mm;
+          border-radius: 2.8mm;
           border: 0.25mm solid #ececf1;
           background: linear-gradient(180deg, #fbfbfd 0%, #f5f5f7 100%);
         }
@@ -1779,10 +1778,10 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           color: #ffffff;
         }
         .note-panel p {
-          margin-top: 2.2mm;
+          margin-top: 1.2mm;
         }
         .foot {
-          font-size: 7.4pt;
+          font-size: 5pt;
           color: #8e8e93;
           text-align: right;
           padding: 0 1mm;
@@ -1800,13 +1799,13 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           <div class="hero-right">
             <div class="amount-label">Na úhradu</div>
             <div class="amount-value">${escapeHtml(formatCurrencyValue(totals.totalWithVat))}</div>
-            <div class="amount-note">${escapeHtml(`Faktúra ${invoiceNumber}`)}</div>
+            <div class="amount-note">${escapeHtml(`č. ${invoiceNumber}`)}</div>
           </div>
         </header>
 
         <section class="meta-strip">
           <article class="meta-chip">
-            <div class="chip-label">Číslo faktúry</div>
+            <div class="chip-label">Číslo FA</div>
             <div class="chip-value">${escapeHtml(invoiceNumber)}</div>
           </article>
           <article class="meta-chip">
@@ -1816,10 +1815,6 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           <article class="meta-chip">
             <div class="chip-label">Splatnosť</div>
             <div class="chip-value">${escapeHtml(dueDateLabel)}</div>
-          </article>
-          <article class="meta-chip">
-            <div class="chip-label">Generované</div>
-            <div class="chip-value">${escapeHtml(generatedAt)}</div>
           </article>
         </section>
 
@@ -1947,7 +1942,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         </section>
 
         ${noteHtml}
-        <div class="foot">${escapeHtml(`Faktúra ${invoiceNumber}`)}</div>
+        <div class="foot">${escapeHtml(`FA ${invoiceNumber}`)}</div>
       </section>
     </body>
   </html>`;

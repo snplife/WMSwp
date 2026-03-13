@@ -4056,9 +4056,10 @@ function App() {
     setCompanySettingsSubmitting(true);
     setCompanySettingsError("");
 
+    const targetCompanyId = activeCompanyId;
     const normalizedValue = normalizeMaxPositions(companyMaxPositionsInput);
     const { data, error: saveError } = await supabase.rpc("set_company_max_positions", {
-      target_company_id: activeCompanyId,
+      target_company_id: targetCompanyId,
       target_max_positions: normalizedValue
     });
 
@@ -4069,10 +4070,6 @@ function App() {
     }
 
     const updatedCompany = Array.isArray(data) ? data[0] : data;
-    if (!updatedCompany?.id) {
-      setCompanySettingsSubmitting(false);
-      return;
-    }
 
     const companyProfilePayload = {
       name: String(companyProfileNameInput || "").trim() || activeCompany?.name || "",
@@ -4084,13 +4081,15 @@ function App() {
       bank_account: formatIbanInput(companyProfileBankAccountInput)
     };
 
-    const { error: expiryUpdateError } = await supabase
+    const { data: profileSavedCompany, error: expiryUpdateError } = await supabase
       .from("companies")
       .update(companyProfilePayload)
-      .eq("id", updatedCompany.id);
+      .eq("id", targetCompanyId)
+      .select("id,name,created_at,max_positions,tracks_expiry_date,ico,dic,ic_dph,address,bank_account")
+      .single();
 
     if (expiryUpdateError) {
-      setCompanySettingsError(expiryUpdateError.message || "Nepodarilo sa uložiť sledovanie expirácie.");
+      setCompanySettingsError(expiryUpdateError.message || "Nepodarilo sa uložiť firemný profil.");
       setCompanySettingsSubmitting(false);
       return;
     }
@@ -4098,9 +4097,10 @@ function App() {
     const expiryUpdatedCompany = {
       ...activeCompany,
       ...updatedCompany,
+      ...profileSavedCompany,
       ...companyProfilePayload,
-      id: updatedCompany.id,
-      max_positions: normalizeMaxPositions(updatedCompany.max_positions),
+      id: targetCompanyId,
+      max_positions: normalizeMaxPositions(profileSavedCompany?.max_positions ?? updatedCompany?.max_positions ?? normalizedValue),
       tracks_expiry_date: Boolean(companyProfilePayload.tracks_expiry_date)
     };
 
@@ -4124,6 +4124,7 @@ function App() {
     setCompanyProfileIcDphInput(String(expiryUpdatedCompany.ic_dph || ""));
     setCompanyProfileAddressInput(String(expiryUpdatedCompany.address || ""));
     setCompanyProfileBankAccountInput(formatIbanInput(expiryUpdatedCompany.bank_account));
+    await loadCompanies();
 
     setCompanySettingsSubmitting(false);
   };

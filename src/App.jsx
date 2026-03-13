@@ -1919,15 +1919,15 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
                 <div class="detail-value">${escapeHtml(bankingDetails.swiftCode)}</div>
               </div>
               <div class="bank-box">
-                <div class="detail-label">VS</div>
+                <div class="detail-label">Variabilný symbol</div>
                 <div class="detail-value">${escapeHtml(bankingDetails.variableSymbol)}</div>
               </div>
               <div class="bank-box">
-                <div class="detail-label">KS</div>
+                <div class="detail-label">Konštantný symbol</div>
                 <div class="detail-value">${escapeHtml(bankingDetails.constantSymbol)}</div>
               </div>
               <div class="bank-box">
-                <div class="detail-label">ŠS</div>
+                <div class="detail-label">Špecifický symbol</div>
                 <div class="detail-value">${escapeHtml(bankingDetails.specificSymbol)}</div>
               </div>
             </div>
@@ -4136,18 +4136,21 @@ function App() {
       bank_account: formatIbanInput(companyProfileBankAccountInput)
     };
 
-    const { data: profileSavedCompany, error: expiryUpdateError } = await supabase
+    const { data: profileSavedCompanyRows, error: expiryUpdateError } = await supabase
       .from("companies")
       .update(companyProfilePayload)
       .eq("id", targetCompanyId)
-      .select("id,name,created_at,max_positions,tracks_expiry_date,ico,dic,ic_dph,address,bank_account")
-      .single();
+      .select("id,name,created_at,max_positions,tracks_expiry_date,ico,dic,ic_dph,address,bank_account");
 
     if (expiryUpdateError) {
       setCompanySettingsError(expiryUpdateError.message || "Nepodarilo sa uložiť firemný profil.");
       setCompanySettingsSubmitting(false);
       return;
     }
+
+    const profileSavedCompany = Array.isArray(profileSavedCompanyRows)
+      ? profileSavedCompanyRows[0]
+      : profileSavedCompanyRows;
 
     const expiryUpdatedCompany = {
       ...activeCompany,

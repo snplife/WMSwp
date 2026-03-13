@@ -179,6 +179,44 @@ const HISTORY_ANALYTICS_LOOKBACK_DAYS = Math.max(30, Number(import.meta.env.VITE
 const AUTO_REFRESH_MS = Math.max(60 * 1000, Number(import.meta.env.VITE_AUTO_REFRESH_MS || 5 * 60 * 1000));
 const DAY_MS = 24 * 60 * 60 * 1000;
 const AUTH_INIT_TIMEOUT_MS = 15000;
+const IBAN_MAX_LENGTH = 24;
+const IBAN_FORMATTED_MAX_LENGTH = 29;
+const SLOVAK_BANK_SWIFT_BY_CODE = {
+  "0200": "SUBASKBX",
+  "0600": "AGBACZPP",
+  "0720": "NBSBSKBX",
+  "0900": "GIBASKBX",
+  "1100": "TATRSKBX",
+  "1111": "UNCRSKBX",
+  "2010": "FIOBCZPP",
+  "2070": "MPUBCZPP",
+  "2250": "CTASCZ22",
+  "3000": "SLZBSKBA",
+  "3030": "AIRACZPP",
+  "3100": "LUBASKBX",
+  "5600": "KOMASK2X",
+  "5800": "JTBPCZPP",
+  "5900": "PRVASKBA",
+  "6000": "PMBPCZPP",
+  "6363": "PTBNCZPP",
+  "6500": "POBNSKBA",
+  "7300": "INGBSKBX",
+  "7500": "CEKOSKBX",
+  "7930": "WUSTSKBA",
+  "8100": "KOMBSKBA",
+  "8120": "BSLOSK22",
+  "8130": "CITISKBA",
+  "8160": "EXSKSKBX",
+  "8180": "SPSRSKBA",
+  "8320": "JTBPSKBA",
+  "8330": "FIOZSKBA",
+  "8360": "BREXSKBX",
+  "8370": "OBKLSKBA",
+  "8420": "BFKKSKBB",
+  "8450": "BPKOSKBB",
+  "9952": "TPAYSKBX",
+  "9955": "PANXSK22"
+};
 const TRANSACTIONS_TABLE = (import.meta.env.VITE_TRANSACTIONS_TABLE || "stock_history").trim();
 const TRANSACTION_TABLE_ALIASES = Array.from(
   new Set([TRANSACTIONS_TABLE, "stock_history", "stock_transactions"].filter(Boolean))
@@ -1635,7 +1673,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         }
         .bank-card-grid {
           display: grid;
-          grid-template-columns: 1.2fr 1.6fr repeat(3, minmax(0, 0.72fr));
+          grid-template-columns: 1.15fr 1.55fr 1fr repeat(3, minmax(0, 0.72fr));
           gap: 1.2mm;
           margin-top: 1.7mm;
         }
@@ -1877,6 +1915,10 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
                 <div class="detail-value">${escapeHtml(bankingDetails.bankAccount)}</div>
               </div>
               <div class="bank-box">
+                <div class="detail-label">SWIFT / BIC</div>
+                <div class="detail-value">${escapeHtml(bankingDetails.swiftCode)}</div>
+              </div>
+              <div class="bank-box">
                 <div class="detail-label">VS</div>
                 <div class="detail-value">${escapeHtml(bankingDetails.variableSymbol)}</div>
               </div>
@@ -2113,7 +2155,17 @@ function formatIbanInput(value) {
 function normalizeIbanValue(value) {
   return String(value || "")
     .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "");
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, IBAN_MAX_LENGTH);
+}
+
+function resolveSwiftCodeFromIban(value) {
+  const iban = normalizeIbanValue(value);
+  if (!iban.startsWith("SK") || iban.length < 8) {
+    return "";
+  }
+  const bankCode = iban.slice(4, 8);
+  return SLOVAK_BANK_SWIFT_BY_CODE[bankCode] || "";
 }
 
 function buildInvoicePayBySquareData(invoice, items, companyProfile) {
@@ -2174,10 +2226,13 @@ function buildInvoiceBankingDetails(invoice, items, companyProfile) {
     .trim();
   const invoiceSymbol = invoiceDigits ? invoiceDigits.slice(-10) : "-";
   const totals = computeDocumentTotals(items);
+  const bankAccount = formatIbanInput(companyProfile?.bank_account) || "-";
+  const swiftCode = resolveSwiftCodeFromIban(companyProfile?.bank_account) || "-";
 
   return {
     beneficiaryName: String(companyProfile?.name || "").trim() || "-",
-    bankAccount: formatIbanInput(companyProfile?.bank_account) || "-",
+    bankAccount,
+    swiftCode,
     variableSymbol: invoiceSymbol,
     specificSymbol: "-",
     constantSymbol: invoiceSymbol,
@@ -7798,6 +7853,7 @@ function App() {
                     type="text"
                     className="search-input"
                     placeholder="SK12 3456 7890 1234 5678 9012"
+                    maxLength={IBAN_FORMATTED_MAX_LENGTH}
                     value={companyProfileBankAccountInput}
                     onChange={(event) => setCompanyProfileBankAccountInput(formatIbanInput(event.target.value))}
                     disabled={!activeCompanyId || companySettingsSubmitting}

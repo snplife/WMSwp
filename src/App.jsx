@@ -1075,7 +1075,8 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
   const companyName = String(normalizedCompany?.name || "-");
   const customerName = String(quote?.customer_name || customer?.name || "-");
   const quoteNote = String(quote?.note || "").trim();
-  const extraSectionsHtml = String(options?.extraSectionsHtml || "");
+  const preItemsSectionsHtml = String(options?.preItemsSectionsHtml || "");
+  const afterSummarySectionsHtml = String(options?.afterSummarySectionsHtml || options?.extraSectionsHtml || "");
   const supplierFields = [
     { label: "Dodávateľ", value: companyName },
     { label: "Adresa", value: String(normalizedCompany?.address || "").trim() || "-" },
@@ -1258,6 +1259,14 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
         }
         .summary-card .section-label { margin-bottom: 0.6mm; font-size: 6.9pt; }
         .summary-card .value { font-size: 9.2pt; line-height: 1.25; }
+        .summary--compact { padding-top: 2.6mm; padding-bottom: 2.6mm; }
+        .summary--compact .summary-head { margin-bottom: 1.2mm; }
+        .summary--compact .section-title { font-size: 9.4pt; }
+        .summary--compact .section-subtitle { margin-top: 0.3mm; font-size: 7.2pt; }
+        .summary-grid--compact { gap: 1.4mm 2mm; }
+        .summary-card--tight { padding: 2.1mm 2.4mm; }
+        .summary-card--tight .section-label { margin-bottom: 0.45mm; font-size: 6.2pt; }
+        .summary-card--tight .value { font-size: 8pt; line-height: 1.2; }
         table { width: 100%; border-collapse: collapse; font-size: 8.9pt; }
         thead th { padding: 2.8mm; text-align: left; color: #33506b; background: #eef5fb; border-bottom: 0.35mm solid #d6e1ec; }
         tbody td { padding: 2.8mm; vertical-align: top; border-bottom: 0.25mm solid #e6edf5; }
@@ -1305,6 +1314,7 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
             </article>
           </div>
         </section>
+        ${preItemsSectionsHtml}
         <section class="items">
           <div class="items-head">
             <div>
@@ -1343,7 +1353,7 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
           </div>
         </section>
         ${noteHtml}
-        ${extraSectionsHtml}
+        ${afterSummarySectionsHtml}
         <div class="foot">Cenová ponuka ${escapeHtml(String(quote?.quote_number || "-"))}</div>
       </section>
     </body>
@@ -1355,140 +1365,592 @@ function printQuotePdf(quote, customer, items, companyProfile) {
 }
 
 function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
-  const dueDateLabel = invoice?.due_date ? formatDate(invoice.due_date) : "";
+  const generatedAt = new Date().toLocaleDateString("sk-SK");
+  const normalizedCompany =
+    companyProfile && typeof companyProfile === "object" ? companyProfile : { name: String(companyProfile || "").trim() };
+  const companyName = String(normalizedCompany?.name || "-");
+  const customerName = String(invoice?.customer_name || customer?.name || "-");
+  const invoiceNumber = String(invoice?.invoice_number || "-");
+  const dueDateLabel = invoice?.due_date ? formatDate(invoice.due_date) : "-";
   const issuedAtLabel = invoice?.created_at ? formatDate(invoice.created_at) : "-";
   const bankingDetails = buildInvoiceBankingDetails(invoice, items, companyProfile);
   const payBySquareData = buildInvoicePayBySquareData(invoice, items, companyProfile);
-  const invoiceMetaSectionHtml = dueDateLabel
+  const totals = computeDocumentTotals(items);
+  const invoiceNote = String(invoice?.note || "").trim();
+  const supplierIdentification =
+    [
+      String(normalizedCompany?.ico || "").trim() ? `IČO ${String(normalizedCompany?.ico || "").trim()}` : "",
+      String(normalizedCompany?.dic || "").trim() ? `DIČ ${String(normalizedCompany?.dic || "").trim()}` : "",
+      String(normalizedCompany?.ic_dph || "").trim() ? `IČ DPH ${String(normalizedCompany?.ic_dph || "").trim()}` : ""
+    ]
+      .filter(Boolean)
+      .join(" | ") || "-";
+  const customerIdentification =
+    [
+      String(customer?.ico || "").trim() ? `IČO ${String(customer?.ico || "").trim()}` : "",
+      String(customer?.dic || "").trim() ? `DIČ ${String(customer?.dic || "").trim()}` : "",
+      String(customer?.ic_dph || "").trim() ? `IČ DPH ${String(customer?.ic_dph || "").trim()}` : ""
+    ]
+      .filter(Boolean)
+      .join(" | ") || "-";
+  const customerContact = [String(customer?.phone || "").trim(), String(customer?.email || "").trim()].filter(Boolean).join(" | ") || "-";
+  const rowsHtml = (items || [])
+    .map((item, index) => {
+      const computed = computeQuoteLineTotals({
+        quantity: item.quantity,
+        unitPrice: item.unit_price,
+        purchasePrice: item.purchase_price,
+        discountPercent: item.discount_percent,
+        vatPercent: item.vat_percent
+      });
+      const detailBits = [
+        Number(item.discount_percent || 0) > 0 ? `Zľava ${formatPercentValue(item.discount_percent || 0, 2)}` : "",
+        String(item.line_note || "").trim() ? String(item.line_note || "").trim() : ""
+      ].filter(Boolean);
+      return `
+        <tr>
+          <td class="cell-index">${index + 1}</td>
+          <td>
+            <div class="item-title">${escapeHtml(String(item.material_code || "-"))}</div>
+            <div class="item-meta">${escapeHtml(detailBits.join(" | ") || "Bez doplňujúcich údajov")}</div>
+          </td>
+          <td class="cell-right">${escapeHtml(formatCell(item.quantity, "number"))}</td>
+          <td>${escapeHtml(String(item.unit || "ks"))}</td>
+          <td class="cell-right">${escapeHtml(formatCurrencyValue(item.unit_price || 0))}</td>
+          <td class="cell-right">${escapeHtml(formatPercentValue(item.vat_percent || 0, 2))}</td>
+          <td class="cell-right strong">${escapeHtml(formatCurrencyValue(computed.lineTotalWithVat))}</td>
+        </tr>
+      `;
+    })
+    .join("");
+  const noteHtml = invoiceNote
     ? `
-        <section class="summary">
-          <div class="summary-head">
-            <div>
-              <h2 class="section-title">Sekcia: Termíny faktúry</h2>
-            </div>
-          </div>
-          <div class="summary-grid" style="grid-template-columns: repeat(2, minmax(0, 1fr));">
-            <article class="summary-card">
-              <span class="section-label">Vystavené</span>
-              <div class="value">${escapeHtml(issuedAtLabel)}</div>
-            </article>
-            <article class="summary-card">
-              <span class="section-label">Splatnosť faktúry</span>
-              <div class="value">${escapeHtml(dueDateLabel)}</div>
-            </article>
-          </div>
+        <section class="note-panel">
+          <div class="section-kicker">Sekcia</div>
+          <h3>Poznámka k faktúre</h3>
+          <p>${escapeHtml(invoiceNote)}</p>
         </section>
       `
     : "";
-  const bankingSectionHtml = `
-        <section class="summary">
-          <div class="summary-head">
-            <div>
-              <h2 class="section-title">Sekcia: Bankové spojenie</h2>
-              <p class="section-subtitle">Platobné údaje pre úhradu faktúry</p>
-            </div>
-          </div>
-          <div class="summary-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
-            <article class="summary-card">
-              <span class="section-label">Príjemca</span>
-              <div class="value" style="font-size:8pt;line-height:1.35;">${escapeHtml(bankingDetails.beneficiaryName)}</div>
-            </article>
-            <article class="summary-card">
-              <span class="section-label">Číslo účtu / IBAN</span>
-              <div class="value" style="font-size:8pt;line-height:1.35;">${escapeHtml(bankingDetails.bankAccount)}</div>
-            </article>
-            <article class="summary-card">
-              <span class="section-label">Variabilný symbol</span>
-              <div class="value">${escapeHtml(bankingDetails.variableSymbol)}</div>
-            </article>
-            <article class="summary-card">
-              <span class="section-label">Konštantný symbol</span>
-              <div class="value">${escapeHtml(bankingDetails.constantSymbol)}</div>
-            </article>
-            <article class="summary-card">
-              <span class="section-label">Špecifický symbol</span>
-              <div class="value">${escapeHtml(bankingDetails.specificSymbol)}</div>
-            </article>
-            <article class="summary-card">
-              <span class="section-label">Suma / Splatnosť</span>
-              <div class="value" style="font-size:8pt;line-height:1.35;">${escapeHtml(`${bankingDetails.amount} | ${bankingDetails.dueDate}`)}</div>
-            </article>
-          </div>
-        </section>
-      `;
-  const payBySquareSectionHtml = payBySquareData?.isAvailable
+  const payBySquareHtml = payBySquareData?.isAvailable
     ? `
-        <section class="summary">
-          <div class="summary-head">
-            <div>
-              <h2 class="section-title">Sekcia: PayBySquare</h2>
-              <p class="section-subtitle">QR platba pre mobil banking</p>
-            </div>
-          </div>
-          <div style="display:grid;grid-template-columns:auto minmax(0,1fr);gap:5mm;align-items:center;">
-            <div style="display:grid;justify-items:center;gap:1.4mm;">
-              <img
-                src="${escapeHtml(buildQrImageUrl(payBySquareData.qrPayload, 230))}"
-                alt="PayBySquare QR kod"
-                style="display:block;width:38mm;height:38mm;padding:2mm;border:0.3mm solid #e4ebf3;border-radius:3mm;background:#ffffff;"
-              />
-              <div class="muted">Naskenuj v bankovej appke</div>
-            </div>
-            <div class="summary-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
-              <article class="summary-card">
-                <span class="section-label">Suma</span>
-                <div class="value">${escapeHtml(formatCurrencyValue(payBySquareData.amount))}</div>
-              </article>
-              <article class="summary-card">
-                <span class="section-label">IBAN</span>
-                <div class="value" style="font-size:8pt;line-height:1.35;">${escapeHtml(payBySquareData.iban)}</div>
-              </article>
-              <article class="summary-card">
-                <span class="section-label">Splatnosť</span>
-                <div class="value">${escapeHtml(dueDateLabel || "-")}</div>
-              </article>
+        <section class="pay-card">
+          <div class="section-kicker">Sekcia</div>
+          <h3>PayBySquare</h3>
+          <div class="pay-card-inner">
+            <img src="${escapeHtml(buildQrImageUrl(payBySquareData.qrPayload, 220))}" alt="PayBySquare QR kod" />
+            <div class="pay-copy">
+              <div class="pay-line">
+                <span>Suma</span>
+                <strong>${escapeHtml(formatCurrencyValue(payBySquareData.amount))}</strong>
+              </div>
+              <div class="pay-line">
+                <span>IBAN</span>
+                <strong>${escapeHtml(payBySquareData.iban)}</strong>
+              </div>
+              <div class="pay-line">
+                <span>Splatnosť</span>
+                <strong>${escapeHtml(dueDateLabel)}</strong>
+              </div>
             </div>
           </div>
         </section>
       `
     : `
-        <section class="summary">
-          <div class="summary-head">
-            <div>
-              <h2 class="section-title">Sekcia: PayBySquare</h2>
-              <p class="section-subtitle">QR platba pre mobil banking</p>
-            </div>
+        <section class="pay-card pay-card--muted">
+          <div class="section-kicker">Sekcia</div>
+          <h3>PayBySquare</h3>
+          <p>${escapeHtml(String(payBySquareData?.reason || "PayBySquare sa nepodarilo pripraviť."))}</p>
+        </section>
+      `;
+
+  return `<!doctype html>
+  <html lang="sk">
+    <head>
+      <meta charset="UTF-8" />
+      <title>${escapeHtml(invoiceNumber || "Faktura")}</title>
+      <style>
+        @page { size: A4 portrait; margin: 10mm 10mm 12mm; }
+        * { box-sizing: border-box; }
+        body {
+          margin: 0;
+          font-family: "SF Pro Display", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+          color: #111111;
+          background: #f5f5f7;
+          -webkit-font-smoothing: antialiased;
+        }
+        .page {
+          display: grid;
+          gap: 4mm;
+          padding: 0;
+        }
+        .hero,
+        .panel,
+        .payment-rail,
+        .items-panel,
+        .totals-panel,
+        .note-panel {
+          background: #ffffff;
+          border: 0.25mm solid #e6e6eb;
+          border-radius: 5mm;
+        }
+        .hero {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 8mm;
+          padding: 7mm;
+        }
+        .hero-label {
+          font-size: 8pt;
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
+          color: #6e6e73;
+          font-weight: 700;
+        }
+        .hero h1 {
+          margin: 1.2mm 0 1.8mm;
+          font-size: 23pt;
+          line-height: 0.95;
+          font-weight: 700;
+          letter-spacing: -0.03em;
+        }
+        .hero-subtitle {
+          font-size: 10pt;
+          color: #6e6e73;
+        }
+        .hero-right {
+          min-width: 56mm;
+          display: grid;
+          gap: 2.5mm;
+          align-content: start;
+          justify-items: end;
+          text-align: right;
+        }
+        .amount-label {
+          font-size: 7pt;
+          text-transform: uppercase;
+          letter-spacing: 0.14em;
+          color: #8e8e93;
+          font-weight: 700;
+        }
+        .amount-value {
+          font-size: 20pt;
+          line-height: 1;
+          font-weight: 700;
+          letter-spacing: -0.04em;
+        }
+        .amount-note {
+          font-size: 8.2pt;
+          color: #6e6e73;
+        }
+        .meta-strip {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 2.6mm;
+        }
+        .meta-chip {
+          padding: 3.2mm 3.4mm;
+          border-radius: 4mm;
+          background: linear-gradient(180deg, #fbfbfd 0%, #f2f2f7 100%);
+          border: 0.25mm solid #ececf1;
+        }
+        .chip-label,
+        .section-kicker {
+          font-size: 6.6pt;
+          text-transform: uppercase;
+          letter-spacing: 0.14em;
+          color: #8e8e93;
+          font-weight: 700;
+        }
+        .chip-value {
+          margin-top: 1.1mm;
+          font-size: 10pt;
+          line-height: 1.2;
+          color: #111111;
+          font-weight: 600;
+        }
+        .parties {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 4mm;
+        }
+        .panel {
+          padding: 5mm;
+        }
+        .panel h2,
+        .pay-card h3,
+        .note-panel h3,
+        .items-panel h2,
+        .totals-panel h2 {
+          margin: 1mm 0 0;
+          font-size: 12.4pt;
+          line-height: 1;
+          letter-spacing: -0.02em;
+          font-weight: 700;
+          color: #111111;
+        }
+        .panel-subtitle,
+        .note-panel p,
+        .pay-card p {
+          margin: 1.2mm 0 0;
+          font-size: 8.6pt;
+          line-height: 1.45;
+          color: #6e6e73;
+        }
+        .detail-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 3mm 5mm;
+          margin-top: 3.4mm;
+        }
+        .detail-grid--single {
+          grid-template-columns: 1fr;
+        }
+        .detail-label {
+          font-size: 6.7pt;
+          text-transform: uppercase;
+          letter-spacing: 0.12em;
+          color: #8e8e93;
+          font-weight: 700;
+          margin-bottom: 0.8mm;
+        }
+        .detail-value {
+          font-size: 9.1pt;
+          line-height: 1.35;
+          font-weight: 600;
+          color: #1d1d1f;
+        }
+        .payment-rail {
+          display: grid;
+          grid-template-columns: minmax(0, 1.6fr) minmax(0, 0.85fr);
+          gap: 3mm;
+          padding: 3mm;
+          align-items: start;
+        }
+        .bank-card,
+        .pay-card {
+          border-radius: 4mm;
+          background: linear-gradient(180deg, #fbfbfd 0%, #f7f7fa 100%);
+          border: 0.25mm solid #ececf1;
+          padding: 3.6mm 3.8mm;
+        }
+        .bank-card-grid {
+          display: grid;
+          grid-template-columns: 1.2fr 1.6fr repeat(3, minmax(0, 0.72fr));
+          gap: 2mm;
+          margin-top: 2.8mm;
+        }
+        .bank-box {
+          padding: 2.2mm 2.4mm;
+          border-radius: 3.2mm;
+          background: #ffffff;
+          border: 0.25mm solid #ededf2;
+        }
+        .bank-box .detail-label {
+          margin-bottom: 0.55mm;
+          font-size: 6.1pt;
+        }
+        .bank-box .detail-value {
+          font-size: 8pt;
+          line-height: 1.2;
+        }
+        .pay-card-inner {
+          display: grid;
+          grid-template-columns: auto;
+          gap: 2mm;
+          margin-top: 2.8mm;
+        }
+        .pay-card img {
+          width: 27mm;
+          height: 27mm;
+          display: block;
+          padding: 1.2mm;
+          border-radius: 3mm;
+          background: #ffffff;
+          border: 0.25mm solid #ececf1;
+        }
+        .pay-copy {
+          display: grid;
+          gap: 1.1mm;
+        }
+        .pay-line {
+          display: grid;
+          gap: 0.3mm;
+        }
+        .pay-line span {
+          font-size: 6.2pt;
+          text-transform: uppercase;
+          letter-spacing: 0.12em;
+          color: #8e8e93;
+          font-weight: 700;
+        }
+        .pay-line strong {
+          font-size: 7.8pt;
+          line-height: 1.25;
+          color: #111111;
+          font-weight: 600;
+        }
+        .pay-card--muted {
+          background: #fafafa;
+        }
+        .items-panel,
+        .totals-panel,
+        .note-panel {
+          padding: 5mm;
+        }
+        .items-head,
+        .totals-head {
+          display: flex;
+          justify-content: space-between;
+          gap: 6mm;
+          align-items: end;
+          margin-bottom: 3mm;
+        }
+        .items-subtitle,
+        .totals-subtitle {
+          margin: 1.2mm 0 0;
+          font-size: 8.6pt;
+          color: #6e6e73;
+        }
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          table-layout: fixed;
+        }
+        thead th {
+          padding: 0 0 2mm;
+          border-bottom: 0.3mm solid #dcdce1;
+          text-align: left;
+          font-size: 7pt;
+          text-transform: uppercase;
+          letter-spacing: 0.12em;
+          color: #8e8e93;
+          font-weight: 700;
+        }
+        tbody td {
+          padding: 2.6mm 0;
+          border-bottom: 0.25mm solid #ececf1;
+          vertical-align: top;
+          font-size: 8.8pt;
+          color: #1d1d1f;
+        }
+        tbody tr:last-child td {
+          border-bottom: none;
+          padding-bottom: 0;
+        }
+        .cell-index {
+          width: 8mm;
+          color: #8e8e93;
+        }
+        .cell-right {
+          text-align: right;
+        }
+        .item-title {
+          font-size: 9pt;
+          font-weight: 600;
+          line-height: 1.3;
+        }
+        .item-meta {
+          margin-top: 0.6mm;
+          font-size: 7.4pt;
+          color: #8e8e93;
+          line-height: 1.35;
+        }
+        .strong {
+          font-weight: 700;
+        }
+        .totals-grid {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 2.6mm;
+        }
+        .total-card {
+          padding: 3.4mm 3.8mm;
+          border-radius: 4mm;
+          border: 0.25mm solid #ececf1;
+          background: linear-gradient(180deg, #fbfbfd 0%, #f5f5f7 100%);
+        }
+        .total-card--grand {
+          background: #111111;
+          border-color: #111111;
+        }
+        .total-card--grand .detail-label,
+        .total-card--grand .detail-value {
+          color: #ffffff;
+        }
+        .note-panel p {
+          margin-top: 2.2mm;
+        }
+        .foot {
+          font-size: 7.4pt;
+          color: #8e8e93;
+          text-align: right;
+          padding: 0 1mm;
+        }
+      </style>
+    </head>
+    <body>
+      <section class="page">
+        <header class="hero">
+          <div>
+            <div class="hero-label">Fakturácia</div>
+            <h1>Faktúra</h1>
+            <div class="hero-subtitle">${escapeHtml(companyName)}</div>
           </div>
-          <article class="summary-card">
-            <span class="section-label">Nevygenerované</span>
-            <div class="value" style="font-size:8.6pt;line-height:1.4;">${escapeHtml(String(payBySquareData?.reason || "PayBySquare sa nepodarilo pripraviť."))}</div>
+          <div class="hero-right">
+            <div class="amount-label">Na úhradu</div>
+            <div class="amount-value">${escapeHtml(formatCurrencyValue(totals.totalWithVat))}</div>
+            <div class="amount-note">${escapeHtml(`Faktúra ${invoiceNumber}`)}</div>
+          </div>
+        </header>
+
+        <section class="meta-strip">
+          <article class="meta-chip">
+            <div class="chip-label">Číslo faktúry</div>
+            <div class="chip-value">${escapeHtml(invoiceNumber)}</div>
+          </article>
+          <article class="meta-chip">
+            <div class="chip-label">Vystavené</div>
+            <div class="chip-value">${escapeHtml(issuedAtLabel)}</div>
+          </article>
+          <article class="meta-chip">
+            <div class="chip-label">Splatnosť</div>
+            <div class="chip-value">${escapeHtml(dueDateLabel)}</div>
+          </article>
+          <article class="meta-chip">
+            <div class="chip-label">Generované</div>
+            <div class="chip-value">${escapeHtml(generatedAt)}</div>
           </article>
         </section>
-      `
-    ;
 
-  return buildQuotePrintHtml(
-    {
-      ...invoice,
-      quote_number: invoice?.invoice_number || invoice?.quote_number || "",
-      status: invoice?.status || "draft"
-    },
-    customer,
-    items,
-    companyProfile,
-    { extraSectionsHtml: `${bankingSectionHtml}${payBySquareSectionHtml}` }
-  )
-    .replace(/\s*<span class="hero-meta-label">Splatnosť<\/span>\s*<div class="hero-meta-value">.*?<\/div>/, "")
-    .replace(/Cenova-ponuka/g, "Faktura")
-    .replace(/Cenová ponuka/g, "Faktúra")
-    .replace(/Obchodná ponuka/g, "Fakturácia")
-    .replace(/Číslo ponuky/g, "Číslo faktúry")
-    .replace(/Položky ponuky/g, "Položky faktúry")
-    .replace(/Poznámka k ponuke/g, "Poznámka k faktúre")
-    .replace(/Dodávateľské a odberateľské údaje pre túto ponuku/g, "Dodávateľské a odberateľské údaje pre túto faktúru")
-    .replace('<section class="customer">', `${invoiceMetaSectionHtml}
-        <section class="customer">`)
-    .replace(/Rekapitulácia cenovej ponuky/g, "Rekapitulácia faktúry");
+        <section class="parties">
+          <article class="panel">
+            <div class="section-kicker">Sekcia</div>
+            <h2>Dodávateľ</h2>
+            <p class="panel-subtitle">Firemné údaje z profilu dodávateľa</p>
+            <div class="detail-grid detail-grid--single">
+              <div>
+                <div class="detail-label">Názov</div>
+                <div class="detail-value">${escapeHtml(companyName)}</div>
+              </div>
+              <div>
+                <div class="detail-label">Adresa</div>
+                <div class="detail-value">${escapeHtml(String(normalizedCompany?.address || "").trim() || "-")}</div>
+              </div>
+              <div>
+                <div class="detail-label">Identifikácia</div>
+                <div class="detail-value">${escapeHtml(supplierIdentification)}</div>
+              </div>
+            </div>
+          </article>
+          <article class="panel">
+            <div class="section-kicker">Sekcia</div>
+            <h2>Odberateľ</h2>
+            <p class="panel-subtitle">Klient, ktorému je faktúra vystavená</p>
+            <div class="detail-grid detail-grid--single">
+              <div>
+                <div class="detail-label">Názov</div>
+                <div class="detail-value">${escapeHtml(customerName)}</div>
+              </div>
+              <div>
+                <div class="detail-label">Adresa</div>
+                <div class="detail-value">${escapeHtml(String(customer?.address || "").trim() || "-")}</div>
+              </div>
+              <div>
+                <div class="detail-label">Identifikácia</div>
+                <div class="detail-value">${escapeHtml(customerIdentification)}</div>
+              </div>
+              <div>
+                <div class="detail-label">Kontakt</div>
+                <div class="detail-value">${escapeHtml(customerContact)}</div>
+              </div>
+            </div>
+          </article>
+        </section>
+
+        <section class="payment-rail">
+          <article class="bank-card">
+            <div class="section-kicker">Sekcia</div>
+            <h3>Bankové spojenie</h3>
+            <div class="bank-card-grid">
+              <div class="bank-box">
+                <div class="detail-label">Príjemca</div>
+                <div class="detail-value">${escapeHtml(bankingDetails.beneficiaryName)}</div>
+              </div>
+              <div class="bank-box">
+                <div class="detail-label">Číslo účtu / IBAN</div>
+                <div class="detail-value">${escapeHtml(bankingDetails.bankAccount)}</div>
+              </div>
+              <div class="bank-box">
+                <div class="detail-label">VS</div>
+                <div class="detail-value">${escapeHtml(bankingDetails.variableSymbol)}</div>
+              </div>
+              <div class="bank-box">
+                <div class="detail-label">KS</div>
+                <div class="detail-value">${escapeHtml(bankingDetails.constantSymbol)}</div>
+              </div>
+              <div class="bank-box">
+                <div class="detail-label">ŠS</div>
+                <div class="detail-value">${escapeHtml(bankingDetails.specificSymbol)}</div>
+              </div>
+            </div>
+          </article>
+          ${payBySquareHtml}
+        </section>
+
+        <section class="items-panel">
+          <div class="items-head">
+            <div>
+              <div class="section-kicker">Sekcia</div>
+              <h2>Položky faktúry</h2>
+              <p class="items-subtitle">Zjednodušený prehľad položiek s finálnou sumou po DPH</p>
+            </div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th style="width:8mm;">#</th>
+                <th>Položka</th>
+                <th style="width:18mm;text-align:right;">Množstvo</th>
+                <th style="width:14mm;">MJ</th>
+                <th style="width:25mm;text-align:right;">Cena</th>
+                <th style="width:18mm;text-align:right;">DPH</th>
+                <th style="width:30mm;text-align:right;">Spolu</th>
+              </tr>
+            </thead>
+            <tbody>${rowsHtml || '<tr><td colspan="7">Faktúra nemá položky.</td></tr>'}</tbody>
+          </table>
+        </section>
+
+        <section class="totals-panel">
+          <div class="totals-head">
+            <div>
+              <div class="section-kicker">Sekcia</div>
+              <h2>Rekapitulácia</h2>
+              <p class="totals-subtitle">Finálna suma a daňový rozpis</p>
+            </div>
+          </div>
+          <div class="totals-grid">
+            <article class="total-card">
+              <div class="detail-label">Bez DPH</div>
+              <div class="detail-value">${escapeHtml(formatCurrencyValue(totals.total))}</div>
+            </article>
+            <article class="total-card">
+              <div class="detail-label">DPH</div>
+              <div class="detail-value">${escapeHtml(formatCurrencyValue(totals.vat))}</div>
+            </article>
+            <article class="total-card total-card--grand">
+              <div class="detail-label">Na úhradu</div>
+              <div class="detail-value">${escapeHtml(formatCurrencyValue(totals.totalWithVat))}</div>
+            </article>
+          </div>
+        </section>
+
+        ${noteHtml}
+        <div class="foot">${escapeHtml(`Faktúra ${invoiceNumber}`)}</div>
+      </section>
+    </body>
+  </html>`;
 }
 
 function printInvoicePdf(invoice, customer, items, companyProfile) {

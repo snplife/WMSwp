@@ -1,6 +1,7 @@
 ﻿import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { useRef } from "react";
+import { CurrencyCode, encode as encodePayBySquare, PaymentOptions } from "bysquare/pay";
 import * as XLSX from "xlsx";
 import { installHotjar, uninstallHotjar } from "./hotjar";
 import StatusPill from "./components/StatusPill";
@@ -586,6 +587,25 @@ function buildQrImageUrl(value, size = 220) {
   return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(value)}`;
 }
 
+function computeDocumentTotals(items) {
+  return (items || []).reduce(
+    (acc, item) => {
+      const computed = computeQuoteLineTotals({
+        quantity: item.quantity,
+        unitPrice: item.unit_price,
+        purchasePrice: item.purchase_price,
+        discountPercent: item.discount_percent,
+        vatPercent: item.vat_percent
+      });
+      acc.total += computed.lineTotal;
+      acc.vat += computed.lineVatTotal;
+      acc.totalWithVat += computed.lineTotalWithVat;
+      return acc;
+    },
+    { total: 0, vat: 0, totalWithVat: 0 }
+  );
+}
+
 function resolvePrintableAssetUrl(assetUrl) {
   const raw = String(assetUrl || "").trim();
   if (!raw || typeof window === "undefined") {
@@ -874,10 +894,9 @@ function buildQuoteNumber() {
 
 function buildInvoiceNumber() {
   const now = new Date();
-  const datePart = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
-  const timePart = `${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}`;
+  const datePart = `${String(now.getFullYear()).slice(-2)}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
   const randomPart = Math.floor(1000 + Math.random() * 9000);
-  return `FAK-${datePart}-${timePart}-${randomPart}`;
+  return `${datePart}${randomPart}`;
 }
 
 function buildProductionNumber() {
@@ -932,6 +951,7 @@ function buildOrderPrintHtml(order, customer, items, companyName) {
   const noteHtml = orderNote
     ? `
         <section class="note">
+          <div class="section-name">Sekcia: Poznámka objednávky</div>
           <span class="label">Poznámka k objednávke</span>
           <div>${escapeHtml(orderNote)}</div>
         </section>
@@ -966,6 +986,7 @@ function buildOrderPrintHtml(order, customer, items, companyName) {
         h1 { margin: 0 0 2mm; font-size: 20pt; }
         .meta, .customer, .note, .qr-section { border: 0.3mm solid #d9e2ec; border-radius: 3mm; padding: 4mm; }
         .meta-grid, .customer-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3mm 6mm; }
+        .section-name { display: block; margin-bottom: 2mm; font-size: 9pt; font-weight: 700; color: #33506b; text-transform: uppercase; letter-spacing: 0.08em; }
         .label { display: block; margin-bottom: 1mm; font-size: 8pt; color: #52606d; text-transform: uppercase; letter-spacing: 0.08em; }
         .value { font-size: 11pt; font-weight: 700; }
         table { width: 100%; border-collapse: collapse; font-size: 10pt; }
@@ -989,6 +1010,7 @@ function buildOrderPrintHtml(order, customer, items, companyName) {
           <div class="foot">Vygenerované: ${escapeHtml(generatedAt)}</div>
         </header>
         <section class="meta">
+          <div class="section-name">Sekcia: Základné údaje objednávky</div>
           <div class="meta-grid">
             <div><span class="label">Firma</span><div class="value">${escapeHtml(String(companyName || "-"))}</div></div>
             <div><span class="label">Vytvorené</span><div class="value">${escapeHtml(createdAt)}</div></div>
@@ -997,6 +1019,7 @@ function buildOrderPrintHtml(order, customer, items, companyName) {
           </div>
         </section>
         <section class="customer">
+          <div class="section-name">Sekcia: Zákazník</div>
           <div class="customer-grid">
             <div><span class="label">Zákazník</span><div class="value">${escapeHtml(customerName)}</div></div>
             <div><span class="label">Telefón</span><div class="value">${escapeHtml(String(customer?.phone || "-"))}</div></div>
@@ -1005,6 +1028,7 @@ function buildOrderPrintHtml(order, customer, items, companyName) {
           </div>
         </section>
         <section>
+          <div class="section-name">Sekcia: Položky objednávky</div>
           <table>
             <thead>
               <tr>
@@ -1020,6 +1044,7 @@ function buildOrderPrintHtml(order, customer, items, companyName) {
           </table>
         </section>
         <section class="qr-section">
+          <div class="section-name">Sekcia: QR údaje objednávky</div>
           <div class="qr-grid">
             <article class="qr-card">
               <span class="qr-caption">QR: ID objednávky</span>
@@ -1043,13 +1068,14 @@ function printOrderPdf(order, customer, items, companyName) {
   printHtmlDocument(buildOrderPrintHtml(order, customer, items, companyName));
 }
 
-function buildQuotePrintHtml(quote, customer, items, companyProfile) {
+function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {}) {
   const generatedAt = new Date().toLocaleDateString("sk-SK");
   const normalizedCompany =
     companyProfile && typeof companyProfile === "object" ? companyProfile : { name: String(companyProfile || "").trim() };
   const companyName = String(normalizedCompany?.name || "-");
   const customerName = String(quote?.customer_name || customer?.name || "-");
   const quoteNote = String(quote?.note || "").trim();
+  const extraSectionsHtml = String(options?.extraSectionsHtml || "");
   const supplierFields = [
     { label: "Dodávateľ", value: companyName },
     { label: "Adresa", value: String(normalizedCompany?.address || "").trim() || "-" },
@@ -1096,7 +1122,7 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
   const noteHtml = quoteNote
     ? `
         <section class="note">
-          <span class="section-label">Poznámka k ponuke</span>
+          <span class="section-label">Sekcia: Poznámka k ponuke</span>
           <div>${escapeHtml(quoteNote)}</div>
         </section>
       `
@@ -1132,22 +1158,7 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
       `;
     })
     .join("");
-  const totals = (items || []).reduce(
-    (acc, item) => {
-      const computed = computeQuoteLineTotals({
-        quantity: item.quantity,
-        unitPrice: item.unit_price,
-        purchasePrice: item.purchase_price,
-        discountPercent: item.discount_percent,
-        vatPercent: item.vat_percent
-      });
-      acc.total += computed.lineTotal;
-      acc.vat += computed.lineVatTotal;
-      acc.totalWithVat += computed.lineTotalWithVat;
-      return acc;
-    },
-    { total: 0, vat: 0, totalWithVat: 0 }
-  );
+  const totals = computeDocumentTotals(items);
 
   return `<!doctype html>
   <html lang="sk">
@@ -1273,21 +1284,21 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
         <section class="customer">
           <div class="customer-head">
             <div>
-              <h2 class="section-title">Zmluvné strany</h2>
+              <h2 class="section-title">Sekcia: Zmluvné strany</h2>
               <p class="section-subtitle">Dodávateľské a odberateľské údaje pre túto ponuku</p>
             </div>
           </div>
           <div class="party-grid">
             <article class="party-card">
               <div>
-                <h3 class="section-title">Dodávateľ</h3>
+                <h3 class="section-title">Sekcia: Dodávateľ</h3>
                 <p class="section-subtitle">Údaje z firemných nastavení</p>
               </div>
               <div class="party-fields">${buildPartyFieldsHtml(supplierFields)}</div>
             </article>
             <article class="party-card">
               <div>
-                <h3 class="section-title">Odberateľ</h3>
+                <h3 class="section-title">Sekcia: Odberateľ</h3>
                 <p class="section-subtitle">Údaje naviazané na zákazníka</p>
               </div>
               <div class="party-fields">${buildPartyFieldsHtml(customerFields)}</div>
@@ -1297,7 +1308,7 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
         <section class="items">
           <div class="items-head">
             <div>
-              <h2 class="section-title">Položky ponuky</h2>
+              <h2 class="section-title">Sekcia: Položky ponuky</h2>
               <p class="section-subtitle">Ceny sú zobrazené bez DPH aj s DPH</p>
             </div>
           </div>
@@ -1321,7 +1332,7 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
         <section class="summary">
           <div class="summary-head">
             <div>
-              <h2 class="section-title">Finálne sumy</h2>
+              <h2 class="section-title">Sekcia: Finálne sumy</h2>
               <p class="section-subtitle">Rekapitulácia cenovej ponuky</p>
             </div>
           </div>
@@ -1332,6 +1343,7 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile) {
           </div>
         </section>
         ${noteHtml}
+        ${extraSectionsHtml}
         <div class="foot">Cenová ponuka ${escapeHtml(String(quote?.quote_number || "-"))}</div>
       </section>
     </body>
@@ -1345,9 +1357,16 @@ function printQuotePdf(quote, customer, items, companyProfile) {
 function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
   const dueDateLabel = invoice?.due_date ? formatDate(invoice.due_date) : "";
   const issuedAtLabel = invoice?.created_at ? formatDate(invoice.created_at) : "-";
+  const bankingDetails = buildInvoiceBankingDetails(invoice, items, companyProfile);
+  const payBySquareData = buildInvoicePayBySquareData(invoice, items, companyProfile);
   const invoiceMetaSectionHtml = dueDateLabel
     ? `
         <section class="summary">
+          <div class="summary-head">
+            <div>
+              <h2 class="section-title">Sekcia: Termíny faktúry</h2>
+            </div>
+          </div>
           <div class="summary-grid" style="grid-template-columns: repeat(2, minmax(0, 1fr));">
             <article class="summary-card">
               <span class="section-label">Vystavené</span>
@@ -1361,6 +1380,92 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         </section>
       `
     : "";
+  const bankingSectionHtml = `
+        <section class="summary">
+          <div class="summary-head">
+            <div>
+              <h2 class="section-title">Sekcia: Bankové spojenie</h2>
+              <p class="section-subtitle">Platobné údaje pre úhradu faktúry</p>
+            </div>
+          </div>
+          <div class="summary-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
+            <article class="summary-card">
+              <span class="section-label">Príjemca</span>
+              <div class="value" style="font-size:8pt;line-height:1.35;">${escapeHtml(bankingDetails.beneficiaryName)}</div>
+            </article>
+            <article class="summary-card">
+              <span class="section-label">Číslo účtu / IBAN</span>
+              <div class="value" style="font-size:8pt;line-height:1.35;">${escapeHtml(bankingDetails.bankAccount)}</div>
+            </article>
+            <article class="summary-card">
+              <span class="section-label">Variabilný symbol</span>
+              <div class="value">${escapeHtml(bankingDetails.variableSymbol)}</div>
+            </article>
+            <article class="summary-card">
+              <span class="section-label">Konštantný symbol</span>
+              <div class="value">${escapeHtml(bankingDetails.constantSymbol)}</div>
+            </article>
+            <article class="summary-card">
+              <span class="section-label">Špecifický symbol</span>
+              <div class="value">${escapeHtml(bankingDetails.specificSymbol)}</div>
+            </article>
+            <article class="summary-card">
+              <span class="section-label">Suma / Splatnosť</span>
+              <div class="value" style="font-size:8pt;line-height:1.35;">${escapeHtml(`${bankingDetails.amount} | ${bankingDetails.dueDate}`)}</div>
+            </article>
+          </div>
+        </section>
+      `;
+  const payBySquareSectionHtml = payBySquareData?.isAvailable
+    ? `
+        <section class="summary">
+          <div class="summary-head">
+            <div>
+              <h2 class="section-title">Sekcia: PayBySquare</h2>
+              <p class="section-subtitle">QR platba pre mobil banking</p>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:auto minmax(0,1fr);gap:5mm;align-items:center;">
+            <div style="display:grid;justify-items:center;gap:1.4mm;">
+              <img
+                src="${escapeHtml(buildQrImageUrl(payBySquareData.qrPayload, 230))}"
+                alt="PayBySquare QR kod"
+                style="display:block;width:38mm;height:38mm;padding:2mm;border:0.3mm solid #e4ebf3;border-radius:3mm;background:#ffffff;"
+              />
+              <div class="muted">Naskenuj v bankovej appke</div>
+            </div>
+            <div class="summary-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
+              <article class="summary-card">
+                <span class="section-label">Suma</span>
+                <div class="value">${escapeHtml(formatCurrencyValue(payBySquareData.amount))}</div>
+              </article>
+              <article class="summary-card">
+                <span class="section-label">IBAN</span>
+                <div class="value" style="font-size:8pt;line-height:1.35;">${escapeHtml(payBySquareData.iban)}</div>
+              </article>
+              <article class="summary-card">
+                <span class="section-label">Splatnosť</span>
+                <div class="value">${escapeHtml(dueDateLabel || "-")}</div>
+              </article>
+            </div>
+          </div>
+        </section>
+      `
+    : `
+        <section class="summary">
+          <div class="summary-head">
+            <div>
+              <h2 class="section-title">Sekcia: PayBySquare</h2>
+              <p class="section-subtitle">QR platba pre mobil banking</p>
+            </div>
+          </div>
+          <article class="summary-card">
+            <span class="section-label">Nevygenerované</span>
+            <div class="value" style="font-size:8.6pt;line-height:1.4;">${escapeHtml(String(payBySquareData?.reason || "PayBySquare sa nepodarilo pripraviť."))}</div>
+          </article>
+        </section>
+      `
+    ;
 
   return buildQuotePrintHtml(
     {
@@ -1370,7 +1475,8 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
     },
     customer,
     items,
-    companyProfile
+    companyProfile,
+    { extraSectionsHtml: `${bankingSectionHtml}${payBySquareSectionHtml}` }
   )
     .replace(/\s*<span class="hero-meta-label">Splatnosť<\/span>\s*<div class="hero-meta-value">.*?<\/div>/, "")
     .replace(/Cenova-ponuka/g, "Faktura")
@@ -1397,6 +1503,7 @@ function buildProductionPrintHtml(productionOrder, inputs, outputs, companyName)
   const noteHtml = productionNote
     ? `
         <section class="note">
+          <div class="section-name">Sekcia: Poznámka výrobnej objednávky</div>
           <span class="label">Poznámka</span>
           <div>${escapeHtml(productionNote)}</div>
         </section>
@@ -1442,6 +1549,7 @@ function buildProductionPrintHtml(productionOrder, inputs, outputs, companyName)
         h1 { margin: 0 0 2mm; font-size: 20pt; }
         .meta, .note, .section-box { border: 0.3mm solid #d9e2ec; border-radius: 3mm; padding: 4mm; }
         .meta-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3mm 6mm; }
+        .section-name { display: block; margin-bottom: 2mm; font-size: 9pt; font-weight: 700; color: #33506b; text-transform: uppercase; letter-spacing: 0.08em; }
         .label { display: block; margin-bottom: 1mm; font-size: 8pt; color: #52606d; text-transform: uppercase; letter-spacing: 0.08em; }
         .value { font-size: 11pt; font-weight: 700; }
         table { width: 100%; border-collapse: collapse; font-size: 10pt; }
@@ -1461,6 +1569,7 @@ function buildProductionPrintHtml(productionOrder, inputs, outputs, companyName)
           <div class="foot">Vygenerované: ${escapeHtml(generatedAt)}</div>
         </header>
         <section class="meta">
+          <div class="section-name">Sekcia: Základné údaje výroby</div>
           <div class="meta-grid">
             <div><span class="label">Firma</span><div class="value">${escapeHtml(String(companyName || "-"))}</div></div>
             <div><span class="label">Názov</span><div class="value">${escapeHtml(String(productionOrder?.title || "-"))}</div></div>
@@ -1472,6 +1581,7 @@ function buildProductionPrintHtml(productionOrder, inputs, outputs, companyName)
         </section>
         ${noteHtml}
         <section class="section-box">
+          <div class="section-name">Sekcia: Vstupy výroby</div>
           <h2 class="section-title">Vstupy</h2>
           <table>
             <thead>
@@ -1489,6 +1599,7 @@ function buildProductionPrintHtml(productionOrder, inputs, outputs, companyName)
           </table>
         </section>
         <section class="section-box">
+          <div class="section-name">Sekcia: Výstupy výroby</div>
           <h2 class="section-title">Výstupy</h2>
           <table>
             <thead>
@@ -1534,6 +1645,88 @@ function normalizeUsernameInput(value) {
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9._-]/g, "");
+}
+
+function formatIbanInput(value) {
+  return normalizeIbanValue(value)
+    .replace(/(.{4})/g, "$1 ")
+    .trim();
+}
+
+function normalizeIbanValue(value) {
+  return String(value || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+}
+
+function buildInvoicePayBySquareData(invoice, items, companyProfile) {
+  const iban = normalizeIbanValue(companyProfile?.bank_account);
+  const beneficiaryName = String(companyProfile?.name || "").trim();
+  const dueDate = String(invoice?.due_date || "")
+    .trim()
+    .replace(/-/g, "");
+  const totals = computeDocumentTotals(items);
+  if (totals.totalWithVat <= 0) {
+    return { isAvailable: false, reason: "PayBySquare sa vytvorí až pri faktúre so sumou väčšou ako 0 €." };
+  }
+  if (!beneficiaryName) {
+    return { isAvailable: false, reason: "Chýba názov firmy v profile dodávateľa." };
+  }
+  if (!iban) {
+    return { isAvailable: false, reason: "Chýba IBAN v profile firmy." };
+  }
+
+  const variableSymbolCandidate = String(invoice?.invoice_number || "")
+    .replace(/\D/g, "")
+    .trim();
+
+  try {
+    const qrPayload = encodePayBySquare({
+      payments: [
+        {
+          type: PaymentOptions.PaymentOrder,
+          amount: Number(totals.totalWithVat.toFixed(2)),
+          currencyCode: CurrencyCode.EUR,
+          paymentDueDate: /^\d{8}$/.test(dueDate) ? dueDate : undefined,
+          variableSymbol:
+            variableSymbolCandidate && variableSymbolCandidate.length <= 10 ? variableSymbolCandidate : undefined,
+          paymentNote: String(invoice?.invoice_number || "").trim() ? `Faktura ${String(invoice.invoice_number).trim()}` : undefined,
+          beneficiary: { name: beneficiaryName },
+          bankAccounts: [{ iban }]
+        }
+      ]
+    });
+
+    return {
+      isAvailable: true,
+      amount: totals.totalWithVat,
+      iban: formatIbanInput(iban),
+      qrPayload
+    };
+  } catch {
+    return {
+      isAvailable: false,
+      reason: "IBAN nie je validný pre PayBySquare. Pre SK účet musí mať tvar SK.. a prejsť IBAN kontrolou."
+    };
+  }
+}
+
+function buildInvoiceBankingDetails(invoice, items, companyProfile) {
+  const invoiceDigits = String(invoice?.invoice_number || "")
+    .replace(/\D/g, "")
+    .trim();
+  const invoiceSymbol = invoiceDigits ? invoiceDigits.slice(-10) : "-";
+  const totals = computeDocumentTotals(items);
+
+  return {
+    beneficiaryName: String(companyProfile?.name || "").trim() || "-",
+    bankAccount: formatIbanInput(companyProfile?.bank_account) || "-",
+    variableSymbol: invoiceSymbol,
+    specificSymbol: "-",
+    constantSymbol: invoiceSymbol,
+    amount: totals.totalWithVat > 0 ? formatCurrencyValue(totals.totalWithVat) : "-",
+    dueDate: invoice?.due_date ? formatDate(invoice.due_date) : "-"
+  };
 }
 
 function buildInternalEmailFromUsername(username) {
@@ -3430,7 +3623,7 @@ function App() {
       dic: String(companyProfileDicInput || "").trim(),
       ic_dph: String(companyProfileIcDphInput || "").trim(),
       address: String(companyProfileAddressInput || "").trim(),
-      bank_account: String(companyProfileBankAccountInput || "").trim()
+      bank_account: formatIbanInput(companyProfileBankAccountInput)
     };
 
     const { error: expiryUpdateError } = await supabase
@@ -3472,7 +3665,7 @@ function App() {
     setCompanyProfileDicInput(String(expiryUpdatedCompany.dic || ""));
     setCompanyProfileIcDphInput(String(expiryUpdatedCompany.ic_dph || ""));
     setCompanyProfileAddressInput(String(expiryUpdatedCompany.address || ""));
-    setCompanyProfileBankAccountInput(String(expiryUpdatedCompany.bank_account || ""));
+    setCompanyProfileBankAccountInput(formatIbanInput(expiryUpdatedCompany.bank_account));
 
     setCompanySettingsSubmitting(false);
   };
@@ -6032,7 +6225,7 @@ function App() {
     setCompanyProfileDicInput(String(activeCompany?.dic || ""));
     setCompanyProfileIcDphInput(String(activeCompany?.ic_dph || ""));
     setCompanyProfileAddressInput(String(activeCompany?.address || ""));
-    setCompanyProfileBankAccountInput(String(activeCompany?.bank_account || ""));
+    setCompanyProfileBankAccountInput(formatIbanInput(activeCompany?.bank_account));
     setCompanyProfileLookupResults([]);
     setCompanyProfileLookupLoading(false);
     setCompanyProfileLookupError("");
@@ -7137,7 +7330,7 @@ function App() {
                     className="search-input"
                     placeholder="SK12 3456 7890 1234 5678 9012"
                     value={companyProfileBankAccountInput}
-                    onChange={(event) => setCompanyProfileBankAccountInput(event.target.value)}
+                    onChange={(event) => setCompanyProfileBankAccountInput(formatIbanInput(event.target.value))}
                     disabled={!activeCompanyId || companySettingsSubmitting}
                   />
                 </label>

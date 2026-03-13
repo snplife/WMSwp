@@ -2301,6 +2301,7 @@ function App() {
   const [invoicesError, setInvoicesError] = useState("");
   const [editingInvoiceId, setEditingInvoiceId] = useState("");
   const [selectedInvoiceCustomerId, setSelectedInvoiceCustomerId] = useState("");
+  const [invoiceNumberInput, setInvoiceNumberInput] = useState(buildInvoiceNumber());
   const [invoiceDueDate, setInvoiceDueDate] = useState(getDefaultInvoiceDueDate());
   const [invoiceSearchTerm, setInvoiceSearchTerm] = useState("");
   const [invoiceDraftItems, setInvoiceDraftItems] = useState([createEmptyInvoiceDraftItem()]);
@@ -3677,6 +3678,7 @@ function App() {
 
   const resetInvoiceDraft = () => {
     setEditingInvoiceId("");
+    setInvoiceNumberInput(buildInvoiceNumber());
     setInvoiceDueDate(getDefaultInvoiceDueDate());
     setInvoiceDraftItems([createEmptyInvoiceDraftItem()]);
   };
@@ -5059,6 +5061,7 @@ function App() {
     const items = invoiceItemsByInvoiceId[invoiceId] || [];
     setEditingInvoiceId(invoiceId);
     setSelectedInvoiceCustomerId(String(invoice?.customer_id || ""));
+    setInvoiceNumberInput(String(invoice?.invoice_number || ""));
     setInvoiceDueDate(formatDateInputValue(invoice?.due_date) || getDefaultInvoiceDueDate());
     setInvoiceDraftItems(items.length > 0 ? items.map((item) => createInvoiceDraftItemFromRow(item)) : [createEmptyInvoiceDraftItem()]);
     setExpandedInvoices((prev) => ({ ...prev, [invoiceId]: true }));
@@ -5086,6 +5089,11 @@ function App() {
     const normalizedDueDate = String(invoiceDueDate || "").trim();
     if (!normalizedDueDate) {
       setInvoicesError("Zadaj splatnosť faktúry.");
+      return;
+    }
+    const normalizedInvoiceNumber = String(invoiceNumberInput || "").trim();
+    if (!normalizedInvoiceNumber) {
+      setInvoicesError("Zadaj číslo faktúry.");
       return;
     }
 
@@ -5154,6 +5162,7 @@ function App() {
       const payloadBase = {
         customer_id: customer.id,
         customer_name: customer.name,
+        invoice_number: normalizedInvoiceNumber,
         due_date: normalizedDueDate
       };
 
@@ -5251,7 +5260,7 @@ function App() {
           company_id: companyId,
           customer_id: customer.id,
           customer_name: customer.name,
-          invoice_number: buildInvoiceNumber(),
+          invoice_number: normalizedInvoiceNumber,
           due_date: normalizedDueDate,
           status: "draft",
           note: "",
@@ -5839,6 +5848,7 @@ function App() {
       setInvoicesLoading(false);
       setEditingInvoiceId("");
       setSelectedInvoiceCustomerId("");
+      setInvoiceNumberInput(buildInvoiceNumber());
       setInvoiceDueDate(getDefaultInvoiceDueDate());
       setInvoiceSearchTerm("");
       setInvoiceDraftItems([createEmptyInvoiceDraftItem()]);
@@ -6885,6 +6895,7 @@ function App() {
     setInvoicesLoading(false);
     setEditingInvoiceId("");
     setSelectedInvoiceCustomerId("");
+    setInvoiceNumberInput(buildInvoiceNumber());
     setInvoiceDueDate(getDefaultInvoiceDueDate());
     setInvoiceSearchTerm("");
     setInvoiceDraftItems([createEmptyInvoiceDraftItem()]);
@@ -8762,6 +8773,17 @@ function App() {
 
                 <form className="orders-form" onSubmit={handleCreateInvoice}>
                   <div className="workflow-field-grid invoice-form-grid">
+                    <label className="workflow-field workflow-field-compact invoice-date-field">
+                      <span className="workflow-field-label">Číslo faktúry</span>
+                      <input
+                        type="text"
+                        className="search-input"
+                        placeholder="YYMMDDXXXX"
+                        value={invoiceNumberInput}
+                        onChange={(event) => setInvoiceNumberInput(event.target.value)}
+                        disabled={!activeCompanyId || invoiceSubmitting}
+                      />
+                    </label>
                     <label className="workflow-field">
                       <span className="workflow-field-label">Zákazník</span>
                       <select

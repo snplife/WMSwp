@@ -685,36 +685,36 @@ function parseTwinPositionLabel(positionLabel, fallbackIndex = 0) {
   const tokens = String(rawPosition || "")
     .toUpperCase()
     .match(/[A-Z]+|\d+/g) || [];
-  const letterTokens = tokens.filter((token) => /[A-Z]/.test(token) && !/^\d+$/.test(token));
-  const numberTokens = tokens.filter((token) => /^\d+$/.test(token));
-  const aisleToken = letterTokens[0] || "REG";
-  const bayToken = numberTokens[0] || String(fallbackIndex + 1);
-  const levelToken = numberTokens[1] || "1";
-  const depthToken = numberTokens[2] || "1";
-  const bayNumber = Number.parseInt(bayToken, 10);
-  const levelNumber = Number.parseInt(levelToken, 10);
-  const depthNumber = Number.parseInt(depthToken, 10);
+  const rackToken = /^[A-Z]+$/.test(tokens[0] || "") ? tokens[0] : "REG";
+  const rowToken = /^\d+$/.test(tokens[1] || "") ? tokens[1] : /^\d+$/.test(tokens[0] || "") ? tokens[0] : String(fallbackIndex + 1);
+  const columnToken = /^[A-Z]+$/.test(tokens[2] || "") ? tokens[2] : /^[A-Z]+$/.test(tokens[1] || "") ? tokens[1] : "A";
+  const suffixToken = /^\d+$/.test(tokens[3] || "") ? tokens[3] : /^\d+$/.test(tokens[2] || "") ? tokens[2] : "1";
+  const rowNumber = Number.parseInt(rowToken, 10);
+  const suffixNumber = Number.parseInt(suffixToken, 10);
   const companyPrefix = companyScope ? `${companyScope} / ` : "";
-  const aisleLabel = `${companyPrefix}${aisleToken}`;
-  const normalizedBayLabel = /^\d+$/.test(bayToken) ? bayToken.padStart(2, "0") : bayToken;
-  const normalizedDepthLabel = /^\d+$/.test(depthToken) ? depthToken.padStart(2, "0") : depthToken;
-  const hasExplicitDepth = numberTokens.length >= 3;
-  const bayKey = hasExplicitDepth ? `${bayToken}-${depthToken}` : bayToken;
+  const aisleLabel = `${companyPrefix}${rackToken}`;
+  const normalizedColumnLabel = String(columnToken || "A").toUpperCase();
+  const normalizedSuffixLabel = /^\d+$/.test(suffixToken) ? suffixToken.padStart(2, "0") : suffixToken;
+  const hasExplicitSuffix = /^\d+$/.test(tokens[3] || "");
+  const columnSortBase = normalizedColumnLabel
+    .split("")
+    .reduce((sum, char) => sum * 26 + (char.charCodeAt(0) - 64), 0);
+  const bayKey = hasExplicitSuffix ? `${normalizedColumnLabel}-${suffixToken}` : normalizedColumnLabel;
 
   return {
     companyScope,
     rawPosition: rawPosition || source || `Pozícia ${fallbackIndex + 1}`,
-    rackCode: aisleToken,
+    rackCode: rackToken,
     aisleKey: aisleLabel,
     aisleLabel,
     bayKey,
-    bayLabel: hasExplicitDepth ? `${normalizedBayLabel}/${normalizedDepthLabel}` : normalizedBayLabel,
-    baySort: Number.isFinite(bayNumber) ? bayNumber * 100 + (Number.isFinite(depthNumber) ? depthNumber : 1) : fallbackIndex + 1,
-    levelKey: levelToken,
-    levelLabel: /^\d+$/.test(levelToken) ? levelToken.padStart(2, "0") : levelToken,
-    levelSort: Number.isFinite(levelNumber) ? levelNumber : 1,
-    depthKey: depthToken,
-    depthSort: Number.isFinite(depthNumber) ? depthNumber : 1
+    bayLabel: hasExplicitSuffix ? `${normalizedColumnLabel}/${normalizedSuffixLabel}` : normalizedColumnLabel,
+    baySort: columnSortBase * 100 + (Number.isFinite(suffixNumber) ? suffixNumber : 1),
+    levelKey: rowToken,
+    levelLabel: /^\d+$/.test(rowToken) ? rowToken.padStart(2, "0") : rowToken,
+    levelSort: Number.isFinite(rowNumber) ? rowNumber : fallbackIndex + 1,
+    depthKey: suffixToken,
+    depthSort: Number.isFinite(suffixNumber) ? suffixNumber : 1
   };
 }
 
@@ -3450,11 +3450,13 @@ function App() {
   };
 
   const loadStockTwinSettings = async () => {
-    if (!authReady || !isLoggedIn) {
+    const targetCompanyId = activeCompanyId || userCompanyId;
+    if (!authReady || !isLoggedIn || !targetCompanyId) {
       setStockTwinLayout(DEFAULT_STOCK_TWIN_LAYOUT);
       setStockTwinRackDrafts([]);
       setStockTwinSettingsError("");
       setStockTwinSettingsMessage("");
+      setStockTwinSettingsLoading(false);
       return;
     }
 
@@ -3462,8 +3464,8 @@ function App() {
     setStockTwinSettingsError("");
     const { data, error: settingsError } = await supabase
       .from(STOCK_TWIN_SETTINGS_TABLE)
-      .select("id,layout,updated_at,updated_by")
-      .eq("id", 1)
+      .select("company_id,layout,updated_at,updated_by")
+      .eq("company_id", targetCompanyId)
       .maybeSingle();
 
     if (settingsError) {
@@ -4296,7 +4298,8 @@ function App() {
 
   const handleSaveStockTwinSettings = async (event) => {
     event.preventDefault();
-    if (!isMaster) {
+    if (!isMaster || !activeCompanyId) {
+      setStockTwinSettingsError("Najprv vyber konkrétnu firmu, pre ktorú chceš uložiť twin layout.");
       return;
     }
 
@@ -4309,17 +4312,17 @@ function App() {
       .from(STOCK_TWIN_SETTINGS_TABLE)
       .upsert(
         {
-          id: 1,
+          company_id: activeCompanyId,
           layout: normalizedLayout,
           updated_at: new Date().toISOString(),
           updated_by: authUser?.id || null
         },
-        { onConflict: "id" }
+        { onConflict: "company_id" }
       )
-      .select("id,layout,updated_at,updated_by");
+      .select("company_id,layout,updated_at,updated_by");
 
     if (saveError) {
-      setStockTwinSettingsError(saveError.message || "Nepodarilo sa uložiť globalny layout digital twin.");
+      setStockTwinSettingsError(saveError.message || "Nepodarilo sa uložiť twin layout pre túto firmu.");
       setStockTwinSettingsSubmitting(false);
       return;
     }
@@ -4328,7 +4331,7 @@ function App() {
     const savedLayout = normalizeStockTwinLayout(savedRow?.layout || normalizedLayout);
     setStockTwinLayout(savedLayout);
     setStockTwinRackDrafts(savedLayout.racks.map((rack, index) => createStockTwinRackDraft(rack, index)));
-    setStockTwinSettingsMessage("Globalny layout digital twin je uložený.");
+    setStockTwinSettingsMessage(`Twin layout pre firmu ${activeCompany?.name || ""} je uložený.`);
     setStockTwinSettingsSubmitting(false);
   };
 
@@ -6894,7 +6897,7 @@ function App() {
     }
     loadCompanies();
     loadStockTwinSettings();
-  }, [authReady, isLoggedIn, isMaster, authUser?.id]);
+  }, [authReady, isLoggedIn, isMaster, authUser?.id, activeCompanyId, userCompanyId]);
 
   useEffect(() => {
     if (!authReady || !isLoggedIn) {
@@ -6910,7 +6913,7 @@ function App() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [authReady, isLoggedIn, authUser?.id]);
+  }, [authReady, isLoggedIn, authUser?.id, activeCompanyId, userCompanyId]);
 
   useEffect(() => {
     loadMaterialSubscriptions();
@@ -7154,15 +7157,16 @@ function App() {
 
     const buildConfiguredBayDefs = (rack) => {
       const defs = [];
-      for (let bay = 1; bay <= rack.bayCount; bay += 1) {
+      for (let column = 0; column < rack.bayCount; column += 1) {
+        const columnLabel = columnLabelFromIndex(column);
         for (let depth = 1; depth <= rack.depthCount; depth += 1) {
-          const bayKey = rack.depthCount > 1 ? `${bay}-${depth}` : String(bay);
+          const bayKey = rack.depthCount > 1 ? `${columnLabel}-${depth}` : columnLabel;
           const bayLabel =
-            rack.depthCount > 1 ? `${String(bay).padStart(2, "0")}/${String(depth).padStart(2, "0")}` : String(bay).padStart(2, "0");
+            rack.depthCount > 1 ? `${columnLabel}/${String(depth).padStart(2, "0")}` : columnLabel;
           defs.push({
             key: bayKey,
             label: bayLabel,
-            sort: bay * 100 + depth
+            sort: (column + 1) * 100 + depth
           });
         }
       }
@@ -7183,7 +7187,7 @@ function App() {
           ).values()
         ).filter((bay) => !buildConfiguredBayDefs(rack).some((configuredBay) => configuredBay.key === bay.key));
         const configuredLevels = Array.from({ length: rack.levelCount }, (_, index) => {
-          const levelValue = rack.levelCount - index;
+          const levelValue = index + 1;
           return {
             key: String(levelValue),
             label: String(levelValue).padStart(2, "0"),
@@ -7198,7 +7202,7 @@ function App() {
           ).values()
         ).filter((level) => !configuredLevels.some((configuredLevel) => configuredLevel.key === level.key));
         const bays = [...buildConfiguredBayDefs(rack), ...derivedExtraBays].sort((left, right) => left.sort - right.sort);
-        const levels = [...configuredLevels, ...derivedExtraLevels].sort((left, right) => right.sort - left.sort);
+        const levels = [...configuredLevels, ...derivedExtraLevels].sort((left, right) => left.sort - right.sort);
         const slotMap = Object.fromEntries(rackSlots.map((slot) => [`${slot.levelKey}::${slot.bayKey}`, slot]));
 
         aisles.push({
@@ -7239,7 +7243,7 @@ function App() {
         const levels = Array.from(
           new Map(
             rackSlots
-              .sort((left, right) => right.levelSort - left.levelSort)
+              .sort((left, right) => left.levelSort - right.levelSort)
               .map((slot) => [slot.levelKey, { key: slot.levelKey, label: slot.levelLabel, sort: slot.levelSort }])
           ).values()
         );
@@ -8385,40 +8389,49 @@ function App() {
         <section className="panel">
           <div className="panel-head">
             <div>
-              <h2>Globalny twin layout</h2>
-              <p className="panel-meta">Master nastavenie regálov a layoutu digital twin pre všetky firmy.</p>
+              <h2>Twin layout firmy</h2>
+              <p className="panel-meta">
+                {activeCompany
+                  ? `Master nastavenie regálov a layoutu digital twin pre ${activeCompany.name}.`
+                  : "Vyber konkrétnu firmu, pre ktorú chceš nastaviť twin layout."}
+              </p>
             </div>
           </div>
 
           <form className="stock-twin-settings-form" onSubmit={handleSaveStockTwinSettings}>
             <div className="stock-twin-settings-head">
               <p className="settings-hint">
-                Každý regál definuje kód pozície, zobrazovaný názov a počet bayov, levelov a hĺbku. Príklad mapovania:
-                pozícia <code>A-01-02</code> patrí do regálu <code>A</code>, bay <code>01</code>, level <code>02</code>.
+                Každý regál definuje kód, názov a rozloženie pozícií. Formát pozície čítame rovnako ako QR:
+                <code>A1A</code> znamená regál <code>A</code>, riadok <code>1</code>, stĺpec <code>A</code>. Ak máš aj suffix
+                ako <code>A1B2</code>, posledné číslo sa použije ako doplnkový index pozície.
               </p>
               <div className="orders-form-actions">
-                <button type="button" className="clear-btn" onClick={handleAddStockTwinRackDraft}>
+                <button type="button" className="clear-btn" onClick={handleAddStockTwinRackDraft} disabled={!activeCompany || stockTwinSettingsSubmitting}>
                   Pridať regál
                 </button>
                 <button
                   type="button"
                   className="clear-btn"
                   onClick={handleResetStockTwinSettings}
-                  disabled={stockTwinSettingsSubmitting || stockTwinSettingsLoading}
+                  disabled={!activeCompany || stockTwinSettingsSubmitting || stockTwinSettingsLoading}
                 >
                   Obnoviť uložené
                 </button>
-                <button type="submit" className="settings-btn" disabled={stockTwinSettingsSubmitting || stockTwinSettingsLoading}>
+                <button type="submit" className="settings-btn" disabled={!activeCompany || stockTwinSettingsSubmitting || stockTwinSettingsLoading}>
                   {stockTwinSettingsSubmitting ? "Ukladám..." : "Uložiť twin layout"}
                 </button>
               </div>
             </div>
 
-            {stockTwinSettingsLoading ? (
-              <p className="hint">Načítavam globalny twin layout...</p>
+            {!activeCompany ? (
+              <div className="empty-state">
+                <p>Pre twin layout najprv vyber konkrétnu firmu namiesto filtra `Všetky firmy`.</p>
+              </div>
+            ) : stockTwinSettingsLoading ? (
+              <p className="hint">Načítavam twin layout firmy...</p>
             ) : stockTwinRackDrafts.length === 0 ? (
               <div className="empty-state">
-                <p>Zatiaľ nemáš nastavený žiadny regál. Pridaj prvý layout pre digital twin.</p>
+                <p>Pre túto firmu zatiaľ nemáš nastavený žiadny regál. Pridaj prvý layout pre digital twin.</p>
                 <button type="button" className="clear-btn" onClick={handleAddStockTwinRackDraft}>
                   Pridať prvý regál
                 </button>
@@ -8464,7 +8477,7 @@ function App() {
                           value={rack.code}
                           maxLength={12}
                           onChange={(event) => handleStockTwinRackDraftChange(rack.draftId, "code", event.target.value)}
-                          disabled={stockTwinSettingsSubmitting}
+                          disabled={!activeCompany || stockTwinSettingsSubmitting}
                         />
                       </label>
                       <label className="settings-field">
@@ -8474,11 +8487,11 @@ function App() {
                           className="search-input"
                           value={rack.name}
                           onChange={(event) => handleStockTwinRackDraftChange(rack.draftId, "name", event.target.value)}
-                          disabled={stockTwinSettingsSubmitting}
+                          disabled={!activeCompany || stockTwinSettingsSubmitting}
                         />
                       </label>
                       <label className="settings-field">
-                        <span>Baye</span>
+                        <span>Stĺpce</span>
                         <input
                           type="number"
                           min={1}
@@ -8486,11 +8499,11 @@ function App() {
                           className="dead-stock-days-input"
                           value={rack.bayCount}
                           onChange={(event) => handleStockTwinRackDraftChange(rack.draftId, "bayCount", event.target.value)}
-                          disabled={stockTwinSettingsSubmitting}
+                          disabled={!activeCompany || stockTwinSettingsSubmitting}
                         />
                       </label>
                       <label className="settings-field">
-                        <span>Levely</span>
+                        <span>Riadky</span>
                         <input
                           type="number"
                           min={1}
@@ -8498,11 +8511,11 @@ function App() {
                           className="dead-stock-days-input"
                           value={rack.levelCount}
                           onChange={(event) => handleStockTwinRackDraftChange(rack.draftId, "levelCount", event.target.value)}
-                          disabled={stockTwinSettingsSubmitting}
+                          disabled={!activeCompany || stockTwinSettingsSubmitting}
                         />
                       </label>
                       <label className="settings-field">
-                        <span>Hĺbka</span>
+                        <span>Doplňujúci index</span>
                         <input
                           type="number"
                           min={1}
@@ -8510,7 +8523,7 @@ function App() {
                           className="dead-stock-days-input"
                           value={rack.depthCount}
                           onChange={(event) => handleStockTwinRackDraftChange(rack.draftId, "depthCount", event.target.value)}
-                          disabled={stockTwinSettingsSubmitting}
+                          disabled={!activeCompany || stockTwinSettingsSubmitting}
                         />
                       </label>
                     </div>
@@ -8522,7 +8535,7 @@ function App() {
           {stockTwinSettingsError && <p className="error">{stockTwinSettingsError}</p>}
           {stockTwinSettingsMessage && <p className="settings-hint">{stockTwinSettingsMessage}</p>}
           <p className="settings-hint">
-            Toto nastavenie je globalne. Po uložení sa rovnaký layout použije pre digital twin vo všetkých firmách.
+            Toto nastavenie patrí len vybranej firme. Každá firma môže mať vlastný počet regálov, názvy aj layout.
           </p>
         </section>
       )}
@@ -11396,7 +11409,7 @@ function App() {
                         <article key={aisle.key} className="stock-twin-aisle-card">
                           <div className="stock-twin-aisle-head">
                             <div>
-                              <strong>{`Ulička ${aisle.label}`}</strong>
+                              <strong>{`Regál ${aisle.label}`}</strong>
                               <p>{`${aisle.occupiedSlots} pozícií | ${new Intl.NumberFormat("sk-SK").format(aisle.totalQuantity)} ks`}</p>
                             </div>
                             {aisle.deadSlots > 0 && <span className="dead-stock-inline">{`dead ${aisle.deadSlots}`}</span>}
@@ -11406,15 +11419,15 @@ function App() {
                             className="stock-twin-grid"
                             style={{ gridTemplateColumns: `72px repeat(${Math.max(1, aisle.bays.length)}, minmax(92px, 1fr))` }}
                           >
-                            <div className="stock-twin-grid-corner">Level</div>
+                            <div className="stock-twin-grid-corner">Riadok</div>
                             {aisle.bays.map((bay) => (
                               <div key={`${aisle.key}-${bay.key}`} className="stock-twin-bay-label">
-                                {`Bay ${bay.label}`}
+                                {`Stĺpec ${bay.label}`}
                               </div>
                             ))}
 
                             {aisle.levels.flatMap((level) => [
-                              <div key={`${aisle.key}-${level.key}-label`} className="stock-twin-level-label">{`L${level.label}`}</div>,
+                              <div key={`${aisle.key}-${level.key}-label`} className="stock-twin-level-label">{`Riadok ${level.label}`}</div>,
                               ...aisle.bays.map((bay) => {
                                 const slot = aisle.slotMap[`${level.key}::${bay.key}`] || null;
                                 if (!slot) {

@@ -6825,24 +6825,6 @@ function App() {
     activeCompany?.bank_account
   ]);
 
-  useEffect(() => {
-    if (selectedTable !== "stock" || stockViewMode !== "twin") {
-      return;
-    }
-
-    const firstTwinSlotKey = stockTwinAisles[0]?.slots?.[0]?.key || "";
-    if (!firstTwinSlotKey) {
-      if (selectedTwinPositionKey) {
-        setSelectedTwinPositionKey("");
-      }
-      return;
-    }
-
-    if (!selectedTwinPositionKey || !stockTwinSlotLookup[selectedTwinPositionKey]) {
-      setSelectedTwinPositionKey(firstTwinSlotKey);
-    }
-  }, [selectedTable, stockViewMode, stockTwinAisles, stockTwinSlotLookup, selectedTwinPositionKey]);
-
   const filteredManagedUsers = useMemo(() => {
     const normalizedSearch = String(masterUserSearch || "").trim().toLowerCase();
     return managedUsers.filter((row) => {
@@ -6995,6 +6977,23 @@ function App() {
     [stockTwinAisles]
   );
   const selectedTwinSlot = stockTwinSlotLookup[selectedTwinPositionKey] || null;
+  useEffect(() => {
+    if (selectedTable !== "stock" || stockViewMode !== "twin") {
+      return;
+    }
+
+    const firstTwinSlotKey = stockTwinAisles[0]?.slots?.[0]?.key || "";
+    if (!firstTwinSlotKey) {
+      if (selectedTwinPositionKey) {
+        setSelectedTwinPositionKey("");
+      }
+      return;
+    }
+
+    if (!selectedTwinPositionKey || !stockTwinSlotLookup[selectedTwinPositionKey]) {
+      setSelectedTwinPositionKey(firstTwinSlotKey);
+    }
+  }, [selectedTable, stockViewMode, stockTwinAisles, stockTwinSlotLookup, selectedTwinPositionKey]);
   const positionUsageMap = useMemo(() => {
     if (selectedTable !== "stock") {
       return {};

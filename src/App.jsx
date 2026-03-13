@@ -1490,7 +1490,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         .totals-panel,
         .note-panel {
           background: #ffffff;
-          border: 0.25mm solid #e6e6eb;
+          border: 0.3mm solid #d2d2d7;
           border-radius: 5mm;
         }
         .hero {
@@ -1503,7 +1503,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           font-size: 5.7pt;
           letter-spacing: 0.14em;
           text-transform: uppercase;
-          color: #6e6e73;
+          color: #4a4a4f;
           font-weight: 700;
         }
         .hero h1 {
@@ -1514,8 +1514,8 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           letter-spacing: -0.03em;
         }
         .hero-subtitle {
-          font-size: 7pt;
-          color: #6e6e73;
+          font-size: 8pt;
+          color: #3f3f44;
         }
         .hero-right {
           min-width: 40mm;
@@ -1529,7 +1529,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           font-size: 5.4pt;
           text-transform: uppercase;
           letter-spacing: 0.14em;
-          color: #8e8e93;
+          color: #4f4f54;
           font-weight: 700;
         }
         .amount-value {
@@ -1539,8 +1539,8 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           letter-spacing: -0.04em;
         }
         .amount-note {
-          font-size: 5.9pt;
-          color: #6e6e73;
+          font-size: 6.8pt;
+          color: #3f3f44;
         }
         .meta-strip {
           display: grid;
@@ -1551,19 +1551,19 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           padding: 2mm 2.2mm;
           border-radius: 2.8mm;
           background: linear-gradient(180deg, #fbfbfd 0%, #f2f2f7 100%);
-          border: 0.25mm solid #ececf1;
+          border: 0.3mm solid #d8d8de;
         }
         .chip-label,
         .section-kicker {
           font-size: 4.9pt;
           text-transform: uppercase;
           letter-spacing: 0.14em;
-          color: #8e8e93;
+          color: #4f4f54;
           font-weight: 700;
         }
         .chip-value {
           margin-top: 0.7mm;
-          font-size: 7pt;
+          font-size: 8.2pt;
           line-height: 1.2;
           color: #111111;
           font-weight: 600;
@@ -1592,9 +1592,9 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         .note-panel p,
         .pay-card p {
           margin: 0.8mm 0 0;
-          font-size: 6.1pt;
+          font-size: 7pt;
           line-height: 1.45;
-          color: #6e6e73;
+          color: #3f3f44;
         }
         .detail-grid {
           display: grid;
@@ -1609,14 +1609,14 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           font-size: 4.8pt;
           text-transform: uppercase;
           letter-spacing: 0.12em;
-          color: #8e8e93;
+          color: #4f4f54;
           font-weight: 700;
           margin-bottom: 0.45mm;
         }
         .detail-value {
-          font-size: 6.5pt;
+          font-size: 7.8pt;
           line-height: 1.35;
-          font-weight: 600;
+          font-weight: 700;
           color: #1d1d1f;
         }
         .payment-rail {
@@ -1630,7 +1630,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         .pay-card {
           border-radius: 2.8mm;
           background: linear-gradient(180deg, #fbfbfd 0%, #f7f7fa 100%);
-          border: 0.25mm solid #ececf1;
+          border: 0.3mm solid #d8d8de;
           padding: 2.2mm 2.4mm;
         }
         .bank-card-grid {
@@ -1643,14 +1643,14 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           padding: 1.3mm 1.5mm;
           border-radius: 2.2mm;
           background: #ffffff;
-          border: 0.25mm solid #ededf2;
+          border: 0.3mm solid #d8d8de;
         }
         .bank-box .detail-label {
           margin-bottom: 0.35mm;
           font-size: 4.6pt;
         }
         .bank-box .detail-value {
-          font-size: 5.8pt;
+          font-size: 6.9pt;
           line-height: 1.2;
         }
         .pay-card-inner {
@@ -1666,7 +1666,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           padding: 0.7mm;
           border-radius: 2mm;
           background: #ffffff;
-          border: 0.25mm solid #ececf1;
+          border: 0.3mm solid #d8d8de;
         }
         .pay-copy {
           display: grid;
@@ -1680,14 +1680,14 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           font-size: 4.5pt;
           text-transform: uppercase;
           letter-spacing: 0.12em;
-          color: #8e8e93;
+          color: #4f4f54;
           font-weight: 700;
         }
         .pay-line strong {
-          font-size: 5.6pt;
+          font-size: 6.6pt;
           line-height: 1.25;
           color: #111111;
-          font-weight: 600;
+          font-weight: 700;
         }
         .pay-card--muted {
           background: #fafafa;
@@ -1708,8 +1708,8 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         .items-subtitle,
         .totals-subtitle {
           margin: 0.8mm 0 0;
-          font-size: 6pt;
-          color: #6e6e73;
+          font-size: 6.8pt;
+          color: #3f3f44;
         }
         table {
           width: 100%;
@@ -1718,19 +1718,19 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         }
         thead th {
           padding: 0 0 1.2mm;
-          border-bottom: 0.3mm solid #dcdce1;
+          border-bottom: 0.35mm solid #cfcfd6;
           text-align: left;
           font-size: 5.1pt;
           text-transform: uppercase;
           letter-spacing: 0.12em;
-          color: #8e8e93;
+          color: #4f4f54;
           font-weight: 700;
         }
         tbody td {
           padding: 1.45mm 0;
-          border-bottom: 0.25mm solid #ececf1;
+          border-bottom: 0.3mm solid #dcdce1;
           vertical-align: top;
-          font-size: 6.1pt;
+          font-size: 7.1pt;
           color: #1d1d1f;
         }
         tbody tr:last-child td {
@@ -1739,20 +1739,20 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         }
         .cell-index {
           width: 5mm;
-          color: #8e8e93;
+          color: #4f4f54;
         }
         .cell-right {
           text-align: right;
         }
         .item-title {
-          font-size: 6.4pt;
+          font-size: 7.6pt;
           font-weight: 600;
           line-height: 1.3;
         }
         .item-meta {
           margin-top: 0.3mm;
-          font-size: 5pt;
-          color: #8e8e93;
+          font-size: 5.8pt;
+          color: #4f4f54;
           line-height: 1.35;
         }
         .strong {
@@ -1766,7 +1766,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         .total-card {
           padding: 2mm 2.2mm;
           border-radius: 2.8mm;
-          border: 0.25mm solid #ececf1;
+          border: 0.3mm solid #d8d8de;
           background: linear-gradient(180deg, #fbfbfd 0%, #f5f5f7 100%);
         }
         .total-card--grand {
@@ -1781,8 +1781,8 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           margin-top: 1.2mm;
         }
         .foot {
-          font-size: 5pt;
-          color: #8e8e93;
+          font-size: 5.8pt;
+          color: #4f4f54;
           text-align: right;
           padding: 0 1mm;
         }

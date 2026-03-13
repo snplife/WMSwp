@@ -1,0 +1,12 @@
+-- 35_wms_company_profile_update_policy.txt
+-- Allow authenticated users to persist updates on their own company profile/settings.
+-- This is required so company details remain saved after page refresh.
+
+drop policy if exists "companies_update_user" on public.companies;
+
+create policy "companies_update_user"
+on public.companies
+for update
+to authenticated
+using (id = public.user_company_id(auth.uid()))
+with check (id = public.user_company_id(auth.uid()));

@@ -4125,6 +4125,11 @@ function App() {
     }
 
     const updatedCompany = Array.isArray(data) ? data[0] : data;
+    if (!updatedCompany) {
+      setCompanySettingsError("Počet miest sa v databáze neuložil. Skontroluj policy alebo SQL migrácie pre companies.");
+      setCompanySettingsSubmitting(false);
+      return;
+    }
 
     const companyProfilePayload = {
       name: String(companyProfileNameInput || "").trim() || activeCompany?.name || "",
@@ -4151,6 +4156,11 @@ function App() {
     const profileSavedCompany = Array.isArray(profileSavedCompanyRows)
       ? profileSavedCompanyRows[0]
       : profileSavedCompanyRows;
+    if (!profileSavedCompany) {
+      setCompanySettingsError("Firemný profil sa v databáze neuložil. Pravdepodobne chýba update policy pre vlastnú firmu.");
+      setCompanySettingsSubmitting(false);
+      return;
+    }
 
     const expiryUpdatedCompany = {
       ...activeCompany,

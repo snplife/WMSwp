@@ -1474,7 +1474,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         body {
           margin: 0;
           font-family: "SF Pro Display", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-          color: #111111;
+          color: #000000;
           background: #f5f5f7;
           -webkit-font-smoothing: antialiased;
         }
@@ -1503,7 +1503,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           font-size: 5.7pt;
           letter-spacing: 0.14em;
           text-transform: uppercase;
-          color: #4a4a4f;
+          color: #000000;
           font-weight: 700;
         }
         .hero h1 {
@@ -1515,7 +1515,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         }
         .hero-subtitle {
           font-size: 8pt;
-          color: #3f3f44;
+          color: #000000;
         }
         .hero-right {
           min-width: 40mm;
@@ -1529,7 +1529,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           font-size: 5.4pt;
           text-transform: uppercase;
           letter-spacing: 0.14em;
-          color: #4f4f54;
+          color: #000000;
           font-weight: 700;
         }
         .amount-value {
@@ -1540,7 +1540,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         }
         .amount-note {
           font-size: 6.8pt;
-          color: #3f3f44;
+          color: #000000;
         }
         .meta-strip {
           display: grid;
@@ -1558,14 +1558,14 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           font-size: 4.9pt;
           text-transform: uppercase;
           letter-spacing: 0.14em;
-          color: #4f4f54;
+          color: #000000;
           font-weight: 700;
         }
         .chip-value {
           margin-top: 0.7mm;
           font-size: 8.2pt;
           line-height: 1.2;
-          color: #111111;
+          color: #000000;
           font-weight: 600;
         }
         .parties {
@@ -1594,7 +1594,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           margin: 0.8mm 0 0;
           font-size: 7pt;
           line-height: 1.45;
-          color: #3f3f44;
+          color: #000000;
         }
         .detail-grid {
           display: grid;
@@ -1609,7 +1609,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           font-size: 4.8pt;
           text-transform: uppercase;
           letter-spacing: 0.12em;
-          color: #4f4f54;
+          color: #000000;
           font-weight: 700;
           margin-bottom: 0.45mm;
         }
@@ -1617,7 +1617,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           font-size: 7.8pt;
           line-height: 1.35;
           font-weight: 700;
-          color: #1d1d1f;
+          color: #000000;
         }
         .payment-rail {
           display: grid;
@@ -1680,13 +1680,13 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           font-size: 4.5pt;
           text-transform: uppercase;
           letter-spacing: 0.12em;
-          color: #4f4f54;
+          color: #000000;
           font-weight: 700;
         }
         .pay-line strong {
           font-size: 6.6pt;
           line-height: 1.25;
-          color: #111111;
+          color: #000000;
           font-weight: 700;
         }
         .pay-card--muted {
@@ -1709,7 +1709,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         .totals-subtitle {
           margin: 0.8mm 0 0;
           font-size: 6.8pt;
-          color: #3f3f44;
+          color: #000000;
         }
         table {
           width: 100%;
@@ -1723,7 +1723,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           font-size: 5.1pt;
           text-transform: uppercase;
           letter-spacing: 0.12em;
-          color: #4f4f54;
+          color: #000000;
           font-weight: 700;
         }
         tbody td {
@@ -1731,7 +1731,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           border-bottom: 0.3mm solid #dcdce1;
           vertical-align: top;
           font-size: 7.1pt;
-          color: #1d1d1f;
+          color: #000000;
         }
         tbody tr:last-child td {
           border-bottom: none;
@@ -1739,7 +1739,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         }
         .cell-index {
           width: 5mm;
-          color: #4f4f54;
+          color: #000000;
         }
         .cell-right {
           text-align: right;
@@ -1752,7 +1752,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         .item-meta {
           margin-top: 0.3mm;
           font-size: 5.8pt;
-          color: #4f4f54;
+          color: #000000;
           line-height: 1.35;
         }
         .strong {
@@ -1770,19 +1770,19 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           background: linear-gradient(180deg, #fbfbfd 0%, #f5f5f7 100%);
         }
         .total-card--grand {
-          background: #111111;
-          border-color: #111111;
+          background: linear-gradient(180deg, #f1f1f4 0%, #e7e7ec 100%);
+          border-color: #cfcfd6;
         }
         .total-card--grand .detail-label,
         .total-card--grand .detail-value {
-          color: #ffffff;
+          color: #000000;
         }
         .note-panel p {
           margin-top: 1.2mm;
         }
         .foot {
           font-size: 5.8pt;
-          color: #4f4f54;
+          color: #000000;
           text-align: right;
           padding: 0 1mm;
         }

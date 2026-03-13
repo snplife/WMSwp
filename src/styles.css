@@ -1537,6 +1537,297 @@ select {
   gap: 0.55rem;
 }
 
+.stock-twin-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1.75fr) minmax(280px, 0.85fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.stock-twin-stage,
+.stock-twin-sidebar {
+  border: 1px solid #dce6f2;
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at top left, rgba(117, 180, 255, 0.12), transparent 34%),
+    linear-gradient(180deg, #fbfdff, #f4f8fd);
+  box-shadow: 0 12px 28px rgba(24, 39, 56, 0.06);
+}
+
+.stock-twin-stage {
+  padding: 1rem;
+}
+
+.stock-twin-sidebar {
+  padding: 1rem;
+  position: sticky;
+  top: 1rem;
+  display: grid;
+  gap: 0.9rem;
+}
+
+.stock-twin-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.9rem;
+  align-items: flex-start;
+  margin-bottom: 0.9rem;
+}
+
+.stock-twin-head h3,
+.stock-twin-sidebar-head h3 {
+  margin: 0;
+  color: #10263c;
+}
+
+.stock-twin-head p,
+.stock-twin-sidebar-head p {
+  margin: 0.28rem 0 0;
+  color: #607286;
+}
+
+.stock-twin-legend {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.stock-twin-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.6rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid #dbe5f0;
+  color: #375067;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.stock-twin-legend-swatch {
+  width: 0.82rem;
+  height: 0.82rem;
+  border-radius: 999px;
+  display: inline-block;
+}
+
+.stock-twin-legend-swatch-live {
+  background: linear-gradient(180deg, #72b8ff, #2f6fb4);
+}
+
+.stock-twin-legend-swatch-dead {
+  background: linear-gradient(180deg, #ff9788, #a3412f);
+}
+
+.stock-twin-aisles {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.stock-twin-aisle-card {
+  border: 1px solid #dce6f2;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 0.85rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.stock-twin-aisle-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.stock-twin-aisle-head strong {
+  color: #15324d;
+}
+
+.stock-twin-aisle-head p {
+  margin: 0.22rem 0 0;
+  color: #647587;
+  font-size: 0.8rem;
+}
+
+.stock-twin-grid {
+  display: grid;
+  gap: 0.5rem 0.55rem;
+  align-items: end;
+  overflow-x: auto;
+}
+
+.stock-twin-grid-corner,
+.stock-twin-bay-label,
+.stock-twin-level-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #6a7b8d;
+  font-weight: 800;
+}
+
+.stock-twin-bay-label {
+  text-align: center;
+}
+
+.stock-twin-level-label {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.stock-twin-slot,
+.stock-twin-slot-empty {
+  min-height: 88px;
+}
+
+.stock-twin-slot {
+  position: relative;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  filter: drop-shadow(0 10px 18px rgba(33, 58, 84, 0.15));
+}
+
+.stock-twin-slot-empty {
+  border-radius: 14px;
+  border: 1px dashed #d6e0eb;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.6), rgba(239, 244, 250, 0.76));
+}
+
+.stock-twin-slot-top,
+.stock-twin-slot-side,
+.stock-twin-slot-front {
+  position: absolute;
+  border-radius: 12px;
+}
+
+.stock-twin-slot-top {
+  inset: 0.15rem 0.85rem 1.65rem 0.35rem;
+  transform: skew(-26deg);
+  transform-origin: center;
+}
+
+.stock-twin-slot-side {
+  inset: 1rem 0.1rem 0.45rem auto;
+  width: 18px;
+  transform: skewY(-26deg);
+}
+
+.stock-twin-slot-front {
+  inset: 1.2rem 0.9rem 0.15rem 0.55rem;
+  padding: 0.7rem 0.7rem 0.6rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 0.2rem;
+  color: #081525;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+
+.stock-twin-slot-front strong {
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.stock-twin-slot-front small {
+  font-size: 0.73rem;
+  font-weight: 700;
+  color: rgba(8, 21, 37, 0.72);
+}
+
+.stock-twin-slot-live .stock-twin-slot-top {
+  background: linear-gradient(180deg, #9dd1ff, #5ca8f5);
+}
+
+.stock-twin-slot-live .stock-twin-slot-side {
+  background: linear-gradient(180deg, #396ea5, #22466b);
+}
+
+.stock-twin-slot-live .stock-twin-slot-front {
+  background: linear-gradient(180deg, #7fc1ff, #2f73b9);
+}
+
+.stock-twin-slot-dead .stock-twin-slot-top {
+  background: linear-gradient(180deg, #ffb0a2, #ff7d68);
+}
+
+.stock-twin-slot-dead .stock-twin-slot-side {
+  background: linear-gradient(180deg, #b34f3d, #7c2619);
+}
+
+.stock-twin-slot-dead .stock-twin-slot-front {
+  background: linear-gradient(180deg, #ff9888, #b34835);
+}
+
+.stock-twin-slot-selected {
+  transform: translateY(-4px) scale(1.01);
+}
+
+.stock-twin-slot-selected .stock-twin-slot-front {
+  box-shadow: 0 0 0 2px rgba(10, 30, 52, 0.18);
+}
+
+.stock-twin-slot-flag {
+  position: absolute;
+  top: 0;
+  right: 0.25rem;
+  padding: 0.16rem 0.42rem;
+  border-radius: 999px;
+  background: #fff6f4;
+  border: 1px solid #efb4aa;
+  color: #8b291c;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 800;
+}
+
+.stock-twin-sidebar-head {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.stock-twin-sidebar-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+.stock-twin-stat-card {
+  padding: 0.72rem;
+  border-radius: 14px;
+  border: 1px solid #deebf7;
+  background: rgba(255, 255, 255, 0.94);
+  display: grid;
+  gap: 0.28rem;
+}
+
+.stock-twin-stat-card span {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #678093;
+  font-weight: 700;
+}
+
+.stock-twin-stat-card strong {
+  color: #10263c;
+  font-size: 1.05rem;
+}
+
+.stock-twin-table-wrap {
+  background: rgba(255, 255, 255, 0.88);
+  border-radius: 14px;
+}
+
 .occupancy-chart-wrap {
   border: 1px solid #e7edf5;
   border-radius: 12px;
@@ -2048,6 +2339,26 @@ tbody tr:nth-child(even) {
 
   .stock-view-switch .clear-btn {
     width: 100%;
+  }
+
+  .stock-twin-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .stock-twin-sidebar {
+    position: static;
+  }
+
+  .stock-twin-head {
+    flex-direction: column;
+  }
+
+  .stock-twin-legend {
+    justify-content: flex-start;
+  }
+
+  .stock-twin-sidebar-stats {
+    grid-template-columns: 1fr;
   }
 
   .master-create-form {

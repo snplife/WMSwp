@@ -621,6 +621,52 @@ function buildRackLocationCodes(rackPrefix, rowCount, columnCount) {
   return codes;
 }
 
+function buildScopedStockPositionLabel(row, isMaster, selectedCompanyId, companyNameById) {
+  const companyPart = isMaster && selectedCompanyId === "all" ? `${companyNameById[row.company_id] || "Firma"} | ` : "";
+  const position = String(row?.position || "-").trim() || "-";
+  return `${companyPart}${position}`;
+}
+
+function parseTwinPositionLabel(positionLabel, fallbackIndex = 0) {
+  const source = String(positionLabel || "").trim();
+  const scopeSeparatorIndex = source.indexOf(" | ");
+  const companyScope = scopeSeparatorIndex >= 0 ? source.slice(0, scopeSeparatorIndex).trim() : "";
+  const rawPosition = scopeSeparatorIndex >= 0 ? source.slice(scopeSeparatorIndex + 3).trim() : source;
+  const tokens = String(rawPosition || "")
+    .toUpperCase()
+    .match(/[A-Z]+|\d+/g) || [];
+  const letterTokens = tokens.filter((token) => /[A-Z]/.test(token) && !/^\d+$/.test(token));
+  const numberTokens = tokens.filter((token) => /^\d+$/.test(token));
+  const aisleToken = letterTokens[0] || "REG";
+  const bayToken = numberTokens[0] || String(fallbackIndex + 1);
+  const levelToken = numberTokens[1] || "1";
+  const depthToken = numberTokens[2] || "1";
+  const bayNumber = Number.parseInt(bayToken, 10);
+  const levelNumber = Number.parseInt(levelToken, 10);
+  const depthNumber = Number.parseInt(depthToken, 10);
+  const companyPrefix = companyScope ? `${companyScope} / ` : "";
+  const aisleLabel = `${companyPrefix}${aisleToken}`;
+  const normalizedBayLabel = /^\d+$/.test(bayToken) ? bayToken.padStart(2, "0") : bayToken;
+  const normalizedDepthLabel = /^\d+$/.test(depthToken) ? depthToken.padStart(2, "0") : depthToken;
+  const hasExplicitDepth = numberTokens.length >= 3;
+  const bayKey = hasExplicitDepth ? `${bayToken}-${depthToken}` : bayToken;
+
+  return {
+    companyScope,
+    rawPosition: rawPosition || source || `Pozícia ${fallbackIndex + 1}`,
+    aisleKey: aisleLabel,
+    aisleLabel,
+    bayKey,
+    bayLabel: hasExplicitDepth ? `${normalizedBayLabel}/${normalizedDepthLabel}` : normalizedBayLabel,
+    baySort: Number.isFinite(bayNumber) ? bayNumber * 100 + (Number.isFinite(depthNumber) ? depthNumber : 1) : fallbackIndex + 1,
+    levelKey: levelToken,
+    levelLabel: /^\d+$/.test(levelToken) ? levelToken.padStart(2, "0") : levelToken,
+    levelSort: Number.isFinite(levelNumber) ? levelNumber : 1,
+    depthKey: depthToken,
+    depthSort: Number.isFinite(depthNumber) ? depthNumber : 1
+  };
+}
+
 function buildQrImageUrl(value, size = 220) {
   return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(value)}`;
 }
@@ -2702,6 +2748,7 @@ function App() {
   const [selectedTable, setSelectedTable] = useState(tableNames[0]);
   const [rows, setRows] = useState([]);
   const [stockViewMode, setStockViewMode] = useState("table");
+  const [selectedTwinPositionKey, setSelectedTwinPositionKey] = useState("");
   const [expandedPositions, setExpandedPositions] = useState({});
   const [deadStockByKey, setDeadStockByKey] = useState({});
   const [stockAgeStats, setStockAgeStats] = useState({ avgDays: null, sampleCount: 0 });
@@ -6778,6 +6825,24 @@ function App() {
     activeCompany?.bank_account
   ]);
 
+  useEffect(() => {
+    if (selectedTable !== "stock" || stockViewMode !== "twin") {
+      return;
+    }
+
+    const firstTwinSlotKey = stockTwinAisles[0]?.slots?.[0]?.key || "";
+    if (!firstTwinSlotKey) {
+      if (selectedTwinPositionKey) {
+        setSelectedTwinPositionKey("");
+      }
+      return;
+    }
+
+    if (!selectedTwinPositionKey || !stockTwinSlotLookup[selectedTwinPositionKey]) {
+      setSelectedTwinPositionKey(firstTwinSlotKey);
+    }
+  }, [selectedTable, stockViewMode, stockTwinAisles, stockTwinSlotLookup, selectedTwinPositionKey]);
+
   const filteredManagedUsers = useMemo(() => {
     const normalizedSearch = String(masterUserSearch || "").trim().toLowerCase();
     return managedUsers.filter((row) => {
@@ -6824,9 +6889,7 @@ function App() {
 
     const groupsByPosition = {};
     for (const row of filteredRows) {
-      const companyPart =
-        isMaster && selectedCompanyId === "all" ? `${companyNameById[row.company_id] || "Firma"} | ` : "";
-      const position = `${companyPart}${String(row.position || "-").trim() || "-"}`;
+      const position = buildScopedStockPositionLabel(row, isMaster, selectedCompanyId, companyNameById);
       const quantity = Number(row.quantity || 0);
       const stockKey = makeStockKey(row.position, row.material_code, row.company_id);
 
@@ -6850,6 +6913,88 @@ function App() {
       a.position.localeCompare(b.position, "sk-SK", { numeric: true, sensitivity: "base" })
     );
   }, [filteredRows, selectedTable, deadStockByKey, isMaster, selectedCompanyId, companyNameById]);
+  const stockTwinAisles = useMemo(() => {
+    if (selectedTable !== "stock") {
+      return [];
+    }
+
+    const slotsByPosition = {};
+
+    filteredRows.forEach((row, index) => {
+      const position = buildScopedStockPositionLabel(row, isMaster, selectedCompanyId, companyNameById);
+      const stockKey = makeStockKey(row.position, row.material_code, row.company_id);
+      const twinMeta = parseTwinPositionLabel(position, index);
+      if (!slotsByPosition[position]) {
+        slotsByPosition[position] = {
+          ...twinMeta,
+          key: position,
+          position,
+          rows: [],
+          totalQuantity: 0,
+          materialCount: 0,
+          deadCount: 0
+        };
+      }
+
+      const quantity = Number(row.quantity || 0);
+      slotsByPosition[position].rows.push(row);
+      slotsByPosition[position].totalQuantity += Number.isFinite(quantity) ? quantity : 0;
+      slotsByPosition[position].materialCount += 1;
+      if (deadStockByKey[stockKey]) {
+        slotsByPosition[position].deadCount += 1;
+      }
+    });
+
+    const aislesByKey = {};
+    Object.values(slotsByPosition).forEach((slot) => {
+      if (!aislesByKey[slot.aisleKey]) {
+        aislesByKey[slot.aisleKey] = {
+          key: slot.aisleKey,
+          label: slot.aisleLabel,
+          companyScope: slot.companyScope,
+          slots: []
+        };
+      }
+      aislesByKey[slot.aisleKey].slots.push(slot);
+    });
+
+    return Object.values(aislesByKey)
+      .map((aisle) => {
+        const bays = Array.from(
+          new Map(
+            aisle.slots
+              .sort((left, right) => left.baySort - right.baySort || left.depthSort - right.depthSort)
+              .map((slot) => [slot.bayKey, { key: slot.bayKey, label: slot.bayLabel, sort: slot.baySort }])
+          ).values()
+        );
+        const levels = Array.from(
+          new Map(
+            aisle.slots
+              .sort((left, right) => right.levelSort - left.levelSort)
+              .map((slot) => [slot.levelKey, { key: slot.levelKey, label: slot.levelLabel, sort: slot.levelSort }])
+          ).values()
+        );
+        const slotMap = Object.fromEntries(aisle.slots.map((slot) => [`${slot.levelKey}::${slot.bayKey}`, slot]));
+        return {
+          ...aisle,
+          bays,
+          levels,
+          slotMap,
+          occupiedSlots: aisle.slots.length,
+          deadSlots: aisle.slots.filter((slot) => slot.deadCount > 0).length,
+          totalQuantity: aisle.slots.reduce((sum, slot) => sum + Number(slot.totalQuantity || 0), 0)
+        };
+      })
+      .sort((left, right) => left.label.localeCompare(right.label, "sk-SK", { numeric: true, sensitivity: "base" }));
+  }, [filteredRows, selectedTable, deadStockByKey, isMaster, selectedCompanyId, companyNameById]);
+  const stockTwinSlotLookup = useMemo(
+    () =>
+      Object.fromEntries(
+        stockTwinAisles.flatMap((aisle) => aisle.slots.map((slot) => [slot.key, { ...slot, aisleLabel: aisle.label }]))
+      ),
+    [stockTwinAisles]
+  );
+  const selectedTwinSlot = stockTwinSlotLookup[selectedTwinPositionKey] || null;
   const positionUsageMap = useMemo(() => {
     if (selectedTable !== "stock") {
       return {};
@@ -6857,10 +7002,7 @@ function App() {
 
     const usage = {};
     for (const row of rows) {
-      const rawPosition = String(row.position || "").trim();
-      const companyPrefix =
-        isMaster && selectedCompanyId === "all" ? `${companyNameById[row.company_id] || "Firma"} | ` : "";
-      const positionKey = `${companyPrefix}${rawPosition}`;
+      const positionKey = buildScopedStockPositionLabel(row, isMaster, selectedCompanyId, companyNameById);
       if (!positionKey) {
         continue;
       }
@@ -10657,6 +10799,13 @@ function App() {
                 >
                   Podľa pozícií
                 </button>
+                <button
+                  type="button"
+                  className={`clear-btn ${stockViewMode === "twin" ? "stock-view-btn-active" : ""}`}
+                  onClick={() => setStockViewMode("twin")}
+                >
+                  Twin
+                </button>
               </div>
             )}
             {selectedTable === "stock" && (
@@ -10749,6 +10898,158 @@ function App() {
                   );
                 })}
               </div>
+            ) : selectedTable === "stock" && stockViewMode === "twin" ? (
+              <div className="stock-twin-shell">
+                <section className="stock-twin-stage">
+                  <div className="stock-twin-head">
+                    <div>
+                      <h3>Digital twin skladu</h3>
+                      <p>Z existujúcich skladových pozícií generovaný pohľad na regálové uličky a levely.</p>
+                    </div>
+                    <div className="stock-twin-legend" aria-label="Legenda digital twin">
+                      <span className="stock-twin-legend-item">
+                        <span className="stock-twin-legend-swatch stock-twin-legend-swatch-live" />
+                        Obsadené
+                      </span>
+                      <span className="stock-twin-legend-item">
+                        <span className="stock-twin-legend-swatch stock-twin-legend-swatch-dead" />
+                        Dead stock
+                      </span>
+                    </div>
+                  </div>
+
+                  {stockTwinAisles.length === 0 ? (
+                    <p className="hint">Pre aktuálny filter nie sú skladové pozície, ktoré by sa dali zobraziť v twin pohľade.</p>
+                  ) : (
+                    <div className="stock-twin-aisles">
+                      {stockTwinAisles.map((aisle) => (
+                        <article key={aisle.key} className="stock-twin-aisle-card">
+                          <div className="stock-twin-aisle-head">
+                            <div>
+                              <strong>{`Ulička ${aisle.label}`}</strong>
+                              <p>{`${aisle.occupiedSlots} pozícií | ${new Intl.NumberFormat("sk-SK").format(aisle.totalQuantity)} ks`}</p>
+                            </div>
+                            {aisle.deadSlots > 0 && <span className="dead-stock-inline">{`dead ${aisle.deadSlots}`}</span>}
+                          </div>
+
+                          <div
+                            className="stock-twin-grid"
+                            style={{ gridTemplateColumns: `72px repeat(${Math.max(1, aisle.bays.length)}, minmax(92px, 1fr))` }}
+                          >
+                            <div className="stock-twin-grid-corner">Level</div>
+                            {aisle.bays.map((bay) => (
+                              <div key={`${aisle.key}-${bay.key}`} className="stock-twin-bay-label">
+                                {`Bay ${bay.label}`}
+                              </div>
+                            ))}
+
+                            {aisle.levels.flatMap((level) => [
+                              <div key={`${aisle.key}-${level.key}-label`} className="stock-twin-level-label">{`L${level.label}`}</div>,
+                              ...aisle.bays.map((bay) => {
+                                const slot = aisle.slotMap[`${level.key}::${bay.key}`] || null;
+                                if (!slot) {
+                                  return <div key={`${aisle.key}-${level.key}-${bay.key}`} className="stock-twin-slot-empty" />;
+                                }
+
+                                const isSelected = selectedTwinPositionKey === slot.key;
+                                const slotToneClass = slot.deadCount > 0 ? "stock-twin-slot-dead" : "stock-twin-slot-live";
+                                return (
+                                  <button
+                                    key={slot.key}
+                                    type="button"
+                                    className={`stock-twin-slot ${slotToneClass} ${isSelected ? "stock-twin-slot-selected" : ""}`}
+                                    onClick={() => setSelectedTwinPositionKey(slot.key)}
+                                    title={`${slot.position} | ${slot.materialCount} materiálov | ${new Intl.NumberFormat("sk-SK").format(slot.totalQuantity)} ks`}
+                                  >
+                                    <span className="stock-twin-slot-top" />
+                                    <span className="stock-twin-slot-side" />
+                                    <span className="stock-twin-slot-front">
+                                      <strong>{slot.materialCount}</strong>
+                                      <small>{`${new Intl.NumberFormat("sk-SK").format(slot.totalQuantity)} ks`}</small>
+                                    </span>
+                                    {slot.deadCount > 0 && <span className="stock-twin-slot-flag">dead</span>}
+                                  </button>
+                                );
+                              })
+                            ])}
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
+                <aside className="stock-twin-sidebar">
+                  <div className="stock-twin-sidebar-head">
+                    <span className="table-badge">Detail slotu</span>
+                    <h3>{selectedTwinSlot?.position || "Vyber pozíciu"}</h3>
+                    <p className="panel-meta">
+                      {selectedTwinSlot
+                        ? `${selectedTwinSlot.aisleLabel} | ${selectedTwinSlot.materialCount} materiálov`
+                        : "Klikni na slot v twin pohľade a zobrazia sa jeho zásoby."}
+                    </p>
+                  </div>
+
+                  {selectedTwinSlot ? (
+                    <>
+                      <div className="stock-twin-sidebar-stats">
+                        <article className="stock-twin-stat-card">
+                          <span>Množstvo</span>
+                          <strong>{new Intl.NumberFormat("sk-SK").format(selectedTwinSlot.totalQuantity)}</strong>
+                        </article>
+                        <article className="stock-twin-stat-card">
+                          <span>Materiály</span>
+                          <strong>{new Intl.NumberFormat("sk-SK").format(selectedTwinSlot.materialCount)}</strong>
+                        </article>
+                        <article className="stock-twin-stat-card">
+                          <span>Dead stock</span>
+                          <strong>{new Intl.NumberFormat("sk-SK").format(selectedTwinSlot.deadCount)}</strong>
+                        </article>
+                      </div>
+
+                      <div className="position-group-table-wrap stock-twin-table-wrap">
+                        <table className="position-group-table">
+                          <thead>
+                            <tr>
+                              <th>Materiál</th>
+                              {showsExpiryDate && <th>Dátum spotreby</th>}
+                              <th>Množstvo</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {selectedTwinSlot.rows.map((row, rowIndex) => {
+                              const stockKey = makeStockKey(row.position, row.material_code, row.company_id);
+                              const deadInfo = deadStockByKey[stockKey];
+                              const deadHint =
+                                deadInfo && deadInfo.inactiveDays !== null
+                                  ? `Dead stock: bez pohybu ${deadInfo.inactiveDays} dní`
+                                  : deadInfo
+                                    ? "Dead stock: bez záznamu pohybu"
+                                    : "";
+                              return (
+                                <tr key={`${selectedTwinSlot.key}-${row.material_code}-${rowIndex}`}>
+                                  <td>
+                                    {formatCell(row.material_code, null)}
+                                    {deadHint && (
+                                      <span className="dead-stock-inline" title={deadHint}>
+                                        dead stock
+                                      </span>
+                                    )}
+                                  </td>
+                                  {showsExpiryDate && <td>{formatCell(row.expiry_date, "date")}</td>}
+                                  <td>{formatCell(row.quantity, "number")}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="hint">Zatiaľ nie je vybraná žiadna pozícia.</p>
+                  )}
+                </aside>
+              </div>
             ) : (
               <div className="table-wrap">
                 <table>
@@ -10761,7 +11062,7 @@ function App() {
                   </thead>
                   <tbody>
                     {filteredRows.map((row, index) => {
-                      const positionKey = String(row.position || "").trim();
+                      const positionKey = buildScopedStockPositionLabel(row, isMaster, selectedCompanyId, companyNameById);
                       const positionCount = positionUsageMap[positionKey] || 0;
                       const isSharedPosition = selectedTable === "stock" && positionCount > 1;
                       const isStrongSharedPosition = selectedTable === "stock" && positionCount >= 5;

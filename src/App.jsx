@@ -218,6 +218,7 @@ const SLOVAK_BANK_SWIFT_BY_CODE = {
   "9955": "PANXSK22"
 };
 const TRANSACTIONS_TABLE = (import.meta.env.VITE_TRANSACTIONS_TABLE || "stock_history").trim();
+const STOCK_TWIN_SETTINGS_TABLE = "stock_twin_settings";
 const TRANSACTION_TABLE_ALIASES = Array.from(
   new Set([TRANSACTIONS_TABLE, "stock_history", "stock_transactions"].filter(Boolean))
 );
@@ -226,6 +227,9 @@ const QUOTE_PRICE_DATALIST_ID = "quote-price-options";
 const PRODUCTION_INPUT_DATALIST_ID = "production-input-stock-options";
 const PRODUCTION_OUTPUT_MATERIAL_DATALIST_ID = "production-output-material-options";
 const PRODUCTION_OUTPUT_DEFAULT_POSITION = "VYROBA";
+const DEFAULT_STOCK_TWIN_LAYOUT = {
+  racks: []
+};
 const INBOUND_ACTIONS = new Set(["RECEIVE", "MOVE", "MOVE_ALL", "ADJUST"]);
 const OCCUPANCY_RANGE_CONFIG = {
   day: { label: "Deň", bucketMs: 60 * 60 * 1000, points: 24 },
@@ -627,6 +631,52 @@ function buildScopedStockPositionLabel(row, isMaster, selectedCompanyId, company
   return `${companyPart}${position}`;
 }
 
+function createStockTwinRackDraft(rack = {}, fallbackIndex = 0) {
+  return {
+    draftId: `twin-rack-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+    code: String(rack?.code || `R${fallbackIndex + 1}`).trim().toUpperCase(),
+    name: String(rack?.name || "").trim(),
+    bayCount: String(rack?.bayCount ?? "8"),
+    levelCount: String(rack?.levelCount ?? "4"),
+    depthCount: String(rack?.depthCount ?? "1")
+  };
+}
+
+function normalizeStockTwinRackConfig(rack, fallbackIndex = 0) {
+  const rawCode = String(rack?.code || "").trim().toUpperCase();
+  const code = rawCode.replace(/[^A-Z0-9]/g, "").slice(0, 12) || `R${fallbackIndex + 1}`;
+  const bayCount = Math.min(200, Math.max(1, Number.parseInt(String(rack?.bayCount || "1"), 10) || 1));
+  const levelCount = Math.min(20, Math.max(1, Number.parseInt(String(rack?.levelCount || "1"), 10) || 1));
+  const depthCount = Math.min(10, Math.max(1, Number.parseInt(String(rack?.depthCount || "1"), 10) || 1));
+
+  return {
+    code,
+    name: String(rack?.name || "").trim() || `Regál ${code}`,
+    bayCount,
+    levelCount,
+    depthCount
+  };
+}
+
+function normalizeStockTwinLayout(layout) {
+  const source = layout && typeof layout === "object" ? layout : DEFAULT_STOCK_TWIN_LAYOUT;
+  const uniqueCodes = new Set();
+  const racks = [];
+
+  for (const [index, rack] of (Array.isArray(source?.racks) ? source.racks : []).entries()) {
+    const normalized = normalizeStockTwinRackConfig(rack, index);
+    if (uniqueCodes.has(normalized.code)) {
+      continue;
+    }
+    uniqueCodes.add(normalized.code);
+    racks.push(normalized);
+  }
+
+  return {
+    racks
+  };
+}
+
 function parseTwinPositionLabel(positionLabel, fallbackIndex = 0) {
   const source = String(positionLabel || "").trim();
   const scopeSeparatorIndex = source.indexOf(" | ");
@@ -654,6 +704,7 @@ function parseTwinPositionLabel(positionLabel, fallbackIndex = 0) {
   return {
     companyScope,
     rawPosition: rawPosition || source || `Pozícia ${fallbackIndex + 1}`,
+    rackCode: aisleToken,
     aisleKey: aisleLabel,
     aisleLabel,
     bayKey,
@@ -2802,6 +2853,7 @@ function App() {
   const [occupancyChartRange, setOccupancyChartRange] = useState("week");
   const [occupancySeries, setOccupancySeries] = useState([]);
   const [isCompanySettingsOpen, setIsCompanySettingsOpen] = useState(false);
+  const [isStockTwinSettingsOpen, setIsStockTwinSettingsOpen] = useState(false);
   const [companyMaxPositionsInput, setCompanyMaxPositionsInput] = useState(String(ENV_DEFAULT_MAX_POSITIONS));
   const [companyTracksExpiryDateInput, setCompanyTracksExpiryDateInput] = useState(false);
   const [companyProfileNameInput, setCompanyProfileNameInput] = useState("");
@@ -2830,6 +2882,12 @@ function App() {
   const [subscriptionMaterialInput, setSubscriptionMaterialInput] = useState("");
   const [subscriptionEmailInput, setSubscriptionEmailInput] = useState("");
   const [isMaterialSubscriptionOpen, setIsMaterialSubscriptionOpen] = useState(false);
+  const [stockTwinLayout, setStockTwinLayout] = useState(DEFAULT_STOCK_TWIN_LAYOUT);
+  const [stockTwinRackDrafts, setStockTwinRackDrafts] = useState([]);
+  const [stockTwinSettingsLoading, setStockTwinSettingsLoading] = useState(false);
+  const [stockTwinSettingsSubmitting, setStockTwinSettingsSubmitting] = useState(false);
+  const [stockTwinSettingsError, setStockTwinSettingsError] = useState("");
+  const [stockTwinSettingsMessage, setStockTwinSettingsMessage] = useState("");
   const [priceListMaterialInput, setPriceListMaterialInput] = useState("");
   const [priceListUnitInput, setPriceListUnitInput] = useState("ks");
   const [priceListValueInput, setPriceListValueInput] = useState("");
@@ -2945,6 +3003,7 @@ function App() {
     () => companies.find((company) => company.id === activeCompanyId) || null,
     [companies, activeCompanyId]
   );
+  const normalizedStockTwinLayout = useMemo(() => normalizeStockTwinLayout(stockTwinLayout), [stockTwinLayout]);
   const customersById = useMemo(
     () => Object.fromEntries(customers.map((customer) => [customer.id, customer])),
     [customers]
@@ -3388,6 +3447,39 @@ function App() {
     }
 
     setCompanies(data || []);
+  };
+
+  const loadStockTwinSettings = async () => {
+    if (!authReady || !isLoggedIn) {
+      setStockTwinLayout(DEFAULT_STOCK_TWIN_LAYOUT);
+      setStockTwinRackDrafts([]);
+      setStockTwinSettingsError("");
+      setStockTwinSettingsMessage("");
+      return;
+    }
+
+    setStockTwinSettingsLoading(true);
+    setStockTwinSettingsError("");
+    const { data, error: settingsError } = await supabase
+      .from(STOCK_TWIN_SETTINGS_TABLE)
+      .select("id,layout,updated_at,updated_by")
+      .eq("id", 1)
+      .maybeSingle();
+
+    if (settingsError) {
+      setStockTwinLayout(DEFAULT_STOCK_TWIN_LAYOUT);
+      setStockTwinRackDrafts([]);
+      setStockTwinSettingsError(settingsError.message || "Nepodarilo sa načítať nastavenia digital twin.");
+      setStockTwinSettingsLoading(false);
+      return;
+    }
+
+    const normalizedLayout = normalizeStockTwinLayout(data?.layout || DEFAULT_STOCK_TWIN_LAYOUT);
+    setStockTwinLayout(normalizedLayout);
+    setStockTwinRackDrafts(
+      normalizedLayout.racks.length > 0 ? normalizedLayout.racks.map((rack, index) => createStockTwinRackDraft(rack, index)) : []
+    );
+    setStockTwinSettingsLoading(false);
   };
 
   const recoverBrokenLocalAuthState = async () => {
@@ -4146,6 +4238,98 @@ function App() {
       return;
     }
     setSelectedCompanyId(nextCompanyId || "all");
+  };
+
+  const handleAddStockTwinRackDraft = () => {
+    setStockTwinRackDrafts((prev) => [...prev, createStockTwinRackDraft({}, prev.length)]);
+    setStockTwinSettingsMessage("");
+    setStockTwinSettingsError("");
+  };
+
+  const handleStockTwinRackDraftChange = (draftId, field, value) => {
+    setStockTwinRackDrafts((prev) =>
+      prev.map((draft) =>
+        draft.draftId === draftId
+          ? {
+              ...draft,
+              [field]: field === "code" ? String(value || "").toUpperCase() : value
+            }
+          : draft
+      )
+    );
+    setStockTwinSettingsMessage("");
+    setStockTwinSettingsError("");
+  };
+
+  const handleMoveStockTwinRackDraft = (draftId, direction) => {
+    setStockTwinRackDrafts((prev) => {
+      const index = prev.findIndex((draft) => draft.draftId === draftId);
+      if (index < 0) {
+        return prev;
+      }
+      const nextIndex = direction === "up" ? index - 1 : index + 1;
+      if (nextIndex < 0 || nextIndex >= prev.length) {
+        return prev;
+      }
+      const next = [...prev];
+      const [item] = next.splice(index, 1);
+      next.splice(nextIndex, 0, item);
+      return next;
+    });
+    setStockTwinSettingsMessage("");
+    setStockTwinSettingsError("");
+  };
+
+  const handleRemoveStockTwinRackDraft = (draftId) => {
+    setStockTwinRackDrafts((prev) => prev.filter((draft) => draft.draftId !== draftId));
+    setStockTwinSettingsMessage("");
+    setStockTwinSettingsError("");
+  };
+
+  const handleResetStockTwinSettings = () => {
+    setStockTwinRackDrafts(
+      normalizedStockTwinLayout.racks.map((rack, index) => createStockTwinRackDraft(rack, index))
+    );
+    setStockTwinSettingsMessage("");
+    setStockTwinSettingsError("");
+  };
+
+  const handleSaveStockTwinSettings = async (event) => {
+    event.preventDefault();
+    if (!isMaster) {
+      return;
+    }
+
+    const normalizedLayout = normalizeStockTwinLayout({ racks: stockTwinRackDrafts });
+    setStockTwinSettingsSubmitting(true);
+    setStockTwinSettingsError("");
+    setStockTwinSettingsMessage("");
+
+    const { data: savedRows, error: saveError } = await supabase
+      .from(STOCK_TWIN_SETTINGS_TABLE)
+      .upsert(
+        {
+          id: 1,
+          layout: normalizedLayout,
+          updated_at: new Date().toISOString(),
+          updated_by: authUser?.id || null
+        },
+        { onConflict: "id" }
+      )
+      .select("id,layout,updated_at,updated_by");
+
+    if (saveError) {
+      setStockTwinSettingsError(saveError.message || "Nepodarilo sa uložiť globalny layout digital twin.");
+      setStockTwinSettingsSubmitting(false);
+      return;
+    }
+
+    const savedRow = Array.isArray(savedRows) ? savedRows[0] : savedRows;
+    const savedLayout = normalizeStockTwinLayout(savedRow?.layout || normalizedLayout);
+    setStockTwinLayout(savedLayout);
+    setStockTwinRackDrafts(savedLayout.racks.map((rack, index) => createStockTwinRackDraft(rack, index)));
+    setStockTwinSettingsMessage("Globalny layout digital twin je uložený.");
+    setStockTwinSettingsSubmitting(false);
   };
 
   const handleSaveCompanyMaxPositions = async (event) => {
@@ -6696,6 +6880,10 @@ function App() {
   useEffect(() => {
     if (!authReady || !isLoggedIn) {
       setManagedUsers([]);
+      setStockTwinLayout(DEFAULT_STOCK_TWIN_LAYOUT);
+      setStockTwinRackDrafts([]);
+      setStockTwinSettingsError("");
+      setStockTwinSettingsMessage("");
       return;
     }
 
@@ -6705,7 +6893,24 @@ function App() {
       setManagedUsers([]);
     }
     loadCompanies();
+    loadStockTwinSettings();
   }, [authReady, isLoggedIn, isMaster, authUser?.id]);
+
+  useEffect(() => {
+    if (!authReady || !isLoggedIn) {
+      return undefined;
+    }
+
+    const channel = supabase.channel(`stock-twin-settings-${authUser?.id || "anon"}`);
+    channel.on("postgres_changes", { event: "*", schema: "public", table: STOCK_TWIN_SETTINGS_TABLE }, () => {
+      loadStockTwinSettings();
+    });
+    channel.subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [authReady, isLoggedIn, authUser?.id]);
 
   useEffect(() => {
     loadMaterialSubscriptions();
@@ -6927,48 +7132,153 @@ function App() {
       }
     });
 
-    const aislesByKey = {};
+    const configuredRacks = normalizedStockTwinLayout.racks;
+    const configuredRackByCode = Object.fromEntries(configuredRacks.map((rack, index) => [rack.code, { ...rack, order: index }]));
+    const slotsByScopeAndRack = {};
+
     Object.values(slotsByPosition).forEach((slot) => {
-      if (!aislesByKey[slot.aisleKey]) {
-        aislesByKey[slot.aisleKey] = {
-          key: slot.aisleKey,
-          label: slot.aisleLabel,
-          companyScope: slot.companyScope,
-          slots: []
-        };
+      const scopeKey = String(slot.companyScope || "");
+      const compoundKey = `${scopeKey}::${slot.rackCode}`;
+      if (!slotsByScopeAndRack[compoundKey]) {
+        slotsByScopeAndRack[compoundKey] = [];
       }
-      aislesByKey[slot.aisleKey].slots.push(slot);
+      slotsByScopeAndRack[compoundKey].push(slot);
     });
 
-    return Object.values(aislesByKey)
-      .map((aisle) => {
+    const scopeKeys =
+      isMaster && selectedCompanyId === "all"
+        ? Array.from(new Set(Object.values(slotsByPosition).map((slot) => String(slot.companyScope || "")).filter(Boolean)))
+        : [""];
+    const normalizedScopeKeys = scopeKeys.length > 0 ? scopeKeys : [""];
+    const aisles = [];
+
+    const buildConfiguredBayDefs = (rack) => {
+      const defs = [];
+      for (let bay = 1; bay <= rack.bayCount; bay += 1) {
+        for (let depth = 1; depth <= rack.depthCount; depth += 1) {
+          const bayKey = rack.depthCount > 1 ? `${bay}-${depth}` : String(bay);
+          const bayLabel =
+            rack.depthCount > 1 ? `${String(bay).padStart(2, "0")}/${String(depth).padStart(2, "0")}` : String(bay).padStart(2, "0");
+          defs.push({
+            key: bayKey,
+            label: bayLabel,
+            sort: bay * 100 + depth
+          });
+        }
+      }
+      return defs;
+    };
+
+    normalizedScopeKeys.forEach((scopeKey) => {
+      const scopePrefix = scopeKey ? `${scopeKey} / ` : "";
+      const seenRackCodes = new Set();
+
+      configuredRacks.forEach((rack, rackIndex) => {
+        const rackSlots = slotsByScopeAndRack[`${scopeKey}::${rack.code}`] || [];
+        const derivedExtraBays = Array.from(
+          new Map(
+            rackSlots
+              .sort((left, right) => left.baySort - right.baySort)
+              .map((slot) => [slot.bayKey, { key: slot.bayKey, label: slot.bayLabel, sort: slot.baySort }])
+          ).values()
+        ).filter((bay) => !buildConfiguredBayDefs(rack).some((configuredBay) => configuredBay.key === bay.key));
+        const configuredLevels = Array.from({ length: rack.levelCount }, (_, index) => {
+          const levelValue = rack.levelCount - index;
+          return {
+            key: String(levelValue),
+            label: String(levelValue).padStart(2, "0"),
+            sort: levelValue
+          };
+        });
+        const derivedExtraLevels = Array.from(
+          new Map(
+            rackSlots
+              .sort((left, right) => right.levelSort - left.levelSort)
+              .map((slot) => [slot.levelKey, { key: slot.levelKey, label: slot.levelLabel, sort: slot.levelSort }])
+          ).values()
+        ).filter((level) => !configuredLevels.some((configuredLevel) => configuredLevel.key === level.key));
+        const bays = [...buildConfiguredBayDefs(rack), ...derivedExtraBays].sort((left, right) => left.sort - right.sort);
+        const levels = [...configuredLevels, ...derivedExtraLevels].sort((left, right) => right.sort - left.sort);
+        const slotMap = Object.fromEntries(rackSlots.map((slot) => [`${slot.levelKey}::${slot.bayKey}`, slot]));
+
+        aisles.push({
+          key: `${scopeKey}::${rack.code}`,
+          code: rack.code,
+          label: `${scopePrefix}${rack.name}`,
+          companyScope: scopeKey,
+          bays,
+          levels,
+          slots: rackSlots,
+          slotMap,
+          occupiedSlots: rackSlots.length,
+          deadSlots: rackSlots.filter((slot) => slot.deadCount > 0).length,
+          totalQuantity: rackSlots.reduce((sum, slot) => sum + Number(slot.totalQuantity || 0), 0),
+          order: rackIndex
+        });
+        seenRackCodes.add(rack.code);
+      });
+
+      const fallbackRackCodes = Array.from(
+        new Set(
+          Object.values(slotsByPosition)
+            .filter((slot) => String(slot.companyScope || "") === scopeKey)
+            .map((slot) => slot.rackCode)
+            .filter((rackCode) => !seenRackCodes.has(rackCode))
+        )
+      ).sort((left, right) => left.localeCompare(right, "sk-SK", { numeric: true, sensitivity: "base" }));
+
+      fallbackRackCodes.forEach((rackCode, rackIndex) => {
+        const rackSlots = slotsByScopeAndRack[`${scopeKey}::${rackCode}`] || [];
         const bays = Array.from(
           new Map(
-            aisle.slots
+            rackSlots
               .sort((left, right) => left.baySort - right.baySort || left.depthSort - right.depthSort)
               .map((slot) => [slot.bayKey, { key: slot.bayKey, label: slot.bayLabel, sort: slot.baySort }])
           ).values()
         );
         const levels = Array.from(
           new Map(
-            aisle.slots
+            rackSlots
               .sort((left, right) => right.levelSort - left.levelSort)
               .map((slot) => [slot.levelKey, { key: slot.levelKey, label: slot.levelLabel, sort: slot.levelSort }])
           ).values()
         );
-        const slotMap = Object.fromEntries(aisle.slots.map((slot) => [`${slot.levelKey}::${slot.bayKey}`, slot]));
-        return {
-          ...aisle,
+        const slotMap = Object.fromEntries(rackSlots.map((slot) => [`${slot.levelKey}::${slot.bayKey}`, slot]));
+        const configuredRack = configuredRackByCode[rackCode];
+
+        aisles.push({
+          key: `${scopeKey}::${rackCode}`,
+          code: rackCode,
+          label: `${scopePrefix}${configuredRack?.name || rackCode}`,
+          companyScope: scopeKey,
           bays,
           levels,
+          slots: rackSlots,
           slotMap,
-          occupiedSlots: aisle.slots.length,
-          deadSlots: aisle.slots.filter((slot) => slot.deadCount > 0).length,
-          totalQuantity: aisle.slots.reduce((sum, slot) => sum + Number(slot.totalQuantity || 0), 0)
-        };
-      })
-      .sort((left, right) => left.label.localeCompare(right.label, "sk-SK", { numeric: true, sensitivity: "base" }));
-  }, [filteredRows, selectedTable, deadStockByKey, isMaster, selectedCompanyId, companyNameById]);
+          occupiedSlots: rackSlots.length,
+          deadSlots: rackSlots.filter((slot) => slot.deadCount > 0).length,
+          totalQuantity: rackSlots.reduce((sum, slot) => sum + Number(slot.totalQuantity || 0), 0),
+          order: configuredRacks.length + rackIndex
+        });
+      });
+    });
+
+    return aisles
+      .filter((aisle) => aisle.bays.length > 0 && aisle.levels.length > 0)
+      .sort((left, right) => {
+        const scopeCompare = String(left.companyScope || "").localeCompare(String(right.companyScope || ""), "sk-SK", {
+          numeric: true,
+          sensitivity: "base"
+        });
+        if (scopeCompare !== 0) {
+          return scopeCompare;
+        }
+        if (left.order !== right.order) {
+          return left.order - right.order;
+        }
+        return left.label.localeCompare(right.label, "sk-SK", { numeric: true, sensitivity: "base" });
+      });
+  }, [filteredRows, selectedTable, deadStockByKey, isMaster, selectedCompanyId, companyNameById, normalizedStockTwinLayout]);
   const stockTwinSlotLookup = useMemo(
     () =>
       Object.fromEntries(
@@ -7615,6 +7925,11 @@ function App() {
     setCompanyProfileIcDphInput("");
     setCompanyProfileAddressInput("");
     setCompanyProfileBankAccountInput("");
+    setIsStockTwinSettingsOpen(false);
+    setStockTwinLayout(DEFAULT_STOCK_TWIN_LAYOUT);
+    setStockTwinRackDrafts([]);
+    setStockTwinSettingsError("");
+    setStockTwinSettingsMessage("");
     setManagedUsers([]);
     setCompanies([]);
     setManagedUsersError("");
@@ -7829,6 +8144,16 @@ function App() {
                 <span className="sidebar-link-bullet" />
                 <span>Nastavenia firmy</span>
               </button>
+              {isMaster && (
+                <button
+                  type="button"
+                  className={`sidebar-link ${isStockTwinSettingsOpen ? "sidebar-link-active" : ""}`}
+                  onClick={() => setIsStockTwinSettingsOpen((current) => !current)}
+                >
+                  <span className="sidebar-link-bullet" />
+                  <span>Twin layout</span>
+                </button>
+              )}
             </div>
           </section>
         )}
@@ -8052,6 +8377,152 @@ function App() {
           {companySettingsError && <p className="error">{companySettingsError}</p>}
           <p className="settings-hint">
             Firemný profil sa uloží pre aktuálne vybranú firmu a vie sa použiť v ďalších workflow PDF výstupoch.
+          </p>
+        </section>
+      )}
+
+      {selectedTable === "stock" && isMaster && isStockTwinSettingsOpen && (
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <h2>Globalny twin layout</h2>
+              <p className="panel-meta">Master nastavenie regálov a layoutu digital twin pre všetky firmy.</p>
+            </div>
+          </div>
+
+          <form className="stock-twin-settings-form" onSubmit={handleSaveStockTwinSettings}>
+            <div className="stock-twin-settings-head">
+              <p className="settings-hint">
+                Každý regál definuje kód pozície, zobrazovaný názov a počet bayov, levelov a hĺbku. Príklad mapovania:
+                pozícia <code>A-01-02</code> patrí do regálu <code>A</code>, bay <code>01</code>, level <code>02</code>.
+              </p>
+              <div className="orders-form-actions">
+                <button type="button" className="clear-btn" onClick={handleAddStockTwinRackDraft}>
+                  Pridať regál
+                </button>
+                <button
+                  type="button"
+                  className="clear-btn"
+                  onClick={handleResetStockTwinSettings}
+                  disabled={stockTwinSettingsSubmitting || stockTwinSettingsLoading}
+                >
+                  Obnoviť uložené
+                </button>
+                <button type="submit" className="settings-btn" disabled={stockTwinSettingsSubmitting || stockTwinSettingsLoading}>
+                  {stockTwinSettingsSubmitting ? "Ukladám..." : "Uložiť twin layout"}
+                </button>
+              </div>
+            </div>
+
+            {stockTwinSettingsLoading ? (
+              <p className="hint">Načítavam globalny twin layout...</p>
+            ) : stockTwinRackDrafts.length === 0 ? (
+              <div className="empty-state">
+                <p>Zatiaľ nemáš nastavený žiadny regál. Pridaj prvý layout pre digital twin.</p>
+                <button type="button" className="clear-btn" onClick={handleAddStockTwinRackDraft}>
+                  Pridať prvý regál
+                </button>
+              </div>
+            ) : (
+              <div className="stock-twin-settings-list">
+                {stockTwinRackDrafts.map((rack, index) => (
+                  <article key={rack.draftId} className="stock-twin-settings-card">
+                    <div className="stock-twin-settings-card-head">
+                      <div>
+                        <strong>{rack.name || rack.code || `Regál ${index + 1}`}</strong>
+                        <p>{`Poradie ${index + 1}`}</p>
+                      </div>
+                      <div className="orders-draft-actions">
+                        <button
+                          type="button"
+                          className="clear-btn"
+                          onClick={() => handleMoveStockTwinRackDraft(rack.draftId, "up")}
+                          disabled={index === 0}
+                        >
+                          Vyššie
+                        </button>
+                        <button
+                          type="button"
+                          className="clear-btn"
+                          onClick={() => handleMoveStockTwinRackDraft(rack.draftId, "down")}
+                          disabled={index === stockTwinRackDrafts.length - 1}
+                        >
+                          Nižšie
+                        </button>
+                        <button type="button" className="clear-btn" onClick={() => handleRemoveStockTwinRackDraft(rack.draftId)}>
+                          Zmazať
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="stock-twin-settings-grid">
+                      <label className="settings-field">
+                        <span>Kód regálu</span>
+                        <input
+                          type="text"
+                          className="search-input"
+                          value={rack.code}
+                          maxLength={12}
+                          onChange={(event) => handleStockTwinRackDraftChange(rack.draftId, "code", event.target.value)}
+                          disabled={stockTwinSettingsSubmitting}
+                        />
+                      </label>
+                      <label className="settings-field">
+                        <span>Názov regálu</span>
+                        <input
+                          type="text"
+                          className="search-input"
+                          value={rack.name}
+                          onChange={(event) => handleStockTwinRackDraftChange(rack.draftId, "name", event.target.value)}
+                          disabled={stockTwinSettingsSubmitting}
+                        />
+                      </label>
+                      <label className="settings-field">
+                        <span>Baye</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={200}
+                          className="dead-stock-days-input"
+                          value={rack.bayCount}
+                          onChange={(event) => handleStockTwinRackDraftChange(rack.draftId, "bayCount", event.target.value)}
+                          disabled={stockTwinSettingsSubmitting}
+                        />
+                      </label>
+                      <label className="settings-field">
+                        <span>Levely</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={20}
+                          className="dead-stock-days-input"
+                          value={rack.levelCount}
+                          onChange={(event) => handleStockTwinRackDraftChange(rack.draftId, "levelCount", event.target.value)}
+                          disabled={stockTwinSettingsSubmitting}
+                        />
+                      </label>
+                      <label className="settings-field">
+                        <span>Hĺbka</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={10}
+                          className="dead-stock-days-input"
+                          value={rack.depthCount}
+                          onChange={(event) => handleStockTwinRackDraftChange(rack.draftId, "depthCount", event.target.value)}
+                          disabled={stockTwinSettingsSubmitting}
+                        />
+                      </label>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </form>
+          {stockTwinSettingsError && <p className="error">{stockTwinSettingsError}</p>}
+          {stockTwinSettingsMessage && <p className="settings-hint">{stockTwinSettingsMessage}</p>}
+          <p className="settings-hint">
+            Toto nastavenie je globalne. Po uložení sa rovnaký layout použije pre digital twin vo všetkých firmách.
           </p>
         </section>
       )}

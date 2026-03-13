@@ -569,6 +569,54 @@ select {
   min-width: 0;
 }
 
+.stock-twin-settings-form {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.stock-twin-settings-head {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.stock-twin-settings-list {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.stock-twin-settings-card {
+  border: 1px solid #dce6f2;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #fbfdff, #f6faff);
+  padding: 0.9rem;
+  display: grid;
+  gap: 0.8rem;
+}
+
+.stock-twin-settings-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.9rem;
+  align-items: flex-start;
+}
+
+.stock-twin-settings-card-head strong {
+  color: #17314a;
+}
+
+.stock-twin-settings-card-head p {
+  margin: 0.2rem 0 0;
+  color: #6b7d8e;
+  font-size: 0.8rem;
+}
+
+.stock-twin-settings-grid {
+  display: grid;
+  grid-template-columns: minmax(120px, 140px) minmax(180px, 1fr) repeat(3, minmax(96px, 120px));
+  gap: 0.7rem;
+  align-items: end;
+}
+
 .company-profile-section,
 .company-capacity-section {
   height: 100%;
@@ -2370,6 +2418,10 @@ tbody tr:nth-child(even) {
   }
 
   .company-settings-form {
+    grid-template-columns: 1fr;
+  }
+
+  .stock-twin-settings-grid {
     grid-template-columns: 1fr;
   }
 

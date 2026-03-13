@@ -2800,6 +2800,7 @@ function App() {
   const [rows, setRows] = useState([]);
   const [stockViewMode, setStockViewMode] = useState("table");
   const [selectedTwinPositionKey, setSelectedTwinPositionKey] = useState("");
+  const [stockTwinPresentationMode, setStockTwinPresentationMode] = useState("top");
   const [expandedPositions, setExpandedPositions] = useState({});
   const [deadStockByKey, setDeadStockByKey] = useState({});
   const [stockAgeStats, setStockAgeStats] = useState({ avgDays: null, sampleCount: 0 });
@@ -11387,17 +11388,19 @@ function App() {
                   <div className="stock-twin-head">
                     <div>
                       <h3>Digital twin skladu</h3>
-                      <p>Z existujúcich skladových pozícií generovaný pohľad na regálové uličky a levely.</p>
+                      <p>Z existujúcich skladových pozícií generovaný top view pohľad na regály, riadky a stĺpce.</p>
                     </div>
-                    <div className="stock-twin-legend" aria-label="Legenda digital twin">
-                      <span className="stock-twin-legend-item">
-                        <span className="stock-twin-legend-swatch stock-twin-legend-swatch-live" />
-                        Obsadené
-                      </span>
-                      <span className="stock-twin-legend-item">
-                        <span className="stock-twin-legend-swatch stock-twin-legend-swatch-dead" />
-                        Dead stock
-                      </span>
+                    <div className="stock-twin-tools">
+                      <div className="stock-twin-legend" aria-label="Legenda digital twin">
+                        <span className="stock-twin-legend-item">
+                          <span className="stock-twin-legend-swatch stock-twin-legend-swatch-live" />
+                          Obsadené
+                        </span>
+                        <span className="stock-twin-legend-item">
+                          <span className="stock-twin-legend-swatch stock-twin-legend-swatch-dead" />
+                          Dead stock
+                        </span>
+                      </div>
                     </div>
                   </div>
 
@@ -11416,41 +11419,36 @@ function App() {
                           </div>
 
                           <div
-                            className="stock-twin-grid"
-                            style={{ gridTemplateColumns: `72px repeat(${Math.max(1, aisle.bays.length)}, minmax(92px, 1fr))` }}
+                            className="stock-twin-top-grid"
+                            style={{ gridTemplateColumns: `72px repeat(${Math.max(1, aisle.bays.length)}, minmax(72px, 1fr))` }}
                           >
                             <div className="stock-twin-grid-corner">Riadok</div>
                             {aisle.bays.map((bay) => (
                               <div key={`${aisle.key}-${bay.key}`} className="stock-twin-bay-label">
-                                {`Stĺpec ${bay.label}`}
+                                {`${bay.label}`}
                               </div>
                             ))}
 
                             {aisle.levels.flatMap((level) => [
-                              <div key={`${aisle.key}-${level.key}-label`} className="stock-twin-level-label">{`Riadok ${level.label}`}</div>,
+                              <div key={`${aisle.key}-${level.key}-label`} className="stock-twin-level-label">{`${level.label}`}</div>,
                               ...aisle.bays.map((bay) => {
                                 const slot = aisle.slotMap[`${level.key}::${bay.key}`] || null;
                                 if (!slot) {
-                                  return <div key={`${aisle.key}-${level.key}-${bay.key}`} className="stock-twin-slot-empty" />;
+                                  return <div key={`${aisle.key}-${level.key}-${bay.key}`} className="stock-twin-top-slot-empty" />;
                                 }
 
                                 const isSelected = selectedTwinPositionKey === slot.key;
-                                const slotToneClass = slot.deadCount > 0 ? "stock-twin-slot-dead" : "stock-twin-slot-live";
+                                const slotToneClass = slot.deadCount > 0 ? "stock-twin-top-slot-dead" : "stock-twin-top-slot-live";
                                 return (
                                   <button
                                     key={slot.key}
                                     type="button"
-                                    className={`stock-twin-slot ${slotToneClass} ${isSelected ? "stock-twin-slot-selected" : ""}`}
+                                    className={`stock-twin-top-slot ${slotToneClass} ${isSelected ? "stock-twin-top-slot-selected" : ""}`}
                                     onClick={() => setSelectedTwinPositionKey(slot.key)}
                                     title={`${slot.position} | ${slot.materialCount} materiálov | ${new Intl.NumberFormat("sk-SK").format(slot.totalQuantity)} ks`}
                                   >
-                                    <span className="stock-twin-slot-top" />
-                                    <span className="stock-twin-slot-side" />
-                                    <span className="stock-twin-slot-front">
-                                      <strong>{slot.materialCount}</strong>
-                                      <small>{`${new Intl.NumberFormat("sk-SK").format(slot.totalQuantity)} ks`}</small>
-                                    </span>
-                                    {slot.deadCount > 0 && <span className="stock-twin-slot-flag">dead</span>}
+                                    <strong>{slot.materialCount}</strong>
+                                    <small>{new Intl.NumberFormat("sk-SK").format(slot.totalQuantity)}</small>
                                   </button>
                                 );
                               })

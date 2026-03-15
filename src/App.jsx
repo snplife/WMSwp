@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { useRef } from "react";
 import { CurrencyCode, encode as encodePayBySquare, PaymentOptions } from "bysquare/pay";
@@ -2366,6 +2366,50 @@ function resolveLoginEmail(loginValue) {
   return buildInternalEmailFromUsername(raw);
 }
 
+function slugifyDemoFragment(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function buildDemoUsername(companyName, managedUsers) {
+  const fragment = slugifyDemoFragment(companyName) || "firma";
+  const existing = new Set(
+    (managedUsers || [])
+      .map((row) => normalizeUsernameInput(row?.username || usernameFromInternalEmail(row?.email)))
+      .filter(Boolean)
+  );
+  const base = normalizeUsernameInput(`demo-${fragment}`) || "demo";
+
+  if (!existing.has(base)) {
+    return base;
+  }
+
+  for (let attempt = 2; attempt <= 99; attempt += 1) {
+    const suffix = `-${attempt}`;
+    const candidate = `${base.slice(0, Math.max(1, 30 - suffix.length))}${suffix}`;
+    if (!existing.has(candidate)) {
+      return candidate;
+    }
+  }
+
+  return normalizeUsernameInput(`demo-${Date.now().toString().slice(-6)}`) || `demo${Date.now().toString().slice(-4)}`;
+}
+
+function buildGeneratedDemoPassword() {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+  let result = "Demo-";
+
+  while (result.length < 13) {
+    result += alphabet[Math.floor(Math.random() * alphabet.length)];
+  }
+
+  return `${result}!`;
+}
+
 function pickValue(row, keys) {
   for (const key of keys) {
     if (row[key] !== undefined && row[key] !== null && row[key] !== "") {
@@ -2838,6 +2882,7 @@ function App() {
   const [newUserRole, setNewUserRole] = useState("user");
   const [newUserCompanyId, setNewUserCompanyId] = useState("");
   const [newUserCanManageOrders, setNewUserCanManageOrders] = useState(false);
+  const [lastCreatedDemoCredentials, setLastCreatedDemoCredentials] = useState(null);
   const [newCompanyName, setNewCompanyName] = useState("");
   const [newCompanyTracksExpiryDate, setNewCompanyTracksExpiryDate] = useState(false);
   const [editingCompanyId, setEditingCompanyId] = useState("");
@@ -4012,60 +4057,45 @@ function App() {
     );
   };
 
-  const handleCreateManagedUser = async (event) => {
-    event.preventDefault();
-    setCreateUserSubmitting(true);
-    setManagedUsersError("");
-
-    const username = normalizeUsernameInput(newUsername);
-    if (!username) {
-      setManagedUsersError("Zadaj login (username).");
-      setCreateUserSubmitting(false);
-      return;
-    }
-    const email = buildInternalEmailFromUsername(username);
-
-    if (newUserPassword.length < MIN_MANAGED_PASSWORD_LENGTH) {
-      setManagedUsersError(`Heslo musí mať aspoň ${MIN_MANAGED_PASSWORD_LENGTH} znakov.`);
-      setCreateUserSubmitting(false);
-      return;
+  const createManagedUserAccount = async ({ username, password, role, companyId, canManageOrders }) => {
+    const normalizedUsername = normalizeUsernameInput(username);
+    if (!normalizedUsername) {
+      throw new Error("Zadaj login (username).");
     }
 
-    const effectiveCompanyIdForUser =
-      newUserRole === "master" ? null : newUserCompanyId || (selectedCompanyId !== "all" ? selectedCompanyId : "");
-
-    if (newUserRole !== "master" && !effectiveCompanyIdForUser) {
-      setManagedUsersError("Pre user účet vyber firmu.");
-      setCreateUserSubmitting(false);
-      return;
+    if (String(password || "").length < MIN_MANAGED_PASSWORD_LENGTH) {
+      throw new Error(`Heslo musí mať aspoň ${MIN_MANAGED_PASSWORD_LENGTH} znakov.`);
     }
 
+    const normalizedRole = role === "master" ? "master" : "user";
+    const effectiveCompanyId = normalizedRole === "master" ? null : companyId || "";
+    if (normalizedRole !== "master" && !effectiveCompanyId) {
+      throw new Error("Pre user účet vyber firmu.");
+    }
+
+    const email = buildInternalEmailFromUsername(normalizedUsername);
     const { data: signUpData, error: signUpError } = await userCreatorClient.auth.signUp({
       email,
-      password: newUserPassword
+      password
     });
 
     if (signUpError) {
-      setManagedUsersError(signUpError.message || "Nepodarilo sa vytvoriť používateľa.");
-      setCreateUserSubmitting(false);
-      return;
+      throw new Error(signUpError.message || "Nepodarilo sa vytvoriť používateľa.");
     }
 
     const createdUserId = signUpData?.user?.id;
     if (!createdUserId) {
-      setManagedUsersError("Používateľ bol vytvorený, ale nepodarilo sa získať jeho ID.");
-      setCreateUserSubmitting(false);
-      return;
+      throw new Error("Používateľ bol vytvorený, ale nepodarilo sa získať jeho ID.");
     }
 
     const { error: roleWriteError } = await supabase.from(ROLE_TABLE).upsert(
       {
         user_id: createdUserId,
         email,
-        username,
-        role: newUserRole === "master" ? "master" : "user",
-        can_manage_orders: newUserRole === "master" ? true : newUserCanManageOrders,
-        company_id: newUserRole === "master" ? null : effectiveCompanyIdForUser,
+        username: normalizedUsername,
+        role: normalizedRole,
+        can_manage_orders: normalizedRole === "master" ? true : Boolean(canManageOrders),
+        company_id: effectiveCompanyId,
         db_url: DEFAULT_DB_URL || null,
         db_anon_key: DEFAULT_DB_ANON_KEY || null,
         created_by: authUser?.id || null
@@ -4074,29 +4104,88 @@ function App() {
     );
 
     if (roleWriteError) {
-      setManagedUsersError(roleWriteError.message || "Používateľ je vytvorený, ale nepodarilo sa uložiť rolu.");
-      setCreateUserSubmitting(false);
-      return;
+      throw new Error(roleWriteError.message || "Používateľ je vytvorený, ale nepodarilo sa uložiť rolu.");
     }
 
-    if (newUserRole !== "master") {
-      const { data: verifyRow } = await supabase
-        .from(ROLE_TABLE)
-        .select("company_id")
-        .eq("user_id", createdUserId)
-        .maybeSingle();
+    if (normalizedRole !== "master") {
+      const { data: verifyRow } = await supabase.from(ROLE_TABLE).select("company_id").eq("user_id", createdUserId).maybeSingle();
       if (!verifyRow?.company_id) {
-        setManagedUsersError("User bol vytvorený, ale neuložila sa firma. Skús uložiť firmu znova.");
+        throw new Error("User bol vytvorený, ale neuložila sa firma. Skús uložiť firmu znova.");
       }
     }
 
-    setNewUsername("");
-    setNewUserPassword("");
-    setNewUserRole("user");
-    setNewUserCompanyId("");
-    setNewUserCanManageOrders(false);
-    setCreateUserSubmitting(false);
-    await loadManagedUsers();
+    return { username: normalizedUsername, email, password, role: normalizedRole, companyId: effectiveCompanyId };
+  };
+
+  const handleCreateManagedUser = async (event) => {
+    event.preventDefault();
+    setCreateUserSubmitting(true);
+    setManagedUsersError("");
+
+    try {
+      const effectiveCompanyIdForUser =
+        newUserRole === "master" ? null : newUserCompanyId || (selectedCompanyId !== "all" ? selectedCompanyId : "");
+
+      await createManagedUserAccount({
+        username: newUsername,
+        password: newUserPassword,
+        role: newUserRole,
+        companyId: effectiveCompanyIdForUser,
+        canManageOrders: newUserCanManageOrders
+      });
+
+      setNewUsername("");
+      setNewUserPassword("");
+      setNewUserRole("user");
+      setNewUserCompanyId("");
+      setNewUserCanManageOrders(false);
+      setLastCreatedDemoCredentials(null);
+      await loadManagedUsers();
+    } catch (createError) {
+      setManagedUsersError(createError?.message || "Nepodarilo sa vytvoriť používateľa.");
+    } finally {
+      setCreateUserSubmitting(false);
+    }
+  };
+
+  const handleCreateDemoManagedUser = async () => {
+    if (!isMaster) {
+      return;
+    }
+
+    const companyId = selectedCompanyId !== "all" ? selectedCompanyId : "";
+    if (!companyId) {
+      setManagedUsersError("Pre demo profil najprv vyber konkrétnu firmu v hornom filtri.");
+      return;
+    }
+
+    const companyName = companyNameById[companyId] || "firma";
+    const username = buildDemoUsername(companyName, managedUsers);
+    const password = buildGeneratedDemoPassword();
+
+    setCreateUserSubmitting(true);
+    setManagedUsersError("");
+
+    try {
+      const createdDemo = await createManagedUserAccount({
+        username,
+        password,
+        role: "user",
+        companyId,
+        canManageOrders: true
+      });
+
+      setLastCreatedDemoCredentials({
+        username: createdDemo.username,
+        password,
+        companyName
+      });
+      await loadManagedUsers();
+    } catch (createError) {
+      setManagedUsersError(createError?.message || "Nepodarilo sa vytvoriť demo profil.");
+    } finally {
+      setCreateUserSubmitting(false);
+    }
   };
 
   const handleManagedRoleChange = async (row, nextRole) => {
@@ -7558,38 +7647,13 @@ function App() {
     );
   }, [productionOrders, productionSearchTerm]);
   const sidebarSections = useMemo(() => {
-    const monitoringItems = visibleTableNames.filter(
-      (table) =>
-        !isCustomerModule(table) &&
-        !isOrdersModule(table) &&
-        !isProductionModule(table) &&
-        !isQuoteModule(table) &&
-        !isInvoiceModule(table) &&
-        table !== PRICE_LIST_TABLE
-    );
-    const sections = [
+    return [
       {
         title: isMaster ? "Dáta" : "Monitoring",
-        items: monitoringItems
+        items: visibleTableNames
       }
     ];
-
-    if (
-      visibleTableNames.includes(CUSTOMERS_MODULE) ||
-      visibleTableNames.includes(ORDERS_MODULE) ||
-      visibleTableNames.includes(INVOICES_MODULE) ||
-      visibleTableNames.includes(PRICE_LIST_TABLE)
-    ) {
-      sections.push({
-        title: "Workflow",
-        items: [CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE, PRODUCTION_MODULE, PRICE_LIST_TABLE].filter((table) =>
-          visibleTableNames.includes(table)
-        )
-      });
-    }
-
-    return sections;
-  }, [visibleTableNames, isMaster, selectedTable]);
+  }, [visibleTableNames, isMaster]);
 
   useEffect(() => {
     const query = String(customerNameInput || "").trim();
@@ -7938,6 +8002,7 @@ function App() {
     setManagedUsers([]);
     setCompanies([]);
     setManagedUsersError("");
+    setLastCreatedDemoCredentials(null);
     setAuthUsername("");
     setAuthPassword("");
 
@@ -8863,6 +8928,22 @@ function App() {
               {createUserSubmitting ? "Vytváram..." : "Vytvoriť účet"}
             </button>
           </form>
+          <div className="master-head-actions">
+            <button
+              type="button"
+              className="refresh-btn"
+              onClick={handleCreateDemoManagedUser}
+              disabled={createUserSubmitting || selectedCompanyId === "all"}
+            >
+              {createUserSubmitting ? "Vytváram..." : "Vytvoriť demo profil"}
+            </button>
+            <span className="panel-meta">Demo profil sa vytvorí pre aktuálne vybranú firmu a dostane objednávky + výrobu.</span>
+          </div>
+          {lastCreatedDemoCredentials && (
+            <p className="settings-hint">
+              {`Demo login: ${lastCreatedDemoCredentials.username} | heslo: ${lastCreatedDemoCredentials.password} | firma: ${lastCreatedDemoCredentials.companyName}`}
+            </p>
+          )}
 
           <form className="master-qr-form" onSubmit={handleGenerateQrLabels}>
             <input

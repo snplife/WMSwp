@@ -2796,7 +2796,7 @@ function normalizePositiveInt(value, fallback = 0) {
 }
 
 function App() {
-  const [selectedTable, setSelectedTable] = useState(tableNames[0]);
+  const [selectedTable, setSelectedTable] = useState(() => (tableNames.includes("stock") ? "stock" : tableNames[0] || DAILY_OVERVIEW_TABLE));
   const [rows, setRows] = useState([]);
   const [stockViewMode, setStockViewMode] = useState("table");
   const [selectedTwinPositionKey, setSelectedTwinPositionKey] = useState("");
@@ -2980,10 +2980,10 @@ function App() {
     if (isMaster) {
       return Array.from(new Set([...tableNames, PRICE_LIST_TABLE, CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE, PRODUCTION_MODULE]));
     }
-    const baseTables = Array.from(
-      new Set([DAILY_OVERVIEW_TABLE, PRICE_LIST_TABLE, ...tableNames.filter((table) => table === "stock" || isTransactionsTable(table))])
-    );
-    return canAccessOrdersModule ? [...baseTables, CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE, PRODUCTION_MODULE] : baseTables;
+    if (!canAccessOrdersModule) {
+      return ["stock"];
+    }
+    return Array.from(new Set([DAILY_OVERVIEW_TABLE, PRICE_LIST_TABLE, ...tableNames, CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE, PRODUCTION_MODULE]));
   }, [isMaster, canAccessOrdersModule]);
   const companyNameById = useMemo(
     () =>

@@ -7697,12 +7697,25 @@ function App() {
     );
   }, [productionOrders, productionSearchTerm]);
   const sidebarSections = useMemo(() => {
-    return [
+    const workflowItems = [CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE, PRODUCTION_MODULE].filter((table) =>
+      visibleTableNames.includes(table)
+    );
+    const monitoringItems = visibleTableNames.filter((table) => !workflowItems.includes(table));
+    const sections = [
       {
         title: isMaster ? "Dáta" : "Monitoring",
-        items: visibleTableNames
+        items: monitoringItems
       }
     ];
+
+    if (workflowItems.length > 0) {
+      sections.push({
+        title: "Workflow",
+        items: workflowItems
+      });
+    }
+
+    return sections;
   }, [visibleTableNames, isMaster]);
 
   useEffect(() => {

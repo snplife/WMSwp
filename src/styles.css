@@ -612,9 +612,27 @@ select {
 
 .stock-twin-settings-grid {
   display: grid;
-  grid-template-columns: minmax(120px, 140px) minmax(180px, 1fr) repeat(3, minmax(96px, 120px));
+  grid-template-columns: minmax(120px, 140px) minmax(180px, 1fr) repeat(5, minmax(96px, 120px)) minmax(180px, 220px);
   gap: 0.7rem;
   align-items: end;
+}
+
+.stock-twin-layout-nudge {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.stock-twin-layout-nudge > span {
+  font-size: 0.78rem;
+  color: #5f7082;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.stock-twin-layout-nudge-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.35rem;
 }
 
 .company-profile-section,
@@ -1680,8 +1698,28 @@ select {
   gap: 0.9rem;
 }
 
-.stock-twin-aisle-card {
+.stock-twin-map-board {
+  --stock-twin-cell-size: 70px;
   position: relative;
+  min-height: calc(var(--stock-twin-rows, 8) * var(--stock-twin-cell-size) + 160px);
+  min-width: calc(var(--stock-twin-cols, 12) * var(--stock-twin-cell-size) + 160px);
+  border: 1px solid #dce6f2;
+  border-radius: 20px;
+  background:
+    linear-gradient(180deg, rgba(250, 252, 255, 0.96), rgba(240, 246, 252, 0.94)),
+    linear-gradient(90deg, rgba(111, 132, 154, 0.06) 1px, transparent 1px),
+    linear-gradient(rgba(111, 132, 154, 0.06) 1px, transparent 1px);
+  background-size:
+    100% 100%,
+    var(--stock-twin-cell-size) var(--stock-twin-cell-size),
+    var(--stock-twin-cell-size) var(--stock-twin-cell-size);
+  overflow: auto;
+  padding: 1rem;
+}
+
+.stock-twin-map-rack {
+  position: relative;
+  width: max-content;
   border: 1px solid #dce6f2;
   border-radius: 16px;
   background:
@@ -1693,7 +1731,7 @@ select {
   overflow: hidden;
 }
 
-.stock-twin-aisle-card::after {
+.stock-twin-map-rack::after {
   content: "";
   position: absolute;
   inset: auto 1.1rem 0.8rem 4.8rem;
@@ -1703,6 +1741,10 @@ select {
   border-radius: 12px;
   filter: blur(6px);
   pointer-events: none;
+}
+
+.stock-twin-map-rack {
+  position: absolute;
 }
 
 .stock-twin-aisle-head {

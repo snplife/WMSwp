@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { useRef } from "react";
 import { CurrencyCode, encode as encodePayBySquare, PaymentOptions } from "bysquare/pay";
@@ -370,6 +370,10 @@ function isCompanyScopedTable(table) {
   return normalized === "stock" || normalized === PRICE_LIST_TABLE || isTransactionsTable(normalized);
 }
 
+function isCompaniesTable(table) {
+  return String(table || "").trim() === "companies";
+}
+
 function makeStockKey(position, materialCode, companyId) {
   return `${String(companyId || "").trim()}::${String(position || "").trim()}::${String(materialCode || "").trim()}`;
 }
@@ -638,7 +642,9 @@ function createStockTwinRackDraft(rack = {}, fallbackIndex = 0) {
     name: String(rack?.name || "").trim(),
     bayCount: String(rack?.bayCount ?? "8"),
     levelCount: String(rack?.levelCount ?? "4"),
-    depthCount: String(rack?.depthCount ?? "1")
+    depthCount: String(rack?.depthCount ?? "1"),
+    x: String(rack?.x ?? fallbackIndex * 14),
+    y: String(rack?.y ?? 0)
   };
 }
 
@@ -648,13 +654,17 @@ function normalizeStockTwinRackConfig(rack, fallbackIndex = 0) {
   const bayCount = Math.min(200, Math.max(1, Number.parseInt(String(rack?.bayCount || "1"), 10) || 1));
   const levelCount = Math.min(20, Math.max(1, Number.parseInt(String(rack?.levelCount || "1"), 10) || 1));
   const depthCount = Math.min(10, Math.max(1, Number.parseInt(String(rack?.depthCount || "1"), 10) || 1));
+  const x = Math.min(500, Math.max(0, Number.parseInt(String(rack?.x || "0"), 10) || 0));
+  const y = Math.min(500, Math.max(0, Number.parseInt(String(rack?.y || "0"), 10) || 0));
 
   return {
     code,
     name: String(rack?.name || "").trim() || `Regál ${code}`,
     bayCount,
     levelCount,
-    depthCount
+    depthCount,
+    x,
+    y
   };
 }
 
@@ -3025,10 +3035,15 @@ function App() {
     if (isMaster) {
       return Array.from(new Set([...tableNames, PRICE_LIST_TABLE, CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE, PRODUCTION_MODULE]));
     }
+    const userBaseTables = Array.from(
+      new Set([DAILY_OVERVIEW_TABLE, ...tableNames.filter((table) => !isCompaniesTable(table) && (table === "stock" || isTransactionsTable(table)))])
+    );
     if (!canAccessOrdersModule) {
-      return ["stock"];
+      return userBaseTables;
     }
-    return Array.from(new Set([DAILY_OVERVIEW_TABLE, PRICE_LIST_TABLE, ...tableNames, CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE, PRODUCTION_MODULE]));
+    return Array.from(
+      new Set([PRICE_LIST_TABLE, ...userBaseTables, ...tableNames.filter((table) => !isCompaniesTable(table)), CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE, PRODUCTION_MODULE])
+    );
   }, [isMaster, canAccessOrdersModule]);
   const companyNameById = useMemo(
     () =>
@@ -4368,6 +4383,24 @@ function App() {
       next.splice(nextIndex, 0, item);
       return next;
     });
+    setStockTwinSettingsMessage("");
+    setStockTwinSettingsError("");
+  };
+
+  const handleNudgeStockTwinRackDraft = (draftId, axis, delta) => {
+    setStockTwinRackDrafts((prev) =>
+      prev.map((draft) => {
+        if (draft.draftId !== draftId) {
+          return draft;
+        }
+        const currentValue = Number.parseInt(String(axis === "x" ? draft.x : draft.y), 10) || 0;
+        const nextValue = Math.max(0, currentValue + delta);
+        return {
+          ...draft,
+          [axis]: String(nextValue)
+        };
+      })
+    );
     setStockTwinSettingsMessage("");
     setStockTwinSettingsError("");
   };
@@ -7300,6 +7333,8 @@ function App() {
           code: rack.code,
           label: `${scopePrefix}${rack.name}`,
           companyScope: scopeKey,
+          x: rack.x,
+          y: rack.y,
           bays,
           levels,
           slots: rackSlots,
@@ -7345,6 +7380,8 @@ function App() {
           code: rackCode,
           label: `${scopePrefix}${configuredRack?.name || rackCode}`,
           companyScope: scopeKey,
+          x: configuredRack?.x ?? rackIndex * 14,
+          y: configuredRack?.y ?? 0,
           bays,
           levels,
           slots: rackSlots,
@@ -7380,6 +7417,19 @@ function App() {
       ),
     [stockTwinAisles]
   );
+  const stockTwinTopMapMetrics = useMemo(() => {
+    if (stockTwinAisles.length === 0) {
+      return { widthCells: 12, heightCells: 8 };
+    }
+
+    return stockTwinAisles.reduce(
+      (acc, aisle) => ({
+        widthCells: Math.max(acc.widthCells, Number(aisle.x || 0) + aisle.bays.length + 2),
+        heightCells: Math.max(acc.heightCells, Number(aisle.y || 0) + aisle.levels.length + 2)
+      }),
+      { widthCells: 12, heightCells: 8 }
+    );
+  }, [stockTwinAisles]);
   const selectedTwinSlot = stockTwinSlotLookup[selectedTwinPositionKey] || null;
   useEffect(() => {
     if (selectedTable !== "stock" || stockViewMode !== "twin") {
@@ -8592,6 +8642,47 @@ function App() {
                           disabled={!activeCompany || stockTwinSettingsSubmitting}
                         />
                       </label>
+                      <label className="settings-field">
+                        <span>X pozícia</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={500}
+                          className="dead-stock-days-input"
+                          value={rack.x}
+                          onChange={(event) => handleStockTwinRackDraftChange(rack.draftId, "x", event.target.value)}
+                          disabled={!activeCompany || stockTwinSettingsSubmitting}
+                        />
+                      </label>
+                      <label className="settings-field">
+                        <span>Y pozícia</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={500}
+                          className="dead-stock-days-input"
+                          value={rack.y}
+                          onChange={(event) => handleStockTwinRackDraftChange(rack.draftId, "y", event.target.value)}
+                          disabled={!activeCompany || stockTwinSettingsSubmitting}
+                        />
+                      </label>
+                      <div className="stock-twin-layout-nudge">
+                        <span>Posun</span>
+                        <div className="stock-twin-layout-nudge-grid">
+                          <button type="button" className="clear-btn" onClick={() => handleNudgeStockTwinRackDraft(rack.draftId, "y", -1)}>
+                            Hore
+                          </button>
+                          <button type="button" className="clear-btn" onClick={() => handleNudgeStockTwinRackDraft(rack.draftId, "x", -1)}>
+                            Vľavo
+                          </button>
+                          <button type="button" className="clear-btn" onClick={() => handleNudgeStockTwinRackDraft(rack.draftId, "x", 1)}>
+                            Vpravo
+                          </button>
+                          <button type="button" className="clear-btn" onClick={() => handleNudgeStockTwinRackDraft(rack.draftId, "y", 1)}>
+                            Dole
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </article>
                 ))}
@@ -11488,9 +11579,22 @@ function App() {
                   {stockTwinAisles.length === 0 ? (
                     <p className="hint">Pre aktuálny filter nie sú skladové pozície, ktoré by sa dali zobraziť v twin pohľade.</p>
                   ) : (
-                    <div className="stock-twin-aisles">
+                    <div
+                      className="stock-twin-map-board"
+                      style={{
+                        "--stock-twin-cols": stockTwinTopMapMetrics.widthCells,
+                        "--stock-twin-rows": stockTwinTopMapMetrics.heightCells
+                      }}
+                    >
                       {stockTwinAisles.map((aisle) => (
-                        <article key={aisle.key} className="stock-twin-aisle-card">
+                        <article
+                          key={aisle.key}
+                          className="stock-twin-map-rack"
+                          style={{
+                            left: `calc(${aisle.x} * var(--stock-twin-cell-size))`,
+                            top: `calc(${aisle.y} * var(--stock-twin-cell-size))`
+                          }}
+                        >
                           <div className="stock-twin-aisle-head">
                             <div>
                               <strong>{`Regál ${aisle.label}`}</strong>

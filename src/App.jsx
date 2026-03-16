@@ -8283,7 +8283,7 @@ function App() {
   }, [mesAnalytics.topMachines, selectedMesMachineId, selectedMesMachineOverview]);
   const sidebarSections = useMemo(() => {
     const manufacturingItems = [PRODUCTION_MODULE].filter((table) => visibleTableNames.includes(table));
-    const workflowItems = [CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE].filter((table) =>
+    const workflowItems = [PRICE_LIST_TABLE, CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE].filter((table) =>
       visibleTableNames.includes(table)
     );
     const monitoringItems = visibleTableNames.filter((table) => !workflowItems.includes(table) && !manufacturingItems.includes(table));

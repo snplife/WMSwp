@@ -141,8 +141,8 @@ const TABLE_CONFIG = {
     metricValue: (rows) => rows.length
   },
   [PRODUCTION_MODULE]: {
-    title: "Výrobné objednávky",
-    subtitle: "Interná výroba: vstupy zo skladu, výstupy na sklad",
+    title: "Manufacturing",
+    subtitle: "Výrobné objednávky, MES overview a pracoviská v jednej obrazovke",
     columns: [],
     searchKeys: [],
     statusKeys: [],
@@ -348,7 +348,7 @@ function getTableLabel(table) {
     return "Objednávky";
   }
   if (isProductionModule(table)) {
-    return "Výrobné objednávky";
+    return "Manufacturing";
   }
   if (isDailyOverviewTable(table)) {
     return "Denný prehľad";
@@ -2420,6 +2420,45 @@ function buildGeneratedDemoPassword() {
   return `${result}!`;
 }
 
+function normalizeCompanyRecord(row) {
+  if (!row || typeof row !== "object") {
+    return row;
+  }
+  return {
+    ...row,
+    max_positions: normalizeMaxPositions(row.max_positions ?? ENV_DEFAULT_MAX_POSITIONS),
+    tracks_expiry_date: Boolean(row.tracks_expiry_date),
+    mes_enabled: Boolean(row.mes_enabled)
+  };
+}
+
+function normalizeManagedUserRecord(row) {
+  if (!row || typeof row !== "object") {
+    return row;
+  }
+  return {
+    ...row,
+    can_manage_orders: Boolean(row.can_manage_orders),
+    can_access_mes: Boolean(row.can_access_mes),
+    db_url: row.db_url || DEFAULT_DB_URL || null,
+    db_anon_key: row.db_anon_key || DEFAULT_DB_ANON_KEY || null
+  };
+}
+
+function normalizeMesOverviewRow(row) {
+  if (!row || typeof row !== "object") {
+    return row;
+  }
+  return {
+    ...row,
+    workstation_active: Boolean(row.workstation_active),
+    hmi_enabled: Boolean(row.hmi_enabled),
+    planned_quantity: Number(row.planned_quantity || 0),
+    good_quantity: Number(row.good_quantity || 0),
+    scrap_quantity: Number(row.scrap_quantity || 0)
+  };
+}
+
 function pickValue(row, keys) {
   for (const key of keys) {
     if (row[key] !== undefined && row[key] !== null && row[key] !== "") {
@@ -2876,6 +2915,7 @@ function App() {
   const [userRole, setUserRole] = useState("user");
   const [userCompanyId, setUserCompanyId] = useState(null);
   const [canManageOrders, setCanManageOrders] = useState(false);
+  const [canAccessMes, setCanAccessMes] = useState(false);
   const [companies, setCompanies] = useState([]);
   const [companiesError, setCompaniesError] = useState("");
   const [selectedCompanyId, setSelectedCompanyId] = useState("all");
@@ -2892,6 +2932,7 @@ function App() {
   const [newUserRole, setNewUserRole] = useState("user");
   const [newUserCompanyId, setNewUserCompanyId] = useState("");
   const [newUserCanManageOrders, setNewUserCanManageOrders] = useState(false);
+  const [newUserCanAccessMes, setNewUserCanAccessMes] = useState(false);
   const [lastCreatedDemoCredentials, setLastCreatedDemoCredentials] = useState(null);
   const [newCompanyName, setNewCompanyName] = useState("");
   const [newCompanyTracksExpiryDate, setNewCompanyTracksExpiryDate] = useState(false);
@@ -2912,6 +2953,7 @@ function App() {
   const [isStockTwinSettingsOpen, setIsStockTwinSettingsOpen] = useState(false);
   const [companyMaxPositionsInput, setCompanyMaxPositionsInput] = useState(String(ENV_DEFAULT_MAX_POSITIONS));
   const [companyTracksExpiryDateInput, setCompanyTracksExpiryDateInput] = useState(false);
+  const [companyMesEnabledInput, setCompanyMesEnabledInput] = useState(false);
   const [companyProfileNameInput, setCompanyProfileNameInput] = useState("");
   const [companyProfileIcoInput, setCompanyProfileIcoInput] = useState("");
   const [companyProfileDicInput, setCompanyProfileDicInput] = useState("");
@@ -3022,7 +3064,11 @@ function App() {
   const [productionSubmitting, setProductionSubmitting] = useState(false);
   const [productionCompletingId, setProductionCompletingId] = useState("");
   const [expandedProductionOrders, setExpandedProductionOrders] = useState({});
+  const [mesOverviewRows, setMesOverviewRows] = useState([]);
+  const [mesLoading, setMesLoading] = useState(false);
+  const [mesError, setMesError] = useState("");
   const latestLoadRowsRequestRef = useRef(0);
+  const latestMesOverviewRequestRef = useRef(0);
   const companyLookupRequestRef = useRef(0);
   const companyProfileLookupRequestRef = useRef(0);
   const priceListImportInputRef = useRef(null);
@@ -3038,13 +3084,25 @@ function App() {
     const userBaseTables = Array.from(
       new Set([DAILY_OVERVIEW_TABLE, ...tableNames.filter((table) => !isCompaniesTable(table) && (table === "stock" || isTransactionsTable(table)))])
     );
-    if (!canAccessOrdersModule) {
+    if (!canAccessManufacturingModule) {
       return userBaseTables;
     }
+    if (!canAccessOrdersModule) {
+      return Array.from(new Set([...userBaseTables, PRODUCTION_MODULE]));
+    }
     return Array.from(
-      new Set([PRICE_LIST_TABLE, ...userBaseTables, ...tableNames.filter((table) => !isCompaniesTable(table)), CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE, PRODUCTION_MODULE])
+      new Set([
+        PRICE_LIST_TABLE,
+        ...userBaseTables,
+        ...tableNames.filter((table) => !isCompaniesTable(table)),
+        CUSTOMERS_MODULE,
+        QUOTES_MODULE,
+        INVOICES_MODULE,
+        ORDERS_MODULE,
+        PRODUCTION_MODULE
+      ])
     );
-  }, [isMaster, canAccessOrdersModule]);
+  }, [isMaster, canAccessOrdersModule, canAccessManufacturingModule]);
   const companyNameById = useMemo(
     () =>
       Object.fromEntries(
@@ -3064,6 +3122,9 @@ function App() {
     () => companies.find((company) => company.id === activeCompanyId) || null,
     [companies, activeCompanyId]
   );
+  const canAccessMesModule =
+    isMaster || (canAccessMes && Boolean(userCompanyId) && (companies.length === 0 ? true : Boolean(activeCompany?.mes_enabled)));
+  const canAccessManufacturingModule = canAccessOrdersModule || canAccessMesModule;
   const normalizedStockTwinLayout = useMemo(() => normalizeStockTwinLayout(stockTwinLayout), [stockTwinLayout]);
   const customersById = useMemo(
     () => Object.fromEntries(customers.map((customer) => [customer.id, customer])),
@@ -3419,7 +3480,7 @@ function App() {
     for (let attempt = 0; attempt <= retries; attempt += 1) {
       const { data } = await supabase
         .from(ROLE_TABLE)
-        .select("username,email,company_id,can_manage_orders")
+        .select("*")
         .eq("user_id", userId)
         .maybeSingle();
 
@@ -3460,7 +3521,7 @@ function App() {
     setManagedUsersError("");
     const { data, error: usersError } = await supabase
       .from(ROLE_TABLE)
-      .select("user_id,username,email,role,can_manage_orders,company_id,db_url,db_anon_key,created_at,updated_at,created_by")
+      .select("*")
       .order("created_at", { ascending: false });
 
     if (usersError) {
@@ -3484,12 +3545,7 @@ function App() {
     }
 
     setManagedUsers(
-      users.map((row) => ({
-        ...row,
-        can_manage_orders: Boolean(row.can_manage_orders),
-        db_url: row.db_url || DEFAULT_DB_URL || null,
-        db_anon_key: row.db_anon_key || DEFAULT_DB_ANON_KEY || null
-      }))
+      users.map((row) => normalizeManagedUserRecord(row))
     );
     setManagedUsersLoading(false);
   };
@@ -3498,7 +3554,7 @@ function App() {
     setCompaniesError("");
     const { data, error: companiesError } = await supabase
       .from("companies")
-      .select("id,name,created_at,max_positions,tracks_expiry_date,ico,dic,ic_dph,address,bank_account")
+      .select("*")
       .order("name", { ascending: true });
 
     if (companiesError) {
@@ -3507,7 +3563,7 @@ function App() {
       return;
     }
 
-    setCompanies(data || []);
+    setCompanies((data || []).map((row) => normalizeCompanyRecord(row)));
   };
 
   const loadStockTwinSettings = async () => {
@@ -3958,7 +4014,7 @@ function App() {
     const { data: inserted, error: createError } = await supabase
       .from("companies")
       .insert([{ name, tracks_expiry_date: newCompanyTracksExpiryDate }])
-      .select("id,name,created_at,max_positions,tracks_expiry_date,ico,dic,ic_dph,address,bank_account")
+      .select("*")
       .single();
 
     if (createError) {
@@ -3970,8 +4026,9 @@ function App() {
     setNewCompanyName("");
     setNewCompanyTracksExpiryDate(false);
     if (inserted) {
+      const normalizedInserted = normalizeCompanyRecord(inserted);
       setCompanies((prev) =>
-        [...prev.filter((company) => company.id !== inserted.id), inserted].sort((a, b) =>
+        [...prev.filter((company) => company.id !== normalizedInserted.id), normalizedInserted].sort((a, b) =>
           String(a.name || "").localeCompare(String(b.name || ""), "sk-SK", { sensitivity: "base" })
         )
       );
@@ -4004,7 +4061,7 @@ function App() {
       .from("companies")
       .update({ name, tracks_expiry_date: editingCompanyTracksExpiryDate })
       .eq("id", companyId)
-      .select("id,name,created_at,max_positions,tracks_expiry_date,ico,dic,ic_dph,address,bank_account")
+      .select("*")
       .single();
 
     if (updateError) {
@@ -4013,9 +4070,10 @@ function App() {
       return;
     }
 
+    const normalizedCompany = normalizeCompanyRecord(data);
     setCompanies((prev) =>
       prev
-        .map((company) => (company.id === companyId ? data : company))
+        .map((company) => (company.id === companyId ? normalizedCompany : company))
         .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "sk-SK", { sensitivity: "base" }))
     );
     setUpdateCompanySubmitting(false);
@@ -4064,6 +4122,7 @@ function App() {
         username,
         role: rowRole,
         can_manage_orders: rowRole === "master",
+        can_access_mes: rowRole === "master",
         db_url: DEFAULT_DB_URL || null,
         db_anon_key: DEFAULT_DB_ANON_KEY || null,
         created_by: user.id
@@ -4072,7 +4131,7 @@ function App() {
     );
   };
 
-  const createManagedUserAccount = async ({ username, password, role, companyId, canManageOrders }) => {
+  const createManagedUserAccount = async ({ username, password, role, companyId, canManageOrders, canAccessMes: canAccessMesInput }) => {
     const normalizedUsername = normalizeUsernameInput(username);
     if (!normalizedUsername) {
       throw new Error("Zadaj login (username).");
@@ -4110,6 +4169,7 @@ function App() {
         username: normalizedUsername,
         role: normalizedRole,
         can_manage_orders: normalizedRole === "master" ? true : Boolean(canManageOrders),
+        can_access_mes: normalizedRole === "master" ? true : Boolean(canAccessMesInput),
         company_id: effectiveCompanyId,
         db_url: DEFAULT_DB_URL || null,
         db_anon_key: DEFAULT_DB_ANON_KEY || null,
@@ -4146,7 +4206,8 @@ function App() {
         password: newUserPassword,
         role: newUserRole,
         companyId: effectiveCompanyIdForUser,
-        canManageOrders: newUserCanManageOrders
+        canManageOrders: newUserCanManageOrders,
+        canAccessMes: newUserCanAccessMes
       });
 
       setNewUsername("");
@@ -4154,6 +4215,7 @@ function App() {
       setNewUserRole("user");
       setNewUserCompanyId("");
       setNewUserCanManageOrders(false);
+      setNewUserCanAccessMes(false);
       setLastCreatedDemoCredentials(null);
       await loadManagedUsers();
     } catch (createError) {
@@ -4187,7 +4249,8 @@ function App() {
         password,
         role: "user",
         companyId,
-        canManageOrders: true
+        canManageOrders: true,
+        canAccessMes: true
       });
 
       setLastCreatedDemoCredentials({
@@ -4222,7 +4285,8 @@ function App() {
       .from(ROLE_TABLE)
       .update({
         role: nextRole,
-        can_manage_orders: nextRole === "master" ? true : Boolean(row.can_manage_orders)
+        can_manage_orders: nextRole === "master" ? true : Boolean(row.can_manage_orders),
+        can_access_mes: nextRole === "master" ? true : Boolean(row.can_access_mes)
       })
       .eq("user_id", row.user_id);
 
@@ -4247,6 +4311,25 @@ function App() {
 
     if (updateError) {
       setManagedUsersError(updateError.message || "Nepodarilo sa uložiť prístup k objednávkam.");
+      return;
+    }
+
+    await loadManagedUsers();
+  };
+
+  const handleManagedMesAccessChange = async (row, nextValue) => {
+    if (!row?.user_id || row.role === "master") {
+      return;
+    }
+
+    setManagedUsersError("");
+    const { error: updateError } = await supabase
+      .from(ROLE_TABLE)
+      .update({ can_access_mes: Boolean(nextValue) })
+      .eq("user_id", row.user_id);
+
+    if (updateError) {
+      setManagedUsersError(updateError.message || "Nepodarilo sa uložiť prístup k MES.");
       return;
     }
 
@@ -4488,6 +4571,19 @@ function App() {
       return;
     }
 
+    const { data: mesCompanyData, error: mesToggleError } = await supabase.rpc("set_company_mes_enabled", {
+      target_company_id: targetCompanyId,
+      target_enabled: Boolean(companyMesEnabledInput)
+    });
+
+    if (mesToggleError) {
+      setCompanySettingsError(mesToggleError.message || "Nepodarilo sa uložiť prístup k MES pre firmu.");
+      setCompanySettingsSubmitting(false);
+      return;
+    }
+
+    const mesUpdatedCompany = Array.isArray(mesCompanyData) ? mesCompanyData[0] : mesCompanyData;
+
     const companyProfilePayload = {
       name: String(companyProfileNameInput || "").trim() || activeCompany?.name || "",
       tracks_expiry_date: companyTracksExpiryDateInput,
@@ -4502,7 +4598,7 @@ function App() {
       .from("companies")
       .update(companyProfilePayload)
       .eq("id", targetCompanyId)
-      .select("id,name,created_at,max_positions,tracks_expiry_date,ico,dic,ic_dph,address,bank_account");
+      .select("*");
 
     if (expiryUpdateError) {
       setCompanySettingsError(expiryUpdateError.message || "Nepodarilo sa uložiť firemný profil.");
@@ -4522,11 +4618,13 @@ function App() {
     const expiryUpdatedCompany = {
       ...activeCompany,
       ...updatedCompany,
+      ...mesUpdatedCompany,
       ...profileSavedCompany,
       ...companyProfilePayload,
       id: targetCompanyId,
       max_positions: normalizeMaxPositions(profileSavedCompany?.max_positions ?? updatedCompany?.max_positions ?? normalizedValue),
-      tracks_expiry_date: Boolean(companyProfilePayload.tracks_expiry_date)
+      tracks_expiry_date: Boolean(companyProfilePayload.tracks_expiry_date),
+      mes_enabled: Boolean(mesUpdatedCompany?.mes_enabled ?? companyMesEnabledInput)
     };
 
     setCompanies((prev) =>
@@ -4534,15 +4632,14 @@ function App() {
         company.id === expiryUpdatedCompany.id
           ? {
               ...company,
-              ...expiryUpdatedCompany,
-              max_positions: normalizeMaxPositions(expiryUpdatedCompany.max_positions),
-              tracks_expiry_date: Boolean(expiryUpdatedCompany.tracks_expiry_date)
+              ...normalizeCompanyRecord(expiryUpdatedCompany)
             }
           : company
       )
     );
     setCompanyMaxPositionsInput(String(normalizeMaxPositions(expiryUpdatedCompany.max_positions)));
     setCompanyTracksExpiryDateInput(Boolean(expiryUpdatedCompany.tracks_expiry_date));
+    setCompanyMesEnabledInput(Boolean(expiryUpdatedCompany.mes_enabled));
     setCompanyProfileNameInput(String(expiryUpdatedCompany.name || ""));
     setCompanyProfileIcoInput(String(expiryUpdatedCompany.ico || ""));
     setCompanyProfileDicInput(String(expiryUpdatedCompany.dic || ""));
@@ -5020,6 +5117,54 @@ function App() {
       setProductionStockRows([]);
     } finally {
       setProductionLoading(false);
+    }
+  };
+
+  const loadMesModuleData = async () => {
+    if (!authReady || !isLoggedIn || !canAccessMesModule) {
+      setMesOverviewRows([]);
+      setMesLoading(false);
+      setMesError("");
+      return;
+    }
+
+    const scopedCompanyId = activeCompanyId || userCompanyId || null;
+    if (!scopedCompanyId) {
+      setMesOverviewRows([]);
+      setMesLoading(false);
+      setMesError("");
+      return;
+    }
+
+    const requestId = latestMesOverviewRequestRef.current + 1;
+    latestMesOverviewRequestRef.current = requestId;
+    setMesLoading(true);
+    setMesError("");
+
+    try {
+      const { data, error: overviewError } = await supabase.rpc("mes_factory_overview", {
+        p_company_id: scopedCompanyId
+      });
+
+      if (overviewError) {
+        throw overviewError;
+      }
+
+      if (latestMesOverviewRequestRef.current !== requestId) {
+        return;
+      }
+
+      setMesOverviewRows((data || []).map((row) => normalizeMesOverviewRow(row)));
+    } catch (loadMesError) {
+      if (latestMesOverviewRequestRef.current !== requestId) {
+        return;
+      }
+      setMesError(loadMesError?.message || "Nepodarilo sa načítať MES overview.");
+      setMesOverviewRows([]);
+    } finally {
+      if (latestMesOverviewRequestRef.current === requestId) {
+        setMesLoading(false);
+      }
     }
   };
 
@@ -6599,6 +6744,7 @@ function App() {
         setAuthUsername("");
         setUserCompanyId(null);
         setCanManageOrders(false);
+        setCanAccessMes(false);
         setSelectedCompanyId("all");
       } else {
         const fallbackUsername = usernameFromInternalEmail(user.email);
@@ -6610,6 +6756,7 @@ function App() {
         setAuthUsername(String(fallbackUsername || ""));
         setUserCompanyId(claimedCompanyId);
         setCanManageOrders(claimedRole === "master");
+        setCanAccessMes(claimedRole === "master");
         if (claimedRole !== "master") {
           setSelectedCompanyId(claimedCompanyId || "");
         }
@@ -6636,6 +6783,7 @@ function App() {
           const resolvedCompanyId = claimedCompanyId || ownRow?.company_id || companyFromRpc || null;
           setUserCompanyId(resolvedCompanyId);
           setCanManageOrders(role === "master" ? true : Boolean(ownRow?.can_manage_orders));
+          setCanAccessMes(role === "master" ? true : Boolean(ownRow?.can_access_mes));
           if (role !== "master") {
             setSelectedCompanyId(resolvedCompanyId || "");
           }
@@ -6670,6 +6818,7 @@ function App() {
         setUserRole("user");
         setAuthUsername("");
         setCanManageOrders(false);
+        setCanAccessMes(false);
         setAuthReady(true);
         setAuthInitTimedOut(true);
         setAuthError(
@@ -6897,27 +7046,63 @@ function App() {
       setStockAgeStats({ avgDays: null, sampleCount: 0 });
       setOccupancySeries([]);
       setLoading(false);
-      loadProductionModuleData();
+      if (canAccessOrdersModule) {
+        loadProductionModuleData();
+      } else {
+        setProductionOrders([]);
+        setProductionOrderInputs([]);
+        setProductionOrderOutputs([]);
+        setProductionStockRows([]);
+        setProductionLoading(false);
+        setProductionError("");
+      }
+      if (canAccessMesModule) {
+        loadMesModuleData();
+      } else {
+        setMesOverviewRows([]);
+        setMesLoading(false);
+        setMesError("");
+      }
 
       let reloadTimer = null;
       const scheduleReload = () => {
         if (reloadTimer) {
           window.clearTimeout(reloadTimer);
         }
-        reloadTimer = window.setTimeout(() => loadProductionModuleData(), 350);
+        reloadTimer = window.setTimeout(() => {
+          if (canAccessOrdersModule) {
+            loadProductionModuleData();
+          }
+          if (canAccessMesModule) {
+            loadMesModuleData();
+          }
+        }, 350);
       };
 
-      const channel = supabase.channel(`production-${selectedCompanyId || userCompanyId || "own"}`);
-      ["production_orders", "production_order_inputs", "production_order_outputs", "stock", "stock_history"].forEach((table) => {
-        channel.on("postgres_changes", { event: "*", schema: "public", table }, scheduleReload);
-      });
-      channel.subscribe();
+      const subscriptionTables = [];
+      if (canAccessOrdersModule) {
+        subscriptionTables.push("production_orders", "production_order_inputs", "production_order_outputs", "stock", "stock_history");
+      }
+      if (canAccessMesModule) {
+        subscriptionTables.push("mes_workstations", "mes_machines", "mes_hmi_terminals", "mes_job_runs", "mes_job_run_events");
+      }
+
+      let channel = null;
+      if (subscriptionTables.length > 0) {
+        channel = supabase.channel(`manufacturing-${selectedCompanyId || userCompanyId || "own"}`);
+        Array.from(new Set(subscriptionTables)).forEach((table) => {
+          channel.on("postgres_changes", { event: "*", schema: "public", table }, scheduleReload);
+        });
+        channel.subscribe();
+      }
 
       return () => {
         if (reloadTimer) {
           window.clearTimeout(reloadTimer);
         }
-        supabase.removeChannel(channel);
+        if (channel) {
+          supabase.removeChannel(channel);
+        }
       };
     }
 
@@ -6947,7 +7132,7 @@ function App() {
       }
       supabase.removeChannel(channel);
     };
-  }, [selectedTable, isLoggedIn, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id, occupancyChartRange, effectiveMaxPositions, activeCompany?.tracks_expiry_date, canAccessOrdersModule]);
+  }, [selectedTable, isLoggedIn, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id, occupancyChartRange, effectiveMaxPositions, activeCompany?.tracks_expiry_date, canAccessOrdersModule, canAccessMesModule]);
 
   useEffect(() => {
     if (!authReady || !isLoggedIn) {
@@ -6986,7 +7171,12 @@ function App() {
 
     if (isProductionModule(selectedTable)) {
       const intervalId = window.setInterval(() => {
-        loadProductionModuleData();
+        if (canAccessOrdersModule) {
+          loadProductionModuleData();
+        }
+        if (canAccessMesModule) {
+          loadMesModuleData();
+        }
       }, AUTO_REFRESH_MS);
 
       return () => {
@@ -7001,7 +7191,7 @@ function App() {
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [isLoggedIn, selectedTable, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id, occupancyChartRange, effectiveMaxPositions, activeCompany?.tracks_expiry_date, canAccessOrdersModule]);
+  }, [isLoggedIn, selectedTable, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id, occupancyChartRange, effectiveMaxPositions, activeCompany?.tracks_expiry_date, canAccessOrdersModule, canAccessMesModule]);
 
   useEffect(() => {
     if (!authReady || !isLoggedIn) {
@@ -7134,6 +7324,7 @@ function App() {
     setCompanySettingsError("");
     setCompanyMaxPositionsInput(String(normalizeMaxPositions(activeCompany?.max_positions ?? ENV_DEFAULT_MAX_POSITIONS)));
     setCompanyTracksExpiryDateInput(Boolean(activeCompany?.tracks_expiry_date));
+    setCompanyMesEnabledInput(Boolean(activeCompany?.mes_enabled));
     setCompanyProfileNameInput(String(activeCompany?.name || ""));
     setCompanyProfileIcoInput(String(activeCompany?.ico || ""));
     setCompanyProfileDicInput(String(activeCompany?.dic || ""));
@@ -7149,6 +7340,7 @@ function App() {
     activeCompany?.name,
     activeCompany?.max_positions,
     activeCompany?.tracks_expiry_date,
+    activeCompany?.mes_enabled,
     activeCompany?.ico,
     activeCompany?.dic,
     activeCompany?.ic_dph,
@@ -7696,6 +7888,43 @@ function App() {
         .some((value) => String(value || "").toLowerCase().includes(normalized))
     );
   }, [productionOrders, productionSearchTerm]);
+  const mesOverviewSummary = useMemo(() => {
+    const onlineThresholdMs = 5 * 60 * 1000;
+    const now = Date.now();
+    return mesOverviewRows.reduce(
+      (acc, row) => {
+        const jobStatus = String(row.job_status || "").toLowerCase();
+        const machineState = String(row.machine_state || "").toLowerCase();
+        const terminalLastSeenMs = Date.parse(row.terminal_last_seen_at || "");
+        if (jobStatus === "running" || jobStatus === "in_progress" || machineState === "run" || machineState === "running") {
+          acc.runningCount += 1;
+        }
+        if (
+          row.current_downtime_reason ||
+          jobStatus === "paused" ||
+          jobStatus === "stopped" ||
+          machineState === "stop" ||
+          machineState === "stopped" ||
+          machineState === "error"
+        ) {
+          acc.downtimeCount += 1;
+        }
+        if (Number.isFinite(terminalLastSeenMs) && now - terminalLastSeenMs <= onlineThresholdMs) {
+          acc.onlineTerminals += 1;
+        }
+        acc.totalGood += Number(row.good_quantity || 0);
+        acc.totalScrap += Number(row.scrap_quantity || 0);
+        return acc;
+      },
+      {
+        runningCount: 0,
+        downtimeCount: 0,
+        onlineTerminals: 0,
+        totalGood: 0,
+        totalScrap: 0
+      }
+    );
+  }, [mesOverviewRows]);
   const sidebarSections = useMemo(() => {
     const workflowItems = [CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE, PRODUCTION_MODULE].filter((table) =>
       visibleTableNames.includes(table)
@@ -7983,6 +8212,7 @@ function App() {
     setUserRole("user");
     setUserCompanyId(null);
     setCanManageOrders(false);
+    setCanAccessMes(false);
     setSelectedCompanyId("all");
     setRows([]);
     setError("");
@@ -8303,6 +8533,7 @@ function App() {
           <div className="hero-badges">
             <span className="table-badge">{getTableLabel(selectedTable)}</span>
             {canAccessOrdersModule && <span className="table-badge">objednávky + výroba</span>}
+            {canAccessMesModule && <span className="table-badge">MES + HMI</span>}
             {selectedTable === "stock" && <span className="table-badge">sklad</span>}
           </div>
         </div>
@@ -8343,7 +8574,12 @@ function App() {
                   return;
                 }
                 if (isProductionModule(selectedTable)) {
-                  loadProductionModuleData();
+                  if (canAccessOrdersModule) {
+                    loadProductionModuleData();
+                  }
+                  if (canAccessMesModule) {
+                    loadMesModuleData();
+                  }
                   return;
                 }
                 loadRows(selectedTable);
@@ -8501,6 +8737,18 @@ function App() {
                     <span>Sledovať dátum spotreby pre túto firmu</span>
                   </label>
                 </label>
+                <label className="settings-field">
+                  <span>Manufacturing / MES</span>
+                  <label className="pricing-options">
+                    <input
+                      type="checkbox"
+                      checked={companyMesEnabledInput}
+                      onChange={(event) => setCompanyMesEnabledInput(event.target.checked)}
+                      disabled={!activeCompanyId || companySettingsSubmitting}
+                    />
+                    <span>Povoliť Manufacturing overview, MES a HMI pre túto firmu</span>
+                  </label>
+                </label>
                 <button type="submit" className="settings-btn" disabled={!activeCompanyId || companySettingsSubmitting}>
                   {companySettingsSubmitting ? "Ukladám..." : "Uložiť nastavenia firmy"}
                 </button>
@@ -8509,7 +8757,7 @@ function App() {
           </form>
           {companySettingsError && <p className="error">{companySettingsError}</p>}
           <p className="settings-hint">
-            Firemný profil sa uloží pre aktuálne vybranú firmu a vie sa použiť v ďalších workflow PDF výstupoch.
+            Firemný profil sa uloží pre aktuálne vybranú firmu. Tu zároveň zapínaš, či firma vôbec uvidí Manufacturing a MES.
           </p>
         </section>
       )}
@@ -9028,6 +9276,15 @@ function App() {
               />
               <span>Objednávky + výroba</span>
             </label>
+            <label className="pricing-options">
+              <input
+                type="checkbox"
+                checked={newUserRole === "master" ? true : newUserCanAccessMes}
+                onChange={(event) => setNewUserCanAccessMes(event.target.checked)}
+                disabled={newUserRole === "master"}
+              />
+              <span>MES / HMI</span>
+            </label>
             <button type="submit" className="settings-btn" disabled={createUserSubmitting}>
               {createUserSubmitting ? "Vytváram..." : "Vytvoriť účet"}
             </button>
@@ -9041,7 +9298,7 @@ function App() {
             >
               {createUserSubmitting ? "Vytváram..." : "Vytvoriť demo profil"}
             </button>
-            <span className="panel-meta">Demo profil sa vytvorí pre aktuálne vybranú firmu a dostane objednávky + výrobu.</span>
+            <span className="panel-meta">Demo profil sa vytvorí pre aktuálne vybranú firmu a dostane Manufacturing aj MES.</span>
           </div>
           {lastCreatedDemoCredentials && (
             <p className="settings-hint">
@@ -9196,6 +9453,7 @@ function App() {
                 <tr>
                   <th>Firma</th>
                   <th>Expirácia</th>
+                  <th>MES</th>
                   <th>ID</th>
                   <th>Vytvorená</th>
                   <th>Akcie</th>
@@ -9232,6 +9490,13 @@ function App() {
                           <span className="table-badge table-badge-master">áno</span>
                         ) : (
                           <span className="master-user-email">nie</span>
+                        )}
+                      </td>
+                      <td>
+                        {company.mes_enabled ? (
+                          <span className="table-badge table-badge-master">zapnuté</span>
+                        ) : (
+                          <span className="master-user-email">vypnuté</span>
                         )}
                       </td>
                       <td className="master-user-email">{company.id}</td>
@@ -9302,6 +9567,7 @@ function App() {
                   <th>Rola</th>
                   <th>Firma</th>
                   <th>Objednávky + výroba</th>
+                  <th>MES / HMI</th>
                   <th>Supabase</th>
                   <th>Vytvorené</th>
                   <th>Akcie</th>
@@ -9344,6 +9610,20 @@ function App() {
                             onChange={(event) => handleManagedOrderAccessChange(row, event.target.checked)}
                           />
                           <span>{row.can_manage_orders ? "povolené" : "zakázané"}</span>
+                        </label>
+                      )}
+                    </td>
+                    <td>
+                      {row.role === "master" ? (
+                        <span className="table-badge table-badge-master">áno</span>
+                      ) : (
+                        <label className="pricing-options">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(row.can_access_mes)}
+                            onChange={(event) => handleManagedMesAccessChange(row, event.target.checked)}
+                          />
+                          <span>{row.can_access_mes ? "povolené" : "zakázané"}</span>
                         </label>
                       )}
                     </td>
@@ -10848,64 +11128,167 @@ function App() {
         </section>
       )}
 
-      {isProductionModule(selectedTable) && canAccessOrdersModule && (
+      {isProductionModule(selectedTable) && canAccessManufacturingModule && (
         <section className="panel workflow-shell workflow-shell-production">
           <div className="panel-head workflow-header">
             <div>
-              <p className="workflow-eyebrow">Interný workflow</p>
-              <h2>Výrobné objednávky</h2>
+              <p className="workflow-eyebrow">Manufacturing</p>
+              <h2>Výroba, MES a factory overview</h2>
               <p className="panel-meta">
                 {activeCompanyId
-                  ? `Interná výroba pre firmu ${currentCompanyLabel}`
-                  : "Vyber konkrétnu firmu, aby sa dali vytvárať výrobné objednávky."}
+                  ? `Manufacturing panel pre firmu ${currentCompanyLabel}`
+                  : "Vyber konkrétnu firmu, aby sa dal zobraziť Manufacturing overview."}
               </p>
             </div>
           </div>
 
+          {mesError && <p className="error">{mesError}</p>}
           {productionError && <p className="error">{productionError}</p>}
 
-          <div className="orders-summary-grid workflow-summary-grid">
-            <article className="card workflow-stat-card">
-              <p>Výrobné zákazky</p>
-              <strong>{new Intl.NumberFormat("sk-SK").format(productionOrders.length)}</strong>
-            </article>
-            <article className="card workflow-stat-card">
-              <p>Vstupy</p>
-              <strong>{new Intl.NumberFormat("sk-SK").format(productionOrderInputs.length)}</strong>
-            </article>
-            <article className="card workflow-stat-card">
-              <p>Výstupy</p>
-              <strong>{new Intl.NumberFormat("sk-SK").format(productionOrderOutputs.length)}</strong>
-            </article>
-            <article className="card workflow-stat-card">
-              <p>Skladové pozície</p>
-              <strong>{new Intl.NumberFormat("sk-SK").format(productionStockRows.length)}</strong>
-            </article>
-          </div>
+          {canAccessMesModule && (
+            <>
+              <div className="orders-summary-grid workflow-summary-grid">
+                <article className="card workflow-stat-card">
+                  <p>Pracoviská</p>
+                  <strong>{new Intl.NumberFormat("sk-SK").format(mesOverviewRows.length)}</strong>
+                </article>
+                <article className="card workflow-stat-card">
+                  <p>V behu</p>
+                  <strong>{new Intl.NumberFormat("sk-SK").format(mesOverviewSummary.runningCount)}</strong>
+                </article>
+                <article className="card workflow-stat-card">
+                  <p>Prestoje / stop</p>
+                  <strong>{new Intl.NumberFormat("sk-SK").format(mesOverviewSummary.downtimeCount)}</strong>
+                </article>
+                <article className="card workflow-stat-card">
+                  <p>Online HMI</p>
+                  <strong>{new Intl.NumberFormat("sk-SK").format(mesOverviewSummary.onlineTerminals)}</strong>
+                </article>
+              </div>
 
-          <div className="orders-layout workflow-grid">
-            <div className="orders-column workflow-editor-column">
-              <article className="orders-panel-card workflow-card workflow-card-strong">
+              <article className="orders-panel-card workflow-card workflow-card-list">
                 <div className="panel-head workflow-section-head">
                   <div>
-                    <p className="workflow-section-kicker">Nová výroba</p>
-                    <h2>Nová výrobná objednávka</h2>
-                    <p className="panel-meta">Vstupy sa odpíšu až pri naskladnení výstupu.</p>
+                    <p className="workflow-section-kicker">MES Overview</p>
+                    <h2>Factory overview</h2>
+                    <p className="panel-meta">Živý prehľad pracovísk, strojov, zákaziek a HMI terminálov.</p>
                   </div>
                 </div>
-                <form className="orders-form" onSubmit={handleCreateProductionOrder}>
-                  <label className="workflow-field">
-                    <span className="workflow-field-label">Názov výroby alebo zákazky</span>
-                    <input
-                      type="text"
-                      className="search-input"
-                      placeholder="Napíš, čo sa ide vyrábať"
-                      value={productionTitleInput}
-                      onChange={(event) => setProductionTitleInput(event.target.value)}
-                      disabled={!activeCompanyId || productionSubmitting}
-                      required
-                    />
-                  </label>
+                {!activeCompanyId && isMaster ? (
+                  <p className="hint">Vyber konkrétnu firmu v hornom filtri, aby sa zobrazil Manufacturing overview.</p>
+                ) : mesLoading ? (
+                  <p className="hint">Načítavam MES overview...</p>
+                ) : mesOverviewRows.length === 0 ? (
+                  <p className="hint">Pre túto firmu zatiaľ nie sú založené pracoviská alebo job runy.</p>
+                ) : (
+                  <>
+                    <div className="orders-summary-grid workflow-summary-grid">
+                      <article className="card workflow-stat-card">
+                        <p>OK kusy</p>
+                        <strong>{new Intl.NumberFormat("sk-SK").format(mesOverviewSummary.totalGood)}</strong>
+                      </article>
+                      <article className="card workflow-stat-card">
+                        <p>NOK kusy</p>
+                        <strong>{new Intl.NumberFormat("sk-SK").format(mesOverviewSummary.totalScrap)}</strong>
+                      </article>
+                    </div>
+                    <div className="table-wrap">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Pracovisko</th>
+                            <th>Stroj</th>
+                            <th>Stav</th>
+                            <th>Zákazka</th>
+                            <th>Operátor</th>
+                            <th>OK / NOK</th>
+                            <th>Prestoj</th>
+                            <th>HMI</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {mesOverviewRows.map((row) => {
+                            const terminalSeenMs = Date.parse(row.terminal_last_seen_at || "");
+                            const isTerminalOnline = Number.isFinite(terminalSeenMs) && Date.now() - terminalSeenMs <= 5 * 60 * 1000;
+                            const statusLabel = row.job_status || row.machine_state || "idle";
+                            return (
+                              <tr key={row.workstation_id}>
+                                <td>
+                                  <strong>{row.workstation_name || row.workstation_code || "-"}</strong>
+                                  <div className="master-user-email">{row.workstation_area || row.workstation_code || "-"}</div>
+                                </td>
+                                <td>
+                                  <div>{row.machine_name || "-"}</div>
+                                  <div className="master-user-email">{row.machine_state || "-"}</div>
+                                </td>
+                                <td>{statusLabel}</td>
+                                <td>
+                                  <div>{row.job_number || "-"}</div>
+                                  <div className="master-user-email">{row.production_order_id || "-"}</div>
+                                </td>
+                                <td>{row.operator_name || "-"}</td>
+                                <td>{`${new Intl.NumberFormat("sk-SK").format(row.good_quantity)} / ${new Intl.NumberFormat("sk-SK").format(row.scrap_quantity)}`}</td>
+                                <td>{row.current_downtime_reason || "-"}</td>
+                                <td>
+                                  <div>{row.terminal_name || row.terminal_code || "-"}</div>
+                                  <div className="master-user-email">{isTerminalOnline ? "online" : "offline"}</div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+              </article>
+            </>
+          )}
+
+          {canAccessOrdersModule && (
+            <>
+              <div className="orders-summary-grid workflow-summary-grid">
+                <article className="card workflow-stat-card">
+                  <p>Výrobné zákazky</p>
+                  <strong>{new Intl.NumberFormat("sk-SK").format(productionOrders.length)}</strong>
+                </article>
+                <article className="card workflow-stat-card">
+                  <p>Vstupy</p>
+                  <strong>{new Intl.NumberFormat("sk-SK").format(productionOrderInputs.length)}</strong>
+                </article>
+                <article className="card workflow-stat-card">
+                  <p>Výstupy</p>
+                  <strong>{new Intl.NumberFormat("sk-SK").format(productionOrderOutputs.length)}</strong>
+                </article>
+                <article className="card workflow-stat-card">
+                  <p>Skladové pozície</p>
+                  <strong>{new Intl.NumberFormat("sk-SK").format(productionStockRows.length)}</strong>
+                </article>
+              </div>
+
+              <div className="orders-layout workflow-grid">
+                <div className="orders-column workflow-editor-column">
+                  <article className="orders-panel-card workflow-card workflow-card-strong">
+                    <div className="panel-head workflow-section-head">
+                      <div>
+                        <p className="workflow-section-kicker">Nová výroba</p>
+                        <h2>Nová výrobná objednávka</h2>
+                        <p className="panel-meta">Vstupy sa odpíšu až pri naskladnení výstupu.</p>
+                      </div>
+                    </div>
+                    <form className="orders-form" onSubmit={handleCreateProductionOrder}>
+                      <label className="workflow-field">
+                        <span className="workflow-field-label">Názov výroby alebo zákazky</span>
+                        <input
+                          type="text"
+                          className="search-input"
+                          placeholder="Napíš, čo sa ide vyrábať"
+                          value={productionTitleInput}
+                          onChange={(event) => setProductionTitleInput(event.target.value)}
+                          disabled={!activeCompanyId || productionSubmitting}
+                          required
+                        />
+                      </label>
 
                   <div className="workflow-form-section">
                     <div className="panel-head workflow-section-head workflow-subsection-head">
@@ -11092,132 +11475,130 @@ function App() {
               </article>
             </div>
 
-            <div className="orders-column orders-column-list workflow-feed-column">
-              <article className="orders-panel-card workflow-card workflow-card-list">
-                <div className="panel-head workflow-section-head">
-                  <div>
-                    <h2>Zoznam výrobných objednávok</h2>
-                    <p className="panel-meta">{`${filteredProductionOrders.length} / ${productionOrders.length} zákaziek`}</p>
-                  </div>
-                </div>
-                <div className="panel-controls">
-                  <input
-                    type="search"
-                    className="search-input"
-                    placeholder="Hľadaj číslo, názov alebo stav"
-                    value={productionSearchTerm}
-                    onChange={(event) => setProductionSearchTerm(event.target.value)}
-                  />
-                </div>
+                <div className="orders-column orders-column-list workflow-feed-column">
+                  <article className="orders-panel-card workflow-card workflow-card-list">
+                    <div className="panel-head workflow-section-head">
+                      <div>
+                        <h2>Zoznam výrobných objednávok</h2>
+                        <p className="panel-meta">{`${filteredProductionOrders.length} / ${productionOrders.length} zákaziek`}</p>
+                      </div>
+                    </div>
+                    <div className="panel-controls">
+                      <input
+                        type="search"
+                        className="search-input"
+                        placeholder="Hľadaj číslo, názov alebo stav"
+                        value={productionSearchTerm}
+                        onChange={(event) => setProductionSearchTerm(event.target.value)}
+                      />
+                    </div>
 
-                {productionLoading ? (
-                  <p className="hint">Načítavam výrobné objednávky...</p>
-                ) : filteredProductionOrders.length === 0 ? (
-                  <p className="hint">Zatiaľ tu nie sú výrobné objednávky.</p>
-                ) : (
-                  <div className="orders-list">
-                    {filteredProductionOrders.map((productionOrder) => {
-                      const isOpen = Boolean(expandedProductionOrders[productionOrder.id]);
-                      const inputs = productionInputsByOrderId[productionOrder.id] || [];
-                      const outputs = productionOutputsByOrderId[productionOrder.id] || [];
-                      return (
-                        <article key={productionOrder.id} className="order-card">
-                          <button
-                            type="button"
-                            className="order-card-head"
-                            onClick={() =>
-                              setExpandedProductionOrders((prev) => ({ ...prev, [productionOrder.id]: !prev[productionOrder.id] }))
-                            }
-                          >
-                            <div>
-                              <strong>{productionOrder.title}</strong>
-                              <p>{productionOrder.production_number}</p>
-                            </div>
-                            <div className="order-card-meta">
-                              <span className="order-card-badge">{formatDate(productionOrder.created_at)}</span>
-                              <span className="order-card-badge">{`${inputs.length} vstupov / ${outputs.length} výstupov`}</span>
-                            </div>
-                            </button>
-                          {isOpen && (
-                            <div className="order-card-body">
-                              <div className="order-card-actions">
-                                <button
-                                  type="button"
-                                  className="clear-btn"
-                                  onClick={() => handlePrintProductionOrder(productionOrder)}
-                                >
-                                  PDF
-                                </button>
-                                <StatusPill status={String(productionOrder.status || "draft")} />
-                                {productionOrder.status !== "completed" && (
-                                  <button
-                                    type="button"
-                                    className="settings-btn"
-                                    onClick={() => handleCompleteProductionOrder(productionOrder)}
-                                    disabled={productionCompletingId === productionOrder.id}
-                                  >
-                                     {productionCompletingId === productionOrder.id ? "Naskladňujem..." : "Naskladniť a dokončiť"}
-                                  </button>
-                                )}
-                              </div>
-                              <div className="table-wrap">
-                                <table>
-                                  <thead>
-                                    <tr>
-                                      <th colSpan={4}>Vstupy zo skladu</th>
-                                    </tr>
-                                    <tr>
-                                      <th>Materiál</th>
-                                      <th>Pozícia</th>
-                                      <th>Množstvo</th>
-                                      <th>Poznámka</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {inputs.map((item) => (
-                                      <tr key={item.id}>
-                                        <td>{item.material_code}</td>
-                                        <td>{item.position}</td>
-                                        <td>{formatCell(item.required_quantity, "number")}</td>
-                                        <td>{item.line_note || "-"}</td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
-                              <div className="table-wrap">
-                                <table>
-                                  <thead>
-                                    <tr>
-                                      <th colSpan={3}>Výstupy výroby</th>
-                                    </tr>
-                                    <tr>
-                                      <th>Materiál</th>
-                                      <th>Množstvo</th>
-                                      <th>Poznámka</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {outputs.map((item) => (
-                                      <tr key={item.id}>
-                                        <td>{item.material_code}</td>
-                                        <td>{formatCell(item.output_quantity, "number")}</td>
-                                        <td>{item.line_note || "-"}</td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
-                            </div>
-                          )}
-                        </article>
-                      );
-                    })}
-                  </div>
-                )}
-              </article>
-            </div>
-          </div>
+                    {productionLoading ? (
+                      <p className="hint">Načítavam výrobné objednávky...</p>
+                    ) : filteredProductionOrders.length === 0 ? (
+                      <p className="hint">Zatiaľ tu nie sú výrobné objednávky.</p>
+                    ) : (
+                      <div className="orders-list">
+                        {filteredProductionOrders.map((productionOrder) => {
+                          const isOpen = Boolean(expandedProductionOrders[productionOrder.id]);
+                          const inputs = productionInputsByOrderId[productionOrder.id] || [];
+                          const outputs = productionOutputsByOrderId[productionOrder.id] || [];
+                          return (
+                            <article key={productionOrder.id} className="order-card">
+                              <button
+                                type="button"
+                                className="order-card-head"
+                                onClick={() =>
+                                  setExpandedProductionOrders((prev) => ({ ...prev, [productionOrder.id]: !prev[productionOrder.id] }))
+                                }
+                              >
+                                <div>
+                                  <strong>{productionOrder.title}</strong>
+                                  <p>{productionOrder.production_number}</p>
+                                </div>
+                                <div className="order-card-meta">
+                                  <span className="order-card-badge">{formatDate(productionOrder.created_at)}</span>
+                                  <span className="order-card-badge">{`${inputs.length} vstupov / ${outputs.length} výstupov`}</span>
+                                </div>
+                              </button>
+                              {isOpen && (
+                                <div className="order-card-body">
+                                  <div className="order-card-actions">
+                                    <button type="button" className="clear-btn" onClick={() => handlePrintProductionOrder(productionOrder)}>
+                                      PDF
+                                    </button>
+                                    <StatusPill status={String(productionOrder.status || "draft")} />
+                                    {productionOrder.status !== "completed" && (
+                                      <button
+                                        type="button"
+                                        className="settings-btn"
+                                        onClick={() => handleCompleteProductionOrder(productionOrder)}
+                                        disabled={productionCompletingId === productionOrder.id}
+                                      >
+                                        {productionCompletingId === productionOrder.id ? "Naskladňujem..." : "Naskladniť a dokončiť"}
+                                      </button>
+                                    )}
+                                  </div>
+                                  <div className="table-wrap">
+                                    <table>
+                                      <thead>
+                                        <tr>
+                                          <th colSpan={4}>Vstupy zo skladu</th>
+                                        </tr>
+                                        <tr>
+                                          <th>Materiál</th>
+                                          <th>Pozícia</th>
+                                          <th>Množstvo</th>
+                                          <th>Poznámka</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {inputs.map((item) => (
+                                          <tr key={item.id}>
+                                            <td>{item.material_code}</td>
+                                            <td>{item.position}</td>
+                                            <td>{formatCell(item.required_quantity, "number")}</td>
+                                            <td>{item.line_note || "-"}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                  <div className="table-wrap">
+                                    <table>
+                                      <thead>
+                                        <tr>
+                                          <th colSpan={3}>Výstupy výroby</th>
+                                        </tr>
+                                        <tr>
+                                          <th>Materiál</th>
+                                          <th>Množstvo</th>
+                                          <th>Poznámka</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {outputs.map((item) => (
+                                          <tr key={item.id}>
+                                            <td>{item.material_code}</td>
+                                            <td>{formatCell(item.output_quantity, "number")}</td>
+                                            <td>{item.line_note || "-"}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </div>
+                              )}
+                            </article>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </article>
+                </div>
+              </div>
+            </>
+          )}
         </section>
       )}
 

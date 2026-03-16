@@ -141,8 +141,8 @@ const TABLE_CONFIG = {
     metricValue: (rows) => rows.length
   },
   [PRODUCTION_MODULE]: {
-    title: "Manufacturing",
-    subtitle: "Výrobné objednávky, MES overview a pracoviská v jednej obrazovke",
+    title: "MES",
+    subtitle: "Dashboard výroby, strojov, efektivity, kvality a prestojov",
     columns: [],
     searchKeys: [],
     statusKeys: [],
@@ -176,6 +176,7 @@ const MIN_MANAGED_PASSWORD_LENGTH = 8;
 const ENV_DEFAULT_DEAD_STOCK_DAYS = Math.max(1, Number(import.meta.env.VITE_DEAD_STOCK_DAYS || 30));
 const ENV_DEFAULT_MAX_POSITIONS = Math.max(1, Number(import.meta.env.VITE_MAX_POSITIONS || 100));
 const HISTORY_ANALYTICS_LOOKBACK_DAYS = Math.max(30, Number(import.meta.env.VITE_HISTORY_LOOKBACK_DAYS || 365));
+const MES_ANALYTICS_LOOKBACK_DAYS = Math.max(7, Number(import.meta.env.VITE_MES_LOOKBACK_DAYS || 30));
 const AUTO_REFRESH_MS = Math.max(60 * 1000, Number(import.meta.env.VITE_AUTO_REFRESH_MS || 5 * 60 * 1000));
 const DAY_MS = 24 * 60 * 60 * 1000;
 const AUTH_INIT_TIMEOUT_MS = 15000;
@@ -348,7 +349,7 @@ function getTableLabel(table) {
     return "Objednávky";
   }
   if (isProductionModule(table)) {
-    return "Manufacturing";
+    return "MES";
   }
   if (isDailyOverviewTable(table)) {
     return "Denný prehľad";
@@ -2459,6 +2460,28 @@ function normalizeMesOverviewRow(row) {
   };
 }
 
+function normalizeMesJobRunRow(row) {
+  if (!row || typeof row !== "object") {
+    return row;
+  }
+  return {
+    ...row,
+    planned_quantity: Number(row.planned_quantity || 0),
+    good_quantity: Number(row.good_quantity || 0),
+    scrap_quantity: Number(row.scrap_quantity || 0)
+  };
+}
+
+function normalizeMesEventRow(row) {
+  if (!row || typeof row !== "object") {
+    return row;
+  }
+  return {
+    ...row,
+    payload: row.payload && typeof row.payload === "object" ? row.payload : {}
+  };
+}
+
 function pickValue(row, keys) {
   for (const key of keys) {
     if (row[key] !== undefined && row[key] !== null && row[key] !== "") {
@@ -2502,6 +2525,19 @@ function formatPercentValue(value, maximumFractionDigits = 1) {
     minimumFractionDigits: 0,
     maximumFractionDigits
   }).format(Number(value))} %`;
+}
+
+function formatDurationShort(valueMs) {
+  if (!Number.isFinite(valueMs) || valueMs === null) {
+    return "-";
+  }
+  const totalMinutes = Math.max(0, Math.round(Number(valueMs) / (60 * 1000)));
+  if (totalMinutes < 60) {
+    return `${totalMinutes} min`;
+  }
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return minutes > 0 ? `${hours} h ${minutes} min` : `${hours} h`;
 }
 
 function buildPriceListComputedRow(row) {
@@ -3065,6 +3101,9 @@ function App() {
   const [productionCompletingId, setProductionCompletingId] = useState("");
   const [expandedProductionOrders, setExpandedProductionOrders] = useState({});
   const [mesOverviewRows, setMesOverviewRows] = useState([]);
+  const [mesRecentJobRuns, setMesRecentJobRuns] = useState([]);
+  const [mesRecentEventRows, setMesRecentEventRows] = useState([]);
+  const [mesDowntimeReasons, setMesDowntimeReasons] = useState([]);
   const [mesLoading, setMesLoading] = useState(false);
   const [mesError, setMesError] = useState("");
   const latestLoadRowsRequestRef = useRef(0);
@@ -5123,6 +5162,9 @@ function App() {
   const loadMesModuleData = async () => {
     if (!authReady || !isLoggedIn || !canAccessMesModule) {
       setMesOverviewRows([]);
+      setMesRecentJobRuns([]);
+      setMesRecentEventRows([]);
+      setMesDowntimeReasons([]);
       setMesLoading(false);
       setMesError("");
       return;
@@ -5131,6 +5173,9 @@ function App() {
     const scopedCompanyId = activeCompanyId || userCompanyId || null;
     if (!scopedCompanyId) {
       setMesOverviewRows([]);
+      setMesRecentJobRuns([]);
+      setMesRecentEventRows([]);
+      setMesDowntimeReasons([]);
       setMesLoading(false);
       setMesError("");
       return;
@@ -5142,12 +5187,54 @@ function App() {
     setMesError("");
 
     try {
-      const { data, error: overviewError } = await supabase.rpc("mes_factory_overview", {
-        p_company_id: scopedCompanyId
-      });
+      const sinceIso = new Date(Date.now() - MES_ANALYTICS_LOOKBACK_DAYS * DAY_MS).toISOString();
+      const [overviewResult, jobRunsResult, downtimeReasonsResult] = await Promise.all([
+        supabase.rpc("mes_factory_overview", {
+          p_company_id: scopedCompanyId
+        }),
+        supabase
+          .from("mes_job_runs")
+          .select("id,workstation_id,machine_id,job_number,status,planned_quantity,good_quantity,scrap_quantity,started_at,ended_at,created_at,updated_at")
+          .eq("company_id", scopedCompanyId)
+          .gte("created_at", sinceIso)
+          .order("created_at", { ascending: false })
+          .limit(250),
+        supabase
+          .from("mes_downtime_reasons")
+          .select("id,name,code")
+          .eq("company_id", scopedCompanyId)
+          .order("sort_order", { ascending: true })
+      ]);
+
+      const { data, error: overviewError } = overviewResult;
+      const { data: jobRunsData, error: jobRunsError } = jobRunsResult;
+      const { data: downtimeReasonsData, error: downtimeReasonsError } = downtimeReasonsResult;
 
       if (overviewError) {
         throw overviewError;
+      }
+      if (jobRunsError) {
+        throw jobRunsError;
+      }
+      if (downtimeReasonsError) {
+        throw downtimeReasonsError;
+      }
+
+      const jobRunIds = (jobRunsData || []).map((row) => row.id).filter(Boolean);
+      let eventRows = [];
+      if (jobRunIds.length > 0) {
+        const { data: eventData, error: eventError } = await supabase
+          .from("mes_job_run_events")
+          .select("id,job_run_id,workstation_id,machine_id,downtime_reason_id,event_type,payload,happened_at,created_at")
+          .in("job_run_id", jobRunIds)
+          .gte("happened_at", sinceIso)
+          .order("happened_at", { ascending: false })
+          .limit(1000);
+
+        if (eventError) {
+          throw eventError;
+        }
+        eventRows = eventData || [];
       }
 
       if (latestMesOverviewRequestRef.current !== requestId) {
@@ -5155,12 +5242,18 @@ function App() {
       }
 
       setMesOverviewRows((data || []).map((row) => normalizeMesOverviewRow(row)));
+      setMesRecentJobRuns((jobRunsData || []).map((row) => normalizeMesJobRunRow(row)));
+      setMesRecentEventRows(eventRows.map((row) => normalizeMesEventRow(row)));
+      setMesDowntimeReasons(downtimeReasonsData || []);
     } catch (loadMesError) {
       if (latestMesOverviewRequestRef.current !== requestId) {
         return;
       }
       setMesError(loadMesError?.message || "Nepodarilo sa načítať MES overview.");
       setMesOverviewRows([]);
+      setMesRecentJobRuns([]);
+      setMesRecentEventRows([]);
+      setMesDowntimeReasons([]);
     } finally {
       if (latestMesOverviewRequestRef.current === requestId) {
         setMesLoading(false);
@@ -7891,11 +7984,14 @@ function App() {
   const mesOverviewSummary = useMemo(() => {
     const onlineThresholdMs = 5 * 60 * 1000;
     const now = Date.now();
-    return mesOverviewRows.reduce(
+    const summary = mesOverviewRows.reduce(
       (acc, row) => {
         const jobStatus = String(row.job_status || "").toLowerCase();
         const machineState = String(row.machine_state || "").toLowerCase();
         const terminalLastSeenMs = Date.parse(row.terminal_last_seen_at || "");
+        if (row.machine_id) {
+          acc.machineIds.add(row.machine_id);
+        }
         if (jobStatus === "running" || jobStatus === "in_progress" || machineState === "run" || machineState === "running") {
           acc.runningCount += 1;
         }
@@ -7914,22 +8010,201 @@ function App() {
         }
         acc.totalGood += Number(row.good_quantity || 0);
         acc.totalScrap += Number(row.scrap_quantity || 0);
+        acc.totalPlanned += Number(row.planned_quantity || 0);
         return acc;
       },
       {
+        machineIds: new Set(),
         runningCount: 0,
         downtimeCount: 0,
         onlineTerminals: 0,
         totalGood: 0,
-        totalScrap: 0
+        totalScrap: 0,
+        totalPlanned: 0
       }
     );
+    const totalProduced = summary.totalGood + summary.totalScrap;
+    const machineCount = summary.machineIds.size;
+    const availabilityPct = machineCount > 0 ? (summary.runningCount / machineCount) * 100 : 0;
+    const qualityPct = totalProduced > 0 ? (summary.totalGood / totalProduced) * 100 : 0;
+    const performancePct = summary.totalPlanned > 0 ? (summary.totalGood / summary.totalPlanned) * 100 : 0;
+    return {
+      ...summary,
+      machineCount,
+      availabilityPct,
+      qualityPct,
+      performancePct
+    };
   }, [mesOverviewRows]);
+  const mesAnalytics = useMemo(() => {
+    const machineNameById = Object.fromEntries(
+      mesOverviewRows
+        .filter((row) => row.machine_id)
+        .map((row) => [row.machine_id, row.machine_name || row.machine_code || row.workstation_name || row.machine_id])
+    );
+    const downtimeReasonById = Object.fromEntries((mesDowntimeReasons || []).map((row) => [row.id, row.name || row.code || row.id]));
+    const machineStatsMap = new Map();
+    const ensureMachineStats = (machineId, fallbackLabel = "-") => {
+      const key = machineId || `unknown-${fallbackLabel}`;
+      if (!machineStatsMap.has(key)) {
+        machineStatsMap.set(key, {
+          machineId: machineId || "",
+          machineName: machineNameById[machineId] || fallbackLabel || "-",
+          jobs: 0,
+          planned: 0,
+          good: 0,
+          scrap: 0,
+          downtimeEvents: 0,
+          latestAt: "",
+          mtbfSamples: [],
+          mttrSamples: []
+        });
+      }
+      return machineStatsMap.get(key);
+    };
+
+    mesRecentJobRuns.forEach((row) => {
+      const machine = ensureMachineStats(row.machine_id, row.job_number || "Bez stroja");
+      machine.jobs += 1;
+      machine.planned += Number(row.planned_quantity || 0);
+      machine.good += Number(row.good_quantity || 0);
+      machine.scrap += Number(row.scrap_quantity || 0);
+      const latestTs = row.ended_at || row.updated_at || row.created_at || "";
+      if (latestTs && (!machine.latestAt || latestTs > machine.latestAt)) {
+        machine.latestAt = latestTs;
+      }
+    });
+
+    const eventsByMachine = new Map();
+    mesRecentEventRows.forEach((row) => {
+      const machineKey = row.machine_id || row.workstation_id || "";
+      if (!eventsByMachine.has(machineKey)) {
+        eventsByMachine.set(machineKey, []);
+      }
+      eventsByMachine.get(machineKey).push(row);
+    });
+
+    const downtimeReasonStats = new Map();
+    mesRecentEventRows.forEach((row) => {
+      if (row.event_type !== "downtime_start") {
+        return;
+      }
+      const reasonLabel = downtimeReasonById[row.downtime_reason_id] || "Nezadaný dôvod";
+      const current = downtimeReasonStats.get(reasonLabel) || { reason: reasonLabel, count: 0, latestAt: "" };
+      current.count += 1;
+      if (!current.latestAt || String(row.happened_at || "") > current.latestAt) {
+        current.latestAt = String(row.happened_at || "");
+      }
+      downtimeReasonStats.set(reasonLabel, current);
+    });
+
+    eventsByMachine.forEach((machineEvents, machineKey) => {
+      const ordered = [...machineEvents].sort((a, b) => new Date(a.happened_at).getTime() - new Date(b.happened_at).getTime());
+      const machine = ensureMachineStats(machineKey, machineKey || "Bez stroja");
+      let lastRecoveryAt = null;
+      let activeFailureAt = null;
+      ordered.forEach((event) => {
+        const happenedMs = new Date(event.happened_at).getTime();
+        if (!Number.isFinite(happenedMs)) {
+          return;
+        }
+        if (event.event_type === "downtime_start" || event.event_type === "pause" || event.event_type === "stop") {
+          machine.downtimeEvents += 1;
+          if (activeFailureAt === null) {
+            if (lastRecoveryAt !== null) {
+              machine.mtbfSamples.push(Math.max(0, happenedMs - lastRecoveryAt));
+            }
+            activeFailureAt = happenedMs;
+          }
+          return;
+        }
+        if (event.event_type === "downtime_end" || event.event_type === "resume" || event.event_type === "start") {
+          if (activeFailureAt !== null) {
+            machine.mttrSamples.push(Math.max(0, happenedMs - activeFailureAt));
+            activeFailureAt = null;
+          }
+          lastRecoveryAt = happenedMs;
+        }
+      });
+    });
+
+    const topMachines = Array.from(machineStatsMap.values())
+      .map((row) => {
+        const produced = row.good + row.scrap;
+        const qualityPct = produced > 0 ? (row.good / produced) * 100 : 0;
+        const performancePct = row.planned > 0 ? (row.good / row.planned) * 100 : 0;
+        const mtbfMs =
+          row.mtbfSamples.length > 0 ? row.mtbfSamples.reduce((sum, value) => sum + value, 0) / row.mtbfSamples.length : null;
+        const mttrMs =
+          row.mttrSamples.length > 0 ? row.mttrSamples.reduce((sum, value) => sum + value, 0) / row.mttrSamples.length : null;
+        return {
+          ...row,
+          qualityPct,
+          performancePct,
+          mtbfMs,
+          mttrMs
+        };
+      })
+      .sort((a, b) => b.good - a.good || a.downtimeEvents - b.downtimeEvents)
+      .slice(0, 8);
+
+    const totalMtbfSamples = topMachines.flatMap((row) => row.mtbfMs || row.mtbfMs === 0 ? [row.mtbfMs] : []);
+    const totalMttrSamples = topMachines.flatMap((row) => row.mttrMs || row.mttrMs === 0 ? [row.mttrMs] : []);
+    const avgMtbfMs = totalMtbfSamples.length > 0 ? totalMtbfSamples.reduce((sum, value) => sum + value, 0) / totalMtbfSamples.length : null;
+    const avgMttrMs = totalMttrSamples.length > 0 ? totalMttrSamples.reduce((sum, value) => sum + value, 0) / totalMttrSamples.length : null;
+    const availabilityPct = mesOverviewSummary.availabilityPct;
+    const performancePct = mesOverviewSummary.performancePct;
+    const qualityPct = mesOverviewSummary.qualityPct;
+    const oeePct = (availabilityPct * performancePct * qualityPct) / 10000;
+
+    const trendDays = Array.from({ length: 7 }, (_, index) => {
+      const date = new Date();
+      date.setHours(0, 0, 0, 0);
+      date.setDate(date.getDate() - (6 - index));
+      const key = date.toISOString().slice(0, 10);
+      return {
+        key,
+        label: date.toLocaleDateString("sk-SK", { day: "2-digit", month: "2-digit" }),
+        good: 0,
+        scrap: 0,
+        downtime: 0
+      };
+    });
+    const trendByKey = Object.fromEntries(trendDays.map((row) => [row.key, row]));
+    mesRecentJobRuns.forEach((row) => {
+      const dayKey = String(row.ended_at || row.updated_at || row.created_at || "").slice(0, 10);
+      if (!trendByKey[dayKey]) {
+        return;
+      }
+      trendByKey[dayKey].good += Number(row.good_quantity || 0);
+      trendByKey[dayKey].scrap += Number(row.scrap_quantity || 0);
+    });
+    mesRecentEventRows.forEach((row) => {
+      if (row.event_type !== "downtime_start") {
+        return;
+      }
+      const dayKey = String(row.happened_at || "").slice(0, 10);
+      if (!trendByKey[dayKey]) {
+        return;
+      }
+      trendByKey[dayKey].downtime += 1;
+    });
+
+    return {
+      oeePct,
+      avgMtbfMs,
+      avgMttrMs,
+      topMachines,
+      downtimeReasons: Array.from(downtimeReasonStats.values()).sort((a, b) => b.count - a.count).slice(0, 6),
+      trendDays
+    };
+  }, [mesRecentJobRuns, mesRecentEventRows, mesDowntimeReasons, mesOverviewRows, mesOverviewSummary]);
   const sidebarSections = useMemo(() => {
-    const workflowItems = [CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE, PRODUCTION_MODULE].filter((table) =>
+    const manufacturingItems = [PRODUCTION_MODULE].filter((table) => visibleTableNames.includes(table));
+    const workflowItems = [CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE].filter((table) =>
       visibleTableNames.includes(table)
     );
-    const monitoringItems = visibleTableNames.filter((table) => !workflowItems.includes(table));
+    const monitoringItems = visibleTableNames.filter((table) => !workflowItems.includes(table) && !manufacturingItems.includes(table));
     const sections = [
       {
         title: isMaster ? "Dáta" : "Monitoring",
@@ -7941,6 +8216,13 @@ function App() {
       sections.push({
         title: "Workflow",
         items: workflowItems
+      });
+    }
+
+    if (manufacturingItems.length > 0) {
+      sections.push({
+        title: "Manufacturing",
+        items: manufacturingItems
       });
     }
 
@@ -11133,11 +11415,11 @@ function App() {
           <div className="panel-head workflow-header">
             <div>
               <p className="workflow-eyebrow">Manufacturing</p>
-              <h2>Výroba, MES a factory overview</h2>
+              <h2>MES dashboard</h2>
               <p className="panel-meta">
                 {activeCompanyId
-                  ? `Manufacturing panel pre firmu ${currentCompanyLabel}`
-                  : "Vyber konkrétnu firmu, aby sa dal zobraziť Manufacturing overview."}
+                  ? `Prehľad strojov, efektivity, kvality a výroby pre firmu ${currentCompanyLabel}`
+                  : "Vyber konkrétnu firmu, aby sa zobrazil MES dashboard."}
               </p>
             </div>
           </div>
@@ -11149,40 +11431,68 @@ function App() {
             <>
               <div className="orders-summary-grid workflow-summary-grid">
                 <article className="card workflow-stat-card">
-                  <p>Pracoviská</p>
-                  <strong>{new Intl.NumberFormat("sk-SK").format(mesOverviewRows.length)}</strong>
+                  <p>Stroje</p>
+                  <strong>{new Intl.NumberFormat("sk-SK").format(mesOverviewSummary.machineCount)}</strong>
                 </article>
                 <article className="card workflow-stat-card">
-                  <p>V behu</p>
-                  <strong>{new Intl.NumberFormat("sk-SK").format(mesOverviewSummary.runningCount)}</strong>
+                  <p>Dostupnosť</p>
+                  <strong>{`${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(mesOverviewSummary.availabilityPct)} %`}</strong>
                 </article>
                 <article className="card workflow-stat-card">
-                  <p>Prestoje / stop</p>
-                  <strong>{new Intl.NumberFormat("sk-SK").format(mesOverviewSummary.downtimeCount)}</strong>
+                  <p>Kvalita</p>
+                  <strong>{`${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(mesOverviewSummary.qualityPct)} %`}</strong>
                 </article>
                 <article className="card workflow-stat-card">
-                  <p>Online HMI</p>
-                  <strong>{new Intl.NumberFormat("sk-SK").format(mesOverviewSummary.onlineTerminals)}</strong>
+                  <p>Plnenie plánu</p>
+                  <strong>{`${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(mesOverviewSummary.performancePct)} %`}</strong>
                 </article>
               </div>
 
               <article className="orders-panel-card workflow-card workflow-card-list">
                 <div className="panel-head workflow-section-head">
                   <div>
-                    <p className="workflow-section-kicker">MES Overview</p>
-                    <h2>Factory overview</h2>
-                    <p className="panel-meta">Živý prehľad pracovísk, strojov, zákaziek a HMI terminálov.</p>
+                    <p className="workflow-section-kicker">MES</p>
+                    <h2>Prehľad výroby a strojov</h2>
+                    <p className="panel-meta">Živý dashboard pre pracoviská, stroje, zákazky, kvalitu a HMI.</p>
                   </div>
                 </div>
                 {!activeCompanyId && isMaster ? (
-                  <p className="hint">Vyber konkrétnu firmu v hornom filtri, aby sa zobrazil Manufacturing overview.</p>
+                  <p className="hint">Vyber konkrétnu firmu v hornom filtri, aby sa zobrazil MES dashboard.</p>
                 ) : mesLoading ? (
-                  <p className="hint">Načítavam MES overview...</p>
+                  <p className="hint">Načítavam MES dashboard...</p>
                 ) : mesOverviewRows.length === 0 ? (
                   <p className="hint">Pre túto firmu zatiaľ nie sú založené pracoviská alebo job runy.</p>
                 ) : (
                   <>
                     <div className="orders-summary-grid workflow-summary-grid">
+                      <article className="card workflow-stat-card">
+                        <p>OEE</p>
+                        <strong>{formatPercentValue(mesAnalytics.oeePct)}</strong>
+                      </article>
+                      <article className="card workflow-stat-card">
+                        <p>MTBF</p>
+                        <strong>{formatDurationShort(mesAnalytics.avgMtbfMs)}</strong>
+                      </article>
+                      <article className="card workflow-stat-card">
+                        <p>MTTR</p>
+                        <strong>{formatDurationShort(mesAnalytics.avgMttrMs)}</strong>
+                      </article>
+                      <article className="card workflow-stat-card">
+                        <p>Pracoviská</p>
+                        <strong>{new Intl.NumberFormat("sk-SK").format(mesOverviewRows.length)}</strong>
+                      </article>
+                      <article className="card workflow-stat-card">
+                        <p>V behu</p>
+                        <strong>{new Intl.NumberFormat("sk-SK").format(mesOverviewSummary.runningCount)}</strong>
+                      </article>
+                      <article className="card workflow-stat-card">
+                        <p>Prestoje / stop</p>
+                        <strong>{new Intl.NumberFormat("sk-SK").format(mesOverviewSummary.downtimeCount)}</strong>
+                      </article>
+                      <article className="card workflow-stat-card">
+                        <p>Online HMI</p>
+                        <strong>{new Intl.NumberFormat("sk-SK").format(mesOverviewSummary.onlineTerminals)}</strong>
+                      </article>
                       <article className="card workflow-stat-card">
                         <p>OK kusy</p>
                         <strong>{new Intl.NumberFormat("sk-SK").format(mesOverviewSummary.totalGood)}</strong>
@@ -11192,6 +11502,96 @@ function App() {
                         <strong>{new Intl.NumberFormat("sk-SK").format(mesOverviewSummary.totalScrap)}</strong>
                       </article>
                     </div>
+                    <div className="orders-summary-grid workflow-summary-grid">
+                      {mesAnalytics.trendDays.map((day) => (
+                        <article key={day.key} className="card workflow-stat-card">
+                          <p>{day.label}</p>
+                          <strong>{new Intl.NumberFormat("sk-SK").format(day.good)}</strong>
+                          <p className="occupancy-meta">{`NOK ${new Intl.NumberFormat("sk-SK").format(day.scrap)} | prestoje ${day.downtime}`}</p>
+                        </article>
+                      ))}
+                    </div>
+                    <div className="orders-layout workflow-grid">
+                      <div className="orders-column workflow-editor-column">
+                        <article className="orders-panel-card workflow-card workflow-card-list">
+                          <div className="panel-head workflow-section-head">
+                            <div>
+                              <h2>Top stroje</h2>
+                              <p className="panel-meta">Výkon, kvalita a poruchovosť za posledných 30 dní.</p>
+                            </div>
+                          </div>
+                          {mesAnalytics.topMachines.length === 0 ? (
+                            <p className="hint">Zatiaľ nie sú dostupné dáta pre porovnanie strojov.</p>
+                          ) : (
+                            <div className="table-wrap">
+                              <table>
+                                <thead>
+                                  <tr>
+                                    <th>Stroj</th>
+                                    <th>Joby</th>
+                                    <th>OK / NOK</th>
+                                    <th>Výkon</th>
+                                    <th>Kvalita</th>
+                                    <th>MTBF</th>
+                                    <th>MTTR</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {mesAnalytics.topMachines.map((machine) => (
+                                    <tr key={machine.machineId || machine.machineName}>
+                                      <td>
+                                        <strong>{machine.machineName}</strong>
+                                        <div className="master-user-email">{machine.latestAt ? formatDate(machine.latestAt) : "-"}</div>
+                                      </td>
+                                      <td>{new Intl.NumberFormat("sk-SK").format(machine.jobs)}</td>
+                                      <td>{`${new Intl.NumberFormat("sk-SK").format(machine.good)} / ${new Intl.NumberFormat("sk-SK").format(machine.scrap)}`}</td>
+                                      <td>{formatPercentValue(machine.performancePct)}</td>
+                                      <td>{formatPercentValue(machine.qualityPct)}</td>
+                                      <td>{formatDurationShort(machine.mtbfMs)}</td>
+                                      <td>{formatDurationShort(machine.mttrMs)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </article>
+                      </div>
+                      <div className="orders-column orders-column-list workflow-feed-column">
+                        <article className="orders-panel-card workflow-card workflow-card-list">
+                          <div className="panel-head workflow-section-head">
+                            <div>
+                              <h2>Top dôvody prestojov</h2>
+                              <p className="panel-meta">Najčastejšie downtime eventy za posledných 30 dní.</p>
+                            </div>
+                          </div>
+                          {mesAnalytics.downtimeReasons.length === 0 ? (
+                            <p className="hint">Zatiaľ nie sú evidované downtime eventy.</p>
+                          ) : (
+                            <div className="table-wrap">
+                              <table>
+                                <thead>
+                                  <tr>
+                                    <th>Dôvod</th>
+                                    <th>Počet</th>
+                                    <th>Naposledy</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {mesAnalytics.downtimeReasons.map((reason) => (
+                                    <tr key={reason.reason}>
+                                      <td>{reason.reason}</td>
+                                      <td>{new Intl.NumberFormat("sk-SK").format(reason.count)}</td>
+                                      <td>{formatDate(reason.latestAt)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </article>
+                      </div>
+                    </div>
                     <div className="table-wrap">
                       <table>
                         <thead>
@@ -11200,7 +11600,10 @@ function App() {
                             <th>Stroj</th>
                             <th>Stav</th>
                             <th>Zákazka</th>
+                            <th>Plán</th>
                             <th>Operátor</th>
+                            <th>Efektivita</th>
+                            <th>Kvalita</th>
                             <th>OK / NOK</th>
                             <th>Prestoj</th>
                             <th>HMI</th>
@@ -11211,6 +11614,9 @@ function App() {
                             const terminalSeenMs = Date.parse(row.terminal_last_seen_at || "");
                             const isTerminalOnline = Number.isFinite(terminalSeenMs) && Date.now() - terminalSeenMs <= 5 * 60 * 1000;
                             const statusLabel = row.job_status || row.machine_state || "idle";
+                            const efficiencyPct = row.planned_quantity > 0 ? (row.good_quantity / row.planned_quantity) * 100 : 0;
+                            const rowTotalProduced = row.good_quantity + row.scrap_quantity;
+                            const rowQualityPct = rowTotalProduced > 0 ? (row.good_quantity / rowTotalProduced) * 100 : 0;
                             return (
                               <tr key={row.workstation_id}>
                                 <td>
@@ -11226,7 +11632,10 @@ function App() {
                                   <div>{row.job_number || "-"}</div>
                                   <div className="master-user-email">{row.production_order_id || "-"}</div>
                                 </td>
+                                <td>{new Intl.NumberFormat("sk-SK").format(row.planned_quantity)}</td>
                                 <td>{row.operator_name || "-"}</td>
+                                <td>{`${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(efficiencyPct)} %`}</td>
+                                <td>{`${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(rowQualityPct)} %`}</td>
                                 <td>{`${new Intl.NumberFormat("sk-SK").format(row.good_quantity)} / ${new Intl.NumberFormat("sk-SK").format(row.scrap_quantity)}`}</td>
                                 <td>{row.current_downtime_reason || "-"}</td>
                                 <td>

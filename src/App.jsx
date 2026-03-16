@@ -178,7 +178,6 @@ const ENV_DEFAULT_MAX_POSITIONS = Math.max(1, Number(import.meta.env.VITE_MAX_PO
 const HISTORY_ANALYTICS_LOOKBACK_DAYS = Math.max(30, Number(import.meta.env.VITE_HISTORY_LOOKBACK_DAYS || 365));
 const MES_ANALYTICS_LOOKBACK_DAYS = Math.max(7, Number(import.meta.env.VITE_MES_LOOKBACK_DAYS || 30));
 const AUTO_REFRESH_MS = Math.max(60 * 1000, Number(import.meta.env.VITE_AUTO_REFRESH_MS || 5 * 60 * 1000));
-const MES_REFRESH_MS = Math.min(10 * 1000, Math.max(5 * 1000, Number(import.meta.env.VITE_MES_REFRESH_MS || 10 * 1000)));
 const DAY_MS = 24 * 60 * 60 * 1000;
 const AUTH_INIT_TIMEOUT_MS = 15000;
 const IBAN_MAX_LENGTH = 24;
@@ -2434,6 +2433,39 @@ function normalizeCompanyRecord(row) {
   };
 }
 
+function normalizeCompanyProfileRecord(row) {
+  if (!row || typeof row !== "object") {
+    return row;
+  }
+  return {
+    ...row,
+    company_id: row.company_id || null,
+    name: String(row.name || "").trim(),
+    ico: String(row.ico || "").trim(),
+    dic: String(row.dic || "").trim(),
+    ic_dph: String(row.ic_dph || "").trim(),
+    address: String(row.address || "").trim(),
+    bank_account: formatIbanInput(row.bank_account)
+  };
+}
+
+function buildEffectiveCompanyProfile(company, profile) {
+  if (!company && !profile) {
+    return null;
+  }
+
+  const normalizedProfile = normalizeCompanyProfileRecord(profile || {});
+  return {
+    company_id: normalizedProfile?.company_id || company?.id || null,
+    name: String(normalizedProfile?.name || company?.name || "").trim(),
+    ico: String(normalizedProfile?.ico || "").trim(),
+    dic: String(normalizedProfile?.dic || "").trim(),
+    ic_dph: String(normalizedProfile?.ic_dph || "").trim(),
+    address: String(normalizedProfile?.address || "").trim(),
+    bank_account: formatIbanInput(normalizedProfile?.bank_account)
+  };
+}
+
 function normalizeManagedUserRecord(row) {
   if (!row || typeof row !== "object") {
     return row;
@@ -3085,6 +3117,7 @@ function App() {
   const [canManageOrders, setCanManageOrders] = useState(false);
   const [canAccessMes, setCanAccessMes] = useState(false);
   const [companies, setCompanies] = useState([]);
+  const [companyProfiles, setCompanyProfiles] = useState([]);
   const [companiesError, setCompaniesError] = useState("");
   const [selectedCompanyId, setSelectedCompanyId] = useState("all");
   const [authUsernameInput, setAuthUsernameInput] = useState("");
@@ -3265,10 +3298,21 @@ function App() {
       ),
     [companies]
   );
+  const companyProfilesById = useMemo(
+    () =>
+      Object.fromEntries(
+        companyProfiles.map((profile) => [profile.company_id, profile])
+      ),
+    [companyProfiles]
+  );
   const activeCompanyId = isMaster ? (selectedCompanyId === "all" ? null : selectedCompanyId) : userCompanyId;
   const activeCompany = useMemo(
     () => companies.find((company) => company.id === activeCompanyId) || null,
     [companies, activeCompanyId]
+  );
+  const activeCompanyProfile = useMemo(
+    () => buildEffectiveCompanyProfile(activeCompany, activeCompanyId ? companyProfilesById[activeCompanyId] : null),
+    [activeCompany, activeCompanyId, companyProfilesById]
   );
   const canAccessMesModule =
     isMaster || (canAccessMes && Boolean(userCompanyId) && (companies.length === 0 ? true : Boolean(activeCompany?.mes_enabled)));
@@ -3734,6 +3778,19 @@ function App() {
     }
 
     setCompanies((data || []).map((row) => normalizeCompanyRecord(row)));
+  };
+
+  const loadCompanyProfiles = async () => {
+    const { data, error: companyProfilesError } = await supabase
+      .from("company_profiles")
+      .select("*");
+
+    if (companyProfilesError) {
+      setCompanyProfiles([]);
+      return;
+    }
+
+    setCompanyProfiles((data || []).map((row) => normalizeCompanyProfileRecord(row)));
   };
 
   const loadStockTwinSettings = async () => {
@@ -4798,33 +4855,37 @@ function App() {
       return;
     }
 
-    const { data: mesCompanyData, error: mesToggleError } = await supabase.rpc("set_company_mes_enabled", {
-      target_company_id: targetCompanyId,
-      target_enabled: Boolean(companyMesEnabledInput)
-    });
+    let mesUpdatedCompany = activeCompany;
+    if (isMaster) {
+      const { data: mesCompanyData, error: mesToggleError } = await supabase.rpc("set_company_mes_enabled", {
+        target_company_id: targetCompanyId,
+        target_enabled: Boolean(companyMesEnabledInput)
+      });
 
-    if (mesToggleError) {
-      setCompanySettingsError(mesToggleError.message || "Nepodarilo sa uložiť prístup k MES pre firmu.");
-      setCompanySettingsSubmitting(false);
-      return;
+      if (mesToggleError) {
+        setCompanySettingsError(mesToggleError.message || "Nepodarilo sa uložiť prístup k MES pre firmu.");
+        setCompanySettingsSubmitting(false);
+        return;
+      }
+
+      mesUpdatedCompany = Array.isArray(mesCompanyData) ? mesCompanyData[0] : mesCompanyData;
     }
 
-    const mesUpdatedCompany = Array.isArray(mesCompanyData) ? mesCompanyData[0] : mesCompanyData;
-
     const companyProfilePayload = {
-      name: String(companyProfileNameInput || "").trim() || activeCompany?.name || "",
-      tracks_expiry_date: companyTracksExpiryDateInput,
+      company_id: targetCompanyId,
+      name: String(companyProfileNameInput || "").trim() || activeCompanyProfile?.name || activeCompany?.name || "",
       ico: String(companyProfileIcoInput || "").trim(),
       dic: String(companyProfileDicInput || "").trim(),
       ic_dph: String(companyProfileIcDphInput || "").trim(),
       address: String(companyProfileAddressInput || "").trim(),
-      bank_account: formatIbanInput(companyProfileBankAccountInput)
+      bank_account: formatIbanInput(companyProfileBankAccountInput),
+      updated_at: new Date().toISOString(),
+      updated_by: authUser?.id || null
     };
 
     const { data: profileSavedCompanyRows, error: expiryUpdateError } = await supabase
-      .from("companies")
-      .update(companyProfilePayload)
-      .eq("id", targetCompanyId)
+      .from("company_profiles")
+      .upsert(companyProfilePayload, { onConflict: "company_id" })
       .select("*");
 
     if (expiryUpdateError) {
@@ -4833,47 +4894,49 @@ function App() {
       return;
     }
 
-    const profileSavedCompany = Array.isArray(profileSavedCompanyRows)
+    const profileSavedCompany = normalizeCompanyProfileRecord(Array.isArray(profileSavedCompanyRows)
       ? profileSavedCompanyRows[0]
-      : profileSavedCompanyRows;
+      : profileSavedCompanyRows);
     if (!profileSavedCompany) {
-      setCompanySettingsError("Firemný profil sa v databáze neuložil. Pravdepodobne chýba update policy pre vlastnú firmu.");
+      setCompanySettingsError("Firemný profil sa v databáze neuložil. Skontroluj SQL migráciu pre company_profiles a RLS policy.");
       setCompanySettingsSubmitting(false);
       return;
     }
 
-    const expiryUpdatedCompany = {
+    const updatedCompanyState = {
       ...activeCompany,
       ...updatedCompany,
-      ...mesUpdatedCompany,
-      ...profileSavedCompany,
-      ...companyProfilePayload,
+      ...(mesUpdatedCompany || {}),
       id: targetCompanyId,
-      max_positions: normalizeMaxPositions(profileSavedCompany?.max_positions ?? updatedCompany?.max_positions ?? normalizedValue),
-      tracks_expiry_date: Boolean(companyProfilePayload.tracks_expiry_date),
-      mes_enabled: Boolean(mesUpdatedCompany?.mes_enabled ?? companyMesEnabledInput)
+      max_positions: normalizeMaxPositions(updatedCompany?.max_positions ?? normalizedValue),
+      tracks_expiry_date: Boolean(isMaster ? companyTracksExpiryDateInput : activeCompany?.tracks_expiry_date),
+      mes_enabled: Boolean(mesUpdatedCompany?.mes_enabled ?? activeCompany?.mes_enabled)
     };
 
     setCompanies((prev) =>
       prev.map((company) =>
-        company.id === expiryUpdatedCompany.id
+        company.id === updatedCompanyState.id
           ? {
               ...company,
-              ...normalizeCompanyRecord(expiryUpdatedCompany)
+              ...normalizeCompanyRecord(updatedCompanyState)
             }
           : company
       )
     );
-    setCompanyMaxPositionsInput(String(normalizeMaxPositions(expiryUpdatedCompany.max_positions)));
-    setCompanyTracksExpiryDateInput(Boolean(expiryUpdatedCompany.tracks_expiry_date));
-    setCompanyMesEnabledInput(Boolean(expiryUpdatedCompany.mes_enabled));
-    setCompanyProfileNameInput(String(expiryUpdatedCompany.name || ""));
-    setCompanyProfileIcoInput(String(expiryUpdatedCompany.ico || ""));
-    setCompanyProfileDicInput(String(expiryUpdatedCompany.dic || ""));
-    setCompanyProfileIcDphInput(String(expiryUpdatedCompany.ic_dph || ""));
-    setCompanyProfileAddressInput(String(expiryUpdatedCompany.address || ""));
-    setCompanyProfileBankAccountInput(formatIbanInput(expiryUpdatedCompany.bank_account));
-    await loadCompanies();
+    setCompanyProfiles((prev) => {
+      const next = prev.filter((profile) => profile.company_id !== targetCompanyId);
+      return [...next, profileSavedCompany];
+    });
+    setCompanyMaxPositionsInput(String(normalizeMaxPositions(updatedCompanyState.max_positions)));
+    setCompanyTracksExpiryDateInput(Boolean(updatedCompanyState.tracks_expiry_date));
+    setCompanyMesEnabledInput(Boolean(updatedCompanyState.mes_enabled));
+    setCompanyProfileNameInput(String(profileSavedCompany.name || activeCompany?.name || ""));
+    setCompanyProfileIcoInput(String(profileSavedCompany.ico || ""));
+    setCompanyProfileDicInput(String(profileSavedCompany.dic || ""));
+    setCompanyProfileIcDphInput(String(profileSavedCompany.ic_dph || ""));
+    setCompanyProfileAddressInput(String(profileSavedCompany.address || ""));
+    setCompanyProfileBankAccountInput(formatIbanInput(profileSavedCompany.bank_account));
+    await Promise.all([loadCompanies(), loadCompanyProfiles()]);
 
     setCompanySettingsSubmitting(false);
   };
@@ -6776,7 +6839,10 @@ function App() {
         quote,
         customersById[quote.customer_id] || null,
         quoteItemsByQuoteId[quote.id] || [],
-        companiesById[quote.company_id] || activeCompany || { name: companyNameById[quote.company_id] || activeCompany?.name || currentCompanyLabel }
+        buildEffectiveCompanyProfile(
+          companiesById[quote.company_id] || activeCompany || null,
+          companyProfilesById[quote.company_id] || null
+        ) || { name: companyNameById[quote.company_id] || activeCompanyProfile?.name || activeCompany?.name || currentCompanyLabel }
       );
     } catch (printError) {
       setQuotesError(printError?.message || "Nepodarilo sa vytvoriť PDF cenovej ponuky.");
@@ -6789,7 +6855,10 @@ function App() {
         invoice,
         customersById[invoice.customer_id] || null,
         invoiceItemsByInvoiceId[invoice.id] || [],
-        companiesById[invoice.company_id] || activeCompany || { name: companyNameById[invoice.company_id] || activeCompany?.name || currentCompanyLabel }
+        buildEffectiveCompanyProfile(
+          companiesById[invoice.company_id] || activeCompany || null,
+          companyProfilesById[invoice.company_id] || null
+        ) || { name: companyNameById[invoice.company_id] || activeCompanyProfile?.name || activeCompany?.name || currentCompanyLabel }
       );
     } catch (printError) {
       setInvoicesError(printError?.message || "Nepodarilo sa vytvoriť PDF faktúry.");
@@ -7203,16 +7272,24 @@ function App() {
         setCanManageOrders(Boolean(ownRow?.can_manage_orders));
         setCanAccessMes(Boolean(ownRow?.can_access_mes));
 
-        const { data: companyRows, error: companiesLoadError } = await supabase
-          .from("companies")
-          .select("*")
-          .order("name", { ascending: true });
+        const [{ data: companyRows, error: companiesLoadError }, { data: companyProfileRows, error: companyProfilesLoadError }] = await Promise.all([
+          supabase
+            .from("companies")
+            .select("*")
+            .order("name", { ascending: true }),
+          supabase
+            .from("company_profiles")
+            .select("*")
+        ]);
 
         if (cancelled || companiesLoadError) {
           return;
         }
 
         setCompanies((companyRows || []).map((row) => normalizeCompanyRecord(row)));
+        if (!companyProfilesLoadError) {
+          setCompanyProfiles((companyProfileRows || []).map((row) => normalizeCompanyProfileRecord(row)));
+        }
       } finally {
         refreshInFlight = false;
       }
@@ -7249,6 +7326,7 @@ function App() {
     if (!isLoggedIn) {
       setRows([]);
       setStockSnapshotRows([]);
+      setCompanyProfiles([]);
       setCustomers([]);
       setCustomersError("");
       setCustomersLoading(false);
@@ -7556,18 +7634,7 @@ function App() {
     }
 
     if (isProductionModule(selectedTable)) {
-      const intervalId = window.setInterval(() => {
-        if (canAccessOrdersModule) {
-          loadProductionModuleData();
-        }
-        if (canAccessMesModule) {
-          loadMesModuleData();
-        }
-      }, MES_REFRESH_MS);
-
-      return () => {
-        window.clearInterval(intervalId);
-      };
+      return undefined;
     }
 
     const intervalId = window.setInterval(() => {
@@ -7595,6 +7662,7 @@ function App() {
       setManagedUsers([]);
     }
     loadCompanies();
+    loadCompanyProfiles();
     loadStockTwinSettings();
   }, [authReady, isLoggedIn, isMaster, authUser?.id, activeCompanyId, userCompanyId]);
 
@@ -7711,27 +7779,28 @@ function App() {
     setCompanyMaxPositionsInput(String(normalizeMaxPositions(activeCompany?.max_positions ?? ENV_DEFAULT_MAX_POSITIONS)));
     setCompanyTracksExpiryDateInput(Boolean(activeCompany?.tracks_expiry_date));
     setCompanyMesEnabledInput(Boolean(activeCompany?.mes_enabled));
-    setCompanyProfileNameInput(String(activeCompany?.name || ""));
-    setCompanyProfileIcoInput(String(activeCompany?.ico || ""));
-    setCompanyProfileDicInput(String(activeCompany?.dic || ""));
-    setCompanyProfileIcDphInput(String(activeCompany?.ic_dph || ""));
-    setCompanyProfileAddressInput(String(activeCompany?.address || ""));
-    setCompanyProfileBankAccountInput(formatIbanInput(activeCompany?.bank_account));
+    setCompanyProfileNameInput(String(activeCompanyProfile?.name || activeCompany?.name || ""));
+    setCompanyProfileIcoInput(String(activeCompanyProfile?.ico || ""));
+    setCompanyProfileDicInput(String(activeCompanyProfile?.dic || ""));
+    setCompanyProfileIcDphInput(String(activeCompanyProfile?.ic_dph || ""));
+    setCompanyProfileAddressInput(String(activeCompanyProfile?.address || ""));
+    setCompanyProfileBankAccountInput(formatIbanInput(activeCompanyProfile?.bank_account));
     setCompanyProfileLookupResults([]);
     setCompanyProfileLookupLoading(false);
     setCompanyProfileLookupError("");
     setSelectedCompanyProfileRegistryId("");
   }, [
     activeCompany?.id,
-    activeCompany?.name,
     activeCompany?.max_positions,
     activeCompany?.tracks_expiry_date,
     activeCompany?.mes_enabled,
-    activeCompany?.ico,
-    activeCompany?.dic,
-    activeCompany?.ic_dph,
-    activeCompany?.address,
-    activeCompany?.bank_account
+    activeCompany?.name,
+    activeCompanyProfile?.name,
+    activeCompanyProfile?.ico,
+    activeCompanyProfile?.dic,
+    activeCompanyProfile?.ic_dph,
+    activeCompanyProfile?.address,
+    activeCompanyProfile?.bank_account
   ]);
 
   const filteredManagedUsers = useMemo(() => {
@@ -9337,6 +9406,7 @@ function App() {
     setUserCompanyId(null);
     setCanManageOrders(false);
     setCanAccessMes(false);
+    setCompanyProfiles([]);
     setSelectedCompanyId("all");
     setRows([]);
     setError("");
@@ -9572,7 +9642,7 @@ function App() {
           <p className="workflow-section-kicker">MES</p>
           <h2>Factory operations dashboard</h2>
           <p className="panel-meta">
-            Real-time MES rozhranie pre operátora, supervisora aj management. Polling {Math.round(MES_REFRESH_MS / 1000)} s + realtime zmeny.
+            Real-time MES rozhranie pre operátora, supervisora aj management. Dáta sa obnovia cez tlačidlo Obnoviť a pri realtime zmenách.
           </p>
         </div>
         <div className="hero-badges">
@@ -10283,7 +10353,7 @@ function App() {
                       disabled={!activeCompanyId || companySettingsSubmitting}
                     />
                   </label>
-                  <p className="settings-hint">Po 3 znakoch sa zobrazia free výsledky z Registra účtovných závierok.</p>
+                  <p className="settings-hint">Firemné údaje môžeš vyplniť ručne, výsledky z registra sú len voliteľná pomôcka.</p>
                   {companyProfileLookupLoading && <p className="orders-draft-meta">Vyhľadávam firmu...</p>}
                   {companyProfileLookupError && <p className="error">{companyProfileLookupError}</p>}
                   {companyProfileLookupResults.length > 0 && (
@@ -10382,30 +10452,34 @@ function App() {
                     disabled={!activeCompanyId || companySettingsSubmitting}
                   />
                 </label>
-                <label className="settings-field">
-                  <span>Food & beverage / expirácia</span>
-                  <label className="pricing-options">
-                    <input
-                      type="checkbox"
-                      checked={companyTracksExpiryDateInput}
-                      onChange={(event) => setCompanyTracksExpiryDateInput(event.target.checked)}
-                      disabled={!activeCompanyId || companySettingsSubmitting}
-                    />
-                    <span>Sledovať dátum spotreby pre túto firmu</span>
+                {isMaster && (
+                  <label className="settings-field">
+                    <span>Food & beverage / expirácia</span>
+                    <label className="pricing-options">
+                      <input
+                        type="checkbox"
+                        checked={companyTracksExpiryDateInput}
+                        onChange={(event) => setCompanyTracksExpiryDateInput(event.target.checked)}
+                        disabled={!activeCompanyId || companySettingsSubmitting}
+                      />
+                      <span>Sledovať dátum spotreby pre túto firmu</span>
+                    </label>
                   </label>
-                </label>
-                <label className="settings-field">
-                  <span>Manufacturing / MES</span>
-                  <label className="pricing-options">
-                    <input
-                      type="checkbox"
-                      checked={companyMesEnabledInput}
-                      onChange={(event) => setCompanyMesEnabledInput(event.target.checked)}
-                      disabled={!activeCompanyId || companySettingsSubmitting}
-                    />
-                    <span>Povoliť Manufacturing overview, MES a HMI pre túto firmu</span>
+                )}
+                {isMaster && (
+                  <label className="settings-field">
+                    <span>Manufacturing / MES</span>
+                    <label className="pricing-options">
+                      <input
+                        type="checkbox"
+                        checked={companyMesEnabledInput}
+                        onChange={(event) => setCompanyMesEnabledInput(event.target.checked)}
+                        disabled={!activeCompanyId || companySettingsSubmitting}
+                      />
+                      <span>Povoliť Manufacturing overview, MES a HMI pre túto firmu</span>
+                    </label>
                   </label>
-                </label>
+                )}
                 <button type="submit" className="settings-btn" disabled={!activeCompanyId || companySettingsSubmitting}>
                   {companySettingsSubmitting ? "Ukladám..." : "Uložiť nastavenia firmy"}
                 </button>
@@ -10414,7 +10488,9 @@ function App() {
           </form>
           {companySettingsError && <p className="error">{companySettingsError}</p>}
           <p className="settings-hint">
-            Firemný profil sa uloží pre aktuálne vybranú firmu. Tu zároveň zapínaš, či firma vôbec uvidí Manufacturing a MES.
+            {isMaster
+              ? "Firemný profil sa uloží pre aktuálne vybranú firmu. Tu zároveň nastavuješ, či firma vôbec uvidí expiráciu, Manufacturing a MES."
+              : "Firemný profil sa uloží pre aktuálne vybranú firmu. Nastavenia expirácií a MES spravuje master účet."}
           </p>
         </section>
       )}

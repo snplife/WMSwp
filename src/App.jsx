@@ -7172,6 +7172,80 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!authReady || !isLoggedIn || isMaster || !authUser?.id) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    let refreshInFlight = false;
+
+    const refreshOwnAccessProfile = async () => {
+      if (refreshInFlight) {
+        return;
+      }
+
+      refreshInFlight = true;
+      try {
+        const [{ data: ownRow }, resolvedCompanyId] = await Promise.all([
+          supabase
+            .from(ROLE_TABLE)
+            .select("company_id,can_manage_orders,can_access_mes,username,email")
+            .eq("user_id", authUser.id)
+            .maybeSingle(),
+          fetchOwnCompanyIdViaRpc(authUser.id)
+        ]);
+
+        if (cancelled) {
+          return;
+        }
+
+        const nextCompanyId = ownRow?.company_id || resolvedCompanyId || null;
+        if (nextCompanyId !== userCompanyId) {
+          setUserCompanyId(nextCompanyId);
+          setSelectedCompanyId(nextCompanyId || "");
+        }
+        setCanManageOrders(Boolean(ownRow?.can_manage_orders));
+        setCanAccessMes(Boolean(ownRow?.can_access_mes));
+
+        const { data: companyRows, error: companiesLoadError } = await supabase
+          .from("companies")
+          .select("*")
+          .order("name", { ascending: true });
+
+        if (cancelled || companiesLoadError) {
+          return;
+        }
+
+        setCompanies((companyRows || []).map((row) => normalizeCompanyRecord(row)));
+      } finally {
+        refreshInFlight = false;
+      }
+    };
+
+    refreshOwnAccessProfile();
+
+    const handleWindowFocus = () => {
+      refreshOwnAccessProfile();
+    };
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        refreshOwnAccessProfile();
+      }
+    };
+
+    window.addEventListener("focus", handleWindowFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    const intervalId = window.setInterval(refreshOwnAccessProfile, 15000);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", handleWindowFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.clearInterval(intervalId);
+    };
+  }, [authReady, isLoggedIn, isMaster, authUser?.id, userCompanyId]);
+
+  useEffect(() => {
     if (!authReady) {
       return undefined;
     }

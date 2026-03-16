@@ -1235,6 +1235,20 @@ select {
   margin-bottom: 1rem;
 }
 
+.mes-dashboard-card {
+  gap: 1rem;
+}
+
+.mes-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0.75rem;
+}
+
+.mes-kpi-card {
+  min-height: 118px;
+}
+
 .mes-machine-toolbar {
   display: flex;
   justify-content: space-between;
@@ -1266,6 +1280,17 @@ select {
   display: grid;
   grid-template-columns: 1.4fr 1fr 1fr;
   gap: 0.9rem;
+}
+
+.mes-dashboard-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.95fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.mes-machine-detail-card {
+  min-width: 0;
 }
 
 .mes-focus-card {
@@ -1361,6 +1386,315 @@ select {
   color: #56697b;
   font-size: 0.79rem;
   white-space: nowrap;
+}
+
+.mes-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.95fr);
+  gap: 0.9rem;
+  align-items: start;
+}
+
+.mes-detail-stats,
+.mes-throughput-metrics,
+.mes-quality-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 0.65rem;
+}
+
+.mes-mini-stat {
+  display: grid;
+  gap: 0.22rem;
+  padding: 0.82rem 0.88rem;
+  border-radius: 16px;
+  border: 1px solid rgba(221, 233, 245, 0.9);
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.mes-mini-stat span {
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #658095;
+  font-weight: 700;
+}
+
+.mes-mini-stat strong {
+  font-size: 1rem;
+  color: #163048;
+}
+
+.mes-status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0.28rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+}
+
+.mes-status-badge-running {
+  background: #ddf7e5;
+  color: #0f6d39;
+  border-color: #bfe8ce;
+}
+
+.mes-status-badge-idle {
+  background: #fff3d6;
+  color: #8c6000;
+  border-color: #efd49f;
+}
+
+.mes-status-badge-stopped,
+.mes-status-badge-alarm {
+  background: #ffe5e5;
+  color: #a12626;
+  border-color: #f3bbbb;
+}
+
+.mes-status-badge-setup {
+  background: #e4f0ff;
+  color: #1c5ca0;
+  border-color: #bdd4f3;
+}
+
+.mes-oee-panel {
+  min-width: 0;
+}
+
+.mes-oee-grid {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.mes-oee-card {
+  display: grid;
+  gap: 0.42rem;
+  padding: 0.9rem;
+  border: 1px solid #dce6f2;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #ffffff, #f6fbff);
+}
+
+.mes-oee-card span {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #698095;
+  font-weight: 700;
+}
+
+.mes-oee-card strong {
+  font-size: 1.45rem;
+  color: #163048;
+}
+
+.mes-oee-card-strong {
+  background: linear-gradient(145deg, #14324a, #21506d 58%, #2b6f78);
+  border-color: #173d57;
+}
+
+.mes-oee-card-strong span,
+.mes-oee-card-strong strong {
+  color: #f4fbf8;
+}
+
+.mes-progress-track {
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  background: #e7eef6;
+  overflow: hidden;
+}
+
+.mes-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #0f8a7f, #0f5f8f);
+}
+
+.mes-progress-fill-alert {
+  background: linear-gradient(90deg, #ef8d5b, #b34f3d);
+}
+
+.mes-progress-cell {
+  display: grid;
+  gap: 0.36rem;
+  min-width: 160px;
+}
+
+.mes-progress-cell span {
+  font-size: 0.78rem;
+  color: #607286;
+  font-weight: 700;
+}
+
+.mes-bar-list {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.mes-bar-row {
+  display: grid;
+  gap: 0.36rem;
+}
+
+.mes-bar-row-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.7rem;
+  align-items: center;
+}
+
+.mes-bar-row-head strong,
+.mes-bar-row-head span {
+  font-size: 0.85rem;
+}
+
+.mes-alert-list {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.mes-alert-card {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.85rem 0.95rem;
+  border-radius: 16px;
+  border: 1px solid #dce6f2;
+  background: #fbfdff;
+}
+
+.mes-alert-card-critical {
+  border-color: #efb2b2;
+  background: #fff3f3;
+}
+
+.mes-alert-card-warning {
+  border-color: #efd49f;
+  background: #fff8ea;
+}
+
+.mes-alert-card-info {
+  border-color: #c7d9ee;
+  background: #f5faff;
+}
+
+.mes-alert-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.8rem;
+  align-items: center;
+}
+
+.mes-alert-head strong,
+.mes-alert-head span,
+.mes-alert-card p {
+  margin: 0;
+}
+
+.mes-alert-head span {
+  font-size: 0.78rem;
+  color: #607286;
+}
+
+.mes-alert-card p {
+  color: #4f6478;
+}
+
+.mes-factory-map {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.mes-factory-zone {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.85rem;
+  border: 1px solid #dce6f2;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #fbfdff, #f4f8fd);
+}
+
+.mes-factory-zone-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.7rem;
+  align-items: center;
+}
+
+.mes-factory-zone-head strong {
+  color: #15324d;
+}
+
+.mes-factory-zone-head span {
+  color: #607286;
+  font-size: 0.8rem;
+}
+
+.mes-factory-zone-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.6rem;
+}
+
+.mes-factory-tile {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.8rem;
+  border-radius: 16px;
+  border: 1px solid transparent;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.mes-factory-tile strong,
+.mes-factory-tile span {
+  margin: 0;
+}
+
+.mes-factory-tile span {
+  font-size: 0.78rem;
+}
+
+.mes-factory-tile-running {
+  background: #ddf7e5;
+  color: #0f6d39;
+  border-color: #bfe8ce;
+}
+
+.mes-factory-tile-idle {
+  background: #fff3d6;
+  color: #8c6000;
+  border-color: #efd49f;
+}
+
+.mes-factory-tile-stopped,
+.mes-factory-tile-alarm {
+  background: #ffe5e5;
+  color: #a12626;
+  border-color: #f3bbbb;
+}
+
+.mes-factory-tile-setup {
+  background: #e4f0ff;
+  color: #1c5ca0;
+  border-color: #bdd4f3;
+}
+
+.mes-factory-tile-selected {
+  box-shadow: 0 0 0 2px rgba(16, 38, 60, 0.18);
+}
+
+.mes-machine-row-selected {
+  background: #eef6ff !important;
 }
 
 .order-card-body {
@@ -2721,6 +3055,25 @@ tbody tr:nth-child(even) {
 
   .stock-twin-sidebar {
     position: static;
+  }
+
+  .mes-dashboard-grid,
+  .mes-detail-grid,
+  .mes-machine-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mes-kpi-grid,
+  .mes-throughput-metrics,
+  .mes-quality-grid,
+  .mes-detail-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .mes-alert-head,
+  .mes-factory-zone-head {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .stock-twin-head {

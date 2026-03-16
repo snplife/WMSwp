@@ -178,6 +178,7 @@ const ENV_DEFAULT_MAX_POSITIONS = Math.max(1, Number(import.meta.env.VITE_MAX_PO
 const HISTORY_ANALYTICS_LOOKBACK_DAYS = Math.max(30, Number(import.meta.env.VITE_HISTORY_LOOKBACK_DAYS || 365));
 const MES_ANALYTICS_LOOKBACK_DAYS = Math.max(7, Number(import.meta.env.VITE_MES_LOOKBACK_DAYS || 30));
 const AUTO_REFRESH_MS = Math.max(60 * 1000, Number(import.meta.env.VITE_AUTO_REFRESH_MS || 5 * 60 * 1000));
+const MES_REFRESH_MS = Math.min(10 * 1000, Math.max(5 * 1000, Number(import.meta.env.VITE_MES_REFRESH_MS || 10 * 1000)));
 const DAY_MS = 24 * 60 * 60 * 1000;
 const AUTH_INIT_TIMEOUT_MS = 15000;
 const IBAN_MAX_LENGTH = 24;
@@ -2478,7 +2479,31 @@ function normalizeMesEventRow(row) {
   }
   return {
     ...row,
+    quantity: Number(row.quantity || 0),
     payload: row.payload && typeof row.payload === "object" ? row.payload : {}
+  };
+}
+
+function normalizeMesWorkstationRow(row) {
+  if (!row || typeof row !== "object") {
+    return row;
+  }
+  return {
+    ...row,
+    target_cycle_seconds: Number(row.target_cycle_seconds || 0),
+    ideal_units_per_hour: Number(row.ideal_units_per_hour || 0),
+    hmi_enabled: Boolean(row.hmi_enabled),
+    is_active: Boolean(row.is_active)
+  };
+}
+
+function normalizeMesMachineCatalogRow(row) {
+  if (!row || typeof row !== "object") {
+    return row;
+  }
+  return {
+    ...row,
+    is_active: Boolean(row.is_active)
   };
 }
 
@@ -2551,6 +2576,100 @@ function formatMesEventLabel(eventType) {
   if (value === "good_count") return "OK kusy";
   if (value === "scrap_count") return "NOK kusy";
   return value || "-";
+}
+
+function formatTimeOnly(value) {
+  if (!value) {
+    return "-";
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return "-";
+  }
+  return parsed.toLocaleTimeString("sk-SK", { hour: "2-digit", minute: "2-digit" });
+}
+
+function getMesViewRole({ isMaster, canManageOrders, canAccessMes }) {
+  if (isMaster) {
+    return "management";
+  }
+  if (canManageOrders) {
+    return "supervisor";
+  }
+  if (canAccessMes) {
+    return "operator";
+  }
+  return "viewer";
+}
+
+function getMesViewRoleLabel(role) {
+  if (role === "management") return "Management";
+  if (role === "supervisor") return "Supervisor";
+  if (role === "operator") return "Operátor";
+  return "Viewer";
+}
+
+function getMesStatusMeta(status) {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (["running", "run"].includes(normalized)) {
+    return { label: "RUNNING", tone: "running" };
+  }
+  if (["setup"].includes(normalized)) {
+    return { label: "SETUP", tone: "setup" };
+  }
+  if (["alarm", "error", "down"].includes(normalized)) {
+    return { label: normalized === "down" ? "STOPPED" : normalized.toUpperCase(), tone: "alarm" };
+  }
+  if (["stopped", "stop", "maintenance", "offline"].includes(normalized)) {
+    return { label: normalized === "maintenance" ? "STOPPED" : normalized.toUpperCase(), tone: "stopped" };
+  }
+  if (["paused"].includes(normalized)) {
+    return { label: "IDLE", tone: "idle" };
+  }
+  return { label: "IDLE", tone: "idle" };
+}
+
+function safeRatioPercent(numerator, denominator) {
+  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator <= 0) {
+    return 0;
+  }
+  return (numerator / denominator) * 100;
+}
+
+function clampPercent(value) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(100, value));
+}
+
+function formatEstimatedFinishTime(value) {
+  if (!value) {
+    return "-";
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return "-";
+  }
+  return parsed.toLocaleString("sk-SK", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function buildSimplePolyline(series, valueKey, maxValue) {
+  if (!Array.isArray(series) || series.length === 0 || !Number.isFinite(maxValue) || maxValue <= 0) {
+    return "";
+  }
+  return series
+    .map((point, index) => {
+      const x = series.length === 1 ? 50 : (index / (series.length - 1)) * 100;
+      const y = 100 - (Math.max(0, Number(point?.[valueKey] || 0)) / maxValue) * 100;
+      return `${x},${Math.max(0, Math.min(100, y))}`;
+    })
+    .join(" ");
 }
 
 function buildPriceListComputedRow(row) {
@@ -3117,6 +3236,8 @@ function App() {
   const [mesRecentJobRuns, setMesRecentJobRuns] = useState([]);
   const [mesRecentEventRows, setMesRecentEventRows] = useState([]);
   const [mesDowntimeReasons, setMesDowntimeReasons] = useState([]);
+  const [mesWorkstations, setMesWorkstations] = useState([]);
+  const [mesMachines, setMesMachines] = useState([]);
   const [selectedMesMachineId, setSelectedMesMachineId] = useState("");
   const [mesLoading, setMesLoading] = useState(false);
   const [mesError, setMesError] = useState("");
@@ -5179,6 +5300,8 @@ function App() {
       setMesRecentJobRuns([]);
       setMesRecentEventRows([]);
       setMesDowntimeReasons([]);
+      setMesWorkstations([]);
+      setMesMachines([]);
       setMesLoading(false);
       setMesError("");
       return;
@@ -5190,6 +5313,8 @@ function App() {
       setMesRecentJobRuns([]);
       setMesRecentEventRows([]);
       setMesDowntimeReasons([]);
+      setMesWorkstations([]);
+      setMesMachines([]);
       setMesLoading(false);
       setMesError("");
       return;
@@ -5202,7 +5327,7 @@ function App() {
 
     try {
       const sinceIso = new Date(Date.now() - MES_ANALYTICS_LOOKBACK_DAYS * DAY_MS).toISOString();
-      const [overviewResult, jobRunsResult, downtimeReasonsResult] = await Promise.all([
+      const [overviewResult, jobRunsResult, downtimeReasonsResult, workstationsResult] = await Promise.all([
         supabase.rpc("mes_factory_overview", {
           p_company_id: scopedCompanyId
         }),
@@ -5217,12 +5342,19 @@ function App() {
           .from("mes_downtime_reasons")
           .select("id,name,code")
           .eq("company_id", scopedCompanyId)
+          .order("sort_order", { ascending: true }),
+        supabase
+          .from("mes_workstations")
+          .select("id,code,name,area,target_cycle_seconds,ideal_units_per_hour,hmi_enabled,is_active,sort_order")
+          .eq("company_id", scopedCompanyId)
           .order("sort_order", { ascending: true })
+          .order("name", { ascending: true })
       ]);
 
       const { data, error: overviewError } = overviewResult;
       const { data: jobRunsData, error: jobRunsError } = jobRunsResult;
       const { data: downtimeReasonsData, error: downtimeReasonsError } = downtimeReasonsResult;
+      const { data: workstationData, error: workstationsError } = workstationsResult;
 
       if (overviewError) {
         throw overviewError;
@@ -5233,13 +5365,29 @@ function App() {
       if (downtimeReasonsError) {
         throw downtimeReasonsError;
       }
+      if (workstationsError) {
+        throw workstationsError;
+      }
+      const workstationIds = (workstationData || []).map((row) => row.id).filter(Boolean);
+      let machineData = [];
+      if (workstationIds.length > 0) {
+        const { data: fetchedMachines, error: machinesError } = await supabase
+          .from("mes_machines")
+          .select("id,workstation_id,code,name,asset_tag,serial_number,machine_state,last_heartbeat_at,is_active,created_at")
+          .in("workstation_id", workstationIds)
+          .order("name", { ascending: true });
+        if (machinesError) {
+          throw machinesError;
+        }
+        machineData = fetchedMachines || [];
+      }
 
       const jobRunIds = (jobRunsData || []).map((row) => row.id).filter(Boolean);
       let eventRows = [];
       if (jobRunIds.length > 0) {
         const { data: eventData, error: eventError } = await supabase
           .from("mes_job_run_events")
-          .select("id,job_run_id,workstation_id,machine_id,downtime_reason_id,event_type,payload,happened_at,created_at")
+          .select("id,job_run_id,workstation_id,machine_id,downtime_reason_id,event_type,quantity,note,source,payload,happened_at,created_at")
           .in("job_run_id", jobRunIds)
           .gte("happened_at", sinceIso)
           .order("happened_at", { ascending: false })
@@ -5259,6 +5407,8 @@ function App() {
       setMesRecentJobRuns((jobRunsData || []).map((row) => normalizeMesJobRunRow(row)));
       setMesRecentEventRows(eventRows.map((row) => normalizeMesEventRow(row)));
       setMesDowntimeReasons(downtimeReasonsData || []);
+      setMesWorkstations((workstationData || []).map((row) => normalizeMesWorkstationRow(row)));
+      setMesMachines((machineData || []).map((row) => normalizeMesMachineCatalogRow(row)));
     } catch (loadMesError) {
       if (latestMesOverviewRequestRef.current !== requestId) {
         return;
@@ -5268,6 +5418,8 @@ function App() {
       setMesRecentJobRuns([]);
       setMesRecentEventRows([]);
       setMesDowntimeReasons([]);
+      setMesWorkstations([]);
+      setMesMachines([]);
     } finally {
       if (latestMesOverviewRequestRef.current === requestId) {
         setMesLoading(false);
@@ -7284,7 +7436,7 @@ function App() {
         if (canAccessMesModule) {
           loadMesModuleData();
         }
-      }, AUTO_REFRESH_MS);
+      }, MES_REFRESH_MS);
 
       return () => {
         window.clearInterval(intervalId);
@@ -8213,55 +8365,207 @@ function App() {
       trendDays
     };
   }, [mesRecentJobRuns, mesRecentEventRows, mesDowntimeReasons, mesOverviewRows, mesOverviewSummary]);
-  const mesMachineOptions = useMemo(() => {
-    const seen = new Map();
-    mesOverviewRows.forEach((row) => {
-      if (!row.machine_id) {
-        return;
-      }
-      seen.set(row.machine_id, {
-        id: row.machine_id,
-        label: row.machine_name || row.machine_code || row.workstation_name || row.machine_id,
-        workstationName: row.workstation_name || row.workstation_code || "-"
-      });
-    });
-    mesRecentJobRuns.forEach((row) => {
-      if (!row.machine_id || seen.has(row.machine_id)) {
-        return;
-      }
-      seen.set(row.machine_id, {
-        id: row.machine_id,
-        label: row.machine_id,
-        workstationName: "-"
-      });
-    });
-    return Array.from(seen.values()).sort((a, b) => String(a.label).localeCompare(String(b.label), "sk-SK", { sensitivity: "base" }));
-  }, [mesOverviewRows, mesRecentJobRuns]);
   const mesDowntimeReasonNameById = useMemo(
     () => Object.fromEntries((mesDowntimeReasons || []).map((row) => [row.id, row.name || row.code || row.id])),
     [mesDowntimeReasons]
   );
+  const mesViewRole = useMemo(
+    () => getMesViewRole({ isMaster, canManageOrders, canAccessMes }),
+    [isMaster, canManageOrders, canAccessMes]
+  );
+  const mesWorkstationsById = useMemo(
+    () => Object.fromEntries((mesWorkstations || []).map((row) => [row.id, row])),
+    [mesWorkstations]
+  );
+  const mesOverviewByWorkstationId = useMemo(
+    () => Object.fromEntries((mesOverviewRows || []).map((row) => [row.workstation_id, row])),
+    [mesOverviewRows]
+  );
+  const mesOverviewByMachineId = useMemo(
+    () => Object.fromEntries((mesOverviewRows || []).filter((row) => row.machine_id).map((row) => [row.machine_id, row])),
+    [mesOverviewRows]
+  );
+  const mesRunsByMachineId = useMemo(() => {
+    const grouped = {};
+    for (const row of mesRecentJobRuns) {
+      const key = String(row.machine_id || row.workstation_id || "");
+      if (!key) {
+        continue;
+      }
+      if (!grouped[key]) {
+        grouped[key] = [];
+      }
+      grouped[key].push(row);
+    }
+    Object.values(grouped).forEach((items) => {
+      items.sort(
+        (a, b) =>
+          new Date(b.started_at || b.updated_at || b.created_at || 0).getTime() -
+          new Date(a.started_at || a.updated_at || a.created_at || 0).getTime()
+      );
+    });
+    return grouped;
+  }, [mesRecentJobRuns]);
+  const mesEventsByMachineId = useMemo(() => {
+    const grouped = {};
+    for (const row of mesRecentEventRows) {
+      const key = String(row.machine_id || row.workstation_id || "");
+      if (!key) {
+        continue;
+      }
+      if (!grouped[key]) {
+        grouped[key] = [];
+      }
+      grouped[key].push(row);
+    }
+    Object.values(grouped).forEach((items) => {
+      items.sort((a, b) => new Date(b.happened_at || 0).getTime() - new Date(a.happened_at || 0).getTime());
+    });
+    return grouped;
+  }, [mesRecentEventRows]);
+  const machineDashboardRows = useMemo(() => {
+    const rows = [];
+    const seen = new Set();
+    const buildRow = (machine, workstationFallback = null) => {
+      const workstation =
+        mesWorkstationsById[machine?.workstation_id] ||
+        workstationFallback ||
+        mesWorkstations.find((row) => row.id === machine?.workstation_id) ||
+        null;
+      const overview =
+        mesOverviewByMachineId[machine?.id] ||
+        (workstation ? mesOverviewByWorkstationId[workstation.id] : null) ||
+        null;
+      const runs = mesRunsByMachineId[machine?.id || workstation?.id || ""] || [];
+      const activeRun =
+        runs.find((row) => ["running", "paused", "queued"].includes(String(row.status || "").toLowerCase())) ||
+        runs[0] ||
+        null;
+      const events = mesEventsByMachineId[machine?.id || workstation?.id || ""] || [];
+      const producedParts = Number(activeRun?.good_quantity || overview?.good_quantity || 0) + Number(activeRun?.scrap_quantity || overview?.scrap_quantity || 0);
+      const runtimeSamples = runs
+        .map((row) => {
+          const startedMs = new Date(row.started_at || row.created_at || 0).getTime();
+          const endedMs = new Date(row.ended_at || row.updated_at || Date.now()).getTime();
+          const totalProduced = Number(row.good_quantity || 0) + Number(row.scrap_quantity || 0);
+          if (!Number.isFinite(startedMs) || !Number.isFinite(endedMs) || endedMs <= startedMs || totalProduced <= 0) {
+            return null;
+          }
+          return (endedMs - startedMs) / 1000 / totalProduced;
+        })
+        .filter((value) => Number.isFinite(value) && value > 0);
+      const actualCycleSeconds =
+        runtimeSamples.length > 0 ? runtimeSamples.reduce((sum, value) => sum + value, 0) / runtimeSamples.length : null;
+      const targetCycleSeconds =
+        Number(workstation?.target_cycle_seconds || 0) > 0
+          ? Number(workstation.target_cycle_seconds)
+          : Number(workstation?.ideal_units_per_hour || 0) > 0
+            ? 3600 / Number(workstation.ideal_units_per_hour)
+            : null;
+      const actualRate = Number.isFinite(actualCycleSeconds) && actualCycleSeconds > 0 ? 3600 / actualCycleSeconds : null;
+      const idealUnitsPerHour =
+        Number(workstation?.ideal_units_per_hour || 0) > 0
+          ? Number(workstation.ideal_units_per_hour)
+          : Number.isFinite(targetCycleSeconds) && targetCycleSeconds > 0
+            ? 3600 / targetCycleSeconds
+            : null;
+      const statusRaw = machine?.machine_state || overview?.machine_state || activeRun?.status || "idle";
+      const totalProduced = Number(activeRun?.good_quantity || 0) + Number(activeRun?.scrap_quantity || 0);
+      const scrapQuantity = Number(activeRun?.scrap_quantity || 0);
+      rows.push({
+        machineId: machine?.id || overview?.machine_id || workstation?.id || "",
+        machineCode: machine?.code || overview?.machine_code || "",
+        machineName: machine?.name || overview?.machine_name || workstation?.name || "Neznámy stroj",
+        workstationId: workstation?.id || overview?.workstation_id || "",
+        workstationCode: workstation?.code || overview?.workstation_code || "",
+        workstationName: workstation?.name || overview?.workstation_name || "-",
+        area: workstation?.area || overview?.workstation_area || "-",
+        currentWorkOrder: activeRun?.job_number || overview?.job_number || "-",
+        productionOrderId: activeRun?.production_order_id || overview?.production_order_id || null,
+        itemName: activeRun?.item_name || overview?.item_name || "",
+        itemCode: activeRun?.item_code || overview?.item_code || "",
+        machineStatus: statusRaw,
+        statusMeta: getMesStatusMeta(statusRaw),
+        actualCycleSeconds,
+        targetCycleSeconds,
+        producedParts: totalProduced,
+        goodParts: Number(activeRun?.good_quantity || overview?.good_quantity || 0),
+        scrapParts: scrapQuantity || Number(overview?.scrap_quantity || 0),
+        operatorName: activeRun?.operator_name || overview?.operator_name || "",
+        actualRate,
+        idealUnitsPerHour,
+        terminalName: overview?.terminal_name || "",
+        terminalLastSeenAt: overview?.terminal_last_seen_at || "",
+        machineLastHeartbeatAt: machine?.last_heartbeat_at || overview?.machine_last_heartbeat_at || "",
+        jobStatus: activeRun?.status || overview?.job_status || "",
+        plannedQuantity: Number(activeRun?.planned_quantity || overview?.planned_quantity || 0),
+        currentDowntimeReason: overview?.current_downtime_reason || "",
+        events,
+        activeRun,
+        scrapRate: safeRatioPercent(scrapQuantity, totalProduced),
+        workstation
+      });
+    };
+
+    (mesMachines || []).forEach((machine) => {
+      buildRow(machine);
+      seen.add(machine.id);
+    });
+
+    (mesOverviewRows || []).forEach((row) => {
+      if (row.machine_id && seen.has(row.machine_id)) {
+        return;
+      }
+      buildRow(
+        {
+          id: row.machine_id || row.workstation_id,
+          workstation_id: row.workstation_id,
+          code: row.machine_code || row.workstation_code,
+          name: row.machine_name || row.workstation_name,
+          machine_state: row.machine_state || row.job_status || "idle",
+          last_heartbeat_at: row.machine_last_heartbeat_at || ""
+        },
+        mesWorkstationsById[row.workstation_id] || null
+      );
+      if (row.machine_id) {
+        seen.add(row.machine_id);
+      }
+    });
+
+    return rows.sort(
+      (a, b) =>
+        String(a.area || "").localeCompare(String(b.area || ""), "sk-SK", { sensitivity: "base" }) ||
+        String(a.machineName || "").localeCompare(String(b.machineName || ""), "sk-SK", { sensitivity: "base" })
+    );
+  }, [mesMachines, mesOverviewRows, mesRunsByMachineId, mesEventsByMachineId, mesWorkstationsById, mesOverviewByMachineId, mesOverviewByWorkstationId, mesWorkstations]);
+  const mesMachineOptions = useMemo(
+    () =>
+      machineDashboardRows.map((row) => ({
+        id: row.machineId,
+        label: row.machineName || row.machineCode || row.machineId,
+        workstationName: row.workstationName || "-"
+      })),
+    [machineDashboardRows]
+  );
   const selectedMesMachineOverview = useMemo(
-    () => mesOverviewRows.find((row) => row.machine_id === selectedMesMachineId) || null,
-    [mesOverviewRows, selectedMesMachineId]
+    () => machineDashboardRows.find((row) => row.machineId === selectedMesMachineId) || null,
+    [machineDashboardRows, selectedMesMachineId]
   );
   const selectedMesMachineRuns = useMemo(
-    () => mesRecentJobRuns.filter((row) => row.machine_id === selectedMesMachineId),
-    [mesRecentJobRuns, selectedMesMachineId]
+    () => mesRunsByMachineId[selectedMesMachineId] || [],
+    [mesRunsByMachineId, selectedMesMachineId]
   );
   const currentMesMachineRun = useMemo(() => {
     return (
       selectedMesMachineRuns.find((row) => ["running", "paused", "queued"].includes(String(row.status || "").toLowerCase())) ||
       selectedMesMachineRuns[0] ||
+      selectedMesMachineOverview?.activeRun ||
       null
     );
-  }, [selectedMesMachineRuns]);
+  }, [selectedMesMachineRuns, selectedMesMachineOverview]);
   const selectedMesMachineEvents = useMemo(
-    () =>
-      mesRecentEventRows
-        .filter((row) => row.machine_id === selectedMesMachineId)
-        .sort((a, b) => new Date(b.happened_at).getTime() - new Date(a.happened_at).getTime()),
-    [mesRecentEventRows, selectedMesMachineId]
+    () => mesEventsByMachineId[selectedMesMachineId] || [],
+    [mesEventsByMachineId, selectedMesMachineId]
   );
   const selectedMesMachineHistory = useMemo(
     () =>
@@ -8271,16 +8575,333 @@ function App() {
     [selectedMesMachineEvents]
   );
   const selectedMesMachineStats = useMemo(() => {
-    const matchById = mesAnalytics.topMachines.find((row) => row.machineId === selectedMesMachineId);
-    if (matchById) {
-      return matchById;
+    if (!selectedMesMachineOverview) {
+      return null;
     }
-    return (
-      mesAnalytics.topMachines.find(
-        (row) => row.machineName === (selectedMesMachineOverview?.machine_name || selectedMesMachineOverview?.machine_code || "")
-      ) || null
-    );
+    const matchById = mesAnalytics.topMachines.find((row) => row.machineId === selectedMesMachineId);
+    return matchById || selectedMesMachineOverview;
   }, [mesAnalytics.topMachines, selectedMesMachineId, selectedMesMachineOverview]);
+  const mesProductionOrderRows = useMemo(() => {
+    return mesRecentJobRuns
+      .filter((row) => ["queued", "running", "paused", "planned"].includes(String(row.status || "").toLowerCase()))
+      .map((row) => {
+        const machineRow = machineDashboardRows.find((item) => item.machineId === row.machine_id) || null;
+        const workstation = mesWorkstationsById[row.workstation_id] || null;
+        const totalProduced = Number(row.good_quantity || 0) + Number(row.scrap_quantity || 0);
+        const completionPct = clampPercent(safeRatioPercent(totalProduced, Number(row.planned_quantity || 0)));
+        const runtimeMs = Math.max(
+          0,
+          new Date(row.ended_at || row.updated_at || Date.now()).getTime() - new Date(row.started_at || row.created_at || Date.now()).getTime()
+        );
+        const actualRate = runtimeMs > 0 && totalProduced > 0 ? totalProduced / (runtimeMs / (60 * 60 * 1000)) : machineRow?.actualRate || null;
+        const fallbackRate =
+          actualRate ||
+          Number(workstation?.ideal_units_per_hour || 0) ||
+          (Number(workstation?.target_cycle_seconds || 0) > 0 ? 3600 / Number(workstation.target_cycle_seconds) : null);
+        const remaining = Math.max(0, Number(row.planned_quantity || 0) - totalProduced);
+        const estimatedFinishAt =
+          fallbackRate && fallbackRate > 0 && remaining > 0 ? new Date(Date.now() + (remaining / fallbackRate) * 60 * 60 * 1000).toISOString() : "";
+        return {
+          ...row,
+          machineLabel: machineRow?.machineName || machineRow?.machineCode || row.machine_id || "-",
+          workstationLabel: workstation?.name || row.workstation_id || "-",
+          totalProduced,
+          completionPct,
+          rejectRatePct: safeRatioPercent(Number(row.scrap_quantity || 0), totalProduced),
+          actualRate,
+          estimatedFinishAt
+        };
+      })
+      .sort(
+        (a, b) =>
+          ["running", "paused", "queued", "planned"].indexOf(String(a.status || "").toLowerCase()) -
+            ["running", "paused", "queued", "planned"].indexOf(String(b.status || "").toLowerCase()) ||
+          new Date(b.started_at || b.created_at || 0).getTime() - new Date(a.started_at || a.created_at || 0).getTime()
+      );
+  }, [mesRecentJobRuns, machineDashboardRows, mesWorkstationsById]);
+  const mesThroughput = useMemo(() => {
+    const hourlySeries = Array.from({ length: 8 }, (_, index) => {
+      const start = new Date();
+      start.setMinutes(0, 0, 0);
+      start.setHours(start.getHours() - (7 - index));
+      return {
+        key: start.toISOString(),
+        label: start.toLocaleTimeString("sk-SK", { hour: "2-digit", minute: "2-digit" }),
+        good: 0,
+        scrap: 0,
+        total: 0
+      };
+    });
+    const dailySeries = Array.from({ length: 7 }, (_, index) => {
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      start.setDate(start.getDate() - (6 - index));
+      return {
+        key: start.toISOString().slice(0, 10),
+        label: start.toLocaleDateString("sk-SK", { day: "2-digit", month: "2-digit" }),
+        good: 0,
+        scrap: 0,
+        total: 0
+      };
+    });
+    const hourlyByKey = Object.fromEntries(hourlySeries.map((row) => [row.key.slice(0, 13), row]));
+    const dailyByKey = Object.fromEntries(dailySeries.map((row) => [row.key, row]));
+    mesRecentEventRows.forEach((row) => {
+      const eventType = String(row.event_type || "").toLowerCase();
+      if (!["good_count", "scrap_count"].includes(eventType)) {
+        return;
+      }
+      const quantity = Math.max(1, Number(row.quantity || 0));
+      const happenedAt = String(row.happened_at || "");
+      const hourKey = happenedAt.slice(0, 13);
+      const dayKey = happenedAt.slice(0, 10);
+      const hourlyBucket = hourlyByKey[hourKey];
+      const dailyBucket = dailyByKey[dayKey];
+      if (hourlyBucket) {
+        hourlyBucket[eventType === "good_count" ? "good" : "scrap"] += quantity;
+        hourlyBucket.total += quantity;
+      }
+      if (dailyBucket) {
+        dailyBucket[eventType === "good_count" ? "good" : "scrap"] += quantity;
+        dailyBucket.total += quantity;
+      }
+    });
+    const partsPerHour = hourlySeries[hourlySeries.length - 1]?.total || 0;
+    const partsPerShift = hourlySeries.reduce((sum, row) => sum + row.total, 0);
+    const todayKey = new Date().toISOString().slice(0, 10);
+    const partsPerDay = dailyByKey[todayKey]?.total || 0;
+    const maxHourly = Math.max(1, ...hourlySeries.map((row) => row.total));
+    const maxDaily = Math.max(1, ...dailySeries.map((row) => row.total));
+    return {
+      hourlySeries,
+      dailySeries,
+      partsPerHour,
+      partsPerShift,
+      partsPerDay,
+      hourlyPolyline: buildSimplePolyline(hourlySeries, "total", maxHourly),
+      dailyPolyline: buildSimplePolyline(dailySeries, "total", maxDaily)
+    };
+  }, [mesRecentEventRows]);
+  const mesQualitySummary = useMemo(() => {
+    const defectTypeMap = new Map();
+    mesRecentEventRows.forEach((row) => {
+      if (String(row.event_type || "").toLowerCase() !== "scrap_count") {
+        return;
+      }
+      const defectType =
+        String(row.payload?.defect_type || row.payload?.reason || row.note || mesDowntimeReasonNameById[row.downtime_reason_id] || "Nešpecifikovaný")
+          .trim() || "Nešpecifikovaný";
+      const quantity = Math.max(1, Number(row.quantity || 0));
+      defectTypeMap.set(defectType, (defectTypeMap.get(defectType) || 0) + quantity);
+    });
+    const goodParts = mesOverviewSummary.totalGood;
+    const scrapParts = mesOverviewSummary.totalScrap;
+    const totalParts = goodParts + scrapParts;
+    return {
+      goodParts,
+      scrapParts,
+      rejectRatePct: safeRatioPercent(scrapParts, totalParts),
+      defectTypes: Array.from(defectTypeMap.entries())
+        .map(([type, quantity]) => ({ type, quantity }))
+        .sort((a, b) => b.quantity - a.quantity)
+        .slice(0, 5)
+    };
+  }, [mesRecentEventRows, mesDowntimeReasonNameById, mesOverviewSummary.totalGood, mesOverviewSummary.totalScrap]);
+  const mesDowntimeTimeline = useMemo(() => {
+    const timeline = [];
+    Object.entries(mesEventsByMachineId).forEach(([machineId, events]) => {
+      const ordered = [...events].sort((a, b) => new Date(a.happened_at || 0).getTime() - new Date(b.happened_at || 0).getTime());
+      let activeDowntime = null;
+      ordered.forEach((event) => {
+        const eventType = String(event.event_type || "").toLowerCase();
+        if (!["downtime_start", "pause", "stop"].includes(eventType) && !["downtime_end", "resume", "start"].includes(eventType)) {
+          return;
+        }
+        const happenedMs = new Date(event.happened_at || 0).getTime();
+        if (!Number.isFinite(happenedMs)) {
+          return;
+        }
+        if (["downtime_start", "pause", "stop"].includes(eventType)) {
+          if (!activeDowntime) {
+            activeDowntime = event;
+          }
+          return;
+        }
+        if (activeDowntime) {
+          timeline.push({
+            id: `${activeDowntime.id}-${event.id}`,
+            machineId,
+            machineName:
+              machineDashboardRows.find((row) => row.machineId === machineId)?.machineName ||
+              machineDashboardRows.find((row) => row.workstationId === machineId)?.machineName ||
+              machineId,
+            startAt: activeDowntime.happened_at,
+            endAt: event.happened_at,
+            durationMs: Math.max(0, happenedMs - new Date(activeDowntime.happened_at || 0).getTime()),
+            reason:
+              mesDowntimeReasonNameById[activeDowntime.downtime_reason_id] ||
+              activeDowntime.payload?.reason ||
+              activeDowntime.note ||
+              "Nezadaný dôvod"
+          });
+          activeDowntime = null;
+        }
+      });
+      if (activeDowntime) {
+        timeline.push({
+          id: `${activeDowntime.id}-open`,
+          machineId,
+          machineName:
+            machineDashboardRows.find((row) => row.machineId === machineId)?.machineName ||
+            machineDashboardRows.find((row) => row.workstationId === machineId)?.machineName ||
+            machineId,
+          startAt: activeDowntime.happened_at,
+          endAt: "",
+          durationMs: Math.max(0, Date.now() - new Date(activeDowntime.happened_at || 0).getTime()),
+          reason:
+            mesDowntimeReasonNameById[activeDowntime.downtime_reason_id] ||
+            activeDowntime.payload?.reason ||
+            activeDowntime.note ||
+            "Nezadaný dôvod"
+        });
+      }
+    });
+    return timeline.sort((a, b) => new Date(b.startAt || 0).getTime() - new Date(a.startAt || 0).getTime());
+  }, [mesEventsByMachineId, mesDowntimeReasonNameById, machineDashboardRows]);
+  const mesOeeSummary = useMemo(() => {
+    const machineTargetsByWorkstationId = Object.fromEntries(
+      Object.values(mesWorkstationsById).map((row) => [
+        row.id,
+        {
+          targetCycleSeconds: Number(row.target_cycle_seconds || 0),
+          idealUnitsPerHour: Number(row.ideal_units_per_hour || 0)
+        }
+      ])
+    );
+    let totalGood = 0;
+    let totalCount = 0;
+    let runTimeMs = 0;
+    let downtimeMs = 0;
+    let idealRuntimeMs = 0;
+    mesRecentJobRuns.forEach((row) => {
+      const startedMs = new Date(row.started_at || row.created_at || 0).getTime();
+      const endedMs = new Date(row.ended_at || row.updated_at || Date.now()).getTime();
+      if (!Number.isFinite(startedMs) || !Number.isFinite(endedMs) || endedMs <= startedMs) {
+        return;
+      }
+      const produced = Number(row.good_quantity || 0) + Number(row.scrap_quantity || 0);
+      const target = machineTargetsByWorkstationId[row.workstation_id] || null;
+      runTimeMs += endedMs - startedMs;
+      totalGood += Number(row.good_quantity || 0);
+      totalCount += produced;
+      if (target?.targetCycleSeconds > 0 && produced > 0) {
+        idealRuntimeMs += produced * target.targetCycleSeconds * 1000;
+      } else if (target?.idealUnitsPerHour > 0 && produced > 0) {
+        idealRuntimeMs += (produced / target.idealUnitsPerHour) * 60 * 60 * 1000;
+      }
+    });
+    mesDowntimeTimeline.forEach((row) => {
+      downtimeMs += Number(row.durationMs || 0);
+    });
+    const plannedProductionMs = runTimeMs + downtimeMs;
+    const availabilityPct = clampPercent(safeRatioPercent(runTimeMs, plannedProductionMs));
+    const performancePct = clampPercent(safeRatioPercent(idealRuntimeMs, runTimeMs));
+    const qualityPct = clampPercent(safeRatioPercent(totalGood, totalCount));
+    return {
+      availabilityPct,
+      performancePct,
+      qualityPct,
+      oeePct: clampPercent((availabilityPct * performancePct * qualityPct) / 10000)
+    };
+  }, [mesRecentJobRuns, mesDowntimeTimeline, mesWorkstationsById]);
+  const mesGlobalKpis = useMemo(() => {
+    const counts = machineDashboardRows.reduce(
+      (acc, row) => {
+        if (row.statusMeta.tone === "running") acc.running += 1;
+        else if (row.statusMeta.tone === "setup") acc.setup += 1;
+        else if (row.statusMeta.tone === "alarm") acc.alarm += 1;
+        else if (row.statusMeta.tone === "stopped") acc.stopped += 1;
+        else acc.idle += 1;
+        return acc;
+      },
+      { running: 0, stopped: 0, idle: 0, alarm: 0, setup: 0 }
+    );
+    const productionRate = machineDashboardRows.reduce((sum, row) => sum + Number(row.actualRate || 0), 0);
+    return {
+      ...counts,
+      activeOrders: mesProductionOrderRows.length,
+      productionRate,
+      goodParts: mesQualitySummary.goodParts,
+      scrapParts: mesQualitySummary.scrapParts
+    };
+  }, [machineDashboardRows, mesProductionOrderRows.length, mesQualitySummary.goodParts, mesQualitySummary.scrapParts]);
+  const mesAlerts = useMemo(() => {
+    const alerts = [];
+    machineDashboardRows.forEach((row) => {
+      if (row.statusMeta.tone === "alarm" || row.currentDowntimeReason) {
+        alerts.push({
+          id: `${row.machineId}-alarm`,
+          severity: "critical",
+          title: `${row.machineName}: alarm / downtime`,
+          detail: row.currentDowntimeReason || `Stav stroja je ${row.statusMeta.label}.`,
+          at: row.events[0]?.happened_at || row.machineLastHeartbeatAt || row.terminalLastSeenAt || ""
+        });
+      }
+      if (Number(row.scrapRate || 0) >= 8) {
+        alerts.push({
+          id: `${row.machineId}-scrap`,
+          severity: "warning",
+          title: `${row.machineName}: zvýšený scrap`,
+          detail: `Reject rate ${formatPercentValue(row.scrapRate)}.`,
+          at: row.events.find((event) => String(event.event_type || "").toLowerCase() === "scrap_count")?.happened_at || ""
+        });
+      }
+      if (Number(row.actualRate || 0) > 0 && Number(row.idealUnitsPerHour || 0) > 0 && row.actualRate < row.idealUnitsPerHour * 0.75) {
+        alerts.push({
+          id: `${row.machineId}-target`,
+          severity: "warning",
+          title: `${row.machineName}: produkcia pod cieľom`,
+          detail: `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(row.actualRate)} ks/h vs target ${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(row.idealUnitsPerHour)} ks/h.`,
+          at: row.activeRun?.updated_at || row.activeRun?.started_at || ""
+        });
+      }
+      if (row.terminalLastSeenAt) {
+        const lastSeenMs = new Date(row.terminalLastSeenAt).getTime();
+        if (Number.isFinite(lastSeenMs) && Date.now() - lastSeenMs > 10 * 60 * 1000) {
+          alerts.push({
+            id: `${row.machineId}-terminal`,
+            severity: "info",
+            title: `${row.machineName}: HMI offline`,
+            detail: `Terminál sa neozval od ${formatDate(row.terminalLastSeenAt)}.`,
+            at: row.terminalLastSeenAt
+          });
+        }
+      }
+    });
+    return alerts
+      .sort(
+        (a, b) =>
+          ["critical", "warning", "info"].indexOf(a.severity) - ["critical", "warning", "info"].indexOf(b.severity) ||
+          new Date(b.at || 0).getTime() - new Date(a.at || 0).getTime()
+      )
+      .slice(0, 10);
+  }, [machineDashboardRows]);
+  const mesFactoryMap = useMemo(() => {
+    const areas = {};
+    machineDashboardRows.forEach((row) => {
+      const key = row.area || "Výroba";
+      if (!areas[key]) {
+        areas[key] = [];
+      }
+      areas[key].push(row);
+    });
+    return Object.entries(areas)
+      .map(([area, machines]) => ({
+        area,
+        machines: machines.sort((a, b) => String(a.machineName).localeCompare(String(b.machineName), "sk-SK", { sensitivity: "base" }))
+      }))
+      .sort((a, b) => String(a.area).localeCompare(String(b.area), "sk-SK", { sensitivity: "base" }));
+  }, [machineDashboardRows]);
   const sidebarSections = useMemo(() => {
     const manufacturingItems = [PRODUCTION_MODULE].filter((table) => visibleTableNames.includes(table));
     const workflowItems = [PRICE_LIST_TABLE, CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE].filter((table) =>
@@ -8816,6 +9437,539 @@ function App() {
       </main>
     );
   }
+
+  const renderMesDashboard = () => (
+    <article className="orders-panel-card workflow-card workflow-card-list mes-dashboard-card">
+      <div className="panel-head workflow-section-head">
+        <div>
+          <p className="workflow-section-kicker">MES</p>
+          <h2>Factory operations dashboard</h2>
+          <p className="panel-meta">
+            Real-time MES rozhranie pre operátora, supervisora aj management. Polling {Math.round(MES_REFRESH_MS / 1000)} s + realtime zmeny.
+          </p>
+        </div>
+        <div className="hero-badges">
+          <span className="table-badge">{getMesViewRoleLabel(mesViewRole)}</span>
+          <span className="table-badge">{`${machineDashboardRows.length} strojov`}</span>
+          <span className="table-badge">{`${mesProductionOrderRows.length} aktívnych zákaziek`}</span>
+        </div>
+      </div>
+      {!activeCompanyId && isMaster ? (
+        <p className="hint">Vyber konkrétnu firmu v hornom filtri, aby sa zobrazil MES dashboard.</p>
+      ) : mesLoading ? (
+        <p className="hint">Načítavam MES dashboard...</p>
+      ) : machineDashboardRows.length === 0 ? (
+        <p className="hint">Pre túto firmu zatiaľ nie sú založené stroje, pracoviská alebo MES job runy.</p>
+      ) : (
+        <>
+          <div className="mes-kpi-grid">
+            <article className="card workflow-stat-card mes-kpi-card">
+              <p>Running Machines</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.running)}</strong>
+            </article>
+            <article className="card workflow-stat-card mes-kpi-card">
+              <p>Stopped Machines</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.stopped + mesGlobalKpis.alarm)}</strong>
+            </article>
+            <article className="card workflow-stat-card mes-kpi-card">
+              <p>Idle Machines</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.idle)}</strong>
+            </article>
+            <article className="card workflow-stat-card mes-kpi-card">
+              <p>Active Production Orders</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.activeOrders)}</strong>
+            </article>
+            <article className="card workflow-stat-card mes-kpi-card">
+              <p>Production Rate</p>
+              <strong>{`${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(mesGlobalKpis.productionRate)} ks/h`}</strong>
+            </article>
+            <article className="card workflow-stat-card mes-kpi-card">
+              <p>Good Parts Produced</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.goodParts)}</strong>
+            </article>
+            <article className="card workflow-stat-card mes-kpi-card">
+              <p>Scrap Parts</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.scrapParts)}</strong>
+            </article>
+          </div>
+
+          <div className="mes-dashboard-grid">
+            <article className="card mes-focus-card mes-focus-card-primary mes-machine-detail-card">
+              <div className="mes-machine-toolbar">
+                <label className="settings-field mes-machine-picker">
+                  <span>Vybraný stroj</span>
+                  <select value={selectedMesMachineId} onChange={(event) => setSelectedMesMachineId(event.target.value)}>
+                    {mesMachineOptions.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {`${option.label} | ${option.workstationName}`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="mes-machine-toolbar-meta">
+                  <span className={`mes-status-badge mes-status-badge-${selectedMesMachineOverview?.statusMeta?.tone || "idle"}`}>
+                    {selectedMesMachineOverview?.statusMeta?.label || "IDLE"}
+                  </span>
+                  <span className="table-badge">{selectedMesMachineOverview?.workstationName || "-"}</span>
+                  <span className="table-badge">{selectedMesMachineOverview?.area || "-"}</span>
+                  <span className="table-badge">
+                    {selectedMesMachineOverview?.terminalName ? `HMI ${selectedMesMachineOverview.terminalName}` : "bez HMI"}
+                  </span>
+                </div>
+              </div>
+              <div className="mes-detail-grid">
+                <div>
+                  <p className="mes-focus-kicker">Current machine drill-down</p>
+                  <strong>{selectedMesMachineOverview?.machineName || "Nezvolený stroj"}</strong>
+                  <p className="mes-focus-meta">
+                    {currentMesMachineRun
+                      ? `${currentMesMachineRun.item_name || currentMesMachineRun.job_number || "-"} | operátor ${currentMesMachineRun.operator_name || "-"}`
+                      : "Na stroji aktuálne nebeží aktívna zákazka."}
+                  </p>
+                  {selectedMesMachineOverview?.currentDowntimeReason && (
+                    <p className="mes-focus-note">{`Aktívny prestoj: ${selectedMesMachineOverview.currentDowntimeReason}`}</p>
+                  )}
+                </div>
+                <div className="mes-detail-stats">
+                  <article className="mes-mini-stat">
+                    <span>Work order</span>
+                    <strong>{selectedMesMachineOverview?.currentWorkOrder || "-"}</strong>
+                  </article>
+                  <article className="mes-mini-stat">
+                    <span>Actual cycle</span>
+                    <strong>
+                      {Number.isFinite(selectedMesMachineOverview?.actualCycleSeconds)
+                        ? `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(selectedMesMachineOverview.actualCycleSeconds)} s`
+                        : "-"}
+                    </strong>
+                  </article>
+                  <article className="mes-mini-stat">
+                    <span>Target cycle</span>
+                    <strong>
+                      {Number.isFinite(selectedMesMachineOverview?.targetCycleSeconds)
+                        ? `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(selectedMesMachineOverview.targetCycleSeconds)} s`
+                        : "-"}
+                    </strong>
+                  </article>
+                  <article className="mes-mini-stat">
+                    <span>Produced parts</span>
+                    <strong>{new Intl.NumberFormat("sk-SK").format(selectedMesMachineOverview?.producedParts || 0)}</strong>
+                  </article>
+                  <article className="mes-mini-stat">
+                    <span>Actual rate</span>
+                    <strong>
+                      {Number.isFinite(selectedMesMachineOverview?.actualRate)
+                        ? `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(selectedMesMachineOverview.actualRate)} ks/h`
+                        : "-"}
+                    </strong>
+                  </article>
+                  <article className="mes-mini-stat">
+                    <span>Heartbeat</span>
+                    <strong>{selectedMesMachineOverview?.machineLastHeartbeatAt ? formatTimeOnly(selectedMesMachineOverview.machineLastHeartbeatAt) : "-"}</strong>
+                  </article>
+                </div>
+              </div>
+              <div className="mes-timeline">
+                {selectedMesMachineHistory.length === 0 ? (
+                  <p className="hint">Pre vybraný stroj zatiaľ nie sú downtime eventy.</p>
+                ) : (
+                  selectedMesMachineHistory.slice(0, 5).map((event) => (
+                    <div key={event.id} className="mes-timeline-row">
+                      <div>
+                        <strong>{formatMesEventLabel(event.event_type)}</strong>
+                        <p>
+                          {mesDowntimeReasonNameById[event.downtime_reason_id] ||
+                            event.payload?.reason ||
+                            event.note ||
+                            event.payload?.note ||
+                            "-"}
+                        </p>
+                      </div>
+                      <span>{formatDate(event.happened_at)}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </article>
+
+            <article className="orders-panel-card workflow-card workflow-card-soft mes-oee-panel">
+              <div className="panel-head workflow-section-head">
+                <div>
+                  <h2>OEE dashboard</h2>
+                  <p className="panel-meta">Availability, performance, quality a výsledné OEE z dostupných job run + downtime dát.</p>
+                </div>
+              </div>
+              <div className="mes-oee-grid">
+                <article className="mes-oee-card">
+                  <span>Availability</span>
+                  <strong>{formatPercentValue(mesOeeSummary.availabilityPct)}</strong>
+                  <div className="mes-progress-track"><div className="mes-progress-fill" style={{ width: `${clampPercent(mesOeeSummary.availabilityPct)}%` }} /></div>
+                </article>
+                <article className="mes-oee-card">
+                  <span>Performance</span>
+                  <strong>{formatPercentValue(mesOeeSummary.performancePct)}</strong>
+                  <div className="mes-progress-track"><div className="mes-progress-fill" style={{ width: `${clampPercent(mesOeeSummary.performancePct)}%` }} /></div>
+                </article>
+                <article className="mes-oee-card">
+                  <span>Quality</span>
+                  <strong>{formatPercentValue(mesOeeSummary.qualityPct)}</strong>
+                  <div className="mes-progress-track"><div className="mes-progress-fill" style={{ width: `${clampPercent(mesOeeSummary.qualityPct)}%` }} /></div>
+                </article>
+                <article className="mes-oee-card mes-oee-card-strong">
+                  <span>OEE</span>
+                  <strong>{formatPercentValue(mesOeeSummary.oeePct)}</strong>
+                  <div className="mes-progress-track"><div className="mes-progress-fill" style={{ width: `${clampPercent(mesOeeSummary.oeePct)}%` }} /></div>
+                </article>
+              </div>
+            </article>
+          </div>
+
+          <article className="orders-panel-card workflow-card workflow-card-list">
+            <div className="panel-head workflow-section-head">
+              <div>
+                <h2>Machine status overview</h2>
+                <p className="panel-meta">Klik na stroj otvorí jeho drill-down. Farba zodpovedá zadaniu RUNNING / IDLE / STOPPED / ALARM / SETUP.</p>
+              </div>
+            </div>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Machine Name</th>
+                    <th>Machine ID</th>
+                    <th>Current Work Order</th>
+                    <th>Machine Status</th>
+                    <th>Actual Cycle Time</th>
+                    <th>Target Cycle Time</th>
+                    <th>Produced Parts</th>
+                    <th>Operator</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {machineDashboardRows.map((row) => (
+                    <tr
+                      key={row.machineId}
+                      className={selectedMesMachineId === row.machineId ? "mes-machine-row-selected" : ""}
+                      onClick={() => setSelectedMesMachineId(row.machineId)}
+                    >
+                      <td>
+                        <strong>{row.machineName}</strong>
+                        <div className="master-user-email">{`${row.workstationName} | ${row.area}`}</div>
+                      </td>
+                      <td>{row.machineCode || row.machineId || "-"}</td>
+                      <td>
+                        <div>{row.currentWorkOrder || "-"}</div>
+                        <div className="master-user-email">{row.itemName || row.itemCode || "-"}</div>
+                      </td>
+                      <td>
+                        <span className={`mes-status-badge mes-status-badge-${row.statusMeta.tone}`}>{row.statusMeta.label}</span>
+                      </td>
+                      <td>
+                        {Number.isFinite(row.actualCycleSeconds)
+                          ? `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(row.actualCycleSeconds)} s`
+                          : "-"}
+                      </td>
+                      <td>
+                        {Number.isFinite(row.targetCycleSeconds)
+                          ? `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(row.targetCycleSeconds)} s`
+                          : "-"}
+                      </td>
+                      <td>{new Intl.NumberFormat("sk-SK").format(row.producedParts || 0)}</td>
+                      <td>{row.operatorName || "-"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </article>
+
+          <article className="orders-panel-card workflow-card workflow-card-list">
+            <div className="panel-head workflow-section-head">
+              <div>
+                <h2>Production order progress</h2>
+                <p className="panel-meta">Aktívne job runy s progresom, scrapom a odhadom dokončenia.</p>
+              </div>
+            </div>
+            {mesProductionOrderRows.length === 0 ? (
+              <p className="hint">Aktuálne nie sú aktívne výrobné zákazky.</p>
+            ) : (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Order Number</th>
+                      <th>Product Name</th>
+                      <th>Planned Quantity</th>
+                      <th>Produced Quantity</th>
+                      <th>Scrap Quantity</th>
+                      <th>Completion Percentage</th>
+                      <th>Estimated Finish Time</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {mesProductionOrderRows.map((row) => (
+                      <tr key={row.id}>
+                        <td>
+                          <strong>{row.job_number || "-"}</strong>
+                          <div className="master-user-email">{row.machineLabel}</div>
+                        </td>
+                        <td>
+                          <div>{row.item_name || row.item_code || "-"}</div>
+                          <div className="master-user-email">{row.workstationLabel}</div>
+                        </td>
+                        <td>{new Intl.NumberFormat("sk-SK").format(row.planned_quantity || 0)}</td>
+                        <td>{new Intl.NumberFormat("sk-SK").format(row.totalProduced || 0)}</td>
+                        <td>{new Intl.NumberFormat("sk-SK").format(row.scrap_quantity || 0)}</td>
+                        <td>
+                          <div className="mes-progress-cell">
+                            <div className="mes-progress-track">
+                              <div className="mes-progress-fill" style={{ width: `${clampPercent(row.completionPct)}%` }} />
+                            </div>
+                            <span>{formatPercentValue(row.completionPct)}</span>
+                          </div>
+                        </td>
+                        <td>{formatEstimatedFinishTime(row.estimatedFinishAt)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </article>
+
+          <div className="orders-layout workflow-grid">
+            <div className="orders-column workflow-editor-column">
+              <article className="orders-panel-card workflow-card workflow-card-list">
+                <div className="panel-head workflow-section-head">
+                  <div>
+                    <h2>Production throughput</h2>
+                    <p className="panel-meta">Parts per hour, shift a day z eventov `good_count` / `scrap_count`.</p>
+                  </div>
+                </div>
+                <div className="mes-throughput-metrics">
+                  <article className="mes-mini-stat">
+                    <span>Parts / hour</span>
+                    <strong>{new Intl.NumberFormat("sk-SK").format(mesThroughput.partsPerHour)}</strong>
+                  </article>
+                  <article className="mes-mini-stat">
+                    <span>Parts / shift</span>
+                    <strong>{new Intl.NumberFormat("sk-SK").format(mesThroughput.partsPerShift)}</strong>
+                  </article>
+                  <article className="mes-mini-stat">
+                    <span>Parts / day</span>
+                    <strong>{new Intl.NumberFormat("sk-SK").format(mesThroughput.partsPerDay)}</strong>
+                  </article>
+                </div>
+                <div className="occupancy-chart-wrap">
+                  <svg viewBox="0 0 100 100" className="occupancy-chart" preserveAspectRatio="none" role="img" aria-label="MES throughput po hodinách">
+                    <line x1="0" y1="100" x2="100" y2="100" className="occupancy-chart-axis" />
+                    <polyline points={mesThroughput.hourlyPolyline} className="occupancy-chart-line" />
+                  </svg>
+                  <div className="occupancy-chart-labels">
+                    <span>{mesThroughput.hourlySeries[0]?.label || "-"}</span>
+                    <span>{mesThroughput.hourlySeries[Math.floor((mesThroughput.hourlySeries.length - 1) / 2)]?.label || "-"}</span>
+                    <span>{mesThroughput.hourlySeries[mesThroughput.hourlySeries.length - 1]?.label || "-"}</span>
+                  </div>
+                </div>
+              </article>
+            </div>
+            <div className="orders-column orders-column-list workflow-feed-column">
+              <article className="orders-panel-card workflow-card workflow-card-list">
+                <div className="panel-head workflow-section-head">
+                  <div>
+                    <h2>Quality monitoring</h2>
+                    <p className="panel-meta">Good parts, scrap, reject rate a top defect typy z MES eventov.</p>
+                  </div>
+                </div>
+                <div className="mes-quality-grid">
+                  <article className="mes-mini-stat">
+                    <span>Good parts</span>
+                    <strong>{new Intl.NumberFormat("sk-SK").format(mesQualitySummary.goodParts)}</strong>
+                  </article>
+                  <article className="mes-mini-stat">
+                    <span>Scrap parts</span>
+                    <strong>{new Intl.NumberFormat("sk-SK").format(mesQualitySummary.scrapParts)}</strong>
+                  </article>
+                  <article className="mes-mini-stat">
+                    <span>Reject rate</span>
+                    <strong>{formatPercentValue(mesQualitySummary.rejectRatePct)}</strong>
+                  </article>
+                </div>
+                <div className="mes-bar-list">
+                  {mesQualitySummary.defectTypes.length === 0 ? (
+                    <p className="hint">Zatiaľ nie sú evidované defect typy.</p>
+                  ) : (
+                    mesQualitySummary.defectTypes.map((item) => (
+                      <div key={item.type} className="mes-bar-row">
+                        <div className="mes-bar-row-head">
+                          <strong>{item.type}</strong>
+                          <span>{new Intl.NumberFormat("sk-SK").format(item.quantity)}</span>
+                        </div>
+                        <div className="mes-progress-track">
+                          <div
+                            className="mes-progress-fill mes-progress-fill-alert"
+                            style={{
+                              width: `${clampPercent(safeRatioPercent(item.quantity, mesQualitySummary.scrapParts || item.quantity || 1))}%`
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </article>
+            </div>
+          </div>
+
+          <div className="orders-layout workflow-grid">
+            <div className="orders-column workflow-editor-column">
+              <article className="orders-panel-card workflow-card workflow-card-list">
+                <div className="panel-head workflow-section-head">
+                  <div>
+                    <h2>Downtime tracking</h2>
+                    <p className="panel-meta">Párované downtime úseky podľa eventov a dôvodov prestojov.</p>
+                  </div>
+                </div>
+                {mesDowntimeTimeline.length === 0 ? (
+                  <p className="hint">Zatiaľ nie sú dostupné downtime intervaly.</p>
+                ) : (
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Machine</th>
+                          <th>Start Time</th>
+                          <th>End Time</th>
+                          <th>Duration</th>
+                          <th>Downtime Reason</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {mesDowntimeTimeline.slice(0, 10).map((row) => (
+                          <tr key={row.id}>
+                            <td>{row.machineName}</td>
+                            <td>{formatDate(row.startAt)}</td>
+                            <td>{row.endAt ? formatDate(row.endAt) : "prebieha"}</td>
+                            <td>{formatDurationShort(row.durationMs)}</td>
+                            <td>{row.reason}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </article>
+            </div>
+            <div className="orders-column orders-column-list workflow-feed-column">
+              <article className="orders-panel-card workflow-card workflow-card-list">
+                <div className="panel-head workflow-section-head">
+                  <div>
+                    <h2>Alerts and events</h2>
+                    <p className="panel-meta">Machine alarms, production below target, excessive scrap a HMI offline signály.</p>
+                  </div>
+                </div>
+                {mesAlerts.length === 0 ? (
+                  <p className="hint">Aktuálne nie sú žiadne kritické alerty.</p>
+                ) : (
+                  <div className="mes-alert-list">
+                    {mesAlerts.map((alert) => (
+                      <article key={alert.id} className={`mes-alert-card mes-alert-card-${alert.severity}`}>
+                        <div className="mes-alert-head">
+                          <strong>{alert.title}</strong>
+                          <span>{alert.at ? formatTimeOnly(alert.at) : "-"}</span>
+                        </div>
+                        <p>{alert.detail}</p>
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </article>
+            </div>
+          </div>
+
+          {mesViewRole !== "operator" && (
+            <div className="orders-layout workflow-grid">
+              <div className="orders-column workflow-editor-column">
+                <article className="orders-panel-card workflow-card workflow-card-list">
+                  <div className="panel-head workflow-section-head">
+                    <div>
+                      <h2>Factory map</h2>
+                      <p className="panel-meta">Voliteľný shop-floor pohľad s farebnými tile podľa stavu stroja.</p>
+                    </div>
+                  </div>
+                  <div className="mes-factory-map">
+                    {mesFactoryMap.map((zone) => (
+                      <section key={zone.area} className="mes-factory-zone">
+                        <div className="mes-factory-zone-head">
+                          <strong>{zone.area}</strong>
+                          <span>{`${zone.machines.length} strojov`}</span>
+                        </div>
+                        <div className="mes-factory-zone-grid">
+                          {zone.machines.map((machine) => (
+                            <button
+                              key={machine.machineId}
+                              type="button"
+                              className={`mes-factory-tile mes-factory-tile-${machine.statusMeta.tone} ${selectedMesMachineId === machine.machineId ? "mes-factory-tile-selected" : ""}`}
+                              onClick={() => setSelectedMesMachineId(machine.machineId)}
+                            >
+                              <strong>{machine.machineName}</strong>
+                              <span>{machine.currentWorkOrder || machine.statusMeta.label}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </section>
+                    ))}
+                  </div>
+                </article>
+              </div>
+              <div className="orders-column orders-column-list workflow-feed-column">
+                <article className="orders-panel-card workflow-card workflow-card-list">
+                  <div className="panel-head workflow-section-head">
+                    <div>
+                      <h2>Recent machine events</h2>
+                      <p className="panel-meta">Kliknutý stroj, audit trail a detail eventov pre supervisor / management pohľad.</p>
+                    </div>
+                  </div>
+                  {selectedMesMachineEvents.length === 0 ? (
+                    <p className="hint">Pre vybraný stroj zatiaľ nie sú žiadne eventy.</p>
+                  ) : (
+                    <div className="table-wrap">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Čas</th>
+                            <th>Udalosť</th>
+                            <th>Detail</th>
+                            <th>Qty</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedMesMachineEvents.slice(0, 12).map((event) => (
+                            <tr key={event.id}>
+                              <td>{formatDate(event.happened_at)}</td>
+                              <td>{formatMesEventLabel(event.event_type)}</td>
+                              <td>
+                                {mesDowntimeReasonNameById[event.downtime_reason_id] ||
+                                  event.payload?.reason ||
+                                  event.note ||
+                                  event.payload?.note ||
+                                  JSON.stringify(event.payload || {})}
+                              </td>
+                              <td>{event.quantity ? new Intl.NumberFormat("sk-SK").format(event.quantity) : "-"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </article>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </article>
+  );
 
   return (
     <main className="container dashboard-shell">
@@ -11521,7 +12675,9 @@ function App() {
           {mesError && <p className="error">{mesError}</p>}
           {productionError && <p className="error">{productionError}</p>}
 
-          {canAccessMesModule && (
+          {canAccessMesModule && renderMesDashboard()}
+
+          {false && canAccessMesModule && (
             <>
               <div className="orders-summary-grid workflow-summary-grid">
                 <article className="card workflow-stat-card">

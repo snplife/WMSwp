@@ -1229,6 +1229,140 @@ select {
   font-weight: 700;
 }
 
+.mes-machine-shell {
+  display: grid;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.mes-machine-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: end;
+  flex-wrap: wrap;
+  padding: 1rem 1.1rem;
+  border: 1px solid #dce6f0;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #f4fbff, #ffffff 60%, #eef6f1);
+}
+
+.mes-machine-picker {
+  min-width: min(420px, 100%);
+}
+
+.mes-machine-picker select {
+  min-width: 280px;
+}
+
+.mes-machine-toolbar-meta {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.mes-machine-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr;
+  gap: 0.9rem;
+}
+
+.mes-focus-card {
+  display: grid;
+  gap: 0.7rem;
+  border: 1px solid #dce6f0;
+  border-radius: 20px;
+  background: linear-gradient(180deg, #ffffff, #f7fbff);
+}
+
+.mes-focus-card-primary {
+  background: linear-gradient(145deg, #14324a, #21506d 58%, #2b6f78);
+  color: #f4fbf8;
+}
+
+.mes-focus-card-primary p,
+.mes-focus-card-primary .mes-focus-meta,
+.mes-focus-card-primary .mes-focus-note {
+  color: rgba(244, 251, 248, 0.86);
+}
+
+.mes-focus-kicker {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.mes-focus-card strong {
+  font-size: 1.2rem;
+}
+
+.mes-focus-meta,
+.mes-focus-note {
+  margin: 0;
+  color: #5e7082;
+}
+
+.mes-focus-stats {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.mes-focus-stats span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid #d6e3ef;
+  color: #274054;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.mes-focus-card-primary .mes-focus-stats span {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #f4fbf8;
+}
+
+.mes-timeline {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.mes-timeline-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: start;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid #e1e9f2;
+  border-radius: 14px;
+  background: #fbfdff;
+}
+
+.mes-timeline-row p,
+.mes-timeline-row strong {
+  margin: 0;
+}
+
+.mes-timeline-row p {
+  margin-top: 0.18rem;
+  color: #65788b;
+  font-size: 0.82rem;
+}
+
+.mes-timeline-row span {
+  color: #56697b;
+  font-size: 0.79rem;
+  white-space: nowrap;
+}
+
 .order-card-body {
   display: grid;
   gap: 0.8rem;

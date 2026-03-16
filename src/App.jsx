@@ -3077,6 +3077,28 @@ function App() {
   const isMaster = userRole === "master";
   const canAccessOrdersModule = isMaster || canManageOrders;
   const hotjarAllowed = (authReady || authInitTimedOut) && (!isLoggedIn || !isMaster);
+  const companyNameById = useMemo(
+    () =>
+      Object.fromEntries(
+        companies.map((company) => [company.id, company.name])
+      ),
+    [companies]
+  );
+  const companiesById = useMemo(
+    () =>
+      Object.fromEntries(
+        companies.map((company) => [company.id, company])
+      ),
+    [companies]
+  );
+  const activeCompanyId = isMaster ? (selectedCompanyId === "all" ? null : selectedCompanyId) : userCompanyId;
+  const activeCompany = useMemo(
+    () => companies.find((company) => company.id === activeCompanyId) || null,
+    [companies, activeCompanyId]
+  );
+  const canAccessMesModule =
+    isMaster || (canAccessMes && Boolean(userCompanyId) && (companies.length === 0 ? true : Boolean(activeCompany?.mes_enabled)));
+  const canAccessManufacturingModule = canAccessOrdersModule || canAccessMesModule;
   const visibleTableNames = useMemo(() => {
     if (isMaster) {
       return Array.from(new Set([...tableNames, PRICE_LIST_TABLE, CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE, PRODUCTION_MODULE]));
@@ -3103,28 +3125,6 @@ function App() {
       ])
     );
   }, [isMaster, canAccessOrdersModule, canAccessManufacturingModule]);
-  const companyNameById = useMemo(
-    () =>
-      Object.fromEntries(
-        companies.map((company) => [company.id, company.name])
-      ),
-    [companies]
-  );
-  const companiesById = useMemo(
-    () =>
-      Object.fromEntries(
-        companies.map((company) => [company.id, company])
-      ),
-    [companies]
-  );
-  const activeCompanyId = isMaster ? (selectedCompanyId === "all" ? null : selectedCompanyId) : userCompanyId;
-  const activeCompany = useMemo(
-    () => companies.find((company) => company.id === activeCompanyId) || null,
-    [companies, activeCompanyId]
-  );
-  const canAccessMesModule =
-    isMaster || (canAccessMes && Boolean(userCompanyId) && (companies.length === 0 ? true : Boolean(activeCompany?.mes_enabled)));
-  const canAccessManufacturingModule = canAccessOrdersModule || canAccessMesModule;
   const normalizedStockTwinLayout = useMemo(() => normalizeStockTwinLayout(stockTwinLayout), [stockTwinLayout]);
   const customersById = useMemo(
     () => Object.fromEntries(customers.map((customer) => [customer.id, customer])),

@@ -3272,7 +3272,6 @@ function App() {
   );
   const canAccessMesModule =
     isMaster || (canAccessMes && Boolean(userCompanyId) && (companies.length === 0 ? true : Boolean(activeCompany?.mes_enabled)));
-  const canAccessManufacturingModule = canAccessOrdersModule || canAccessMesModule;
   const visibleTableNames = useMemo(() => {
     if (isMaster) {
       return Array.from(new Set([...tableNames, PRICE_LIST_TABLE, CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE, PRODUCTION_MODULE]));
@@ -3280,11 +3279,8 @@ function App() {
     const userBaseTables = Array.from(
       new Set([DAILY_OVERVIEW_TABLE, ...tableNames.filter((table) => !isCompaniesTable(table) && (table === "stock" || isTransactionsTable(table)))])
     );
-    if (!canAccessManufacturingModule) {
+    if (!canAccessOrdersModule && !canAccessMesModule) {
       return userBaseTables;
-    }
-    if (!canAccessOrdersModule) {
-      return Array.from(new Set([...userBaseTables, PRODUCTION_MODULE]));
     }
     return Array.from(
       new Set([
@@ -3294,11 +3290,11 @@ function App() {
         CUSTOMERS_MODULE,
         QUOTES_MODULE,
         INVOICES_MODULE,
-        ORDERS_MODULE,
-        PRODUCTION_MODULE
+        ...(canAccessOrdersModule ? [ORDERS_MODULE] : []),
+        ...(canAccessMesModule ? [PRODUCTION_MODULE] : [])
       ])
     );
-  }, [isMaster, canAccessOrdersModule, canAccessManufacturingModule]);
+  }, [isMaster, canAccessOrdersModule, canAccessMesModule]);
   const normalizedStockTwinLayout = useMemo(() => normalizeStockTwinLayout(stockTwinLayout), [stockTwinLayout]);
   const customersById = useMemo(
     () => Object.fromEntries(customers.map((customer) => [customer.id, customer])),
@@ -12789,7 +12785,7 @@ function App() {
         </section>
       )}
 
-      {isProductionModule(selectedTable) && canAccessManufacturingModule && (
+      {isProductionModule(selectedTable) && canAccessMesModule && (
         <section className="panel workflow-shell workflow-shell-production">
           <div className="panel-head workflow-header">
             <div>
@@ -12806,7 +12802,7 @@ function App() {
           {mesError && <p className="error">{mesError}</p>}
           {productionError && <p className="error">{productionError}</p>}
 
-          {canAccessMesModule && renderMesDashboard()}
+          {renderMesDashboard()}
 
           {false && canAccessMesModule && (
             <>
@@ -13151,360 +13147,6 @@ function App() {
             </>
           )}
 
-          {canAccessOrdersModule && (
-            <>
-              <div className="orders-summary-grid workflow-summary-grid">
-                <article className="card workflow-stat-card">
-                  <p>Výrobné zákazky</p>
-                  <strong>{new Intl.NumberFormat("sk-SK").format(productionOrders.length)}</strong>
-                </article>
-                <article className="card workflow-stat-card">
-                  <p>Vstupy</p>
-                  <strong>{new Intl.NumberFormat("sk-SK").format(productionOrderInputs.length)}</strong>
-                </article>
-                <article className="card workflow-stat-card">
-                  <p>Výstupy</p>
-                  <strong>{new Intl.NumberFormat("sk-SK").format(productionOrderOutputs.length)}</strong>
-                </article>
-                <article className="card workflow-stat-card">
-                  <p>Skladové pozície</p>
-                  <strong>{new Intl.NumberFormat("sk-SK").format(productionStockRows.length)}</strong>
-                </article>
-              </div>
-
-              <div className="orders-layout workflow-grid">
-                <div className="orders-column workflow-editor-column">
-                  <article className="orders-panel-card workflow-card workflow-card-strong">
-                    <div className="panel-head workflow-section-head">
-                      <div>
-                        <p className="workflow-section-kicker">Nová výroba</p>
-                        <h2>Nová výrobná objednávka</h2>
-                        <p className="panel-meta">Vstupy sa odpíšu až pri naskladnení výstupu.</p>
-                      </div>
-                    </div>
-                    <form className="orders-form" onSubmit={handleCreateProductionOrder}>
-                      <label className="workflow-field">
-                        <span className="workflow-field-label">Názov výroby alebo zákazky</span>
-                        <input
-                          type="text"
-                          className="search-input"
-                          placeholder="Napíš, čo sa ide vyrábať"
-                          value={productionTitleInput}
-                          onChange={(event) => setProductionTitleInput(event.target.value)}
-                          disabled={!activeCompanyId || productionSubmitting}
-                          required
-                        />
-                      </label>
-
-                  <div className="workflow-form-section">
-                    <div className="panel-head workflow-section-head workflow-subsection-head">
-                      <div>
-                        <h2>Vstupy zo skladu</h2>
-                        <p className="panel-meta">Vyber materiály, ktoré sa majú spotrebovať pri naskladnení výstupu.</p>
-                      </div>
-                    </div>
-                    <div className="orders-draft-list">
-                      <datalist id={PRODUCTION_INPUT_DATALIST_ID}>
-                        {productionStockOptions.map((option) => (
-                          <option key={option.stockKey} value={option.label} />
-                        ))}
-                      </datalist>
-                      {productionDraftInputs.map((item, index) => {
-                        const selectedStockRow = productionStockMap[item.stockKey];
-                        const stockQuantity = Number(selectedStockRow?.quantity || 0);
-                        const quantityMax = stockQuantity > 0 ? Math.floor(stockQuantity) : undefined;
-                        const showNote = Boolean(item.showNote || String(item.lineNote || "").trim());
-
-                        return (
-                          <div key={item.draftId || `production-input-${index}`} className="orders-draft-row">
-                            <div className="orders-draft-main">
-                              <div className="orders-draft-cell">
-                                <span className="draft-field-label">{`Vstup ${index + 1}`}</span>
-                                <input
-                                  type="text"
-                                  className="search-input"
-                                  list={PRODUCTION_INPUT_DATALIST_ID}
-                                  placeholder="Vstupný materiál zo skladu"
-                                  value={item.stockInput || ""}
-                                  onChange={(event) => handleProductionInputChange(index, "stockInput", event.target.value)}
-                                  disabled={!activeCompanyId || productionSubmitting}
-                                />
-                                <p className="workflow-helper-text">
-                                  {selectedStockRow
-                                    ? `Sklad: ${String(selectedStockRow.material_code || "-")} | ${String(selectedStockRow.position || "-")}`
-                                    : "Môžeš písať voľne, sklad len ponúkne doplnenie."}
-                                </p>
-                              </div>
-                              <div className="orders-draft-cell workflow-quantity-cell">
-                                <span className="draft-field-label">Množstvo</span>
-                                <input
-                                  type="number"
-                                  min={1}
-                                  max={quantityMax}
-                                  className="dead-stock-days-input workflow-quantity-input"
-                                  placeholder="Množstvo"
-                                  value={item.requiredQuantity}
-                                  onChange={(event) => handleProductionInputChange(index, "requiredQuantity", event.target.value)}
-                                  disabled={!activeCompanyId || productionSubmitting}
-                                />
-                                  <p className="workflow-helper-text">
-                                    {selectedStockRow
-                                      ? `Max zo skladu: ${new Intl.NumberFormat("sk-SK").format(stockQuantity)} ks`
-                                      : ""}
-                                  </p>
-                              </div>
-                            </div>
-                            <div className="orders-draft-actions">
-                              <button
-                                type="button"
-                                className="clear-btn"
-                                onClick={() => handleProductionInputChange(index, "showNote", !showNote)}
-                                disabled={!activeCompanyId || productionSubmitting}
-                              >
-                                {showNote ? "Skryť poznámku" : "Pridať poznámku"}
-                              </button>
-                              <button type="button" className="clear-btn" onClick={() => handleRemoveProductionInput(index)}>
-                                Odobrať vstup
-                              </button>
-                            </div>
-                            {showNote && (
-                              <div className="orders-draft-note-row">
-                                <input
-                                  type="text"
-                                  className="search-input"
-                                  placeholder="Poznámka vstupu"
-                                  value={item.lineNote}
-                                  onChange={(event) => handleProductionInputChange(index, "lineNote", event.target.value)}
-                                  disabled={!activeCompanyId || productionSubmitting}
-                                />
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <div className="orders-form-actions">
-                      <button type="button" className="clear-btn" onClick={handleAddProductionInput}>
-                        Pridať vstup
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="workflow-form-section">
-                    <div className="panel-head workflow-section-head workflow-subsection-head">
-                      <div>
-                        <h2>Výstupy výroby</h2>
-                        <p className="panel-meta">Zadaj finálne položky, ktoré sa majú naskladniť.</p>
-                      </div>
-                    </div>
-                    <div className="orders-draft-list">
-                      <datalist id={PRODUCTION_OUTPUT_MATERIAL_DATALIST_ID}>
-                        {productionOutputMaterialOptions.map((materialCode) => (
-                          <option key={materialCode} value={materialCode} />
-                        ))}
-                      </datalist>
-                      {productionDraftOutputs.map((item, index) => {
-                        const showNote = Boolean(item.showNote || String(item.lineNote || "").trim());
-                        return (
-                          <div key={item.draftId || `production-output-${index}`} className="orders-draft-row">
-                            <div className="orders-draft-main production-output-main">
-                              <div className="orders-draft-cell production-output-primary">
-                                <span className="draft-field-label">{`Výstup ${index + 1}`}</span>
-                                <input
-                                  type="text"
-                                  className="search-input"
-                                  list={PRODUCTION_OUTPUT_MATERIAL_DATALIST_ID}
-                                  placeholder="Finálna položka"
-                                  value={item.materialCode}
-                                  onChange={(event) => handleProductionOutputChange(index, "materialCode", event.target.value)}
-                                  disabled={!activeCompanyId || productionSubmitting}
-                                />
-                                <p className="workflow-helper-text">Materiál alebo kód finálneho výrobku.</p>
-                              </div>
-                              <div className="orders-draft-cell production-output-compact workflow-quantity-cell">
-                                <span className="draft-field-label">Množstvo</span>
-                                <input
-                                  type="number"
-                                  min={1}
-                                  className="dead-stock-days-input workflow-quantity-input"
-                                  placeholder="Množstvo"
-                                  value={item.outputQuantity}
-                                  onChange={(event) => handleProductionOutputChange(index, "outputQuantity", event.target.value)}
-                                  disabled={!activeCompanyId || productionSubmitting}
-                                />
-                                <p className="workflow-helper-text">Naskladní sa pri dokončení výroby.</p>
-                              </div>
-                            </div>
-                            <div className="orders-draft-actions">
-                              <button
-                                type="button"
-                                className="clear-btn"
-                                onClick={() => handleProductionOutputChange(index, "showNote", !showNote)}
-                                disabled={!activeCompanyId || productionSubmitting}
-                              >
-                                {showNote ? "Skryť poznámku" : "Pridať poznámku"}
-                              </button>
-                              <button type="button" className="clear-btn" onClick={() => handleRemoveProductionOutput(index)}>
-                                Odobrať výstup
-                              </button>
-                            </div>
-                            {showNote && (
-                              <div className="orders-draft-note-row">
-                                <input
-                                  type="text"
-                                  className="search-input"
-                                  placeholder="Poznámka výstupu"
-                                  value={item.lineNote}
-                                  onChange={(event) => handleProductionOutputChange(index, "lineNote", event.target.value)}
-                                  disabled={!activeCompanyId || productionSubmitting}
-                                />
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <div className="orders-form-actions">
-                      <button type="button" className="clear-btn" onClick={handleAddProductionOutput}>
-                        Pridať výstup
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="orders-form-actions">
-                    <button type="submit" className="settings-btn" disabled={!activeCompanyId || productionSubmitting}>
-                      {productionSubmitting ? "Vytváram..." : "Vytvoriť výrobnú objednávku"}
-                    </button>
-                  </div>
-                  {productionError && <p className="error">{productionError}</p>}
-                </form>
-              </article>
-            </div>
-
-                <div className="orders-column orders-column-list workflow-feed-column">
-                  <article className="orders-panel-card workflow-card workflow-card-list">
-                    <div className="panel-head workflow-section-head">
-                      <div>
-                        <h2>Zoznam výrobných objednávok</h2>
-                        <p className="panel-meta">{`${filteredProductionOrders.length} / ${productionOrders.length} zákaziek`}</p>
-                      </div>
-                    </div>
-                    <div className="panel-controls">
-                      <input
-                        type="search"
-                        className="search-input"
-                        placeholder="Hľadaj číslo, názov alebo stav"
-                        value={productionSearchTerm}
-                        onChange={(event) => setProductionSearchTerm(event.target.value)}
-                      />
-                    </div>
-
-                    {productionLoading ? (
-                      <p className="hint">Načítavam výrobné objednávky...</p>
-                    ) : filteredProductionOrders.length === 0 ? (
-                      <p className="hint">Zatiaľ tu nie sú výrobné objednávky.</p>
-                    ) : (
-                      <div className="orders-list">
-                        {filteredProductionOrders.map((productionOrder) => {
-                          const isOpen = Boolean(expandedProductionOrders[productionOrder.id]);
-                          const inputs = productionInputsByOrderId[productionOrder.id] || [];
-                          const outputs = productionOutputsByOrderId[productionOrder.id] || [];
-                          return (
-                            <article key={productionOrder.id} className="order-card">
-                              <button
-                                type="button"
-                                className="order-card-head"
-                                onClick={() =>
-                                  setExpandedProductionOrders((prev) => ({ ...prev, [productionOrder.id]: !prev[productionOrder.id] }))
-                                }
-                              >
-                                <div>
-                                  <strong>{productionOrder.title}</strong>
-                                  <p>{productionOrder.production_number}</p>
-                                </div>
-                                <div className="order-card-meta">
-                                  <span className="order-card-badge">{formatDate(productionOrder.created_at)}</span>
-                                  <span className="order-card-badge">{`${inputs.length} vstupov / ${outputs.length} výstupov`}</span>
-                                </div>
-                              </button>
-                              {isOpen && (
-                                <div className="order-card-body">
-                                  <div className="order-card-actions">
-                                    <button type="button" className="clear-btn" onClick={() => handlePrintProductionOrder(productionOrder)}>
-                                      PDF
-                                    </button>
-                                    <StatusPill status={String(productionOrder.status || "draft")} />
-                                    {productionOrder.status !== "completed" && (
-                                      <button
-                                        type="button"
-                                        className="settings-btn"
-                                        onClick={() => handleCompleteProductionOrder(productionOrder)}
-                                        disabled={productionCompletingId === productionOrder.id}
-                                      >
-                                        {productionCompletingId === productionOrder.id ? "Naskladňujem..." : "Naskladniť a dokončiť"}
-                                      </button>
-                                    )}
-                                  </div>
-                                  <div className="table-wrap">
-                                    <table>
-                                      <thead>
-                                        <tr>
-                                          <th colSpan={4}>Vstupy zo skladu</th>
-                                        </tr>
-                                        <tr>
-                                          <th>Materiál</th>
-                                          <th>Pozícia</th>
-                                          <th>Množstvo</th>
-                                          <th>Poznámka</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {inputs.map((item) => (
-                                          <tr key={item.id}>
-                                            <td>{item.material_code}</td>
-                                            <td>{item.position}</td>
-                                            <td>{formatCell(item.required_quantity, "number")}</td>
-                                            <td>{item.line_note || "-"}</td>
-                                          </tr>
-                                        ))}
-                                      </tbody>
-                                    </table>
-                                  </div>
-                                  <div className="table-wrap">
-                                    <table>
-                                      <thead>
-                                        <tr>
-                                          <th colSpan={3}>Výstupy výroby</th>
-                                        </tr>
-                                        <tr>
-                                          <th>Materiál</th>
-                                          <th>Množstvo</th>
-                                          <th>Poznámka</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {outputs.map((item) => (
-                                          <tr key={item.id}>
-                                            <td>{item.material_code}</td>
-                                            <td>{formatCell(item.output_quantity, "number")}</td>
-                                            <td>{item.line_note || "-"}</td>
-                                          </tr>
-                                        ))}
-                                      </tbody>
-                                    </table>
-                                  </div>
-                                </div>
-                              )}
-                            </article>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </article>
-                </div>
-              </div>
-            </>
-          )}
         </section>
       )}
 

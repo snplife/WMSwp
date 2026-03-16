@@ -4496,17 +4496,74 @@ function App() {
       return;
     }
 
+    const normalizedNextValue = Boolean(nextValue);
     setManagedUsersError("");
-    const { error: updateError } = await supabase
-      .from(ROLE_TABLE)
-      .update({ can_access_mes: Boolean(nextValue) })
-      .eq("user_id", row.user_id);
+    setManagedUsers((prev) =>
+      prev.map((managedUser) =>
+        managedUser.user_id === row.user_id
+          ? {
+              ...managedUser,
+              can_access_mes: normalizedNextValue
+            }
+          : managedUser
+      )
+    );
 
-    if (updateError) {
-      setManagedUsersError(updateError.message || "Nepodarilo sa uložiť prístup k MES.");
+    let savedRow = null;
+    let saveError = null;
+
+    const { data: mesAccessRow, error: mesAccessRpcError } = await supabase.rpc("set_user_mes_access", {
+      target_user_id: row.user_id,
+      target_enabled: normalizedNextValue
+    });
+
+    if (mesAccessRpcError) {
+      const { data: fallbackRow, error: fallbackError } = await supabase
+        .from(ROLE_TABLE)
+        .update({ can_access_mes: normalizedNextValue })
+        .eq("user_id", row.user_id)
+        .select("*")
+        .maybeSingle();
+
+      savedRow = fallbackRow;
+      saveError = fallbackError;
+    } else {
+      savedRow = Array.isArray(mesAccessRow) ? mesAccessRow[0] : mesAccessRow;
+    }
+
+    if (saveError || !savedRow) {
+      setManagedUsers((prev) =>
+        prev.map((managedUser) =>
+          managedUser.user_id === row.user_id
+            ? {
+                ...managedUser,
+                can_access_mes: Boolean(row.can_access_mes)
+              }
+            : managedUser
+        )
+      );
+      setManagedUsersError(
+        saveError?.message ||
+          mesAccessRpcError?.message ||
+          "Nepodarilo sa uložiť prístup k MES."
+      );
       return;
     }
 
+    const normalizedSavedRow = normalizeManagedUserRecord(savedRow);
+    setManagedUsers((prev) =>
+      prev.map((managedUser) =>
+        managedUser.user_id === row.user_id
+          ? {
+              ...managedUser,
+              ...normalizedSavedRow
+            }
+          : managedUser
+      )
+    );
+    if (row.user_id === authUser?.id) {
+      setCanAccessMes(Boolean(normalizedSavedRow.can_access_mes));
+    }
     await loadManagedUsers();
   };
 

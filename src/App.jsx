@@ -1284,7 +1284,6 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
           <td>${escapeHtml(String(item.material_code || "-"))}</td>
           <td>${escapeHtml(String(item.unit || "ks"))}</td>
           <td>${escapeHtml(formatCell(item.quantity, "number"))}</td>
-          <td>${escapeHtml(`${formatCurrencyValue(item.unit_price || 0)} / ${formatPercentValue(item.discount_percent || 0, 2)}`)}</td>
           <td>${escapeHtml(formatPercentValue(item.vat_percent || 0, 2))}</td>
           <td>${escapeHtml(formatCurrencyValue(computed.lineTotal))}</td>
           <td>${escapeHtml(formatCurrencyValue(computed.lineTotalWithVat))}</td>
@@ -1470,14 +1469,13 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
                 <th>Položka</th>
                 <th>MJ</th>
                 <th>Množstvo</th>
-                <th>Predaj / Zľava</th>
                 <th>DPH</th>
                 <th>Spolu bez DPH</th>
                 <th>Spolu s DPH</th>
                 <th>Poznámka</th>
               </tr>
             </thead>
-            <tbody>${rowsHtml || '<tr><td colspan="9">Ponuka nemá položky.</td></tr>'}</tbody>
+            <tbody>${rowsHtml || '<tr><td colspan="8">Ponuka nemá položky.</td></tr>'}</tbody>
           </table>
         </section>
         <section class="summary">

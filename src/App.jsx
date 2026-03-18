@@ -1720,6 +1720,10 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           font-weight: 700;
           color: #111111;
         }
+        .bank-card h3 {
+          font-size: 7.6pt;
+          letter-spacing: 0;
+        }
         .panel-subtitle,
         .note-panel p,
         .pay-card p {
@@ -1773,22 +1777,23 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         .bank-card-grid {
           display: grid;
           grid-template-columns: 1.55fr 1fr repeat(3, minmax(0, 0.72fr));
-          gap: 0.9mm;
-          margin-top: 1.2mm;
+          gap: 1.1mm;
+          margin-top: 1mm;
         }
         .bank-box {
-          padding: 0.9mm 1.1mm;
+          padding: 1.35mm 1.5mm;
           border-radius: 1.8mm;
           background: #ffffff;
           border: 0.3mm solid #d8d8de;
         }
         .bank-box .detail-label {
-          margin-bottom: 0.2mm;
-          font-size: 4.2pt;
+          margin-bottom: 0.45mm;
+          font-size: 4.8pt;
         }
         .bank-box .detail-value {
-          font-size: 6.2pt;
-          line-height: 1.1;
+          font-size: 7.2pt;
+          line-height: 1.24;
+          font-weight: 700;
         }
         .pay-card-inner {
           display: flex;

@@ -2090,7 +2090,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
                 <th>Položka</th>
                 <th class="cell-qty-head" style="width:22mm;text-align:right;">Množstvo</th>
                 <th class="cell-unit-head" style="width:16mm;">MJ</th>
-                <th style="width:25mm;text-align:right;">Cena</th>
+                <th style="width:25mm;text-align:right;">Cena bez DPH</th>
                 <th style="width:18mm;text-align:right;">DPH</th>
                 <th style="width:30mm;text-align:right;">Spolu</th>
               </tr>

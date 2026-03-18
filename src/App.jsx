@@ -1224,44 +1224,32 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
   const preItemsSectionsHtml = String(options?.preItemsSectionsHtml || "");
   const afterSummarySectionsHtml = String(options?.afterSummarySectionsHtml || options?.extraSectionsHtml || "");
   const supplierFields = [
-    { label: "Dodávateľ", value: companyName },
-    { label: "Adresa", value: String(normalizedCompany?.address || "").trim() || "-" },
-    {
-      label: "Identifikácia",
-      value:
-        [
-          String(normalizedCompany?.ico || "").trim() ? `IČO ${String(normalizedCompany?.ico || "").trim()}` : "",
-          String(normalizedCompany?.dic || "").trim() ? `DIČ ${String(normalizedCompany?.dic || "").trim()}` : "",
-          String(normalizedCompany?.ic_dph || "").trim() ? `IČ DPH ${String(normalizedCompany?.ic_dph || "").trim()}` : ""
-        ]
-          .filter(Boolean)
-          .join(" | ") || "-"
-    },
-    { label: "IBAN", value: String(normalizedCompany?.bank_account || "").trim() || "-" }
+    { label: "Dodávateľ", value: companyName, fullWidth: true },
+    { label: "Adresa", value: String(normalizedCompany?.address || "").trim() || "-", fullWidth: true },
+    { label: "IČO", value: String(normalizedCompany?.ico || "").trim() || "-" },
+    { label: "DIČ", value: String(normalizedCompany?.dic || "").trim() || "-" },
+    { label: "IČ DPH", value: String(normalizedCompany?.ic_dph || "").trim() || "-" },
+    { label: "IBAN", value: formatIbanInput(normalizedCompany?.bank_account) || "-", fullWidth: true, valueClassName: "value value--mono" }
   ];
   const customerFields = [
-    { label: "Odberateľ", value: customerName },
-    { label: "Adresa", value: String(customer?.address || "").trim() || "-" },
+    { label: "Odberateľ", value: customerName, fullWidth: true },
+    { label: "Adresa", value: String(customer?.address || "").trim() || "-", fullWidth: true },
+    { label: "IČO", value: String(customer?.ico || "").trim() || "-" },
+    { label: "DIČ", value: String(customer?.dic || "").trim() || "-" },
+    { label: "IČ DPH", value: String(customer?.ic_dph || "").trim() || "-" },
     {
-      label: "Identifikácia",
-      value:
-        [
-          String(customer?.ico || "").trim() ? `IČO ${String(customer?.ico || "").trim()}` : "",
-          String(customer?.dic || "").trim() ? `DIČ ${String(customer?.dic || "").trim()}` : "",
-          String(customer?.ic_dph || "").trim() ? `IČ DPH ${String(customer?.ic_dph || "").trim()}` : ""
-        ]
-          .filter(Boolean)
-          .join(" | ") || "-"
-    },
-    { label: "Telefón / Email", value: [String(customer?.phone || "").trim(), String(customer?.email || "").trim()].filter(Boolean).join(" | ") || "-" }
+      label: "Telefón / Email",
+      value: [String(customer?.phone || "").trim(), String(customer?.email || "").trim()].filter(Boolean).join(" | ") || "-",
+      fullWidth: true
+    }
   ];
   const buildPartyFieldsHtml = (fields) =>
     fields
       .map(
         (field) => `
-          <div class="${field.label === "Dodávateľ" || field.label === "Odberateľ" || field.label === "Adresa" ? "party-field--full" : ""}">
+          <div class="${field.fullWidth ? "party-field--full" : ""}">
             <span class="section-label">${escapeHtml(field.label)}</span>
-            <div class="value">${escapeHtml(field.value)}</div>
+            <div class="${escapeHtml(field.valueClassName || "value")}">${escapeHtml(field.value)}</div>
           </div>
         `
       )
@@ -1269,12 +1257,12 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
   const noteHtml = quoteNote
     ? `
         <section class="note">
-          <span class="section-label">Sekcia: Poznámka k ponuke</span>
+          <h2 class="section-title">Poznámka k ponuke</h2>
           <div>${escapeHtml(quoteNote)}</div>
         </section>
       `
     : "";
-  const dueDateLabel = quote?.due_date ? formatDate(quote.due_date) : "";
+  const dueDateLabel = quote?.due_date ? formatDocumentDate(quote.due_date) : "";
   const dueDateMetaHtml = dueDateLabel
     ? `
             <span class="hero-meta-label">Splatnosť</span>
@@ -1348,7 +1336,7 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
           width: 1.6mm;
           background: linear-gradient(180deg, #0f8a7f, #0f5f8f);
         }
-        .hero-copy { display: grid; gap: 0.05mm; min-height: 0; }
+        .hero-copy { display: grid; gap: 0.45mm; min-height: 0; }
         .eyebrow { font-size: 5.8pt; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #7b8b98; line-height: 1; }
         h1 { margin: 0; font-size: 12.2pt; line-height: 0.98; color: #182431; }
         .hero-subtitle { font-size: 6pt; line-height: 1; color: #6b7b88; }
@@ -1373,10 +1361,10 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
           background: linear-gradient(180deg, #0f8a7f, #0f5f8f);
         }
         .summary-card { padding: 3mm; }
-        .customer, .note, .items, .summary { padding: 3mm 3mm 3mm 4.6mm; }
-        .customer-head, .items-head, .summary-head { display: flex; justify-content: space-between; gap: 4mm; align-items: end; margin-bottom: 1.8mm; }
+        .customer, .note, .items, .summary { padding: 3.3mm 3.2mm 3.3mm 4.8mm; }
+        .customer-head, .items-head, .summary-head { display: flex; justify-content: space-between; gap: 4mm; align-items: end; margin-bottom: 2.3mm; }
         .section-title { margin: 0; font-size: 11pt; color: #182431; }
-        .section-subtitle { margin: 0.6mm 0 0; font-size: 8.2pt; color: #607180; }
+        .section-subtitle { margin: 0.9mm 0 0; font-size: 8.2pt; color: #607180; }
         .party-grid, .customer-grid, .summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2.5mm 5mm; }
         .summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2mm 3mm; }
         .party-card {
@@ -1397,6 +1385,11 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
         .party-field--full { grid-column: 1 / -1; }
         .party-card .section-label { margin-bottom: 0.7mm; font-size: 7pt; }
         .party-card .value { font-size: 8.7pt; line-height: 1.35; }
+        .party-card .value--mono {
+          font-family: "Roboto Mono", "Consolas", "Courier New", monospace;
+          font-size: 8.1pt;
+          word-break: break-word;
+        }
         .summary-card {
           border: 0.3mm solid #e4ebf3;
           border-radius: 3.5mm;
@@ -1413,6 +1406,8 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
         .summary-card--tight { padding: 2.1mm 2.4mm; }
         .summary-card--tight .section-label { margin-bottom: 0.45mm; font-size: 6.2pt; }
         .summary-card--tight .value { font-size: 8pt; line-height: 1.2; }
+        .note .section-title { margin-bottom: 1.6mm; font-size: 9.4pt; }
+        .note div { font-size: 8.8pt; line-height: 1.45; color: #31404d; }
         table { width: 100%; border-collapse: collapse; font-size: 8.9pt; }
         thead th { padding: 2.8mm; text-align: left; color: #33506b; background: #eef5fb; border-bottom: 0.35mm solid #d6e1ec; }
         tbody td { padding: 2.8mm; vertical-align: top; border-bottom: 0.25mm solid #e6edf5; }
@@ -1439,21 +1434,21 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
         <section class="customer">
           <div class="customer-head">
             <div>
-              <h2 class="section-title">Sekcia: Zmluvné strany</h2>
+              <h2 class="section-title">Zmluvné strany</h2>
               <p class="section-subtitle">Dodávateľské a odberateľské údaje pre túto ponuku</p>
             </div>
           </div>
           <div class="party-grid">
             <article class="party-card">
               <div>
-                <h3 class="section-title">Sekcia: Dodávateľ</h3>
-                <p class="section-subtitle">Údaje z firemných nastavení</p>
+                <h3 class="section-title">Dodávateľ</h3>
+                <p class="section-subtitle">Firemné údaje z profilu dodávateľa</p>
               </div>
               <div class="party-fields">${buildPartyFieldsHtml(supplierFields)}</div>
             </article>
             <article class="party-card">
               <div>
-                <h3 class="section-title">Sekcia: Odberateľ</h3>
+                <h3 class="section-title">Odberateľ</h3>
                 <p class="section-subtitle">Údaje naviazané na zákazníka</p>
               </div>
               <div class="party-fields">${buildPartyFieldsHtml(customerFields)}</div>
@@ -1464,7 +1459,7 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
         <section class="items">
           <div class="items-head">
             <div>
-              <h2 class="section-title">Sekcia: Položky ponuky</h2>
+              <h2 class="section-title">Položky ponuky</h2>
               <p class="section-subtitle">Ceny sú zobrazené bez DPH aj s DPH</p>
             </div>
           </div>
@@ -1488,7 +1483,7 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
         <section class="summary">
           <div class="summary-head">
             <div>
-              <h2 class="section-title">Sekcia: Finálne sumy</h2>
+              <h2 class="section-title">Finálne sumy</h2>
               <p class="section-subtitle">Rekapitulácia cenovej ponuky</p>
             </div>
           </div>
@@ -1516,29 +1511,40 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
   const companyName = String(normalizedCompany?.name || "-");
   const customerName = String(invoice?.customer_name || customer?.name || "-");
   const invoiceNumber = String(invoice?.invoice_number || "-");
-  const dueDateLabel = invoice?.due_date ? formatDate(invoice.due_date) : "-";
-  const issuedAtLabel = invoice?.created_at ? formatDate(invoice.created_at) : "-";
+  const dueDateLabel = invoice?.due_date ? formatDocumentDate(invoice.due_date) : "-";
+  const issuedAtLabel = invoice?.created_at ? formatDocumentDate(invoice.created_at) : "-";
   const bankingDetails = buildInvoiceBankingDetails(invoice, items, companyProfile);
   const payBySquareData = buildInvoicePayBySquareData(invoice, items, companyProfile);
   const totals = computeDocumentTotals(items);
   const invoiceNote = String(invoice?.note || "").trim();
-  const supplierIdentification =
-    [
-      String(normalizedCompany?.ico || "").trim() ? `IČO ${String(normalizedCompany?.ico || "").trim()}` : "",
-      String(normalizedCompany?.dic || "").trim() ? `DIČ ${String(normalizedCompany?.dic || "").trim()}` : "",
-      String(normalizedCompany?.ic_dph || "").trim() ? `IČ DPH ${String(normalizedCompany?.ic_dph || "").trim()}` : ""
-    ]
-      .filter(Boolean)
-      .join(" | ") || "-";
-  const customerIdentification =
-    [
-      String(customer?.ico || "").trim() ? `IČO ${String(customer?.ico || "").trim()}` : "",
-      String(customer?.dic || "").trim() ? `DIČ ${String(customer?.dic || "").trim()}` : "",
-      String(customer?.ic_dph || "").trim() ? `IČ DPH ${String(customer?.ic_dph || "").trim()}` : ""
-    ]
-      .filter(Boolean)
-      .join(" | ") || "-";
   const customerContact = [String(customer?.phone || "").trim(), String(customer?.email || "").trim()].filter(Boolean).join(" | ") || "-";
+  const supplierDetailFields = [
+    { label: "Názov", value: companyName },
+    { label: "Adresa", value: String(normalizedCompany?.address || "").trim() || "-" },
+    { label: "IČO", value: String(normalizedCompany?.ico || "").trim() || "-" },
+    { label: "DIČ", value: String(normalizedCompany?.dic || "").trim() || "-" },
+    { label: "IČ DPH", value: String(normalizedCompany?.ic_dph || "").trim() || "-" },
+    { label: "IBAN", value: formatIbanInput(normalizedCompany?.bank_account) || "-", valueClassName: "detail-value detail-value--mono" }
+  ];
+  const customerDetailFields = [
+    { label: "Názov", value: customerName },
+    { label: "Adresa", value: String(customer?.address || "").trim() || "-" },
+    { label: "IČO", value: String(customer?.ico || "").trim() || "-" },
+    { label: "DIČ", value: String(customer?.dic || "").trim() || "-" },
+    { label: "IČ DPH", value: String(customer?.ic_dph || "").trim() || "-" },
+    { label: "Kontakt", value: customerContact }
+  ];
+  const buildInvoiceDetailFieldsHtml = (fields) =>
+    fields
+      .map(
+        (field) => `
+          <div>
+            <div class="detail-label">${escapeHtml(field.label)}</div>
+            <div class="${escapeHtml(field.valueClassName || "detail-value")}">${escapeHtml(field.value)}</div>
+          </div>
+        `
+      )
+      .join("");
   const rowsHtml = (items || [])
     .map((item, index) => {
       const computed = computeQuoteLineTotals({
@@ -1571,7 +1577,6 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
   const noteHtml = invoiceNote
     ? `
         <section class="note-panel">
-          <div class="section-kicker">Sekcia</div>
           <h3>Poznámka k faktúre</h3>
           <p>${escapeHtml(invoiceNote)}</p>
         </section>
@@ -1580,30 +1585,14 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
   const payBySquareHtml = payBySquareData?.isAvailable
     ? `
         <section class="pay-card">
-          <div class="section-kicker">Sekcia</div>
           <h3>PayBySquare</h3>
           <div class="pay-card-inner">
             <img src="${escapeHtml(buildQrImageUrl(payBySquareData.qrPayload, 220))}" alt="PayBySquare QR kod" />
-            <div class="pay-copy">
-              <div class="pay-line">
-                <span>Suma</span>
-                <strong>${escapeHtml(formatCurrencyValue(payBySquareData.amount))}</strong>
-              </div>
-              <div class="pay-line">
-                <span>IBAN</span>
-                <strong>${escapeHtml(payBySquareData.iban)}</strong>
-              </div>
-              <div class="pay-line">
-                <span>Splatnosť</span>
-                <strong>${escapeHtml(dueDateLabel)}</strong>
-              </div>
-            </div>
           </div>
         </section>
       `
     : `
         <section class="pay-card pay-card--muted">
-          <div class="section-kicker">Sekcia</div>
           <h3>PayBySquare</h3>
           <p>${escapeHtml(String(payBySquareData?.reason || "PayBySquare sa nepodarilo pripraviť."))}</p>
         </section>
@@ -1626,7 +1615,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         }
         .page {
           display: grid;
-          gap: 2.2mm;
+          gap: 2.8mm;
           padding: 0;
         }
         .hero,
@@ -1699,8 +1688,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           background: linear-gradient(180deg, #fbfbfd 0%, #f2f2f7 100%);
           border: 0.3mm solid #d8d8de;
         }
-        .chip-label,
-        .section-kicker {
+        .chip-label {
           font-size: 4.9pt;
           text-transform: uppercase;
           letter-spacing: 0.14em;
@@ -1727,7 +1715,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         .note-panel h3,
         .items-panel h2,
         .totals-panel h2 {
-          margin: 0.5mm 0 0;
+          margin: 0;
           font-size: 8.8pt;
           line-height: 1;
           letter-spacing: -0.02em;
@@ -1737,7 +1725,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         .panel-subtitle,
         .note-panel p,
         .pay-card p {
-          margin: 0.8mm 0 0;
+          margin: 1.1mm 0 0;
           font-size: 7pt;
           line-height: 1.45;
           color: #000000;
@@ -1765,11 +1753,16 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           font-weight: 700;
           color: #000000;
         }
+        .detail-value--mono {
+          font-family: "SFMono-Regular", "Consolas", "Courier New", monospace;
+          font-size: 7.2pt;
+          word-break: break-word;
+        }
         .payment-rail {
           display: grid;
           grid-template-columns: minmax(0, 1.6fr) minmax(0, 0.85fr);
-          gap: 1.8mm;
-          padding: 1.9mm;
+          gap: 1.4mm;
+          padding: 1.5mm;
           align-items: start;
         }
         .bank-card,
@@ -1777,63 +1770,42 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           border-radius: 2.8mm;
           background: linear-gradient(180deg, #fbfbfd 0%, #f7f7fa 100%);
           border: 0.3mm solid #d8d8de;
-          padding: 2.2mm 2.4mm;
+          padding: 1.7mm 1.9mm;
         }
         .bank-card-grid {
           display: grid;
-          grid-template-columns: 1.15fr 1.55fr 1fr repeat(3, minmax(0, 0.72fr));
-          gap: 1.2mm;
-          margin-top: 1.7mm;
+          grid-template-columns: 1.55fr 1fr repeat(3, minmax(0, 0.72fr));
+          gap: 0.9mm;
+          margin-top: 1.2mm;
         }
         .bank-box {
-          padding: 1.3mm 1.5mm;
-          border-radius: 2.2mm;
+          padding: 0.9mm 1.1mm;
+          border-radius: 1.8mm;
           background: #ffffff;
           border: 0.3mm solid #d8d8de;
         }
         .bank-box .detail-label {
-          margin-bottom: 0.35mm;
-          font-size: 4.6pt;
+          margin-bottom: 0.2mm;
+          font-size: 4.2pt;
         }
         .bank-box .detail-value {
-          font-size: 6.9pt;
-          line-height: 1.2;
+          font-size: 6.2pt;
+          line-height: 1.1;
         }
         .pay-card-inner {
-          display: grid;
-          grid-template-columns: auto;
-          gap: 1.2mm;
-          margin-top: 1.7mm;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          margin-top: 1.2mm;
         }
         .pay-card img {
-          width: 17mm;
-          height: 17mm;
+          width: 22mm;
+          height: 22mm;
           display: block;
-          padding: 0.7mm;
-          border-radius: 2mm;
+          padding: 0.6mm;
+          border-radius: 1.8mm;
           background: #ffffff;
           border: 0.3mm solid #d8d8de;
-        }
-        .pay-copy {
-          display: grid;
-          gap: 0.6mm;
-        }
-        .pay-line {
-          display: grid;
-          gap: 0.15mm;
-        }
-        .pay-line span {
-          font-size: 4.5pt;
-          text-transform: uppercase;
-          letter-spacing: 0.12em;
-          color: #000000;
-          font-weight: 700;
-        }
-        .pay-line strong {
-          font-size: 6.6pt;
-          line-height: 1.25;
-          color: #000000;
-          font-weight: 700;
         }
         .pay-card--muted {
           background: #fafafa;
@@ -1966,58 +1938,21 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
 
         <section class="parties">
           <article class="panel">
-            <div class="section-kicker">Sekcia</div>
             <h2>Dodávateľ</h2>
             <p class="panel-subtitle">Firemné údaje z profilu dodávateľa</p>
-            <div class="detail-grid detail-grid--single">
-              <div>
-                <div class="detail-label">Názov</div>
-                <div class="detail-value">${escapeHtml(companyName)}</div>
-              </div>
-              <div>
-                <div class="detail-label">Adresa</div>
-                <div class="detail-value">${escapeHtml(String(normalizedCompany?.address || "").trim() || "-")}</div>
-              </div>
-              <div>
-                <div class="detail-label">Identifikácia</div>
-                <div class="detail-value">${escapeHtml(supplierIdentification)}</div>
-              </div>
-            </div>
+            <div class="detail-grid detail-grid--single">${buildInvoiceDetailFieldsHtml(supplierDetailFields)}</div>
           </article>
           <article class="panel">
-            <div class="section-kicker">Sekcia</div>
             <h2>Odberateľ</h2>
             <p class="panel-subtitle">Klient, ktorému je faktúra vystavená</p>
-            <div class="detail-grid detail-grid--single">
-              <div>
-                <div class="detail-label">Názov</div>
-                <div class="detail-value">${escapeHtml(customerName)}</div>
-              </div>
-              <div>
-                <div class="detail-label">Adresa</div>
-                <div class="detail-value">${escapeHtml(String(customer?.address || "").trim() || "-")}</div>
-              </div>
-              <div>
-                <div class="detail-label">Identifikácia</div>
-                <div class="detail-value">${escapeHtml(customerIdentification)}</div>
-              </div>
-              <div>
-                <div class="detail-label">Kontakt</div>
-                <div class="detail-value">${escapeHtml(customerContact)}</div>
-              </div>
-            </div>
+            <div class="detail-grid detail-grid--single">${buildInvoiceDetailFieldsHtml(customerDetailFields)}</div>
           </article>
         </section>
 
         <section class="payment-rail">
           <article class="bank-card">
-            <div class="section-kicker">Sekcia</div>
             <h3>Bankové spojenie</h3>
             <div class="bank-card-grid">
-              <div class="bank-box">
-                <div class="detail-label">Príjemca</div>
-                <div class="detail-value">${escapeHtml(bankingDetails.beneficiaryName)}</div>
-              </div>
               <div class="bank-box">
                 <div class="detail-label">Číslo účtu / IBAN</div>
                 <div class="detail-value">${escapeHtml(bankingDetails.bankAccount)}</div>
@@ -2046,7 +1981,6 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         <section class="items-panel">
           <div class="items-head">
             <div>
-              <div class="section-kicker">Sekcia</div>
               <h2>Položky faktúry</h2>
               <p class="items-subtitle">Zjednodušený prehľad položiek s finálnou sumou po DPH</p>
             </div>
@@ -2070,7 +2004,6 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         <section class="totals-panel">
           <div class="totals-head">
             <div>
-              <div class="section-kicker">Sekcia</div>
               <h2>Rekapitulácia</h2>
               <p class="totals-subtitle">Finálna suma a daňový rozpis</p>
             </div>
@@ -2343,7 +2276,7 @@ function buildInvoiceBankingDetails(invoice, items, companyProfile) {
     swiftCode,
     variableSymbol: invoiceSymbol,
     specificSymbol: "-",
-    constantSymbol: invoiceSymbol,
+    constantSymbol: "-",
     amount: totals.totalWithVat > 0 ? formatCurrencyValue(totals.totalWithVat) : "-",
     dueDate: invoice?.due_date ? formatDate(invoice.due_date) : "-"
   };
@@ -2566,6 +2499,37 @@ function formatDate(value) {
   }
 
   return parsed.toLocaleString();
+}
+
+function formatDocumentDate(value) {
+  if (value === null || value === undefined || value === "") {
+    return "-";
+  }
+
+  const source = String(value).trim();
+  const isoDateMatch = source.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoDateMatch) {
+    const [, year, month, day] = isoDateMatch;
+    const localDate = new Date(Number(year), Number(month) - 1, Number(day));
+    if (!Number.isNaN(localDate.getTime())) {
+      return localDate.toLocaleDateString("sk-SK");
+    }
+  }
+
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && source !== "") {
+    const fromMs = new Date(numeric);
+    if (!Number.isNaN(fromMs.getTime())) {
+      return fromMs.toLocaleDateString("sk-SK");
+    }
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return source;
+  }
+
+  return parsed.toLocaleDateString("sk-SK");
 }
 
 function formatCurrencyValue(value) {

@@ -1861,8 +1861,8 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         }
         .bank-row {
           display: grid;
-          grid-template-columns: 24mm 1fr;
-          gap: 3mm;
+          grid-template-columns: 32mm 1fr;
+          gap: 4mm;
           align-items: start;
         }
         .bank-label {
@@ -1873,6 +1873,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           color: #667786;
           font-weight: 700;
           line-height: 1.1;
+          white-space: nowrap;
         }
         .bank-value {
           margin: 0;

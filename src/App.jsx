@@ -1712,32 +1712,32 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         .hero {
           display: grid;
           grid-template-columns: minmax(0, 1fr) 46mm;
-          gap: 7mm;
+          gap: 6mm;
           align-items: start;
-          padding-top: 1.2mm;
+          padding-top: 1.5mm;
           border-top: 0.9mm solid #0f7d77;
         }
         .hero h1 {
           margin: 0;
-          font-size: 16pt;
+          font-size: 16.8pt;
           line-height: 1;
           font-weight: 700;
           letter-spacing: -0.04em;
         }
         .hero-right {
           display: grid;
-          gap: 2.2mm;
+          gap: 2.6mm;
           align-content: start;
         }
         .header-meta {
           display: grid;
-          gap: 0.9mm;
+          gap: 1.2mm;
         }
         .header-meta-row {
           display: flex;
           justify-content: space-between;
           gap: 3mm;
-          padding-top: 0.9mm;
+          padding-top: 1.2mm;
           border-top: 0.3mm solid #dbe5ef;
         }
         .header-meta-row span {
@@ -1749,7 +1749,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           line-height: 1.1;
         }
         .header-meta-row strong {
-          font-size: 7.3pt;
+          font-size: 8.4pt;
           line-height: 1.2;
           color: #16212b;
           font-weight: 600;
@@ -1757,8 +1757,8 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         .parties {
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 5.5mm;
-          padding-top: 1.9mm;
+          gap: 6mm;
+          padding-top: 2.3mm;
           border-top: 0.35mm solid #dbe5ef;
         }
         .party h2,
@@ -1767,7 +1767,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         .totals-section h2,
         .note-section h3 {
           margin: 0;
-          font-size: 8pt;
+          font-size: 9pt;
           line-height: 1;
           letter-spacing: -0.01em;
           font-weight: 700;
@@ -1778,15 +1778,15 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         .totals-subtitle,
         .note-section p,
         .qr-note {
-          margin: 1mm 0 0;
-          font-size: 7.1pt;
+          margin: 1.2mm 0 0;
+          font-size: 8.1pt;
           line-height: 1.45;
           color: #5f6f7d;
         }
         .party-list {
           display: grid;
-          gap: 0.7mm;
-          margin: 1.8mm 0 0;
+          gap: 1.1mm;
+          margin: 2.1mm 0 0;
         }
         .detail-label {
           margin: 0;
@@ -1799,13 +1799,13 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         }
         .detail-value {
           margin: 0;
-          font-size: 7.5pt;
+          font-size: 8.8pt;
           line-height: 1.3;
           font-weight: 700;
           color: #16212b;
         }
         .detail-value--lead {
-          font-size: 8pt;
+          font-size: 9.6pt;
           line-height: 1.2;
         }
         .detail-value--muted {
@@ -1813,14 +1813,14 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           color: #4c5f71;
         }
         .detail-value--inline-meta {
-          font-size: 7.4pt;
+          font-size: 8.5pt;
           line-height: 1.3;
           font-weight: 700;
           white-space: pre-wrap;
         }
         .detail-value--mono {
           font-family: "Consolas", "Courier New", monospace;
-          font-size: 7pt;
+          font-size: 8.1pt;
         }
         .party-row {
           display: grid;
@@ -1833,19 +1833,19 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           gap: 0;
         }
         .payment-section {
-          padding-top: 1.9mm;
+          padding-top: 2.3mm;
           border-top: 0.35mm solid #dbe5ef;
         }
         .payment-copy {
           display: grid;
           grid-template-columns: minmax(0, 1fr) 30mm;
-          gap: 2mm 5.5mm;
+          gap: 2.8mm 6mm;
           align-items: start;
         }
         .payment-copy h3 {
           margin: 0;
           grid-column: 1 / -1;
-          font-size: 8pt;
+          font-size: 9pt;
           line-height: 1;
           letter-spacing: -0.01em;
           font-weight: 700;
@@ -1856,13 +1856,13 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         }
         .bank-list {
           display: grid;
-          gap: 1.1mm;
-          margin: 1.8mm 0 0;
+          gap: 1.5mm;
+          margin: 2.1mm 0 0;
         }
         .bank-row {
           display: grid;
           grid-template-columns: 32mm 1fr;
-          gap: 4mm;
+          gap: 4.6mm;
           align-items: start;
         }
         .bank-label {
@@ -1877,14 +1877,14 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         }
         .bank-value {
           margin: 0;
-          font-size: 7.5pt;
+          font-size: 8.8pt;
           line-height: 1.28;
           font-weight: 700;
           color: #16212b;
         }
         .bank-value--mono {
           font-family: "Consolas", "Courier New", monospace;
-          font-size: 7pt;
+          font-size: 8.1pt;
           white-space: nowrap;
         }
         .qr-card {
@@ -1895,11 +1895,11 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           min-height: 100%;
           border: 0.35mm solid #dbe5ef;
           border-radius: 2.4mm;
-          padding: 1.5mm 1.4mm;
+          padding: 1.8mm 1.7mm;
           background: #fafcfe;
         }
         .qr-label {
-          margin-bottom: 0.8mm;
+          margin-bottom: 1mm;
           font-size: 7.8pt;
           text-transform: uppercase;
           letter-spacing: 0.1em;
@@ -1913,10 +1913,10 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           align-items: center;
         }
         .pay-card-inner img {
-          width: 24mm;
-          height: 24mm;
+          width: 24.5mm;
+          height: 24.5mm;
           display: block;
-          padding: 0.3mm;
+          padding: 0.5mm;
           border-radius: 1.1mm;
           background: #ffffff;
           border: 0.3mm solid #dbe5ef;
@@ -1925,7 +1925,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           justify-content: flex-start;
         }
         .items-section {
-          padding-top: 1.9mm;
+          padding-top: 2.3mm;
           border-top: 0.35mm solid #dbe5ef;
         }
         table {
@@ -1946,10 +1946,10 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           background: #f4f8fb;
         }
         tbody td {
-          padding: 1.4mm 1.4mm;
+          padding: 1.6mm 1.5mm;
           border-bottom: 0.3mm solid #e6edf4;
           vertical-align: top;
-          font-size: 6.6pt;
+          font-size: 7.4pt;
           color: #16212b;
         }
         tbody tr:last-child td {
@@ -1968,13 +1968,13 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           white-space: nowrap;
         }
         .item-title {
-          font-size: 7pt;
+          font-size: 8pt;
           font-weight: 600;
           line-height: 1.25;
         }
         .item-meta {
-          margin-top: 0.3mm;
-          font-size: 5.4pt;
+          margin-top: 0.5mm;
+          font-size: 6.5pt;
           color: #61707d;
           line-height: 1.25;
         }
@@ -1984,11 +1984,11 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         .totals-section {
           display: grid;
           justify-items: end;
-          padding-top: 1.9mm;
+          padding-top: 2.3mm;
           border-top: 0.35mm solid #dbe5ef;
         }
         .totals-box {
-          width: 58mm;
+          width: 60mm;
           display: grid;
           gap: 0;
         }
@@ -1996,36 +1996,37 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           display: flex;
           justify-content: space-between;
           gap: 4mm;
-          padding: 0.8mm 0;
+          padding: 1mm 0;
           border-bottom: 0.3mm solid #e6edf4;
-          font-size: 7.2pt;
+          font-size: 8pt;
           color: #425466;
         }
         .total-row strong {
           color: #16212b;
           font-weight: 700;
+          font-size: 8.4pt;
         }
         .total-row--grand {
           margin-top: 0.8mm;
-          padding-top: 1.4mm;
+          padding-top: 1.7mm;
           border-top: 0.45mm solid #c8d8e8;
           border-bottom: none;
-          font-size: 8.9pt;
+          font-size: 9.8pt;
           color: #16212b;
           font-weight: 700;
         }
         .total-row--grand strong {
-          font-size: 9.3pt;
+          font-size: 10.2pt;
         }
         .note-section {
-          padding-top: 1.9mm;
+          padding-top: 2.3mm;
           border-top: 0.35mm solid #dbe5ef;
         }
         .foot {
-          font-size: 5.1pt;
+          font-size: 5.8pt;
           color: #6b7b88;
           text-align: left;
-          padding-top: 0.7mm;
+          padding-top: 1mm;
         }
       </style>
     </head>

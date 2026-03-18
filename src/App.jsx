@@ -1762,9 +1762,9 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         }
         .payment-rail {
           display: grid;
-          grid-template-columns: minmax(0, 1.6fr) minmax(0, 0.85fr);
-          gap: 1.4mm;
-          padding: 1.5mm;
+          grid-template-columns: minmax(0, 1.78fr) minmax(0, 0.62fr);
+          gap: 1mm;
+          padding: 1.1mm;
           align-items: start;
         }
         .bank-card,
@@ -1777,11 +1777,11 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         .bank-card-grid {
           display: grid;
           grid-template-columns: 1.55fr 1fr repeat(3, minmax(0, 0.72fr));
-          gap: 1.1mm;
+          gap: 1.3mm;
           margin-top: 1mm;
         }
         .bank-box {
-          padding: 1.35mm 1.5mm;
+          padding: 1.55mm 1.7mm;
           border-radius: 1.8mm;
           background: #ffffff;
           border: 0.3mm solid #d8d8de;
@@ -1799,13 +1799,13 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           display: flex;
           justify-content: center;
           align-items: center;
-          margin-top: 1.2mm;
+          margin-top: 0.6mm;
         }
         .pay-card img {
-          width: 22mm;
-          height: 22mm;
+          width: 24mm;
+          height: 24mm;
           display: block;
-          padding: 0.6mm;
+          padding: 0.45mm;
           border-radius: 1.8mm;
           background: #ffffff;
           border: 0.3mm solid #d8d8de;

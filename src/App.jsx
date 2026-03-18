@@ -1674,7 +1674,6 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           <div class="pay-card-inner">
             <img src="${escapeHtml(buildQrImageUrl(payBySquareData.qrPayload, 220))}" alt="PayBySquare QR kod" />
           </div>
-          <p class="qr-note">Naskenuj v bankovej aplikácii.</p>
         </aside>
       `
     : `
@@ -1809,6 +1808,8 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           line-height: 1.2;
         }
         .detail-value--muted {
+          font-size: 9pt;
+          line-height: 1.35;
           font-weight: 600;
           color: #4c5f71;
         }

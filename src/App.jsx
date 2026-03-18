@@ -1521,8 +1521,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
     { label: "Adresa", value: String(normalizedCompany?.address || "").trim() || "-" },
     { label: "IČO", value: String(normalizedCompany?.ico || "").trim() || "-" },
     { label: "DIČ", value: String(normalizedCompany?.dic || "").trim() || "-" },
-    { label: "IČ DPH", value: String(normalizedCompany?.ic_dph || "").trim() || "-" },
-    { label: "IBAN", value: formatIbanInput(normalizedCompany?.bank_account) || "-", valueClassName: "detail-value detail-value--mono" }
+    { label: "IČ DPH", value: String(normalizedCompany?.ic_dph || "").trim() || "-" }
   ];
   const customerDetailFields = [
     { label: "Názov", value: customerName },
@@ -1536,9 +1535,27 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
     fields
       .map(
         (field) => `
-          <div>
-            <div class="detail-label">${escapeHtml(field.label)}</div>
-            <div class="${escapeHtml(field.valueClassName || "detail-value")}">${escapeHtml(field.value)}</div>
+          <div class="party-row">
+            <dt class="detail-label">${escapeHtml(field.label)}</dt>
+            <dd class="${escapeHtml(field.valueClassName || "detail-value")}">${escapeHtml(field.value)}</dd>
+          </div>
+        `
+      )
+      .join("");
+  const bankDetailFields = [
+    { label: "IBAN", value: bankingDetails.bankAccount, valueClassName: "bank-value bank-value--mono" },
+    { label: "SWIFT / BIC", value: bankingDetails.swiftCode, valueClassName: "bank-value" },
+    { label: "Variabilný symbol", value: bankingDetails.variableSymbol, valueClassName: "bank-value" },
+    { label: "Konštantný symbol", value: bankingDetails.constantSymbol, valueClassName: "bank-value" },
+    { label: "Špecifický symbol", value: bankingDetails.specificSymbol, valueClassName: "bank-value" }
+  ];
+  const buildBankDetailFieldsHtml = (fields) =>
+    fields
+      .map(
+        (field) => `
+          <div class="bank-row">
+            <dt class="bank-label">${escapeHtml(field.label)}</dt>
+            <dd class="${escapeHtml(field.valueClassName || "bank-value")}">${escapeHtml(field.value)}</dd>
           </div>
         `
       )
@@ -1574,7 +1591,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
     .join("");
   const noteHtml = invoiceNote
     ? `
-        <section class="note-panel">
+        <section class="note-section">
           <h3>Poznámka k faktúre</h3>
           <p>${escapeHtml(invoiceNote)}</p>
         </section>
@@ -1582,19 +1599,25 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
     : "";
   const payBySquareHtml = payBySquareData?.isAvailable
     ? `
-        <section class="pay-card">
-          <h3>PayBySquare</h3>
+        <aside class="qr-card">
+          <span class="qr-label">PayBySquare</span>
           <div class="pay-card-inner">
             <img src="${escapeHtml(buildQrImageUrl(payBySquareData.qrPayload, 220))}" alt="PayBySquare QR kod" />
           </div>
-        </section>
+          <p class="qr-note">Naskenuj v bankovej aplikácii.</p>
+        </aside>
       `
     : `
-        <section class="pay-card pay-card--muted">
-          <h3>PayBySquare</h3>
-          <p>${escapeHtml(String(payBySquareData?.reason || "PayBySquare sa nepodarilo pripraviť."))}</p>
-        </section>
+        <aside class="qr-card qr-card--muted">
+          <span class="qr-label">PayBySquare</span>
+          <p class="qr-note">${escapeHtml(String(payBySquareData?.reason || "PayBySquare sa nepodarilo pripraviť."))}</p>
+        </aside>
       `;
+  const totalsRowsHtml = `
+    <div class="total-row"><span>Bez DPH</span><strong>${escapeHtml(formatCurrencyValue(totals.total))}</strong></div>
+    <div class="total-row"><span>DPH</span><strong>${escapeHtml(formatCurrencyValue(totals.vat))}</strong></div>
+    <div class="total-row total-row--grand"><span>Na úhradu</span><strong>${escapeHtml(formatCurrencyValue(totals.totalWithVat))}</strong></div>
+  `;
 
   return `<!doctype html>
   <html lang="sk">
@@ -1602,235 +1625,237 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
       <meta charset="UTF-8" />
       <title>${escapeHtml(invoiceNumber || "Faktura")}</title>
       <style>
-        @page { size: A4 portrait; margin: 10mm 10mm 12mm; }
+        @page { size: A4 portrait; margin: 12mm 12mm 14mm; }
         * { box-sizing: border-box; }
         body {
           margin: 0;
-          font-family: "SF Pro Display", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-          color: #000000;
-          background: #f5f5f7;
+          font-family: "Segoe UI", Arial, sans-serif;
+          color: #16212b;
+          background: #ffffff;
           -webkit-font-smoothing: antialiased;
         }
         .page {
           display: grid;
-          gap: 2.8mm;
+          gap: 4.4mm;
           padding: 0;
-        }
-        .hero,
-        .panel,
-        .payment-rail,
-        .items-panel,
-        .totals-panel,
-        .note-panel {
-          background: #ffffff;
-          border: 0.3mm solid #d2d2d7;
-          border-radius: 5mm;
         }
         .hero {
           display: grid;
-          grid-template-columns: minmax(0, 1fr) auto;
-          gap: 5mm;
-          padding: 4.2mm 4.6mm;
-        }
-        .hero-label {
-          font-size: 5.7pt;
-          letter-spacing: 0.14em;
-          text-transform: uppercase;
-          color: #000000;
-          font-weight: 700;
+          grid-template-columns: minmax(0, 1fr) 52mm;
+          gap: 10mm;
+          align-items: start;
+          padding-top: 1.6mm;
+          border-top: 1.1mm solid #0f7d77;
         }
         .hero h1 {
-          margin: 0.8mm 0 1.1mm;
-          font-size: 14pt;
-          line-height: 0.95;
-          font-weight: 700;
-          letter-spacing: -0.03em;
-        }
-        .hero-subtitle {
-          font-size: 8pt;
-          color: #000000;
-        }
-        .hero-right {
-          min-width: 40mm;
-          display: grid;
-          gap: 1.2mm;
-          align-content: start;
-          justify-items: end;
-          text-align: right;
-        }
-        .amount-label {
-          font-size: 5.4pt;
-          text-transform: uppercase;
-          letter-spacing: 0.14em;
-          color: #000000;
-          font-weight: 700;
-        }
-        .amount-value {
-          font-size: 12.8pt;
+          margin: 0;
+          font-size: 19pt;
           line-height: 1;
           font-weight: 700;
           letter-spacing: -0.04em;
         }
-        .amount-note {
-          font-size: 6.8pt;
-          color: #000000;
-        }
-        .meta-strip {
-          display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 1.5mm;
-        }
-        .meta-chip {
-          padding: 2mm 2.2mm;
-          border-radius: 2.8mm;
-          background: linear-gradient(180deg, #fbfbfd 0%, #f2f2f7 100%);
-          border: 0.3mm solid #d8d8de;
-        }
-        .chip-label {
-          font-size: 4.9pt;
+        .doc-kicker {
+          margin-bottom: 1.1mm;
+          font-size: 6pt;
           text-transform: uppercase;
           letter-spacing: 0.14em;
-          color: #000000;
+          color: #607180;
           font-weight: 700;
         }
-        .chip-value {
-          margin-top: 0.7mm;
-          font-size: 8.2pt;
+        .hero-subtitle {
+          margin-top: 1.6mm;
+          font-size: 9.2pt;
+          color: #425466;
+          font-weight: 600;
+        }
+        .hero-right {
+          display: grid;
+          gap: 3mm;
+          align-content: start;
+        }
+        .amount-card {
+          padding: 2.6mm 3mm;
+          border-radius: 3.2mm;
+          background: linear-gradient(180deg, #f4fbfa 0%, #edf7f6 100%);
+          border: 0.35mm solid #cfe7e3;
+        }
+        .amount-label {
+          display: block;
+          margin-bottom: 0.9mm;
+          font-size: 5.6pt;
+          text-transform: uppercase;
+          letter-spacing: 0.14em;
+          color: #607180;
+          font-weight: 700;
+        }
+        .amount-value {
+          font-size: 14pt;
+          line-height: 1;
+          font-weight: 700;
+          letter-spacing: -0.03em;
+          color: #16212b;
+        }
+        .header-meta {
+          display: grid;
+          gap: 1.4mm;
+        }
+        .header-meta-row {
+          display: flex;
+          justify-content: space-between;
+          gap: 4mm;
+          padding-top: 1.3mm;
+          border-top: 0.3mm solid #dbe5ef;
+        }
+        .header-meta-row span {
+          font-size: 5.6pt;
+          text-transform: uppercase;
+          letter-spacing: 0.14em;
+          color: #607180;
+          font-weight: 700;
+        }
+        .header-meta-row strong {
+          font-size: 8.1pt;
           line-height: 1.2;
-          color: #000000;
+          color: #16212b;
           font-weight: 600;
         }
         .parties {
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 2.2mm;
+          gap: 8mm;
+          padding-top: 2.4mm;
+          border-top: 0.35mm solid #dbe5ef;
         }
-        .panel {
-          padding: 3.1mm;
-        }
-        .panel h2,
-        .pay-card h3,
-        .note-panel h3,
-        .items-panel h2,
-        .totals-panel h2 {
+        .party h2,
+        .payment-copy h2,
+        .items-section h2,
+        .totals-section h2,
+        .note-section h3 {
           margin: 0;
-          font-size: 8.8pt;
+          font-size: 9pt;
           line-height: 1;
-          letter-spacing: -0.02em;
+          letter-spacing: -0.01em;
           font-weight: 700;
-          color: #111111;
+          color: #16212b;
         }
-        .bank-card h3 {
-          font-size: 7.6pt;
-          letter-spacing: 0;
-        }
-        .panel-subtitle,
-        .note-panel p,
-        .pay-card p {
-          margin: 1.1mm 0 0;
-          font-size: 7pt;
+        .party-subtitle,
+        .items-subtitle,
+        .totals-subtitle,
+        .note-section p,
+        .qr-note {
+          margin: 1mm 0 0;
+          font-size: 7.1pt;
           line-height: 1.45;
-          color: #000000;
+          color: #5f6f7d;
         }
-        .detail-grid {
+        .party-list {
           display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 1.8mm 3.2mm;
-          margin-top: 2.1mm;
-        }
-        .detail-grid--single {
-          grid-template-columns: 1fr;
+          gap: 1.5mm;
+          margin: 2.4mm 0 0;
         }
         .detail-label {
+          margin: 0;
           font-size: 4.8pt;
           text-transform: uppercase;
           letter-spacing: 0.12em;
-          color: #000000;
+          color: #667786;
           font-weight: 700;
-          margin-bottom: 0.45mm;
         }
         .detail-value {
-          font-size: 7.8pt;
-          line-height: 1.35;
+          margin: 0;
+          font-size: 8.2pt;
+          line-height: 1.4;
           font-weight: 700;
-          color: #000000;
+          color: #16212b;
         }
         .detail-value--mono {
-          font-family: "SFMono-Regular", "Consolas", "Courier New", monospace;
-          font-size: 7.2pt;
-          word-break: break-word;
+          font-family: "Consolas", "Courier New", monospace;
+          font-size: 7.7pt;
         }
-        .payment-rail {
+        .party-row {
           display: grid;
-          grid-template-columns: minmax(0, 1.78fr) minmax(0, 0.62fr);
-          gap: 1mm;
-          padding: 1.1mm;
+          grid-template-columns: 24mm 1fr;
+          gap: 3mm;
           align-items: start;
         }
-        .bank-card,
-        .pay-card {
-          border-radius: 2.8mm;
-          background: linear-gradient(180deg, #fbfbfd 0%, #f7f7fa 100%);
-          border: 0.3mm solid #d8d8de;
-          padding: 1.7mm 1.9mm;
-        }
-        .bank-card-grid {
+        .payment-section {
           display: grid;
-          grid-template-columns: 1.55fr 1fr repeat(3, minmax(0, 0.72fr));
-          gap: 1.3mm;
-          margin-top: 1mm;
+          grid-template-columns: minmax(0, 1fr) 34mm;
+          gap: 8mm;
+          align-items: start;
+          padding-top: 2.4mm;
+          border-top: 0.35mm solid #dbe5ef;
         }
-        .bank-box {
-          padding: 1.55mm 1.7mm;
-          border-radius: 1.8mm;
-          background: #ffffff;
-          border: 0.3mm solid #d8d8de;
+        .bank-list {
+          display: grid;
+          gap: 1.5mm;
+          margin: 2.2mm 0 0;
         }
-        .bank-box .detail-label {
-          margin-bottom: 0.45mm;
+        .bank-row {
+          display: grid;
+          grid-template-columns: 28mm 1fr;
+          gap: 4mm;
+          align-items: start;
+        }
+        .bank-label {
+          margin: 0;
           font-size: 4.8pt;
+          text-transform: uppercase;
+          letter-spacing: 0.12em;
+          color: #667786;
+          font-weight: 700;
         }
-        .bank-box .detail-value {
-          font-size: 7.2pt;
-          line-height: 1.24;
+        .bank-value {
+          margin: 0;
+          font-size: 8.3pt;
+          line-height: 1.35;
+          font-weight: 700;
+          color: #16212b;
+        }
+        .bank-value--mono {
+          font-family: "Consolas", "Courier New", monospace;
+          font-size: 7.8pt;
+          white-space: nowrap;
+        }
+        .qr-card {
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          align-items: center;
+          min-height: 100%;
+          border: 0.35mm solid #dbe5ef;
+          border-radius: 3mm;
+          padding: 2.2mm 2mm;
+          background: #fafcfe;
+        }
+        .qr-label {
+          margin-bottom: 1.2mm;
+          font-size: 5.1pt;
+          text-transform: uppercase;
+          letter-spacing: 0.12em;
+          color: #607180;
           font-weight: 700;
         }
         .pay-card-inner {
           display: flex;
           justify-content: center;
           align-items: center;
-          margin-top: 0.6mm;
         }
-        .pay-card img {
-          width: 24mm;
-          height: 24mm;
+        .pay-card-inner img {
+          width: 28mm;
+          height: 28mm;
           display: block;
-          padding: 0.45mm;
-          border-radius: 1.8mm;
+          padding: 0.4mm;
+          border-radius: 1.4mm;
           background: #ffffff;
-          border: 0.3mm solid #d8d8de;
+          border: 0.3mm solid #dbe5ef;
         }
-        .pay-card--muted {
-          background: #fafafa;
+        .qr-card--muted {
+          justify-content: flex-start;
         }
-        .items-panel,
-        .totals-panel,
-        .note-panel {
-          padding: 3.1mm;
-        }
-        .items-head,
-        .totals-head {
-          display: flex;
-          justify-content: space-between;
-          gap: 3mm;
-          align-items: end;
-          margin-bottom: 1.8mm;
-        }
-        .items-subtitle,
-        .totals-subtitle {
-          margin: 0.8mm 0 0;
-          font-size: 6.8pt;
-          color: #000000;
+        .items-section {
+          padding-top: 2.4mm;
+          border-top: 0.35mm solid #dbe5ef;
         }
         table {
           width: 100%;
@@ -1838,21 +1863,22 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           table-layout: fixed;
         }
         thead th {
-          padding: 0 0 1.2mm;
-          border-bottom: 0.35mm solid #cfcfd6;
+          padding: 1.6mm 1.8mm;
+          border-bottom: 0.35mm solid #d8e3ee;
           text-align: left;
-          font-size: 5.1pt;
+          font-size: 5.3pt;
           text-transform: uppercase;
           letter-spacing: 0.12em;
-          color: #000000;
+          color: #607180;
           font-weight: 700;
+          background: #f4f8fb;
         }
         tbody td {
-          padding: 1.45mm 0;
-          border-bottom: 0.3mm solid #dcdce1;
+          padding: 1.8mm 1.8mm;
+          border-bottom: 0.3mm solid #e6edf4;
           vertical-align: top;
-          font-size: 7.1pt;
-          color: #000000;
+          font-size: 7.3pt;
+          color: #16212b;
         }
         tbody tr:last-child td {
           border-bottom: none;
@@ -1866,46 +1892,64 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           text-align: right;
         }
         .item-title {
-          font-size: 7.6pt;
+          font-size: 7.8pt;
           font-weight: 600;
           line-height: 1.3;
         }
         .item-meta {
-          margin-top: 0.3mm;
-          font-size: 5.8pt;
-          color: #000000;
+          margin-top: 0.5mm;
+          font-size: 6pt;
+          color: #61707d;
           line-height: 1.35;
         }
         .strong {
           font-weight: 700;
         }
-        .totals-grid {
+        .totals-section {
           display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 1.5mm;
+          justify-items: end;
+          padding-top: 2.4mm;
+          border-top: 0.35mm solid #dbe5ef;
         }
-        .total-card {
-          padding: 2mm 2.2mm;
-          border-radius: 2.8mm;
-          border: 0.3mm solid #d8d8de;
-          background: linear-gradient(180deg, #fbfbfd 0%, #f5f5f7 100%);
+        .totals-box {
+          width: 68mm;
+          display: grid;
+          gap: 0;
         }
-        .total-card--grand {
-          background: linear-gradient(180deg, #f1f1f4 0%, #e7e7ec 100%);
-          border-color: #cfcfd6;
+        .total-row {
+          display: flex;
+          justify-content: space-between;
+          gap: 6mm;
+          padding: 1.2mm 0;
+          border-bottom: 0.3mm solid #e6edf4;
+          font-size: 8pt;
+          color: #425466;
         }
-        .total-card--grand .detail-label,
-        .total-card--grand .detail-value {
-          color: #000000;
+        .total-row strong {
+          color: #16212b;
+          font-weight: 700;
         }
-        .note-panel p {
-          margin-top: 1.2mm;
+        .total-row--grand {
+          margin-top: 1mm;
+          padding-top: 2mm;
+          border-top: 0.45mm solid #c8d8e8;
+          border-bottom: none;
+          font-size: 10pt;
+          color: #16212b;
+          font-weight: 700;
+        }
+        .total-row--grand strong {
+          font-size: 10.4pt;
+        }
+        .note-section {
+          padding-top: 2.4mm;
+          border-top: 0.35mm solid #dbe5ef;
         }
         .foot {
           font-size: 5.8pt;
-          color: #000000;
-          text-align: right;
-          padding: 0 1mm;
+          color: #6b7b88;
+          text-align: left;
+          padding-top: 1mm;
         }
       </style>
     </head>
@@ -1913,81 +1957,47 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
       <section class="page">
         <header class="hero">
           <div>
-            <div class="hero-label">Fakturácia</div>
+            <div class="doc-kicker">Daňový doklad</div>
             <h1>Faktúra</h1>
             <div class="hero-subtitle">${escapeHtml(companyName)}</div>
           </div>
           <div class="hero-right">
-            <div class="amount-label">Na úhradu</div>
-            <div class="amount-value">${escapeHtml(formatCurrencyValue(totals.totalWithVat))}</div>
-            <div class="amount-note">${escapeHtml(`č. ${invoiceNumber}`)}</div>
+            <div class="amount-card">
+              <span class="amount-label">Na úhradu</span>
+              <div class="amount-value">${escapeHtml(formatCurrencyValue(totals.totalWithVat))}</div>
+            </div>
+            <div class="header-meta">
+              <div class="header-meta-row"><span>Číslo faktúry</span><strong>${escapeHtml(invoiceNumber)}</strong></div>
+              <div class="header-meta-row"><span>Vystavené</span><strong>${escapeHtml(issuedAtLabel)}</strong></div>
+              <div class="header-meta-row"><span>Splatnosť</span><strong>${escapeHtml(dueDateLabel)}</strong></div>
+            </div>
           </div>
         </header>
 
-        <section class="meta-strip">
-          <article class="meta-chip">
-            <div class="chip-label">Číslo FA</div>
-            <div class="chip-value">${escapeHtml(invoiceNumber)}</div>
-          </article>
-          <article class="meta-chip">
-            <div class="chip-label">Vystavené</div>
-            <div class="chip-value">${escapeHtml(issuedAtLabel)}</div>
-          </article>
-          <article class="meta-chip">
-            <div class="chip-label">Splatnosť</div>
-            <div class="chip-value">${escapeHtml(dueDateLabel)}</div>
-          </article>
-        </section>
-
         <section class="parties">
-          <article class="panel">
+          <article class="party">
             <h2>Dodávateľ</h2>
-            <p class="panel-subtitle">Firemné údaje z profilu dodávateľa</p>
-            <div class="detail-grid detail-grid--single">${buildInvoiceDetailFieldsHtml(supplierDetailFields)}</div>
+            <p class="party-subtitle">Firemné údaje z profilu dodávateľa</p>
+            <dl class="party-list">${buildInvoiceDetailFieldsHtml(supplierDetailFields)}</dl>
           </article>
-          <article class="panel">
+          <article class="party">
             <h2>Odberateľ</h2>
-            <p class="panel-subtitle">Klient, ktorému je faktúra vystavená</p>
-            <div class="detail-grid detail-grid--single">${buildInvoiceDetailFieldsHtml(customerDetailFields)}</div>
+            <p class="party-subtitle">Klient, ktorému je faktúra vystavená</p>
+            <dl class="party-list">${buildInvoiceDetailFieldsHtml(customerDetailFields)}</dl>
           </article>
         </section>
 
-        <section class="payment-rail">
-          <article class="bank-card">
+        <section class="payment-section">
+          <article class="payment-copy">
             <h3>Bankové spojenie</h3>
-            <div class="bank-card-grid">
-              <div class="bank-box">
-                <div class="detail-label">Číslo účtu / IBAN</div>
-                <div class="detail-value">${escapeHtml(bankingDetails.bankAccount)}</div>
-              </div>
-              <div class="bank-box">
-                <div class="detail-label">SWIFT / BIC</div>
-                <div class="detail-value">${escapeHtml(bankingDetails.swiftCode)}</div>
-              </div>
-              <div class="bank-box">
-                <div class="detail-label">Variabilný symbol</div>
-                <div class="detail-value">${escapeHtml(bankingDetails.variableSymbol)}</div>
-              </div>
-              <div class="bank-box">
-                <div class="detail-label">Konštantný symbol</div>
-                <div class="detail-value">${escapeHtml(bankingDetails.constantSymbol)}</div>
-              </div>
-              <div class="bank-box">
-                <div class="detail-label">Špecifický symbol</div>
-                <div class="detail-value">${escapeHtml(bankingDetails.specificSymbol)}</div>
-              </div>
-            </div>
+            <dl class="bank-list">${buildBankDetailFieldsHtml(bankDetailFields)}</dl>
           </article>
           ${payBySquareHtml}
         </section>
 
-        <section class="items-panel">
-          <div class="items-head">
-            <div>
-              <h2>Položky faktúry</h2>
-              <p class="items-subtitle">Zjednodušený prehľad položiek s finálnou sumou po DPH</p>
-            </div>
-          </div>
+        <section class="items-section">
+          <h2>Položky faktúry</h2>
+          <p class="items-subtitle">Prehľad fakturovaných položiek a finálnej sumy.</p>
           <table>
             <thead>
               <tr>
@@ -2004,31 +2014,14 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           </table>
         </section>
 
-        <section class="totals-panel">
-          <div class="totals-head">
-            <div>
-              <h2>Rekapitulácia</h2>
-              <p class="totals-subtitle">Finálna suma a daňový rozpis</p>
-            </div>
-          </div>
-          <div class="totals-grid">
-            <article class="total-card">
-              <div class="detail-label">Bez DPH</div>
-              <div class="detail-value">${escapeHtml(formatCurrencyValue(totals.total))}</div>
-            </article>
-            <article class="total-card">
-              <div class="detail-label">DPH</div>
-              <div class="detail-value">${escapeHtml(formatCurrencyValue(totals.vat))}</div>
-            </article>
-            <article class="total-card total-card--grand">
-              <div class="detail-label">Na úhradu</div>
-              <div class="detail-value">${escapeHtml(formatCurrencyValue(totals.totalWithVat))}</div>
-            </article>
-          </div>
+        <section class="totals-section">
+          <h2>Rekapitulácia</h2>
+          <p class="totals-subtitle">Finálna suma a daňový rozpis.</p>
+          <div class="totals-box">${totalsRowsHtml}</div>
         </section>
 
         ${noteHtml}
-        <div class="foot">${escapeHtml(`FA ${invoiceNumber}`)}</div>
+        <div class="foot">${escapeHtml(`Faktúra č. ${invoiceNumber}`)}</div>
       </section>
     </body>
   </html>`;

@@ -1741,11 +1741,12 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           border-top: 0.3mm solid #dbe5ef;
         }
         .header-meta-row span {
-          font-size: 4.9pt;
+          font-size: 5.8pt;
           text-transform: uppercase;
-          letter-spacing: 0.14em;
+          letter-spacing: 0.1em;
           color: #607180;
           font-weight: 700;
+          line-height: 1.1;
         }
         .header-meta-row strong {
           font-size: 7.3pt;
@@ -1789,11 +1790,12 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         }
         .detail-label {
           margin: 0;
-          font-size: 4.3pt;
+          font-size: 5.8pt;
           text-transform: uppercase;
-          letter-spacing: 0.12em;
+          letter-spacing: 0.1em;
           color: #667786;
           font-weight: 700;
+          line-height: 1.1;
         }
         .detail-value {
           margin: 0;
@@ -1865,11 +1867,12 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         }
         .bank-label {
           margin: 0;
-          font-size: 5pt;
+          font-size: 5.8pt;
           text-transform: uppercase;
-          letter-spacing: 0.12em;
+          letter-spacing: 0.1em;
           color: #667786;
           font-weight: 700;
+          line-height: 1.1;
         }
         .bank-value {
           margin: 0;
@@ -1896,11 +1899,12 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         }
         .qr-label {
           margin-bottom: 0.8mm;
-          font-size: 4.7pt;
+          font-size: 5.8pt;
           text-transform: uppercase;
-          letter-spacing: 0.12em;
+          letter-spacing: 0.1em;
           color: #607180;
           font-weight: 700;
+          line-height: 1.1;
         }
         .pay-card-inner {
           display: flex;
@@ -1932,11 +1936,12 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           padding: 1.2mm 1.4mm;
           border-bottom: 0.35mm solid #d8e3ee;
           text-align: left;
-          font-size: 4.8pt;
+          font-size: 5.8pt;
           text-transform: uppercase;
-          letter-spacing: 0.12em;
+          letter-spacing: 0.1em;
           color: #607180;
           font-weight: 700;
+          line-height: 1.1;
           background: #f4f8fb;
         }
         tbody td {
@@ -2313,6 +2318,10 @@ function buildInvoicePayBySquareData(invoice, items, companyProfile) {
     return {
       isAvailable: true,
       amount: totals.totalWithVat,
+      amountLabel: formatCurrencyValue(totals.totalWithVat),
+      beneficiaryName,
+      variableSymbol:
+        variableSymbolCandidate && variableSymbolCandidate.length <= 10 ? variableSymbolCandidate : "-",
       iban: formatIbanInput(iban),
       qrPayload
     };

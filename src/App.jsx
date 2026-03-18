@@ -1282,8 +1282,8 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
         <tr>
           <td>${index + 1}</td>
           <td>${escapeHtml(String(item.material_code || "-"))}</td>
-          <td>${escapeHtml(String(item.unit || "ks"))}</td>
-          <td>${escapeHtml(formatCell(item.quantity, "number"))}</td>
+          <td class="cell-right cell-qty">${escapeHtml(formatCell(item.quantity, "number"))}</td>
+          <td class="cell-unit">${escapeHtml(String(item.unit || "ks"))}</td>
           <td>${escapeHtml(formatPercentValue(item.vat_percent || 0, 2))}</td>
           <td>${escapeHtml(formatCurrencyValue(computed.lineTotal))}</td>
           <td>${escapeHtml(formatCurrencyValue(computed.lineTotalWithVat))}</td>
@@ -1411,6 +1411,7 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
         thead th { padding: 2.8mm; text-align: left; color: #33506b; background: #eef5fb; border-bottom: 0.35mm solid #d6e1ec; }
         tbody td { padding: 2.8mm; vertical-align: top; border-bottom: 0.25mm solid #e6edf5; }
         tbody tr:nth-child(even) td { background: #fbfdff; }
+        .cell-qty, .cell-unit { white-space: nowrap; }
         .muted { font-size: 8pt; color: #6c7a88; }
         .foot { font-size: 8pt; color: #6c7a88; text-align: right; }
       </style>
@@ -1434,21 +1435,18 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
           <div class="customer-head">
             <div>
               <h2 class="section-title">Zmluvné strany</h2>
-              <p class="section-subtitle">Dodávateľské a odberateľské údaje pre túto ponuku</p>
             </div>
           </div>
           <div class="party-grid">
             <article class="party-card">
               <div>
                 <h3 class="section-title">Dodávateľ</h3>
-                <p class="section-subtitle">Firemné údaje z profilu dodávateľa</p>
               </div>
               <div class="party-fields">${buildPartyFieldsHtml(supplierFields)}</div>
             </article>
             <article class="party-card">
               <div>
                 <h3 class="section-title">Odberateľ</h3>
-                <p class="section-subtitle">Údaje naviazané na zákazníka</p>
               </div>
               <div class="party-fields">${buildPartyFieldsHtml(customerFields)}</div>
             </article>
@@ -1459,7 +1457,6 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
           <div class="items-head">
             <div>
               <h2 class="section-title">Položky ponuky</h2>
-              <p class="section-subtitle">Ceny sú zobrazené bez DPH aj s DPH</p>
             </div>
           </div>
           <table>
@@ -1467,11 +1464,11 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
               <tr>
                 <th>#</th>
                 <th>Položka</th>
-                <th>MJ</th>
-                <th>Množstvo</th>
-                <th>DPH</th>
-                <th>Spolu bez DPH</th>
-                <th>Spolu s DPH</th>
+                <th style="width:18mm;text-align:right;">Množstvo</th>
+                <th style="width:12mm;">MJ</th>
+                <th style="width:14mm;">DPH</th>
+                <th style="width:26mm;">Spolu bez DPH</th>
+                <th style="width:26mm;">Spolu s DPH</th>
                 <th>Poznámka</th>
               </tr>
             </thead>
@@ -1482,7 +1479,6 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
           <div class="summary-head">
             <div>
               <h2 class="section-title">Finálne sumy</h2>
-              <p class="section-subtitle">Rekapitulácia cenovej ponuky</p>
             </div>
           </div>
           <div class="summary-grid">
@@ -1580,8 +1576,8 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
             <div class="item-title">${escapeHtml(String(item.material_code || "-"))}</div>
             <div class="item-meta">${escapeHtml(detailBits.join(" | ") || "Bez doplňujúcich údajov")}</div>
           </td>
-          <td class="cell-right">${escapeHtml(formatCell(item.quantity, "number"))}</td>
-          <td>${escapeHtml(String(item.unit || "ks"))}</td>
+          <td class="cell-right cell-qty">${escapeHtml(formatCell(item.quantity, "number"))}</td>
+          <td class="cell-unit">${escapeHtml(String(item.unit || "ks"))}</td>
           <td class="cell-right">${escapeHtml(formatCurrencyValue(item.unit_price || 0))}</td>
           <td class="cell-right">${escapeHtml(formatPercentValue(item.vat_percent || 0, 2))}</td>
           <td class="cell-right strong">${escapeHtml(formatCurrencyValue(computed.lineTotalWithVat))}</td>
@@ -1654,17 +1650,10 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           font-weight: 700;
           letter-spacing: -0.04em;
         }
-        .doc-kicker {
-          margin-bottom: 1.1mm;
-          font-size: 6pt;
-          text-transform: uppercase;
-          letter-spacing: 0.14em;
-          color: #607180;
-          font-weight: 700;
-        }
-        .hero-subtitle {
-          margin-top: 1.6mm;
-          font-size: 9.2pt;
+        .doc-number {
+          margin-top: 1.8mm;
+          font-size: 7.4pt;
+          line-height: 1.2;
           color: #425466;
           font-weight: 600;
         }
@@ -1891,6 +1880,10 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         .cell-right {
           text-align: right;
         }
+        .cell-qty,
+        .cell-unit {
+          white-space: nowrap;
+        }
         .item-title {
           font-size: 7.8pt;
           font-weight: 600;
@@ -1957,9 +1950,8 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
       <section class="page">
         <header class="hero">
           <div>
-            <div class="doc-kicker">Daňový doklad</div>
             <h1>Faktúra</h1>
-            <div class="hero-subtitle">${escapeHtml(companyName)}</div>
+            <div class="doc-number">${escapeHtml(`č. ${invoiceNumber}`)}</div>
           </div>
           <div class="hero-right">
             <div class="amount-card">
@@ -1967,7 +1959,6 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
               <div class="amount-value">${escapeHtml(formatCurrencyValue(totals.totalWithVat))}</div>
             </div>
             <div class="header-meta">
-              <div class="header-meta-row"><span>Číslo faktúry</span><strong>${escapeHtml(invoiceNumber)}</strong></div>
               <div class="header-meta-row"><span>Vystavené</span><strong>${escapeHtml(issuedAtLabel)}</strong></div>
               <div class="header-meta-row"><span>Splatnosť</span><strong>${escapeHtml(dueDateLabel)}</strong></div>
             </div>
@@ -1977,12 +1968,10 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         <section class="parties">
           <article class="party">
             <h2>Dodávateľ</h2>
-            <p class="party-subtitle">Firemné údaje z profilu dodávateľa</p>
             <dl class="party-list">${buildInvoiceDetailFieldsHtml(supplierDetailFields)}</dl>
           </article>
           <article class="party">
             <h2>Odberateľ</h2>
-            <p class="party-subtitle">Klient, ktorému je faktúra vystavená</p>
             <dl class="party-list">${buildInvoiceDetailFieldsHtml(customerDetailFields)}</dl>
           </article>
         </section>
@@ -1997,14 +1986,13 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
 
         <section class="items-section">
           <h2>Položky faktúry</h2>
-          <p class="items-subtitle">Prehľad fakturovaných položiek a finálnej sumy.</p>
           <table>
             <thead>
               <tr>
                 <th style="width:8mm;">#</th>
                 <th>Položka</th>
                 <th style="width:18mm;text-align:right;">Množstvo</th>
-                <th style="width:14mm;">MJ</th>
+                <th style="width:12mm;">MJ</th>
                 <th style="width:25mm;text-align:right;">Cena</th>
                 <th style="width:18mm;text-align:right;">DPH</th>
                 <th style="width:30mm;text-align:right;">Spolu</th>
@@ -2016,7 +2004,6 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
 
         <section class="totals-section">
           <h2>Rekapitulácia</h2>
-          <p class="totals-subtitle">Finálna suma a daňový rozpis.</p>
           <div class="totals-box">${totalsRowsHtml}</div>
         </section>
 

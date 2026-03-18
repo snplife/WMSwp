@@ -1724,13 +1724,6 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           font-weight: 700;
           letter-spacing: -0.04em;
         }
-        .doc-number {
-          margin-top: 1.2mm;
-          font-size: 6.6pt;
-          line-height: 1.2;
-          color: #425466;
-          font-weight: 600;
-        }
         .hero-right {
           display: grid;
           gap: 2.2mm;
@@ -1840,8 +1833,9 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           color: #4c5f71;
         }
         .detail-value--inline-meta {
-          font-size: 6.8pt;
-          line-height: 1.25;
+          font-size: 7.4pt;
+          line-height: 1.3;
+          font-weight: 700;
           white-space: pre-wrap;
         }
         .detail-value--mono {
@@ -2041,23 +2035,22 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
       <section class="page">
         <header class="hero">
           <div>
-            <h1>Faktúra</h1>
-            <div class="doc-number">${escapeHtml(`č. ${invoiceNumber}`)}</div>
+            <h1>${escapeHtml(`Faktúra č. ${invoiceNumber}`)}</h1>
           </div>
           <div class="hero-right">
             <div class="amount-card">
               <span class="amount-label">Na úhradu</span>
               <div class="amount-value">${escapeHtml(formatCurrencyValue(totals.totalWithVat))}</div>
             </div>
+            ${
+              invoiceOrderNumber
+                ? `
             <div class="header-meta">
-              ${
-                invoiceOrderNumber
-                  ? `<div class="header-meta-row"><span>Objednávka</span><strong>${escapeHtml(invoiceOrderNumber)}</strong></div>`
-                  : ""
-              }
-              <div class="header-meta-row"><span>Vystavené</span><strong>${escapeHtml(issuedAtLabel)}</strong></div>
-              <div class="header-meta-row"><span>Splatnosť</span><strong>${escapeHtml(dueDateLabel)}</strong></div>
+              <div class="header-meta-row"><span>Objednávka</span><strong>${escapeHtml(invoiceOrderNumber)}</strong></div>
             </div>
+            `
+                : ""
+            }
           </div>
         </header>
 

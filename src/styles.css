@@ -919,6 +919,14 @@ select {
   align-items: end;
 }
 
+.invoice-order-reference-field {
+  max-width: 260px;
+}
+
+.invoice-copy-input {
+  min-height: 88px;
+}
+
 .invoice-date-field {
   justify-self: end;
 }

@@ -1573,19 +1573,25 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
   const invoiceOutroText = invoiceDocument.outroText;
   const invoiceOrderNumber = invoiceDocument.orderNumber;
   const customerContact = [String(customer?.phone || "").trim(), String(customer?.email || "").trim()].filter(Boolean).join(" | ") || "-";
+  const supplierIdentityLine = [
+    `IČO: ${String(normalizedCompany?.ico || "").trim() || "-"}`,
+    `DIČ: ${String(normalizedCompany?.dic || "").trim() || "-"}`,
+    `IČ DPH: ${String(normalizedCompany?.ic_dph || "").trim() || "-"}`
+  ].join("   ");
+  const customerIdentityLine = [
+    `IČO: ${String(customer?.ico || "").trim() || "-"}`,
+    `DIČ: ${String(customer?.dic || "").trim() || "-"}`,
+    `IČ DPH: ${String(customer?.ic_dph || "").trim() || "-"}`
+  ].join("   ");
   const supplierDetailFields = [
     { value: companyName, omitLabel: true, valueClassName: "detail-value detail-value--lead" },
     { value: String(normalizedCompany?.address || "").trim() || "-", omitLabel: true, valueClassName: "detail-value detail-value--muted" },
-    { label: "IČO", value: String(normalizedCompany?.ico || "").trim() || "-", compact: true },
-    { label: "DIČ", value: String(normalizedCompany?.dic || "").trim() || "-", compact: true },
-    { label: "IČ DPH", value: String(normalizedCompany?.ic_dph || "").trim() || "-", compact: true }
+    { value: supplierIdentityLine, omitLabel: true, valueClassName: "detail-value detail-value--inline-meta" }
   ];
   const customerDetailFields = [
     { value: customerName, omitLabel: true, valueClassName: "detail-value detail-value--lead" },
     { value: String(customer?.address || "").trim() || "-", omitLabel: true, valueClassName: "detail-value detail-value--muted" },
-    { label: "IČO", value: String(customer?.ico || "").trim() || "-", compact: true },
-    { label: "DIČ", value: String(customer?.dic || "").trim() || "-", compact: true },
-    { label: "IČ DPH", value: String(customer?.ic_dph || "").trim() || "-", compact: true },
+    { value: customerIdentityLine, omitLabel: true, valueClassName: "detail-value detail-value--inline-meta" },
     { label: "Kontakt", value: customerContact }
   ];
   const buildInvoiceDetailFieldsHtml = (fields) =>
@@ -1833,6 +1839,11 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           font-weight: 600;
           color: #4c5f71;
         }
+        .detail-value--inline-meta {
+          font-size: 6.8pt;
+          line-height: 1.25;
+          white-space: pre-wrap;
+        }
         .detail-value--mono {
           font-family: "Consolas", "Courier New", monospace;
           font-size: 7pt;
@@ -1846,9 +1857,6 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         .party-row--plain {
           grid-template-columns: 1fr;
           gap: 0;
-        }
-        .party-row--compact {
-          margin-top: -0.1mm;
         }
         .payment-section {
           display: grid;

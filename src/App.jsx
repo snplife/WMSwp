@@ -1606,7 +1606,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
       )
       .join("");
   const bankDetailFields = [
-    { label: "IBAN", value: bankingDetails.bankAccount, valueClassName: "bank-value bank-value--mono" },
+    { label: "IBAN / Číslo účtu", value: bankingDetails.bankAccount, valueClassName: "bank-value bank-value--mono" },
     { label: "SWIFT / BIC", value: bankingDetails.swiftCode, valueClassName: "bank-value" },
     { label: "Variabilný symbol", value: bankingDetails.variableSymbol, valueClassName: "bank-value" },
     { label: "Konštantný symbol", value: bankingDetails.constantSymbol, valueClassName: "bank-value" },
@@ -1741,7 +1741,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           border-top: 0.3mm solid #dbe5ef;
         }
         .header-meta-row span {
-          font-size: 5.8pt;
+          font-size: 7.8pt;
           text-transform: uppercase;
           letter-spacing: 0.1em;
           color: #607180;
@@ -1790,7 +1790,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         }
         .detail-label {
           margin: 0;
-          font-size: 5.8pt;
+          font-size: 7.8pt;
           text-transform: uppercase;
           letter-spacing: 0.1em;
           color: #667786;
@@ -1867,7 +1867,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         }
         .bank-label {
           margin: 0;
-          font-size: 5.8pt;
+          font-size: 7.8pt;
           text-transform: uppercase;
           letter-spacing: 0.1em;
           color: #667786;
@@ -1899,7 +1899,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         }
         .qr-label {
           margin-bottom: 0.8mm;
-          font-size: 5.8pt;
+          font-size: 7.8pt;
           text-transform: uppercase;
           letter-spacing: 0.1em;
           color: #607180;
@@ -1936,7 +1936,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           padding: 1.2mm 1.4mm;
           border-bottom: 0.35mm solid #d8e3ee;
           text-align: left;
-          font-size: 5.8pt;
+          font-size: 7.8pt;
           text-transform: uppercase;
           letter-spacing: 0.1em;
           color: #607180;

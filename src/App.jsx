@@ -1574,26 +1574,26 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
   const invoiceOrderNumber = invoiceDocument.orderNumber;
   const customerContact = [String(customer?.phone || "").trim(), String(customer?.email || "").trim()].filter(Boolean).join(" | ") || "-";
   const supplierDetailFields = [
-    { label: "Názov", value: companyName },
-    { label: "Adresa", value: String(normalizedCompany?.address || "").trim() || "-" },
-    { label: "IČO", value: String(normalizedCompany?.ico || "").trim() || "-" },
-    { label: "DIČ", value: String(normalizedCompany?.dic || "").trim() || "-" },
-    { label: "IČ DPH", value: String(normalizedCompany?.ic_dph || "").trim() || "-" }
+    { value: companyName, omitLabel: true, valueClassName: "detail-value detail-value--lead" },
+    { value: String(normalizedCompany?.address || "").trim() || "-", omitLabel: true, valueClassName: "detail-value detail-value--muted" },
+    { label: "IČO", value: String(normalizedCompany?.ico || "").trim() || "-", compact: true },
+    { label: "DIČ", value: String(normalizedCompany?.dic || "").trim() || "-", compact: true },
+    { label: "IČ DPH", value: String(normalizedCompany?.ic_dph || "").trim() || "-", compact: true }
   ];
   const customerDetailFields = [
-    { label: "Názov", value: customerName },
-    { label: "Adresa", value: String(customer?.address || "").trim() || "-" },
-    { label: "IČO", value: String(customer?.ico || "").trim() || "-" },
-    { label: "DIČ", value: String(customer?.dic || "").trim() || "-" },
-    { label: "IČ DPH", value: String(customer?.ic_dph || "").trim() || "-" },
+    { value: customerName, omitLabel: true, valueClassName: "detail-value detail-value--lead" },
+    { value: String(customer?.address || "").trim() || "-", omitLabel: true, valueClassName: "detail-value detail-value--muted" },
+    { label: "IČO", value: String(customer?.ico || "").trim() || "-", compact: true },
+    { label: "DIČ", value: String(customer?.dic || "").trim() || "-", compact: true },
+    { label: "IČ DPH", value: String(customer?.ic_dph || "").trim() || "-", compact: true },
     { label: "Kontakt", value: customerContact }
   ];
   const buildInvoiceDetailFieldsHtml = (fields) =>
     fields
       .map(
         (field) => `
-          <div class="party-row">
-            <dt class="detail-label">${escapeHtml(field.label)}</dt>
+          <div class="party-row${field.omitLabel ? " party-row--plain" : ""}${field.compact ? " party-row--compact" : ""}">
+            ${field.omitLabel ? "" : `<dt class="detail-label">${escapeHtml(field.label)}</dt>`}
             <dd class="${escapeHtml(field.valueClassName || "detail-value")}">${escapeHtml(field.value)}</dd>
           </div>
         `
@@ -1807,7 +1807,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         }
         .party-list {
           display: grid;
-          gap: 1.1mm;
+          gap: 0.7mm;
           margin: 1.8mm 0 0;
         }
         .detail-label {
@@ -1825,15 +1825,30 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           font-weight: 700;
           color: #16212b;
         }
+        .detail-value--lead {
+          font-size: 8pt;
+          line-height: 1.2;
+        }
+        .detail-value--muted {
+          font-weight: 600;
+          color: #4c5f71;
+        }
         .detail-value--mono {
           font-family: "Consolas", "Courier New", monospace;
           font-size: 7pt;
         }
         .party-row {
           display: grid;
-          grid-template-columns: 21mm 1fr;
-          gap: 2.4mm;
+          grid-template-columns: 15mm 1fr;
+          gap: 1.5mm;
           align-items: start;
+        }
+        .party-row--plain {
+          grid-template-columns: 1fr;
+          gap: 0;
+        }
+        .party-row--compact {
+          margin-top: -0.1mm;
         }
         .payment-section {
           display: grid;
@@ -1856,7 +1871,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         }
         .bank-label {
           margin: 0;
-          font-size: 4.3pt;
+          font-size: 5pt;
           text-transform: uppercase;
           letter-spacing: 0.12em;
           color: #667786;

@@ -1964,9 +1964,13 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         .cell-right {
           text-align: right;
         }
-        .cell-qty,
+        .cell-qty {
+          white-space: nowrap;
+          padding-right: 2.8mm;
+        }
         .cell-unit {
           white-space: nowrap;
+          padding-left: 2.8mm;
         }
         .item-title {
           font-size: 8pt;
@@ -2078,8 +2082,8 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
               <tr>
                 <th style="width:8mm;">#</th>
                 <th>Položka</th>
-                <th style="width:18mm;text-align:right;">Množstvo</th>
-                <th style="width:12mm;">MJ</th>
+                <th style="width:20mm;text-align:right;">Množstvo</th>
+                <th style="width:14mm;">MJ</th>
                 <th style="width:25mm;text-align:right;">Cena</th>
                 <th style="width:18mm;text-align:right;">DPH</th>
                 <th style="width:30mm;text-align:right;">Spolu</th>

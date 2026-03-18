@@ -1301,7 +1301,7 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
       <title>${escapeHtml(String(quote?.quote_number || "Cenova-ponuka"))}</title>
       <style>
         @import url("https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap");
-        @page { size: A4 portrait; margin: 0mm 8mm 8mm; }
+        @page { size: A4 portrait; margin: 0mm 6mm 6mm; }
         * { box-sizing: border-box; }
         body {
           margin: 0;
@@ -1311,8 +1311,8 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
         }
         .page {
           display: grid;
-          gap: 5mm;
-          padding: 2.5mm 0 0;
+          gap: 3.8mm;
+          padding: 1.8mm 0 0;
           background: #ffffff;
           margin: 0;
         }
@@ -1320,11 +1320,11 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
           position: relative;
           display: grid;
           grid-template-columns: minmax(0, 1fr) auto;
-          gap: 0.6mm;
+          gap: 0.4mm;
           align-items: end;
-          padding: 3mm 3mm 3mm 4.6mm;
+          padding: 2.4mm 2.4mm 2.4mm 4mm;
           border: 0.35mm solid #dbe5ef;
-          border-radius: 3.5mm;
+          border-radius: 3mm;
           background: #ffffff;
           overflow: hidden;
         }
@@ -1332,23 +1332,23 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
           content: "";
           position: absolute;
           inset: 0 auto 0 0;
-          width: 1.6mm;
+          width: 1.3mm;
           background: linear-gradient(180deg, #0f8a7f, #0f5f8f);
         }
-        .hero-copy { display: grid; gap: 0.45mm; min-height: 0; }
-        .eyebrow { font-size: 5.8pt; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #7b8b98; line-height: 1; }
-        h1 { margin: 0; font-size: 12.2pt; line-height: 0.98; color: #182431; }
-        .hero-subtitle { font-size: 6pt; line-height: 1; color: #6b7b88; }
+        .hero-copy { display: grid; gap: 0.3mm; min-height: 0; }
+        .eyebrow { font-size: 5pt; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #7b8b98; line-height: 1; }
+        h1 { margin: 0; font-size: 10.8pt; line-height: 0.98; color: #182431; }
+        .hero-subtitle { font-size: 5.4pt; line-height: 1; color: #6b7b88; }
         .hero-meta { display: grid; gap: 0.1mm; justify-items: end; text-align: right; align-content: end; }
-        .hero-meta-label { font-size: 5.6pt; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #7b8b98; line-height: 1; }
-        .hero-meta-value { font-size: 7.2pt; font-weight: 700; line-height: 1; color: #182431; }
-        .hero-meta-date { font-size: 5.8pt; line-height: 1; color: #6b7b88; }
-        .section-label { display: block; margin-bottom: 1.2mm; font-size: 7.6pt; color: #5a6c7c; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; }
-        .value { font-size: 11pt; font-weight: 700; }
+        .hero-meta-label { font-size: 5pt; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #7b8b98; line-height: 1; }
+        .hero-meta-value { font-size: 6.6pt; font-weight: 700; line-height: 1; color: #182431; }
+        .hero-meta-date { font-size: 5.2pt; line-height: 1; color: #6b7b88; }
+        .section-label { display: block; margin-bottom: 0.8mm; font-size: 6.6pt; color: #5a6c7c; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; }
+        .value { font-size: 9.4pt; font-weight: 700; }
         .customer, .summary, .note, .items {
           position: relative;
           border: 0.35mm solid #dbe5ef;
-          border-radius: 3.5mm;
+          border-radius: 3mm;
           background: #ffffff;
           overflow: hidden;
         }
@@ -1356,47 +1356,47 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
           content: "";
           position: absolute;
           inset: 0 auto 0 0;
-          width: 1.6mm;
+          width: 1.3mm;
           background: linear-gradient(180deg, #0f8a7f, #0f5f8f);
         }
-        .summary-card { padding: 3mm; }
-        .customer, .note, .items, .summary { padding: 3.3mm 3.2mm 3.3mm 4.8mm; }
-        .customer-head, .items-head, .summary-head { display: flex; justify-content: space-between; gap: 4mm; align-items: end; margin-bottom: 2.3mm; }
-        .section-title { margin: 0; font-size: 11pt; color: #182431; }
+        .summary-card { padding: 2.4mm; }
+        .customer, .note, .items, .summary { padding: 2.7mm 2.6mm 2.7mm 4mm; }
+        .customer-head, .items-head, .summary-head { display: flex; justify-content: space-between; gap: 3mm; align-items: end; margin-bottom: 1.7mm; }
+        .section-title { margin: 0; font-size: 9.6pt; color: #182431; }
         .section-subtitle { margin: 0.9mm 0 0; font-size: 8.2pt; color: #607180; }
-        .party-grid, .customer-grid, .summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2.5mm 5mm; }
-        .summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2mm 3mm; }
+        .party-grid, .customer-grid, .summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2mm 4mm; }
+        .summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.6mm 2.2mm; }
         .party-card {
           border: 0.3mm solid #e4ebf3;
-          border-radius: 3.5mm;
+          border-radius: 3mm;
           background: linear-gradient(180deg, #ffffff, #f7fbff);
-          padding: 3mm;
+          padding: 2.4mm;
           display: grid;
-          gap: 2.2mm;
+          gap: 1.6mm;
           box-shadow: inset 0 0 0 0.2mm rgba(255,255,255,0.7);
         }
-        .party-card .section-title { font-size: 10pt; }
+        .party-card .section-title { font-size: 8.8pt; }
         .party-fields {
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 2.2mm 4mm;
+          gap: 1.6mm 3mm;
         }
         .party-field--full { grid-column: 1 / -1; }
-        .party-card .section-label { margin-bottom: 0.7mm; font-size: 7pt; }
-        .party-card .value { font-size: 8.7pt; line-height: 1.35; }
+        .party-card .section-label { margin-bottom: 0.5mm; font-size: 6.2pt; }
+        .party-card .value { font-size: 7.8pt; line-height: 1.3; }
         .party-card .value--mono {
           font-family: "Roboto Mono", "Consolas", "Courier New", monospace;
-          font-size: 8.1pt;
+          font-size: 7.2pt;
           word-break: break-word;
         }
         .summary-card {
           border: 0.3mm solid #e4ebf3;
-          border-radius: 3.5mm;
+          border-radius: 3mm;
           background: linear-gradient(180deg, #ffffff, #f7fbff);
           box-shadow: inset 0 0 0 0.2mm rgba(255,255,255,0.7);
         }
-        .summary-card .section-label { margin-bottom: 0.6mm; font-size: 6.9pt; }
-        .summary-card .value { font-size: 9.2pt; line-height: 1.25; }
+        .summary-card .section-label { margin-bottom: 0.45mm; font-size: 6pt; }
+        .summary-card .value { font-size: 8.2pt; line-height: 1.2; }
         .summary--compact { padding-top: 2.6mm; padding-bottom: 2.6mm; }
         .summary--compact .summary-head { margin-bottom: 1.2mm; }
         .summary--compact .section-title { font-size: 9.4pt; }
@@ -1405,15 +1405,15 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
         .summary-card--tight { padding: 2.1mm 2.4mm; }
         .summary-card--tight .section-label { margin-bottom: 0.45mm; font-size: 6.2pt; }
         .summary-card--tight .value { font-size: 8pt; line-height: 1.2; }
-        .note .section-title { margin-bottom: 1.6mm; font-size: 9.4pt; }
-        .note div { font-size: 8.8pt; line-height: 1.45; color: #31404d; }
-        table { width: 100%; border-collapse: collapse; font-size: 8.9pt; }
-        thead th { padding: 2.8mm; text-align: left; color: #33506b; background: #eef5fb; border-bottom: 0.35mm solid #d6e1ec; }
-        tbody td { padding: 2.8mm; vertical-align: top; border-bottom: 0.25mm solid #e6edf5; }
+        .note .section-title { margin-bottom: 1.1mm; font-size: 8.3pt; }
+        .note div { font-size: 7.8pt; line-height: 1.35; color: #31404d; }
+        table { width: 100%; border-collapse: collapse; font-size: 8.1pt; }
+        thead th { padding: 2.1mm 2.2mm; text-align: left; color: #33506b; background: #eef5fb; border-bottom: 0.35mm solid #d6e1ec; }
+        tbody td { padding: 2.1mm 2.2mm; vertical-align: top; border-bottom: 0.25mm solid #e6edf5; }
         tbody tr:nth-child(even) td { background: #fbfdff; }
         .cell-qty, .cell-unit { white-space: nowrap; }
-        .muted { font-size: 8pt; color: #6c7a88; }
-        .foot { font-size: 8pt; color: #6c7a88; text-align: right; }
+        .muted { font-size: 7.1pt; color: #6c7a88; }
+        .foot { font-size: 7pt; color: #6c7a88; text-align: right; }
       </style>
     </head>
     <body>
@@ -1621,7 +1621,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
       <meta charset="UTF-8" />
       <title>${escapeHtml(invoiceNumber || "Faktura")}</title>
       <style>
-        @page { size: A4 portrait; margin: 12mm 12mm 14mm; }
+        @page { size: A4 portrait; margin: 10mm 10mm 12mm; }
         * { box-sizing: border-box; }
         body {
           margin: 0;
@@ -1632,53 +1632,53 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         }
         .page {
           display: grid;
-          gap: 4.4mm;
+          gap: 3.4mm;
           padding: 0;
         }
         .hero {
           display: grid;
-          grid-template-columns: minmax(0, 1fr) 52mm;
-          gap: 10mm;
+          grid-template-columns: minmax(0, 1fr) 46mm;
+          gap: 7mm;
           align-items: start;
-          padding-top: 1.6mm;
-          border-top: 1.1mm solid #0f7d77;
+          padding-top: 1.2mm;
+          border-top: 0.9mm solid #0f7d77;
         }
         .hero h1 {
           margin: 0;
-          font-size: 19pt;
+          font-size: 16pt;
           line-height: 1;
           font-weight: 700;
           letter-spacing: -0.04em;
         }
         .doc-number {
-          margin-top: 1.8mm;
-          font-size: 7.4pt;
+          margin-top: 1.2mm;
+          font-size: 6.6pt;
           line-height: 1.2;
           color: #425466;
           font-weight: 600;
         }
         .hero-right {
           display: grid;
-          gap: 3mm;
+          gap: 2.2mm;
           align-content: start;
         }
         .amount-card {
-          padding: 2.6mm 3mm;
-          border-radius: 3.2mm;
+          padding: 2mm 2.4mm;
+          border-radius: 2.6mm;
           background: linear-gradient(180deg, #f4fbfa 0%, #edf7f6 100%);
           border: 0.35mm solid #cfe7e3;
         }
         .amount-label {
           display: block;
-          margin-bottom: 0.9mm;
-          font-size: 5.6pt;
+          margin-bottom: 0.7mm;
+          font-size: 5pt;
           text-transform: uppercase;
           letter-spacing: 0.14em;
           color: #607180;
           font-weight: 700;
         }
         .amount-value {
-          font-size: 14pt;
+          font-size: 11.8pt;
           line-height: 1;
           font-weight: 700;
           letter-spacing: -0.03em;
@@ -1686,24 +1686,24 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         }
         .header-meta {
           display: grid;
-          gap: 1.4mm;
+          gap: 0.9mm;
         }
         .header-meta-row {
           display: flex;
           justify-content: space-between;
-          gap: 4mm;
-          padding-top: 1.3mm;
+          gap: 3mm;
+          padding-top: 0.9mm;
           border-top: 0.3mm solid #dbe5ef;
         }
         .header-meta-row span {
-          font-size: 5.6pt;
+          font-size: 4.9pt;
           text-transform: uppercase;
           letter-spacing: 0.14em;
           color: #607180;
           font-weight: 700;
         }
         .header-meta-row strong {
-          font-size: 8.1pt;
+          font-size: 7.3pt;
           line-height: 1.2;
           color: #16212b;
           font-weight: 600;
@@ -1711,8 +1711,8 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         .parties {
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 8mm;
-          padding-top: 2.4mm;
+          gap: 5.5mm;
+          padding-top: 1.9mm;
           border-top: 0.35mm solid #dbe5ef;
         }
         .party h2,
@@ -1721,7 +1721,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         .totals-section h2,
         .note-section h3 {
           margin: 0;
-          font-size: 9pt;
+          font-size: 8pt;
           line-height: 1;
           letter-spacing: -0.01em;
           font-weight: 700;
@@ -1739,12 +1739,12 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         }
         .party-list {
           display: grid;
-          gap: 1.5mm;
-          margin: 2.4mm 0 0;
+          gap: 1.1mm;
+          margin: 1.8mm 0 0;
         }
         .detail-label {
           margin: 0;
-          font-size: 4.8pt;
+          font-size: 4.3pt;
           text-transform: uppercase;
           letter-spacing: 0.12em;
           color: #667786;
@@ -1752,43 +1752,43 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         }
         .detail-value {
           margin: 0;
-          font-size: 8.2pt;
-          line-height: 1.4;
+          font-size: 7.5pt;
+          line-height: 1.3;
           font-weight: 700;
           color: #16212b;
         }
         .detail-value--mono {
           font-family: "Consolas", "Courier New", monospace;
-          font-size: 7.7pt;
+          font-size: 7pt;
         }
         .party-row {
+          display: grid;
+          grid-template-columns: 21mm 1fr;
+          gap: 2.4mm;
+          align-items: start;
+        }
+        .payment-section {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) 30mm;
+          gap: 5.5mm;
+          align-items: start;
+          padding-top: 1.9mm;
+          border-top: 0.35mm solid #dbe5ef;
+        }
+        .bank-list {
+          display: grid;
+          gap: 1.1mm;
+          margin: 1.8mm 0 0;
+        }
+        .bank-row {
           display: grid;
           grid-template-columns: 24mm 1fr;
           gap: 3mm;
           align-items: start;
         }
-        .payment-section {
-          display: grid;
-          grid-template-columns: minmax(0, 1fr) 34mm;
-          gap: 8mm;
-          align-items: start;
-          padding-top: 2.4mm;
-          border-top: 0.35mm solid #dbe5ef;
-        }
-        .bank-list {
-          display: grid;
-          gap: 1.5mm;
-          margin: 2.2mm 0 0;
-        }
-        .bank-row {
-          display: grid;
-          grid-template-columns: 28mm 1fr;
-          gap: 4mm;
-          align-items: start;
-        }
         .bank-label {
           margin: 0;
-          font-size: 4.8pt;
+          font-size: 4.3pt;
           text-transform: uppercase;
           letter-spacing: 0.12em;
           color: #667786;
@@ -1796,14 +1796,14 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         }
         .bank-value {
           margin: 0;
-          font-size: 8.3pt;
-          line-height: 1.35;
+          font-size: 7.5pt;
+          line-height: 1.28;
           font-weight: 700;
           color: #16212b;
         }
         .bank-value--mono {
           font-family: "Consolas", "Courier New", monospace;
-          font-size: 7.8pt;
+          font-size: 7pt;
           white-space: nowrap;
         }
         .qr-card {
@@ -1813,13 +1813,13 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           align-items: center;
           min-height: 100%;
           border: 0.35mm solid #dbe5ef;
-          border-radius: 3mm;
-          padding: 2.2mm 2mm;
+          border-radius: 2.4mm;
+          padding: 1.5mm 1.4mm;
           background: #fafcfe;
         }
         .qr-label {
-          margin-bottom: 1.2mm;
-          font-size: 5.1pt;
+          margin-bottom: 0.8mm;
+          font-size: 4.7pt;
           text-transform: uppercase;
           letter-spacing: 0.12em;
           color: #607180;
@@ -1831,11 +1831,11 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           align-items: center;
         }
         .pay-card-inner img {
-          width: 28mm;
-          height: 28mm;
+          width: 24mm;
+          height: 24mm;
           display: block;
-          padding: 0.4mm;
-          border-radius: 1.4mm;
+          padding: 0.3mm;
+          border-radius: 1.1mm;
           background: #ffffff;
           border: 0.3mm solid #dbe5ef;
         }
@@ -1843,7 +1843,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           justify-content: flex-start;
         }
         .items-section {
-          padding-top: 2.4mm;
+          padding-top: 1.9mm;
           border-top: 0.35mm solid #dbe5ef;
         }
         table {
@@ -1852,10 +1852,10 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           table-layout: fixed;
         }
         thead th {
-          padding: 1.6mm 1.8mm;
+          padding: 1.2mm 1.4mm;
           border-bottom: 0.35mm solid #d8e3ee;
           text-align: left;
-          font-size: 5.3pt;
+          font-size: 4.8pt;
           text-transform: uppercase;
           letter-spacing: 0.12em;
           color: #607180;
@@ -1863,10 +1863,10 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           background: #f4f8fb;
         }
         tbody td {
-          padding: 1.8mm 1.8mm;
+          padding: 1.4mm 1.4mm;
           border-bottom: 0.3mm solid #e6edf4;
           vertical-align: top;
-          font-size: 7.3pt;
+          font-size: 6.6pt;
           color: #16212b;
         }
         tbody tr:last-child td {
@@ -1885,15 +1885,15 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           white-space: nowrap;
         }
         .item-title {
-          font-size: 7.8pt;
+          font-size: 7pt;
           font-weight: 600;
-          line-height: 1.3;
+          line-height: 1.25;
         }
         .item-meta {
-          margin-top: 0.5mm;
-          font-size: 6pt;
+          margin-top: 0.3mm;
+          font-size: 5.4pt;
           color: #61707d;
-          line-height: 1.35;
+          line-height: 1.25;
         }
         .strong {
           font-weight: 700;
@@ -1901,21 +1901,21 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         .totals-section {
           display: grid;
           justify-items: end;
-          padding-top: 2.4mm;
+          padding-top: 1.9mm;
           border-top: 0.35mm solid #dbe5ef;
         }
         .totals-box {
-          width: 68mm;
+          width: 58mm;
           display: grid;
           gap: 0;
         }
         .total-row {
           display: flex;
           justify-content: space-between;
-          gap: 6mm;
-          padding: 1.2mm 0;
+          gap: 4mm;
+          padding: 0.8mm 0;
           border-bottom: 0.3mm solid #e6edf4;
-          font-size: 8pt;
+          font-size: 7.2pt;
           color: #425466;
         }
         .total-row strong {
@@ -1923,26 +1923,26 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           font-weight: 700;
         }
         .total-row--grand {
-          margin-top: 1mm;
-          padding-top: 2mm;
+          margin-top: 0.8mm;
+          padding-top: 1.4mm;
           border-top: 0.45mm solid #c8d8e8;
           border-bottom: none;
-          font-size: 10pt;
+          font-size: 8.9pt;
           color: #16212b;
           font-weight: 700;
         }
         .total-row--grand strong {
-          font-size: 10.4pt;
+          font-size: 9.3pt;
         }
         .note-section {
-          padding-top: 2.4mm;
+          padding-top: 1.9mm;
           border-top: 0.35mm solid #dbe5ef;
         }
         .foot {
-          font-size: 5.8pt;
+          font-size: 5.1pt;
           color: #6b7b88;
           text-align: left;
-          padding-top: 1mm;
+          padding-top: 0.7mm;
         }
       </style>
     </head>

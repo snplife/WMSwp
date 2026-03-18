@@ -742,7 +742,8 @@ select {
 
 .workflow-shell-quotes .orders-layout,
 .workflow-shell-invoices .orders-layout {
-  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+  grid-template-columns: minmax(0, 1.56fr) minmax(320px, 0.72fr);
+  gap: 0.95rem;
 }
 
 .workflow-shell-quotes .orders-panel-card,
@@ -758,6 +759,73 @@ select {
 .workflow-shell-invoices .workflow-feed-column .search-input {
   min-width: 0;
   width: 100%;
+}
+
+.workflow-shell-quotes .workflow-editor-column .orders-panel-card,
+.workflow-shell-invoices .workflow-editor-column .orders-panel-card {
+  padding: 1.2rem 1.25rem 1.28rem;
+}
+
+.workflow-shell-quotes .workflow-feed-column,
+.workflow-shell-invoices .workflow-feed-column {
+  width: min(100%, 420px);
+  justify-self: end;
+}
+
+.workflow-shell-quotes .workflow-feed-column .orders-panel-card,
+.workflow-shell-invoices .workflow-feed-column .orders-panel-card {
+  padding: 0.9rem;
+  border-radius: 18px;
+}
+
+.workflow-shell-quotes .workflow-feed-column .workflow-section-head,
+.workflow-shell-invoices .workflow-feed-column .workflow-section-head {
+  margin-bottom: 0.65rem;
+}
+
+.workflow-shell-quotes .workflow-feed-column .orders-list,
+.workflow-shell-invoices .workflow-feed-column .orders-list {
+  gap: 0.58rem;
+}
+
+.workflow-shell-quotes .workflow-feed-column .order-card,
+.workflow-shell-invoices .workflow-feed-column .order-card {
+  border-radius: 15px;
+  box-shadow: 0 8px 18px rgba(23, 33, 43, 0.05);
+}
+
+.workflow-shell-quotes .workflow-feed-column .order-card-head,
+.workflow-shell-invoices .workflow-feed-column .order-card-head {
+  gap: 0.72rem;
+  padding: 0.8rem 0.85rem;
+}
+
+.workflow-shell-quotes .workflow-feed-column .order-card-head strong,
+.workflow-shell-invoices .workflow-feed-column .order-card-head strong {
+  font-size: 0.95rem;
+}
+
+.workflow-shell-quotes .workflow-feed-column .order-card-head p,
+.workflow-shell-invoices .workflow-feed-column .order-card-head p {
+  margin-top: 0.12rem;
+  font-size: 0.76rem;
+}
+
+.workflow-shell-quotes .workflow-feed-column .order-card-meta,
+.workflow-shell-invoices .workflow-feed-column .order-card-meta {
+  gap: 0.3rem;
+}
+
+.workflow-shell-quotes .workflow-feed-column .order-card-badge,
+.workflow-shell-invoices .workflow-feed-column .order-card-badge {
+  min-height: 24px;
+  padding: 0.18rem 0.48rem;
+  font-size: 0.67rem;
+}
+
+.workflow-shell-quotes .workflow-feed-column .order-card-body,
+.workflow-shell-invoices .workflow-feed-column .order-card-body {
+  padding: 0.8rem 0.85rem 0.9rem;
 }
 
 .orders-column {
@@ -3145,5 +3213,11 @@ tbody tr:nth-child(even) {
   .workflow-shell-quotes .orders-layout,
   .workflow-shell-invoices .orders-layout {
     grid-template-columns: 1fr;
+  }
+
+  .workflow-shell-quotes .workflow-feed-column,
+  .workflow-shell-invoices .workflow-feed-column {
+    width: 100%;
+    justify-self: stretch;
   }
 }

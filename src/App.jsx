@@ -1729,28 +1729,6 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           gap: 2.2mm;
           align-content: start;
         }
-        .amount-card {
-          padding: 2mm 2.4mm;
-          border-radius: 2.6mm;
-          background: linear-gradient(180deg, #f4fbfa 0%, #edf7f6 100%);
-          border: 0.35mm solid #cfe7e3;
-        }
-        .amount-label {
-          display: block;
-          margin-bottom: 0.7mm;
-          font-size: 5pt;
-          text-transform: uppercase;
-          letter-spacing: 0.14em;
-          color: #607180;
-          font-weight: 700;
-        }
-        .amount-value {
-          font-size: 11.8pt;
-          line-height: 1;
-          font-weight: 700;
-          letter-spacing: -0.03em;
-          color: #16212b;
-        }
         .header-meta {
           display: grid;
           gap: 0.9mm;
@@ -1853,12 +1831,26 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           gap: 0;
         }
         .payment-section {
-          display: grid;
-          grid-template-columns: minmax(0, 1fr) 30mm;
-          gap: 5.5mm;
-          align-items: start;
           padding-top: 1.9mm;
           border-top: 0.35mm solid #dbe5ef;
+        }
+        .payment-copy {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) 30mm;
+          gap: 2mm 5.5mm;
+          align-items: start;
+        }
+        .payment-copy h3 {
+          margin: 0;
+          grid-column: 1 / -1;
+          font-size: 8pt;
+          line-height: 1;
+          letter-spacing: -0.01em;
+          font-weight: 700;
+          color: #16212b;
+        }
+        .payment-bank {
+          min-width: 0;
         }
         .bank-list {
           display: grid;
@@ -2038,10 +2030,6 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
             <h1>${escapeHtml(`Faktúra č. ${invoiceNumber}`)}</h1>
           </div>
           <div class="hero-right">
-            <div class="amount-card">
-              <span class="amount-label">Na úhradu</span>
-              <div class="amount-value">${escapeHtml(formatCurrencyValue(totals.totalWithVat))}</div>
-            </div>
             ${
               invoiceOrderNumber
                 ? `
@@ -2067,10 +2055,12 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
 
         <section class="payment-section">
           <article class="payment-copy">
-            <h3>Bankové spojenie</h3>
-            <dl class="bank-list">${buildBankDetailFieldsHtml(bankDetailFields)}</dl>
+            <h3>Platba</h3>
+            <div class="payment-bank">
+              <dl class="bank-list">${buildBankDetailFieldsHtml(bankDetailFields)}</dl>
+            </div>
+            ${payBySquareHtml}
           </article>
-          ${payBySquareHtml}
         </section>
 
         <section class="items-section">

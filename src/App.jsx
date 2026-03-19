@@ -1606,11 +1606,11 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
       )
       .join("");
   const bankDetailFields = [
-    { label: "IBAN / Číslo účtu", value: bankingDetails.bankAccount, valueClassName: "bank-value bank-value--mono" },
-    { label: "SWIFT / BIC", value: bankingDetails.swiftCode, valueClassName: "bank-value" },
-    { label: "Variabilný symbol", value: bankingDetails.variableSymbol, valueClassName: "bank-value" },
-    { label: "Konštantný symbol", value: bankingDetails.constantSymbol, valueClassName: "bank-value" },
-    { label: "Špecifický symbol", value: bankingDetails.specificSymbol, valueClassName: "bank-value" }
+    { label: "IBAN / Číslo účtu:", value: bankingDetails.bankAccount, valueClassName: "bank-value bank-value--mono" },
+    { label: "SWIFT / BIC:", value: bankingDetails.swiftCode, valueClassName: "bank-value" },
+    { label: "Variabilný symbol:", value: bankingDetails.variableSymbol, valueClassName: "bank-value" },
+    { label: "Konštantný symbol:", value: bankingDetails.constantSymbol, valueClassName: "bank-value" },
+    { label: "Špecifický symbol:", value: bankingDetails.specificSymbol, valueClassName: "bank-value" }
   ];
   const buildBankDetailFieldsHtml = (fields) =>
     fields
@@ -1950,7 +1950,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           padding: 1.4mm 1.5mm;
           border-bottom: 0.35mm solid #d8e3ee;
           text-align: left;
-          font-size: 8.4pt;
+          font-size: 8.9pt;
           text-transform: uppercase;
           letter-spacing: 0.1em;
           color: #607180;
@@ -1962,7 +1962,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           padding: 1.8mm 1.6mm;
           border-bottom: 0.3mm solid #e6edf4;
           vertical-align: top;
-          font-size: 7.9pt;
+          font-size: 8.5pt;
           color: #16212b;
         }
         tbody tr:last-child td {
@@ -1994,13 +1994,13 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           padding-left: 5mm;
         }
         .item-title {
-          font-size: 8.5pt;
+          font-size: 9pt;
           font-weight: 600;
           line-height: 1.25;
         }
         .item-meta {
           margin-top: 0.5mm;
-          font-size: 7pt;
+          font-size: 7.5pt;
           color: #61707d;
           line-height: 1.25;
         }

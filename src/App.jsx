@@ -1227,7 +1227,7 @@ function buildOrderPrintHtml(order, customer, items, companyName) {
             <div><span class="label">Zákazník</span><div class="value">${escapeHtml(customerName)}</div></div>
             <div><span class="label">Telefón</span><div class="value">${escapeHtml(String(customer?.phone || "-"))}</div></div>
             <div><span class="label">Email</span><div class="value">${escapeHtml(String(customer?.email || "-"))}</div></div>
-            <div><span class="label">Adresa</span><div class="value">${escapeHtml(String(customer?.address || "-"))}</div></div>
+            <div><span class="label">Adresa</span><div class="value">${escapeHtml(formatDocumentAddress(customer?.address) || "-")}</div></div>
           </div>
         </section>
         <section>
@@ -1282,7 +1282,7 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
   const afterSummarySectionsHtml = String(options?.afterSummarySectionsHtml || options?.extraSectionsHtml || "");
   const supplierFields = [
     { label: "Dodávateľ", value: companyName, fullWidth: true },
-    { label: "Adresa", value: String(normalizedCompany?.address || "").trim() || "-", fullWidth: true },
+    { label: "Adresa", value: formatDocumentAddress(normalizedCompany?.address) || "-", fullWidth: true },
     { label: "IČO", value: String(normalizedCompany?.ico || "").trim() || "-" },
     { label: "DIČ", value: String(normalizedCompany?.dic || "").trim() || "-" },
     { label: "IČ DPH", value: String(normalizedCompany?.ic_dph || "").trim() || "-" },
@@ -1290,7 +1290,7 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
   ];
   const customerFields = [
     { label: "Odberateľ", value: customerName, fullWidth: true },
-    { label: "Adresa", value: String(customer?.address || "").trim() || "-", fullWidth: true },
+    { label: "Adresa", value: formatDocumentAddress(customer?.address) || "-", fullWidth: true },
     { label: "IČO", value: String(customer?.ico || "").trim() || "-" },
     { label: "DIČ", value: String(customer?.dic || "").trim() || "-" },
     { label: "IČ DPH", value: String(customer?.ic_dph || "").trim() || "-" },
@@ -1520,7 +1520,7 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
             <thead>
               <tr>
                 <th>#</th>
-                <th>Položka</th>
+                <th>Názov</th>
                 <th style="width:18mm;text-align:right;">Množstvo</th>
                 <th style="width:12mm;">MJ</th>
                 <th style="width:14mm;">DPH</th>
@@ -1585,12 +1585,12 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
   ].join("   ");
   const supplierDetailFields = [
     { value: companyName, omitLabel: true, valueClassName: "detail-value detail-value--lead" },
-    { value: String(normalizedCompany?.address || "").trim() || "-", omitLabel: true, valueClassName: "detail-value detail-value--muted" },
+    { value: formatDocumentAddress(normalizedCompany?.address) || "-", omitLabel: true, valueClassName: "detail-value detail-value--muted" },
     { value: supplierIdentityLine, omitLabel: true, valueClassName: "detail-value detail-value--inline-meta" }
   ];
   const customerDetailFields = [
     { value: customerName, omitLabel: true, valueClassName: "detail-value detail-value--lead" },
-    { value: String(customer?.address || "").trim() || "-", omitLabel: true, valueClassName: "detail-value detail-value--muted" },
+    { value: formatDocumentAddress(customer?.address) || "-", omitLabel: true, valueClassName: "detail-value detail-value--muted" },
     { value: customerIdentityLine, omitLabel: true, valueClassName: "detail-value detail-value--inline-meta" },
     { label: "Kontakt", value: customerContact }
   ];
@@ -1816,7 +1816,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         .detail-value--inline-meta {
           font-size: 8.5pt;
           line-height: 1.3;
-          font-weight: 700;
+          font-weight: 600;
           white-space: pre-wrap;
         }
         .detail-value--mono {
@@ -1842,6 +1842,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           grid-template-columns: minmax(0, 1fr) 30mm;
           gap: 2.8mm 6mm;
           align-items: start;
+          font-family: "Segoe UI", Arial, sans-serif;
         }
         .payment-copy h3 {
           margin: 0;
@@ -1864,28 +1865,35 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           display: grid;
           grid-template-columns: 32mm 1fr;
           gap: 4.6mm;
-          align-items: start;
+          align-items: center;
+          min-height: 5.4mm;
         }
         .bank-label {
           margin: 0;
-          font-size: 7.8pt;
+          font-size: 8.2pt;
           text-transform: uppercase;
           letter-spacing: 0.1em;
           color: #667786;
-          font-weight: 700;
-          line-height: 1.1;
+          font-weight: 600;
+          line-height: 1.25;
           white-space: nowrap;
+          display: flex;
+          align-items: center;
+          min-height: 5.4mm;
         }
         .bank-value {
           margin: 0;
-          font-size: 8.8pt;
-          line-height: 1.28;
-          font-weight: 700;
+          font-size: 8.6pt;
+          line-height: 1.25;
+          font-weight: 500;
           color: #16212b;
+          display: flex;
+          align-items: center;
+          min-height: 5.4mm;
         }
         .bank-value--mono {
-          font-family: "Consolas", "Courier New", monospace;
-          font-size: 8.1pt;
+          font-family: inherit;
+          font-size: 8.6pt;
           white-space: nowrap;
         }
         .qr-card {
@@ -1901,12 +1909,16 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         }
         .qr-label {
           margin-bottom: 1mm;
-          font-size: 7.8pt;
+          font-size: 8.2pt;
           text-transform: uppercase;
           letter-spacing: 0.1em;
           color: #607180;
-          font-weight: 700;
-          line-height: 1.1;
+          font-weight: 600;
+          line-height: 1.25;
+        }
+        .qr-note {
+          font-size: 8.6pt;
+          line-height: 1.3;
         }
         .pay-card-inner {
           display: flex;
@@ -1935,10 +1947,10 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           table-layout: fixed;
         }
         thead th {
-          padding: 1.2mm 1.4mm;
+          padding: 1.4mm 1.5mm;
           border-bottom: 0.35mm solid #d8e3ee;
           text-align: left;
-          font-size: 7.8pt;
+          font-size: 8.4pt;
           text-transform: uppercase;
           letter-spacing: 0.1em;
           color: #607180;
@@ -1947,10 +1959,10 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           background: #f4f8fb;
         }
         tbody td {
-          padding: 1.6mm 1.5mm;
+          padding: 1.8mm 1.6mm;
           border-bottom: 0.3mm solid #e6edf4;
           vertical-align: top;
-          font-size: 7.4pt;
+          font-size: 7.9pt;
           color: #16212b;
         }
         tbody tr:last-child td {
@@ -1970,6 +1982,9 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         .cell-unit-head {
           padding-left: 5mm;
         }
+        .cell-price-head {
+          white-space: nowrap;
+        }
         .cell-qty {
           white-space: nowrap;
           padding-right: 5mm;
@@ -1979,13 +1994,13 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           padding-left: 5mm;
         }
         .item-title {
-          font-size: 8pt;
+          font-size: 8.5pt;
           font-weight: 600;
           line-height: 1.25;
         }
         .item-meta {
           margin-top: 0.5mm;
-          font-size: 6.5pt;
+          font-size: 7pt;
           color: #61707d;
           line-height: 1.25;
         }
@@ -2073,7 +2088,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
 
         <section class="payment-section">
           <article class="payment-copy">
-            <h3>Platba</h3>
+            <h3>Platobné údaje</h3>
             <div class="payment-bank">
               <dl class="bank-list">${buildBankDetailFieldsHtml(bankDetailFields)}</dl>
             </div>
@@ -2087,12 +2102,12 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
             <thead>
               <tr>
                 <th style="width:8mm;">#</th>
-                <th>Položka</th>
-                <th class="cell-qty-head" style="width:21mm;text-align:right;">Množstvo</th>
-                <th class="cell-unit-head" style="width:14mm;">MJ</th>
-                <th style="width:32mm;text-align:right;">Cena bez DPH</th>
-                <th style="width:16mm;text-align:right;">DPH</th>
-                <th style="width:28mm;text-align:right;">Spolu</th>
+                <th>Názov</th>
+                <th class="cell-qty-head" style="width:19mm;text-align:right;">Množstvo</th>
+                <th class="cell-unit-head" style="width:12mm;">MJ</th>
+                <th class="cell-price-head" style="width:38mm;text-align:right;">Cena bez DPH</th>
+                <th style="width:15mm;text-align:right;">DPH</th>
+                <th style="width:25mm;text-align:right;">Spolu</th>
               </tr>
             </thead>
             <tbody>${rowsHtml || '<tr><td colspan="7">Faktúra nemá položky.</td></tr>'}</tbody>
@@ -2621,6 +2636,17 @@ function formatDocumentDate(value) {
   }
 
   return parsed.toLocaleDateString("sk-SK");
+}
+
+function formatDocumentAddress(value) {
+  const normalized = String(value || "").trim();
+  if (!normalized) {
+    return "";
+  }
+
+  return normalized.replace(/(^|[\s,])(\d{3})\s?(\d{2})(?=($|[\s,]))/g, (match, prefix, first, second) => {
+    return `${prefix}${first} ${second}`;
+  });
 }
 
 function formatCurrencyValue(value) {

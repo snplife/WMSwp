@@ -183,6 +183,8 @@ const AUTH_INIT_TIMEOUT_MS = 15000;
 const IBAN_MAX_LENGTH = 24;
 const IBAN_FORMATTED_MAX_LENGTH = 29;
 const INVOICE_DOCUMENT_META_PREFIX = "[[WMS_INVOICE_META]]";
+const PENDING_AUTH_BOOTSTRAP_STORAGE_KEY = "wms_pending_auth_bootstrap";
+const PENDING_COMPANY_INVITE_STORAGE_KEY = "wms_pending_company_invite";
 const INVOICE_STYLE_OPTIONS = [
   { value: "clean", label: "Čistá" },
   { value: "classic", label: "Klasická" },
@@ -449,6 +451,79 @@ function normalizeInvoiceDueDays(value, fallback = 14) {
     return fallback;
   }
   return Math.min(365, Math.max(1, parsed));
+}
+
+function readStoredJson(key) {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) {
+      return null;
+    }
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredJson(key, value) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+function removeStoredJson(key) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+function normalizeInviteToken(value) {
+  return String(value || "")
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]/g, "");
+}
+
+function getPendingCompanyInviteToken() {
+  const payload = readStoredJson(PENDING_COMPANY_INVITE_STORAGE_KEY);
+  return normalizeInviteToken(payload?.token || "");
+}
+
+function setPendingCompanyInviteToken(token) {
+  const normalizedToken = normalizeInviteToken(token);
+  if (!normalizedToken) {
+    removeStoredJson(PENDING_COMPANY_INVITE_STORAGE_KEY);
+    return;
+  }
+  writeStoredJson(PENDING_COMPANY_INVITE_STORAGE_KEY, { token: normalizedToken });
+}
+
+function clearPendingCompanyInviteToken() {
+  removeStoredJson(PENDING_COMPANY_INVITE_STORAGE_KEY);
+}
+
+function getPendingAuthBootstrap() {
+  return readStoredJson(PENDING_AUTH_BOOTSTRAP_STORAGE_KEY);
+}
+
+function setPendingAuthBootstrap(payload) {
+  writeStoredJson(PENDING_AUTH_BOOTSTRAP_STORAGE_KEY, payload);
+}
+
+function clearPendingAuthBootstrap() {
+  removeStoredJson(PENDING_AUTH_BOOTSTRAP_STORAGE_KEY);
 }
 
 function getDefaultInvoiceDueDate(days = 14) {
@@ -3313,8 +3388,14 @@ function App() {
   const [companyProfiles, setCompanyProfiles] = useState([]);
   const [companiesError, setCompaniesError] = useState("");
   const [selectedCompanyId, setSelectedCompanyId] = useState("all");
+  const [authMode, setAuthMode] = useState("login");
   const [authUsernameInput, setAuthUsernameInput] = useState("");
   const [authPassword, setAuthPassword] = useState("");
+  const [authRegisterEmailInput, setAuthRegisterEmailInput] = useState("");
+  const [authRegisterUsernameInput, setAuthRegisterUsernameInput] = useState("");
+  const [authRegisterCompanyNameInput, setAuthRegisterCompanyNameInput] = useState("");
+  const [authRegisterPasswordInput, setAuthRegisterPasswordInput] = useState("");
+  const [authRegisterInviteTokenInput, setAuthRegisterInviteTokenInput] = useState(() => getPendingCompanyInviteToken());
   const [authError, setAuthError] = useState("");
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [signOutSubmitting, setSignOutSubmitting] = useState(false);
@@ -3364,6 +3445,14 @@ function App() {
   const [selectedCompanyProfileRegistryId, setSelectedCompanyProfileRegistryId] = useState("");
   const [companySettingsSubmitting, setCompanySettingsSubmitting] = useState(false);
   const [companySettingsError, setCompanySettingsError] = useState("");
+  const [companyInvites, setCompanyInvites] = useState([]);
+  const [companyInvitesLoading, setCompanyInvitesLoading] = useState(false);
+  const [companyInvitesError, setCompanyInvitesError] = useState("");
+  const [inviteEmailInput, setInviteEmailInput] = useState("");
+  const [inviteCanManageOrdersInput, setInviteCanManageOrdersInput] = useState(false);
+  const [inviteCanAccessMesInput, setInviteCanAccessMesInput] = useState(false);
+  const [inviteSubmitting, setInviteSubmitting] = useState(false);
+  const [inviteRevokingId, setInviteRevokingId] = useState("");
   const [qrRackPrefix, setQrRackPrefix] = useState("A");
   const [qrRowCount, setQrRowCount] = useState("1");
   const [qrColumnCount, setQrColumnCount] = useState("1");
@@ -3515,6 +3604,15 @@ function App() {
     () => buildEffectiveCompanyProfile(activeCompany, activeCompanyId ? companyProfilesById[activeCompanyId] : null),
     [activeCompany, activeCompanyId, companyProfilesById]
   );
+  useEffect(() => {
+    if (!isLoggedIn || !activeCompanyId || (!isMaster && !canManageOrders)) {
+      setCompanyInvites([]);
+      setCompanyInvitesLoading(false);
+      return;
+    }
+
+    loadCompanyInvites(activeCompanyId);
+  }, [isLoggedIn, activeCompanyId, isMaster, canManageOrders]);
   const canAccessMesModule =
     isMaster || (canAccessMes && Boolean(userCompanyId) && (companies.length === 0 ? true : Boolean(activeCompany?.mes_enabled)));
   const visibleTableNames = useMemo(() => {
@@ -3994,6 +4092,32 @@ function App() {
     setCompanyProfiles((data || []).map((row) => normalizeCompanyProfileRecord(row)));
   };
 
+  const loadCompanyInvites = async (targetCompanyId = activeCompanyId) => {
+    if (!targetCompanyId || (!isMaster && !canManageOrders)) {
+      setCompanyInvites([]);
+      setCompanyInvitesLoading(false);
+      return;
+    }
+
+    setCompanyInvitesLoading(true);
+    setCompanyInvitesError("");
+    const { data, error: invitesError } = await supabase
+      .from("company_invites")
+      .select("*")
+      .eq("company_id", targetCompanyId)
+      .order("created_at", { ascending: false });
+
+    if (invitesError) {
+      setCompanyInvites([]);
+      setCompanyInvitesError(invitesError.message || "Nepodarilo sa načítať pozvánky.");
+      setCompanyInvitesLoading(false);
+      return;
+    }
+
+    setCompanyInvites(data || []);
+    setCompanyInvitesLoading(false);
+  };
+
   const loadStockTwinSettings = async () => {
     const targetCompanyId = activeCompanyId || userCompanyId;
     if (!authReady || !isLoggedIn || !targetCompanyId) {
@@ -4036,6 +4160,62 @@ function App() {
     } catch {
       // Ignore local cleanup failure; storage key removal is the main recovery path.
     }
+  };
+
+  const completeAuthBootstrapForUser = async (user, fallbackUsername = "") => {
+    if (!user?.id) {
+      return false;
+    }
+
+    const email = String(user.email || "").trim().toLowerCase();
+    const pendingInviteToken = getPendingCompanyInviteToken();
+    const pendingBootstrap = getPendingAuthBootstrap();
+    const normalizedUsername = normalizeUsernameInput(
+      pendingBootstrap?.username || fallbackUsername || usernameFromInternalEmail(email)
+    );
+
+    if (pendingInviteToken) {
+      const { error: inviteAcceptError } = await supabase.rpc("accept_company_invite", {
+        p_token: pendingInviteToken,
+        p_username: normalizedUsername || null
+      });
+
+      if (!inviteAcceptError) {
+        clearPendingCompanyInviteToken();
+        if (pendingBootstrap?.mode === "invite" && String(pendingBootstrap?.email || "").trim().toLowerCase() === email) {
+          clearPendingAuthBootstrap();
+        }
+        return true;
+      }
+
+      if (!String(inviteAcceptError.message || "").toLowerCase().includes("already")) {
+        throw inviteAcceptError;
+      }
+      clearPendingCompanyInviteToken();
+      return false;
+    }
+
+    if (
+      pendingBootstrap?.mode === "signup" &&
+      String(pendingBootstrap?.email || "").trim().toLowerCase() === email &&
+      String(pendingBootstrap?.companyName || "").trim()
+    ) {
+      const { error: signupBootstrapError } = await supabase.rpc("bootstrap_self_signup", {
+        p_company_name: String(pendingBootstrap.companyName || "").trim(),
+        p_username: normalizedUsername || null
+      });
+
+      if (signupBootstrapError) {
+        if (!String(signupBootstrapError.message || "").toLowerCase().includes("already")) {
+          throw signupBootstrapError;
+        }
+      }
+
+      clearPendingAuthBootstrap();
+      return true;
+    }
+
+    return false;
   };
 
   const loadMaterialSubscriptions = async () => {
@@ -4906,6 +5086,91 @@ function App() {
 
     setRepairUsersSubmitting(false);
     await loadManagedUsers();
+  };
+
+  const handleCreateCompanyInvite = async () => {
+    if (!activeCompanyId || (!isMaster && !canManageOrders)) {
+      setCompanyInvitesError("Nemáš oprávnenie vytvárať pozvánky pre firmu.");
+      return;
+    }
+
+    const email = String(inviteEmailInput || "").trim().toLowerCase();
+    if (!email || !email.includes("@")) {
+      setCompanyInvitesError("Zadaj platný email pre pozvánku.");
+      return;
+    }
+
+    setInviteSubmitting(true);
+    setCompanyInvitesError("");
+    const { data, error: inviteError } = await supabase
+      .from("company_invites")
+      .insert({
+        company_id: activeCompanyId,
+        email,
+        can_manage_orders: Boolean(inviteCanManageOrdersInput),
+        can_access_mes: Boolean(inviteCanAccessMesInput),
+        created_by: authUser?.id || null
+      })
+      .select("*")
+      .single();
+
+    if (inviteError) {
+      setCompanyInvitesError(inviteError.message || "Nepodarilo sa vytvoriť pozvánku.");
+      setInviteSubmitting(false);
+      return;
+    }
+
+    const inviteToken = normalizeInviteToken(data?.token || "");
+    const inviteUrl = inviteToken ? `${window.location.origin}${window.location.pathname}?invite=${inviteToken}` : "";
+    if (inviteUrl && navigator?.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(inviteUrl);
+      } catch {
+        // Ignore clipboard failures.
+      }
+    }
+
+    setInviteEmailInput("");
+    setInviteCanManageOrdersInput(false);
+    setInviteCanAccessMesInput(false);
+    setInviteSubmitting(false);
+    await loadCompanyInvites(activeCompanyId);
+  };
+
+  const handleRevokeCompanyInvite = async (invite) => {
+    if (!invite?.id) {
+      return;
+    }
+
+    setInviteRevokingId(invite.id);
+    setCompanyInvitesError("");
+    const { error: revokeError } = await supabase
+      .from("company_invites")
+      .update({ status: "revoked", revoked_at: new Date().toISOString() })
+      .eq("id", invite.id);
+
+    if (revokeError) {
+      setCompanyInvitesError(revokeError.message || "Nepodarilo sa zrušiť pozvánku.");
+      setInviteRevokingId("");
+      return;
+    }
+
+    setInviteRevokingId("");
+    await loadCompanyInvites(activeCompanyId);
+  };
+
+  const handleCopyCompanyInviteLink = async (invite) => {
+    const inviteToken = normalizeInviteToken(invite?.token || "");
+    if (!inviteToken) {
+      return;
+    }
+
+    const inviteUrl = `${window.location.origin}${window.location.pathname}?invite=${inviteToken}`;
+    try {
+      await navigator.clipboard.writeText(inviteUrl);
+    } catch {
+      setCompanyInvitesError("Pozvánku sa nepodarilo skopírovať do schránky.");
+    }
   };
 
   const handleCompanyScopeChange = (nextCompanyId) => {
@@ -7323,6 +7588,18 @@ function App() {
   }, [deadStockDays]);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const inviteTokenFromUrl = normalizeInviteToken(params.get("invite"));
+    if (!inviteTokenFromUrl) {
+      return;
+    }
+
+    setPendingCompanyInviteToken(inviteTokenFromUrl);
+    setAuthRegisterInviteTokenInput(inviteTokenFromUrl);
+    setAuthMode("signup");
+  }, []);
+
+  useEffect(() => {
     let mounted = true;
     let hydrationSequence = 0;
     const clearInitTimeout = () => {
@@ -7385,7 +7662,13 @@ function App() {
           if (role === "master") {
             await ensureOwnRoleRow(user, role);
           }
-          const ownRow = await fetchOwnRoleRow(user.id);
+          let ownRow = await fetchOwnRoleRow(user.id);
+          if (!ownRow || (!ownRow.company_id && role !== "master")) {
+            const bootstrapCompleted = await completeAuthBootstrapForUser(user, fallbackUsername);
+            if (bootstrapCompleted) {
+              ownRow = await fetchOwnRoleRow(user.id, 4);
+            }
+          }
           if (!mounted || currentHydrationId !== hydrationSequence) {
             return;
           }
@@ -9689,6 +9972,110 @@ function App() {
     setAuthPassword("");
   };
 
+  const handleRegister = async (event) => {
+    event.preventDefault();
+    setAuthSubmitting(true);
+    setAuthError("");
+    setAuthInitTimedOut(false);
+    setAuthReady(true);
+
+    const email = String(authRegisterEmailInput || "").trim().toLowerCase();
+    const username = normalizeUsernameInput(authRegisterUsernameInput || usernameFromInternalEmail(email));
+    const password = String(authRegisterPasswordInput || "");
+    const inviteToken = normalizeInviteToken(authRegisterInviteTokenInput);
+    const companyName = String(authRegisterCompanyNameInput || "").trim();
+
+    if (!email || !email.includes("@")) {
+      setAuthError("Zadaj platný email.");
+      setAuthSubmitting(false);
+      return;
+    }
+
+    if (!username) {
+      setAuthError("Zadaj login pre nový účet.");
+      setAuthSubmitting(false);
+      return;
+    }
+
+    if (password.length < MIN_MANAGED_PASSWORD_LENGTH) {
+      setAuthError(`Heslo musí mať aspoň ${MIN_MANAGED_PASSWORD_LENGTH} znakov.`);
+      setAuthSubmitting(false);
+      return;
+    }
+
+    if (!inviteToken && !companyName) {
+      setAuthError("Zadaj názov firmy alebo použi platnú pozvánku.");
+      setAuthSubmitting(false);
+      return;
+    }
+
+    const pendingBootstrapPayload = inviteToken
+      ? { mode: "invite", email, username, inviteToken }
+      : { mode: "signup", email, username, companyName };
+
+    setPendingAuthBootstrap(pendingBootstrapPayload);
+    if (inviteToken) {
+      setPendingCompanyInviteToken(inviteToken);
+    } else {
+      clearPendingCompanyInviteToken();
+    }
+
+    try {
+      clearSupabaseAuthStorage();
+      await supabase.auth.signOut({ scope: "local" });
+    } catch {
+      // Ignore local cleanup failure before fresh registration.
+    }
+
+    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          username
+        }
+      }
+    });
+
+    if (signUpError) {
+      setAuthError(signUpError.message || "Registrácia zlyhala.");
+      setAuthSubmitting(false);
+      return;
+    }
+
+    let activeUser = signUpData?.user || null;
+    let activeSession = signUpData?.session || null;
+
+    if (!activeSession) {
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+      if (!signInError) {
+        activeSession = signInData?.session || null;
+        activeUser = signInData?.user || activeUser;
+      }
+    }
+
+    if (activeUser) {
+      try {
+        await completeAuthBootstrapForUser(activeUser, username);
+      } catch (bootstrapError) {
+        setAuthError(bootstrapError?.message || "Účet je vytvorený, ale onboarding firmy zlyhal.");
+        setAuthSubmitting(false);
+        return;
+      }
+    }
+
+    setAuthMode("login");
+    setAuthUsernameInput(email);
+    setAuthPassword("");
+    setAuthRegisterPasswordInput("");
+    if (activeSession) {
+      clearPendingAuthBootstrap();
+    } else {
+      setAuthError("Účet je vytvorený. Potvrď email a potom sa prihlás, onboarding sa dokončí automaticky.");
+    }
+    setAuthSubmitting(false);
+  };
+
   const handleSignOut = async () => {
     setSignOutSubmitting(true);
     setAuthError("");
@@ -9869,37 +10256,141 @@ function App() {
           </article>
 
           <section className="login-card">
-            <h2>Prihlásenie</h2>
-            <p className="subtitle">Prihlás sa loginom a heslom.</p>
-            <form className="login-form" onSubmit={handleSignIn}>
-              <label className="login-label" htmlFor="username">
-                Login
-              </label>
-              <input
-                id="username"
-                type="text"
-                className="search-input"
-                value={authUsernameInput}
-                onChange={(event) => setAuthUsernameInput(event.target.value)}
-                required
-                autoComplete="username"
-              />
-              <label className="login-label" htmlFor="password">
-                Heslo
-              </label>
-              <input
-                id="password"
-                type="password"
-                className="search-input"
-                value={authPassword}
-                onChange={(event) => setAuthPassword(event.target.value)}
-                required
-                autoComplete="current-password"
-              />
-              <button type="submit" className="refresh-btn" disabled={authSubmitting}>
-                {authSubmitting ? "Prihlasujem..." : "Prihlásiť sa"}
+            <div className="login-mode-switch">
+              <button
+                type="button"
+                className={`clear-btn ${authMode === "login" ? "stock-view-btn-active" : ""}`}
+                onClick={() => setAuthMode("login")}
+              >
+                Prihlásenie
               </button>
-            </form>
+              <button
+                type="button"
+                className={`clear-btn ${authMode === "signup" ? "stock-view-btn-active" : ""}`}
+                onClick={() => setAuthMode("signup")}
+              >
+                Registrácia
+              </button>
+            </div>
+
+            {authMode === "login" ? (
+              <>
+                <h2>Prihlásenie</h2>
+                <p className="subtitle">
+                  {getPendingCompanyInviteToken()
+                    ? "Prihlás sa do existujúceho účtu. Ak máš uloženú pozvánku, po prihlásení sa automaticky spracuje."
+                    : "Prihlás sa loginom alebo emailom a heslom."}
+                </p>
+                <form className="login-form" onSubmit={handleSignIn}>
+                  <label className="login-label" htmlFor="username">
+                    Login alebo email
+                  </label>
+                  <input
+                    id="username"
+                    type="text"
+                    className="search-input"
+                    value={authUsernameInput}
+                    onChange={(event) => setAuthUsernameInput(event.target.value)}
+                    required
+                    autoComplete="username"
+                  />
+                  <label className="login-label" htmlFor="password">
+                    Heslo
+                  </label>
+                  <input
+                    id="password"
+                    type="password"
+                    className="search-input"
+                    value={authPassword}
+                    onChange={(event) => setAuthPassword(event.target.value)}
+                    required
+                    autoComplete="current-password"
+                  />
+                  <button type="submit" className="refresh-btn" disabled={authSubmitting}>
+                    {authSubmitting ? "Prihlasujem..." : "Prihlásiť sa"}
+                  </button>
+                </form>
+              </>
+            ) : (
+              <>
+                <h2>{normalizeInviteToken(authRegisterInviteTokenInput) ? "Prijať pozvánku" : "Registrácia"}</h2>
+                <p className="subtitle">
+                  {normalizeInviteToken(authRegisterInviteTokenInput)
+                    ? "Vytvor účet a pripoj sa do existujúcej firmy cez pozvánku."
+                    : "Vytvor si nový účet a založ novú firmu."}
+                </p>
+                <form className="login-form" onSubmit={handleRegister}>
+                  {normalizeInviteToken(authRegisterInviteTokenInput) ? (
+                    <label className="login-label" htmlFor="register-invite-token">
+                      Pozvánka
+                      <input
+                        id="register-invite-token"
+                        type="text"
+                        className="search-input"
+                        value={authRegisterInviteTokenInput}
+                        onChange={(event) => {
+                          const nextToken = normalizeInviteToken(event.target.value);
+                          setAuthRegisterInviteTokenInput(nextToken);
+                          setPendingCompanyInviteToken(nextToken);
+                        }}
+                        required
+                      />
+                    </label>
+                  ) : (
+                    <label className="login-label" htmlFor="register-company-name">
+                      Názov firmy
+                      <input
+                        id="register-company-name"
+                        type="text"
+                        className="search-input"
+                        value={authRegisterCompanyNameInput}
+                        onChange={(event) => setAuthRegisterCompanyNameInput(event.target.value)}
+                        required
+                      />
+                    </label>
+                  )}
+                  <label className="login-label" htmlFor="register-username">
+                    Login
+                    <input
+                      id="register-username"
+                      type="text"
+                      className="search-input"
+                      value={authRegisterUsernameInput}
+                      onChange={(event) => setAuthRegisterUsernameInput(event.target.value)}
+                      required
+                      autoComplete="username"
+                    />
+                  </label>
+                  <label className="login-label" htmlFor="register-email">
+                    Email
+                    <input
+                      id="register-email"
+                      type="email"
+                      className="search-input"
+                      value={authRegisterEmailInput}
+                      onChange={(event) => setAuthRegisterEmailInput(event.target.value)}
+                      required
+                      autoComplete="email"
+                    />
+                  </label>
+                  <label className="login-label" htmlFor="register-password">
+                    Heslo
+                    <input
+                      id="register-password"
+                      type="password"
+                      className="search-input"
+                      value={authRegisterPasswordInput}
+                      onChange={(event) => setAuthRegisterPasswordInput(event.target.value)}
+                      required
+                      autoComplete="new-password"
+                    />
+                  </label>
+                  <button type="submit" className="refresh-btn" disabled={authSubmitting}>
+                    {authSubmitting ? "Vytváram účet..." : normalizeInviteToken(authRegisterInviteTokenInput) ? "Vytvoriť účet a prijať pozvánku" : "Vytvoriť účet"}
+                  </button>
+                </form>
+              </>
+            )}
             {authError && <p className="error">{authError}</p>}
           </section>
         </section>
@@ -10808,6 +11299,104 @@ function App() {
                     />
                   </label>
                 </div>
+                {(isMaster || canManageOrders) && (
+                  <div className="workflow-form-section">
+                    <div className="workflow-subsection-head">
+                      <h3>Pozvánky do firmy</h3>
+                      <p className="panel-meta">Noví používatelia si môžu vytvoriť účet sami a pripojiť sa cez invite link.</p>
+                    </div>
+                    <div className="invite-form">
+                      <label className="settings-field">
+                        <span>Email pozvaného používateľa</span>
+                        <input
+                          type="email"
+                          className="search-input"
+                          value={inviteEmailInput}
+                          onChange={(event) => setInviteEmailInput(event.target.value)}
+                          disabled={!activeCompanyId || inviteSubmitting}
+                          required
+                        />
+                      </label>
+                      <label className="settings-field">
+                        <span>Objednávky</span>
+                        <label className="pricing-options">
+                          <input
+                            type="checkbox"
+                            checked={inviteCanManageOrdersInput}
+                            onChange={(event) => setInviteCanManageOrdersInput(event.target.checked)}
+                            disabled={!activeCompanyId || inviteSubmitting}
+                          />
+                          <span>Povoliť spravovať objednávky</span>
+                        </label>
+                      </label>
+                      <label className="settings-field">
+                        <span>MES</span>
+                        <label className="pricing-options">
+                          <input
+                            type="checkbox"
+                            checked={inviteCanAccessMesInput}
+                            onChange={(event) => setInviteCanAccessMesInput(event.target.checked)}
+                            disabled={!activeCompanyId || inviteSubmitting}
+                          />
+                          <span>Povoliť Manufacturing / MES</span>
+                        </label>
+                      </label>
+                      <button type="button" className="settings-btn" onClick={handleCreateCompanyInvite} disabled={!activeCompanyId || inviteSubmitting}>
+                        {inviteSubmitting ? "Generujem pozvánku..." : "Vytvoriť pozvánku"}
+                      </button>
+                    </div>
+                    {companyInvitesError && <p className="error">{companyInvitesError}</p>}
+                    {companyInvitesLoading ? (
+                      <p className="panel-meta">Načítavam pozvánky...</p>
+                    ) : companyInvites.length > 0 ? (
+                      <div className="table-wrap">
+                        <table className="master-users-table">
+                          <thead>
+                            <tr>
+                              <th>Email</th>
+                              <th>Stav</th>
+                              <th>Oprávnenia</th>
+                              <th>Expirácia</th>
+                              <th>Akcie</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {companyInvites.map((invite) => (
+                              <tr key={invite.id}>
+                                <td>{invite.email || "-"}</td>
+                                <td>{invite.status || "pending"}</td>
+                                <td>{[
+                                  invite.can_manage_orders ? "objednávky" : "",
+                                  invite.can_access_mes ? "MES" : ""
+                                ].filter(Boolean).join(" | ") || "základ"}</td>
+                                <td>{invite.expires_at ? formatDate(invite.expires_at) : "-"}</td>
+                                <td>
+                                  <div className="master-role-actions">
+                                    <button type="button" className="clear-btn" onClick={() => handleCopyCompanyInviteLink(invite)}>
+                                      Kopírovať link
+                                    </button>
+                                    {invite.status === "pending" && (
+                                      <button
+                                        type="button"
+                                        className="clear-btn"
+                                        onClick={() => handleRevokeCompanyInvite(invite)}
+                                        disabled={inviteRevokingId === invite.id}
+                                      >
+                                        {inviteRevokingId === invite.id ? "Ruším..." : "Zrušiť"}
+                                      </button>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <p className="panel-meta">Pre túto firmu zatiaľ nie sú vytvorené žiadne pozvánky.</p>
+                    )}
+                  </div>
+                )}
                 {isMaster && (
                   <label className="settings-field">
                     <span>Food & beverage / expirácia</span>

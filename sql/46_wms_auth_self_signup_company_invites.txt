@@ -1,0 +1,348 @@
+alter table if exists public.app_users
+  add column if not exists can_access_mes boolean not null default false;
+
+alter table if exists public.company_profiles
+  add column if not exists invoice_due_days integer not null default 14;
+
+alter table if exists public.company_profiles
+  add column if not exists invoice_intro_text text not null default '';
+
+alter table if exists public.company_profiles
+  add column if not exists invoice_outro_text text not null default '';
+
+alter table if exists public.company_profiles
+  add column if not exists invoice_style text not null default 'clean';
+
+create table if not exists public.company_invites (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies (id) on delete cascade,
+  email text not null,
+  token text not null default encode(gen_random_bytes(18), 'hex'),
+  role text not null default 'user' check (role in ('user')),
+  can_manage_orders boolean not null default false,
+  can_access_mes boolean not null default false,
+  status text not null default 'pending' check (status in ('pending', 'accepted', 'revoked')),
+  expires_at timestamptz not null default (now() + interval '7 days'),
+  accepted_at timestamptz,
+  accepted_by uuid references auth.users (id) on delete set null,
+  revoked_at timestamptz,
+  created_by uuid references auth.users (id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists idx_company_invites_token_unique
+  on public.company_invites (token);
+
+create index if not exists idx_company_invites_company_status
+  on public.company_invites (company_id, status, created_at desc);
+
+create index if not exists idx_company_invites_email
+  on public.company_invites (lower(email));
+
+alter table public.company_invites enable row level security;
+
+drop policy if exists "company_invites_select_auth" on public.company_invites;
+drop policy if exists "company_invites_insert_auth" on public.company_invites;
+drop policy if exists "company_invites_update_auth" on public.company_invites;
+drop policy if exists "company_invites_delete_auth" on public.company_invites;
+
+create policy "company_invites_select_auth"
+on public.company_invites
+for select
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy "company_invites_insert_auth"
+on public.company_invites
+for insert
+to authenticated
+with check (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy "company_invites_update_auth"
+on public.company_invites
+for update
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+)
+with check (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy "company_invites_delete_auth"
+on public.company_invites
+for delete
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create or replace function public.bootstrap_self_signup(p_company_name text, p_username text default null)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_email text;
+  v_existing public.app_users%rowtype;
+  v_company_id uuid;
+  v_username text;
+begin
+  if v_user_id is null then
+    raise exception 'Musíš byť prihlásený.';
+  end if;
+
+  select *
+  into v_existing
+  from public.app_users
+  where user_id = v_user_id
+  limit 1;
+
+  if v_existing.user_id is not null then
+    return jsonb_build_object(
+      'company_id', v_existing.company_id,
+      'already_initialized', true
+    );
+  end if;
+
+  select lower(coalesce(email, ''))
+  into v_email
+  from auth.users
+  where id = v_user_id;
+
+  if coalesce(v_email, '') = '' then
+    raise exception 'K účtu sa nepodarilo načítať email.';
+  end if;
+
+  if coalesce(trim(p_company_name), '') = '' then
+    raise exception 'Názov firmy nemôže byť prázdny.';
+  end if;
+
+  if exists (
+    select 1
+    from public.companies
+    where lower(name) = lower(trim(p_company_name))
+  ) then
+    raise exception 'Firma s týmto názvom už existuje.';
+  end if;
+
+  v_username := lower(regexp_replace(coalesce(nullif(trim(p_username), ''), split_part(v_email, '@', 1)), '[^a-z0-9._-]+', '', 'g'));
+  if coalesce(v_username, '') = '' then
+    v_username := 'user-' || left(replace(v_user_id::text, '-', ''), 8);
+  end if;
+
+  if exists (
+    select 1
+    from public.app_users
+    where lower(username) = lower(v_username)
+      and user_id <> v_user_id
+  ) then
+    v_username := left(v_username, 22) || '-' || left(replace(v_user_id::text, '-', ''), 6);
+  end if;
+
+  insert into public.companies (name)
+  values (trim(p_company_name))
+  returning id into v_company_id;
+
+  insert into public.company_profiles (
+    company_id,
+    name,
+    invoice_due_days,
+    invoice_style,
+    created_by,
+    updated_by
+  )
+  values (
+    v_company_id,
+    trim(p_company_name),
+    14,
+    'clean',
+    v_user_id,
+    v_user_id
+  )
+  on conflict (company_id) do update
+    set name = excluded.name,
+        updated_by = excluded.updated_by;
+
+  insert into public.app_users (
+    user_id,
+    email,
+    username,
+    role,
+    can_manage_orders,
+    can_access_mes,
+    company_id,
+    created_by
+  )
+  values (
+    v_user_id,
+    v_email,
+    v_username,
+    'user',
+    true,
+    true,
+    v_company_id,
+    v_user_id
+  )
+  on conflict (user_id) do update
+    set email = excluded.email,
+        username = excluded.username,
+        company_id = excluded.company_id,
+        can_manage_orders = true,
+        can_access_mes = true;
+
+  return jsonb_build_object(
+    'company_id', v_company_id,
+    'company_name', trim(p_company_name),
+    'username', v_username
+  );
+end;
+$$;
+
+grant execute on function public.bootstrap_self_signup(text, text) to authenticated;
+
+create or replace function public.accept_company_invite(p_token text, p_username text default null)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_email text;
+  v_existing public.app_users%rowtype;
+  v_invite public.company_invites%rowtype;
+  v_username text;
+begin
+  if v_user_id is null then
+    raise exception 'Musíš byť prihlásený.';
+  end if;
+
+  select lower(coalesce(email, ''))
+  into v_email
+  from auth.users
+  where id = v_user_id;
+
+  if coalesce(v_email, '') = '' then
+    raise exception 'K účtu sa nepodarilo načítať email.';
+  end if;
+
+  select *
+  into v_invite
+  from public.company_invites
+  where token = trim(coalesce(p_token, ''))
+    and status = 'pending'
+  limit 1;
+
+  if v_invite.id is null then
+    raise exception 'Pozvánka neexistuje alebo už nie je platná.';
+  end if;
+
+  if v_invite.expires_at < now() then
+    update public.company_invites
+    set status = 'revoked',
+        revoked_at = now()
+    where id = v_invite.id;
+    raise exception 'Pozvánka už exspirovala.';
+  end if;
+
+  if lower(v_invite.email) <> v_email then
+    raise exception 'Pozvánka je viazaná na iný email.';
+  end if;
+
+  select *
+  into v_existing
+  from public.app_users
+  where user_id = v_user_id
+  limit 1;
+
+  if v_existing.user_id is not null and v_existing.role = 'master' then
+    raise exception 'Master účet nemožno pripojiť cez firemnú pozvánku.';
+  end if;
+
+  if v_existing.user_id is not null and v_existing.company_id is not null and v_existing.company_id <> v_invite.company_id then
+    raise exception 'Účet už patrí do inej firmy.';
+  end if;
+
+  v_username := lower(regexp_replace(coalesce(nullif(trim(p_username), ''), nullif(v_existing.username, ''), split_part(v_email, '@', 1)), '[^a-z0-9._-]+', '', 'g'));
+  if coalesce(v_username, '') = '' then
+    v_username := 'user-' || left(replace(v_user_id::text, '-', ''), 8);
+  end if;
+
+  if exists (
+    select 1
+    from public.app_users
+    where lower(username) = lower(v_username)
+      and user_id <> v_user_id
+  ) then
+    v_username := left(v_username, 22) || '-' || left(replace(v_user_id::text, '-', ''), 6);
+  end if;
+
+  insert into public.app_users (
+    user_id,
+    email,
+    username,
+    role,
+    can_manage_orders,
+    can_access_mes,
+    company_id,
+    created_by
+  )
+  values (
+    v_user_id,
+    v_email,
+    v_username,
+    'user',
+    v_invite.can_manage_orders,
+    v_invite.can_access_mes,
+    v_invite.company_id,
+    coalesce(v_invite.created_by, v_user_id)
+  )
+  on conflict (user_id) do update
+    set email = excluded.email,
+        username = excluded.username,
+        company_id = excluded.company_id,
+        can_manage_orders = excluded.can_manage_orders,
+        can_access_mes = excluded.can_access_mes;
+
+  update public.company_invites
+  set status = 'accepted',
+      accepted_at = now(),
+      accepted_by = v_user_id
+  where id = v_invite.id;
+
+  return jsonb_build_object(
+    'company_id', v_invite.company_id,
+    'email', v_email,
+    'username', v_username
+  );
+end;
+$$;
+
+grant execute on function public.accept_company_invite(text, text) to authenticated;

@@ -1879,6 +1879,8 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           white-space: nowrap;
           display: flex;
           align-items: center;
+          justify-content: flex-end;
+          text-align: right;
           min-height: 5.4mm;
         }
         .bank-value {
@@ -1900,12 +1902,13 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           display: flex;
           flex-direction: column;
           justify-content: center;
-          align-items: center;
+          align-items: flex-start;
           min-height: 100%;
           border: 0.35mm solid #dbe5ef;
           border-radius: 2.4mm;
           padding: 1.8mm 1.7mm;
           background: #fafcfe;
+          justify-self: start;
         }
         .qr-label {
           margin-bottom: 1mm;
@@ -1922,8 +1925,9 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         }
         .pay-card-inner {
           display: flex;
-          justify-content: center;
+          justify-content: flex-start;
           align-items: center;
+          width: 100%;
         }
         .pay-card-inner img {
           width: 24.5mm;
@@ -1947,10 +1951,10 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           table-layout: fixed;
         }
         thead th {
-          padding: 1.4mm 1.5mm;
+          padding: 1.5mm 1.6mm;
           border-bottom: 0.35mm solid #d8e3ee;
           text-align: left;
-          font-size: 8.9pt;
+          font-size: 9.4pt;
           text-transform: uppercase;
           letter-spacing: 0.1em;
           color: #607180;
@@ -1959,10 +1963,10 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           background: #f4f8fb;
         }
         tbody td {
-          padding: 1.8mm 1.6mm;
+          padding: 2mm 1.7mm;
           border-bottom: 0.3mm solid #e6edf4;
           vertical-align: top;
-          font-size: 8.5pt;
+          font-size: 9pt;
           color: #16212b;
         }
         tbody tr:last-child td {
@@ -1994,13 +1998,13 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           padding-left: 5mm;
         }
         .item-title {
-          font-size: 9pt;
+          font-size: 9.6pt;
           font-weight: 600;
           line-height: 1.25;
         }
         .item-meta {
-          margin-top: 0.5mm;
-          font-size: 7.5pt;
+          margin-top: 0.7mm;
+          font-size: 8pt;
           color: #61707d;
           line-height: 1.25;
         }

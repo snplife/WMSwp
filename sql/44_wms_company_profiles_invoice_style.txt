@@ -1,0 +1,25 @@
+alter table if exists public.company_profiles
+  add column if not exists invoice_style text;
+
+update public.company_profiles
+set invoice_style = 'clean'
+where coalesce(trim(invoice_style), '') = '';
+
+alter table if exists public.company_profiles
+  alter column invoice_style set default 'clean';
+
+alter table if exists public.company_profiles
+  alter column invoice_style set not null;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'company_profiles_invoice_style_check'
+  ) then
+    alter table public.company_profiles
+      add constraint company_profiles_invoice_style_check
+      check (invoice_style in ('clean', 'classic', 'modern', 'typewriter'));
+  end if;
+end $$;

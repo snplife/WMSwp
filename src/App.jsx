@@ -183,6 +183,12 @@ const AUTH_INIT_TIMEOUT_MS = 15000;
 const IBAN_MAX_LENGTH = 24;
 const IBAN_FORMATTED_MAX_LENGTH = 29;
 const INVOICE_DOCUMENT_META_PREFIX = "[[WMS_INVOICE_META]]";
+const INVOICE_STYLE_OPTIONS = [
+  { value: "clean", label: "Čistá" },
+  { value: "classic", label: "Klasická" },
+  { value: "modern", label: "Moderná" },
+  { value: "typewriter", label: "Písací stroj" }
+];
 const SLOVAK_BANK_SWIFT_BY_CODE = {
   "0200": "SUBASKBX",
   "0600": "AGBACZPP",
@@ -1559,6 +1565,8 @@ function printQuotePdf(quote, customer, items, companyProfile) {
 function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
   const normalizedCompany =
     companyProfile && typeof companyProfile === "object" ? companyProfile : { name: String(companyProfile || "").trim() };
+  const invoiceStyle = normalizeInvoiceStyle(normalizedCompany?.invoice_style);
+  const invoiceTheme = getInvoicePrintTheme(invoiceStyle);
   const companyName = String(normalizedCompany?.name || "-");
   const customerName = String(invoice?.customer_name || customer?.name || "-");
   const invoiceNumber = String(invoice?.invoice_number || "-");
@@ -1695,11 +1703,25 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
       <title>${escapeHtml(invoiceNumber || "Faktura")}</title>
       <style>
         @page { size: A4 portrait; margin: 10mm 10mm 12mm; }
+        :root {
+          --invoice-font: ${invoiceTheme.bodyFontFamily};
+          --invoice-heading-font: ${invoiceTheme.headingFontFamily};
+          --invoice-accent: ${invoiceTheme.accent};
+          --invoice-text: ${invoiceTheme.textColor};
+          --invoice-muted: ${invoiceTheme.mutedColor};
+          --invoice-label: ${invoiceTheme.labelColor};
+          --invoice-border: ${invoiceTheme.borderColor};
+          --invoice-border-strong: ${invoiceTheme.strongBorderColor};
+          --invoice-panel-bg: ${invoiceTheme.panelBackground};
+          --invoice-table-head-bg: ${invoiceTheme.tableHeadBackground};
+          --invoice-qr-bg: ${invoiceTheme.qrBackground};
+          --invoice-radius: ${invoiceTheme.radius};
+        }
         * { box-sizing: border-box; }
         body {
           margin: 0;
-          font-family: "Segoe UI", Arial, sans-serif;
-          color: #16212b;
+          font-family: var(--invoice-font);
+          color: var(--invoice-text);
           background: #ffffff;
           -webkit-font-smoothing: antialiased;
         }
@@ -1714,7 +1736,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           gap: 6mm;
           align-items: start;
           padding-top: 1.5mm;
-          border-top: 0.9mm solid #0f7d77;
+          border-top: 0.9mm solid var(--invoice-accent);
         }
         .hero h1 {
           margin: 0;
@@ -1722,6 +1744,8 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           line-height: 1;
           font-weight: 700;
           letter-spacing: -0.04em;
+          font-family: var(--invoice-heading-font);
+          color: var(--invoice-text);
         }
         .hero-right {
           display: grid;
@@ -1737,20 +1761,20 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           justify-content: space-between;
           gap: 3mm;
           padding-top: 1.2mm;
-          border-top: 0.3mm solid #dbe5ef;
+          border-top: 0.3mm solid var(--invoice-border);
         }
         .header-meta-row span {
           font-size: 7.8pt;
           text-transform: uppercase;
           letter-spacing: 0.1em;
-          color: #607180;
+          color: var(--invoice-label);
           font-weight: 700;
           line-height: 1.1;
         }
         .header-meta-row strong {
           font-size: 8.4pt;
           line-height: 1.2;
-          color: #16212b;
+          color: var(--invoice-text);
           font-weight: 600;
         }
         .parties {
@@ -1758,7 +1782,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           grid-template-columns: repeat(2, minmax(0, 1fr));
           gap: 6mm;
           padding-top: 2.3mm;
-          border-top: 0.35mm solid #dbe5ef;
+          border-top: 0.35mm solid var(--invoice-border);
         }
         .party h2,
         .payment-copy h2,
@@ -1770,7 +1794,8 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           line-height: 1;
           letter-spacing: -0.01em;
           font-weight: 700;
-          color: #16212b;
+          color: var(--invoice-text);
+          font-family: var(--invoice-heading-font);
         }
         .party-subtitle,
         .items-subtitle,
@@ -1780,7 +1805,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           margin: 1.2mm 0 0;
           font-size: 8.1pt;
           line-height: 1.45;
-          color: #5f6f7d;
+          color: var(--invoice-muted);
         }
         .party-list {
           display: grid;
@@ -1792,7 +1817,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           font-size: 7.8pt;
           text-transform: uppercase;
           letter-spacing: 0.1em;
-          color: #667786;
+          color: var(--invoice-label);
           font-weight: 700;
           line-height: 1.1;
         }
@@ -1801,7 +1826,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           font-size: 8.8pt;
           line-height: 1.3;
           font-weight: 700;
-          color: #16212b;
+          color: var(--invoice-text);
         }
         .detail-value--lead {
           font-size: 9.6pt;
@@ -1811,7 +1836,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           font-size: 9pt;
           line-height: 1.35;
           font-weight: 600;
-          color: #4c5f71;
+          color: var(--invoice-muted);
         }
         .detail-value--inline-meta {
           font-size: 8.5pt;
@@ -1835,7 +1860,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         }
         .payment-section {
           padding-top: 2.3mm;
-          border-top: 0.35mm solid #dbe5ef;
+          border-top: 0.35mm solid var(--invoice-border);
         }
         .payment-copy {
           display: grid;
@@ -1851,7 +1876,8 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           line-height: 1;
           letter-spacing: -0.01em;
           font-weight: 700;
-          color: #16212b;
+          color: var(--invoice-text);
+          font-family: var(--invoice-heading-font);
         }
         .payment-bank {
           min-width: 0;
@@ -1873,7 +1899,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           font-size: 8.2pt;
           text-transform: uppercase;
           letter-spacing: 0.1em;
-          color: #667786;
+          color: var(--invoice-label);
           font-weight: 600;
           line-height: 1.25;
           white-space: nowrap;
@@ -1888,7 +1914,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           font-size: 8.6pt;
           line-height: 1.25;
           font-weight: 500;
-          color: #16212b;
+          color: var(--invoice-text);
           display: flex;
           align-items: center;
           min-height: 5.4mm;
@@ -1904,10 +1930,10 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           justify-content: center;
           align-items: flex-start;
           min-height: 100%;
-          border: 0.35mm solid #dbe5ef;
-          border-radius: 2.4mm;
+          border: 0.35mm solid var(--invoice-border);
+          border-radius: var(--invoice-radius);
           padding: 1.8mm 1.7mm;
-          background: #fafcfe;
+          background: var(--invoice-qr-bg);
           justify-self: start;
         }
         .qr-label {
@@ -1915,13 +1941,14 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           font-size: 8.2pt;
           text-transform: uppercase;
           letter-spacing: 0.1em;
-          color: #607180;
+          color: var(--invoice-label);
           font-weight: 600;
           line-height: 1.25;
         }
         .qr-note {
           font-size: 8.6pt;
           line-height: 1.3;
+          color: var(--invoice-muted);
         }
         .pay-card-inner {
           display: flex;
@@ -1936,14 +1963,14 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           padding: 0.5mm;
           border-radius: 1.1mm;
           background: #ffffff;
-          border: 0.3mm solid #dbe5ef;
+          border: 0.3mm solid var(--invoice-border);
         }
         .qr-card--muted {
           justify-content: flex-start;
         }
         .items-section {
           padding-top: 2.3mm;
-          border-top: 0.35mm solid #dbe5ef;
+          border-top: 0.35mm solid var(--invoice-border);
         }
         table {
           width: 100%;
@@ -1952,22 +1979,22 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         }
         thead th {
           padding: 1.5mm 1.6mm;
-          border-bottom: 0.35mm solid #d8e3ee;
+          border-bottom: 0.35mm solid var(--invoice-border);
           text-align: left;
           font-size: 9.4pt;
           text-transform: uppercase;
           letter-spacing: 0.1em;
-          color: #607180;
+          color: var(--invoice-label);
           font-weight: 700;
           line-height: 1.1;
-          background: #f4f8fb;
+          background: var(--invoice-table-head-bg);
         }
         tbody td {
           padding: 2mm 1.7mm;
-          border-bottom: 0.3mm solid #e6edf4;
+          border-bottom: 0.3mm solid var(--invoice-border);
           vertical-align: top;
           font-size: 9pt;
-          color: #16212b;
+          color: var(--invoice-text);
         }
         tbody tr:last-child td {
           border-bottom: none;
@@ -2005,7 +2032,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         .item-meta {
           margin-top: 0.7mm;
           font-size: 8pt;
-          color: #61707d;
+          color: var(--invoice-muted);
           line-height: 1.25;
         }
         .strong {
@@ -2015,7 +2042,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           display: grid;
           justify-items: end;
           padding-top: 2.3mm;
-          border-top: 0.35mm solid #dbe5ef;
+          border-top: 0.35mm solid var(--invoice-border);
         }
         .totals-box {
           width: 60mm;
@@ -2027,22 +2054,22 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           justify-content: space-between;
           gap: 4mm;
           padding: 1mm 0;
-          border-bottom: 0.3mm solid #e6edf4;
+          border-bottom: 0.3mm solid var(--invoice-border);
           font-size: 8pt;
-          color: #425466;
+          color: var(--invoice-muted);
         }
         .total-row strong {
-          color: #16212b;
+          color: var(--invoice-text);
           font-weight: 700;
           font-size: 8.4pt;
         }
         .total-row--grand {
           margin-top: 0.8mm;
           padding-top: 1.7mm;
-          border-top: 0.45mm solid #c8d8e8;
+          border-top: 0.45mm solid var(--invoice-border-strong);
           border-bottom: none;
           font-size: 9.8pt;
-          color: #16212b;
+          color: var(--invoice-text);
           font-weight: 700;
         }
         .total-row--grand strong {
@@ -2050,11 +2077,11 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         }
         .note-section {
           padding-top: 2.3mm;
-          border-top: 0.35mm solid #dbe5ef;
+          border-top: 0.35mm solid var(--invoice-border);
         }
         .foot {
           font-size: 5.8pt;
-          color: #6b7b88;
+          color: var(--invoice-muted);
           text-align: left;
           padding-top: 1mm;
         }
@@ -2458,6 +2485,83 @@ function buildGeneratedDemoPassword() {
   return `${result}!`;
 }
 
+function normalizeInvoiceStyle(value) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  return INVOICE_STYLE_OPTIONS.some((option) => option.value === normalized) ? normalized : "clean";
+}
+
+function getInvoicePrintTheme(style) {
+  const normalizedStyle = normalizeInvoiceStyle(style);
+
+  if (normalizedStyle === "classic") {
+    return {
+      bodyFontFamily: '"Georgia", "Times New Roman", serif',
+      headingFontFamily: '"Georgia", "Times New Roman", serif',
+      accent: "#8b6f47",
+      textColor: "#231f1a",
+      mutedColor: "#6d6256",
+      labelColor: "#746653",
+      borderColor: "#d7cbbd",
+      strongBorderColor: "#c3b19a",
+      panelBackground: "#fffdf8",
+      tableHeadBackground: "#f5efe5",
+      qrBackground: "#fbf6ed",
+      radius: "1.8mm"
+    };
+  }
+
+  if (normalizedStyle === "modern") {
+    return {
+      bodyFontFamily: '"Aptos", "Segoe UI", Arial, sans-serif',
+      headingFontFamily: '"Aptos Display", "Segoe UI", Arial, sans-serif',
+      accent: "#0f7d77",
+      textColor: "#13212c",
+      mutedColor: "#587080",
+      labelColor: "#506979",
+      borderColor: "#cfe1ea",
+      strongBorderColor: "#b2cedd",
+      panelBackground: "#f9fcfe",
+      tableHeadBackground: "#eaf5fa",
+      qrBackground: "#f4fbff",
+      radius: "3mm"
+    };
+  }
+
+  if (normalizedStyle === "typewriter") {
+    return {
+      bodyFontFamily: '"Courier New", "Lucida Console", monospace',
+      headingFontFamily: '"Courier New", "Lucida Console", monospace',
+      accent: "#2c2c2c",
+      textColor: "#181818",
+      mutedColor: "#4e4e4e",
+      labelColor: "#3f3f3f",
+      borderColor: "#bfb8ac",
+      strongBorderColor: "#8e877b",
+      panelBackground: "#fbf7ef",
+      tableHeadBackground: "#f0eadf",
+      qrBackground: "#f6f1e7",
+      radius: "0mm"
+    };
+  }
+
+  return {
+    bodyFontFamily: '"Segoe UI", Arial, sans-serif',
+    headingFontFamily: '"Segoe UI", Arial, sans-serif',
+    accent: "#4b5c6b",
+    textColor: "#16212b",
+    mutedColor: "#5f6f7d",
+    labelColor: "#667786",
+    borderColor: "#dbe5ef",
+    strongBorderColor: "#c8d8e8",
+    panelBackground: "#ffffff",
+    tableHeadBackground: "#f4f8fb",
+    qrBackground: "#fafcfe",
+    radius: "2.4mm"
+  };
+}
+
 function normalizeCompanyRecord(row) {
   if (!row || typeof row !== "object") {
     return row;
@@ -2484,6 +2588,7 @@ function normalizeCompanyProfileRecord(row) {
     address: String(row.address || "").trim(),
     bank_account: formatIbanInput(row.bank_account),
     invoice_due_days: normalizeInvoiceDueDays(row.invoice_due_days ?? 14),
+    invoice_style: normalizeInvoiceStyle(row.invoice_style),
     invoice_intro_text: String(row.invoice_intro_text || "").trim(),
     invoice_outro_text: String(row.invoice_outro_text || "").trim()
   };
@@ -2504,6 +2609,7 @@ function buildEffectiveCompanyProfile(company, profile) {
     address: String(normalizedProfile?.address || "").trim(),
     bank_account: formatIbanInput(normalizedProfile?.bank_account),
     invoice_due_days: normalizeInvoiceDueDays(normalizedProfile?.invoice_due_days ?? 14),
+    invoice_style: normalizeInvoiceStyle(normalizedProfile?.invoice_style),
     invoice_intro_text: String(normalizedProfile?.invoice_intro_text || "").trim(),
     invoice_outro_text: String(normalizedProfile?.invoice_outro_text || "").trim()
   };
@@ -3247,6 +3353,7 @@ function App() {
   const [companyProfileAddressInput, setCompanyProfileAddressInput] = useState("");
   const [companyProfileBankAccountInput, setCompanyProfileBankAccountInput] = useState("");
   const [companyInvoiceDueDaysInput, setCompanyInvoiceDueDaysInput] = useState("14");
+  const [companyInvoiceStyleInput, setCompanyInvoiceStyleInput] = useState("clean");
   const [companyInvoiceIntroTextInput, setCompanyInvoiceIntroTextInput] = useState("");
   const [companyInvoiceOutroTextInput, setCompanyInvoiceOutroTextInput] = useState("");
   const [companyProfileLookupResults, setCompanyProfileLookupResults] = useState([]);
@@ -4972,6 +5079,7 @@ function App() {
       address: String(companyProfileAddressInput || "").trim(),
       bank_account: formatIbanInput(companyProfileBankAccountInput),
       invoice_due_days: normalizeInvoiceDueDays(companyInvoiceDueDaysInput, activeCompanyProfile?.invoice_due_days ?? 14),
+      invoice_style: normalizeInvoiceStyle(companyInvoiceStyleInput),
       invoice_intro_text: String(companyInvoiceIntroTextInput || "").trim(),
       invoice_outro_text: String(companyInvoiceOutroTextInput || "").trim(),
       updated_at: new Date().toISOString(),
@@ -5032,6 +5140,7 @@ function App() {
     setCompanyProfileAddressInput(String(profileSavedCompany.address || ""));
     setCompanyProfileBankAccountInput(formatIbanInput(profileSavedCompany.bank_account));
     setCompanyInvoiceDueDaysInput(String(normalizeInvoiceDueDays(profileSavedCompany.invoice_due_days ?? 14)));
+    setCompanyInvoiceStyleInput(normalizeInvoiceStyle(profileSavedCompany.invoice_style));
     setCompanyInvoiceIntroTextInput(String(profileSavedCompany.invoice_intro_text || ""));
     setCompanyInvoiceOutroTextInput(String(profileSavedCompany.invoice_outro_text || ""));
     await Promise.all([loadCompanies(), loadCompanyProfiles()]);
@@ -7497,6 +7606,7 @@ function App() {
       setCompanyProfileAddressInput("");
       setCompanyProfileBankAccountInput("");
       setCompanyInvoiceDueDaysInput("14");
+      setCompanyInvoiceStyleInput("clean");
       setCompanyInvoiceIntroTextInput("");
       setCompanyInvoiceOutroTextInput("");
       setCustomerIcDphInput("");
@@ -7911,6 +8021,7 @@ function App() {
     setCompanyProfileAddressInput(String(activeCompanyProfile?.address || ""));
     setCompanyProfileBankAccountInput(formatIbanInput(activeCompanyProfile?.bank_account));
     setCompanyInvoiceDueDaysInput(String(normalizeInvoiceDueDays(activeCompanyProfile?.invoice_due_days ?? 14)));
+    setCompanyInvoiceStyleInput(normalizeInvoiceStyle(activeCompanyProfile?.invoice_style));
     setCompanyInvoiceIntroTextInput(String(activeCompanyProfile?.invoice_intro_text || ""));
     setCompanyInvoiceOutroTextInput(String(activeCompanyProfile?.invoice_outro_text || ""));
     setCompanyProfileLookupResults([]);
@@ -7930,6 +8041,7 @@ function App() {
     activeCompanyProfile?.address,
     activeCompanyProfile?.bank_account,
     activeCompanyProfile?.invoice_due_days,
+    activeCompanyProfile?.invoice_style,
     activeCompanyProfile?.invoice_intro_text,
     activeCompanyProfile?.invoice_outro_text
   ]);
@@ -9665,6 +9777,7 @@ function App() {
     setCompanyProfileAddressInput("");
     setCompanyProfileBankAccountInput("");
     setCompanyInvoiceDueDaysInput("14");
+    setCompanyInvoiceStyleInput("clean");
     setCompanyInvoiceIntroTextInput("");
     setCompanyInvoiceOutroTextInput("");
     setIsStockTwinSettingsOpen(false);
@@ -10655,6 +10768,22 @@ function App() {
                       onChange={(event) => setCompanyInvoiceDueDaysInput(event.target.value)}
                       disabled={!activeCompanyId || companySettingsSubmitting}
                     />
+                  </label>
+                  <label className="settings-field" htmlFor="company-invoice-style">
+                    <span>Štýl faktúry</span>
+                    <select
+                      id="company-invoice-style"
+                      className="form-select"
+                      value={companyInvoiceStyleInput}
+                      onChange={(event) => setCompanyInvoiceStyleInput(event.target.value)}
+                      disabled={!activeCompanyId || companySettingsSubmitting}
+                    >
+                      {INVOICE_STYLE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
                   </label>
                   <label className="settings-field">
                     <span>Predvolený úvodný text</span>

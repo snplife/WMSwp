@@ -1881,7 +1881,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         }
         .payment-bank {
           min-width: 0;
-          padding-left: 2.2mm;
+          padding-left: 4.4mm;
         }
         .bank-list {
           display: grid;
@@ -1890,8 +1890,8 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         }
         .bank-row {
           display: grid;
-          grid-template-columns: 34mm 1fr;
-          gap: 4.2mm;
+          grid-template-columns: 33mm 1fr;
+          gap: 3.8mm;
           align-items: center;
           min-height: 5.4mm;
         }

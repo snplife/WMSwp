@@ -3049,10 +3049,16 @@ tbody tr:nth-child(even) {
 .auth-field {
   display: grid;
   gap: 0.4rem;
+  min-width: 0;
 }
 
 .auth-field span {
   display: block;
+}
+
+.auth-field .search-input {
+  width: 100%;
+  min-width: 0;
 }
 
 .auth-field-full {

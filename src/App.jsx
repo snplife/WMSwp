@@ -178,6 +178,7 @@ const ENV_DEFAULT_MAX_POSITIONS = Math.max(1, Number(import.meta.env.VITE_MAX_PO
 const HISTORY_ANALYTICS_LOOKBACK_DAYS = Math.max(30, Number(import.meta.env.VITE_HISTORY_LOOKBACK_DAYS || 365));
 const MES_ANALYTICS_LOOKBACK_DAYS = Math.max(7, Number(import.meta.env.VITE_MES_LOOKBACK_DAYS || 30));
 const AUTO_REFRESH_MS = Math.max(60 * 1000, Number(import.meta.env.VITE_AUTO_REFRESH_MS || 5 * 60 * 1000));
+const DATA_STALE_REFRESH_MS = Math.max(60 * 1000, Number(import.meta.env.VITE_DATA_STALE_REFRESH_MS || AUTO_REFRESH_MS));
 const DAY_MS = 24 * 60 * 60 * 1000;
 const AUTH_INIT_TIMEOUT_MS = 15000;
 const IBAN_MAX_LENGTH = 24;
@@ -3578,6 +3579,7 @@ function App() {
   const [mesError, setMesError] = useState("");
   const latestLoadRowsRequestRef = useRef(0);
   const latestMesOverviewRequestRef = useRef(0);
+  const lastDataRefreshAtRef = useRef({});
   const companyLookupRequestRef = useRef(0);
   const companyProfileLookupRequestRef = useRef(0);
   const priceListImportInputRef = useRef(null);
@@ -3889,6 +3891,21 @@ function App() {
     }
     return normalizeMaxPositions(activeCompany?.max_positions ?? ENV_DEFAULT_MAX_POSITIONS);
   }, [selectedTable, isMaster, selectedCompanyId, companies, activeCompany]);
+  const buildViewRefreshKey = (table = selectedTable) =>
+    JSON.stringify({
+      table,
+      userId: authUser?.id || "",
+      companyScope: activeCompanyId || (isMaster ? selectedCompanyId : userCompanyId) || "",
+      deadStockDays,
+      occupancyChartRange,
+      effectiveMaxPositions,
+      tracksExpiryDate: Boolean(activeCompany?.tracks_expiry_date),
+      canAccessOrdersModule,
+      canAccessMesModule
+    });
+  const markViewDataFresh = (table = selectedTable) => {
+    lastDataRefreshAtRef.current[buildViewRefreshKey(table)] = Date.now();
+  };
   const pricingEstimate = useMemo(() => {
     const employees = normalizePositiveInt(pricingEmployeeCount, 0);
     const users = Math.max(1, normalizePositiveInt(pricingUserCount, 1));
@@ -5575,6 +5592,7 @@ function App() {
       setOrders(ordersData || []);
       setQuotes(quotesData || []);
       setInvoices(invoicesData || []);
+      markViewDataFresh(CUSTOMERS_MODULE);
     } catch (loadCustomersError) {
       setCustomers([]);
       setOrders([]);
@@ -5650,6 +5668,7 @@ function App() {
       if (!selectedQuoteCustomerId && (customersData || []).length === 1) {
         setSelectedQuoteCustomerId(customersData[0].id);
       }
+      markViewDataFresh(QUOTES_MODULE);
     } catch (loadQuotesError) {
       setQuotesError(loadQuotesError?.message || "Nepodarilo sa načítať cenové ponuky.");
       setCustomers([]);
@@ -5723,6 +5742,7 @@ function App() {
       if (!selectedInvoiceCustomerId && (customersData || []).length === 1) {
         setSelectedInvoiceCustomerId(customersData[0].id);
       }
+      markViewDataFresh(INVOICES_MODULE);
     } catch (loadInvoicesError) {
       setInvoicesError(loadInvoicesError?.message || "Nepodarilo sa načítať fakturáciu.");
       setCustomers([]);
@@ -5797,6 +5817,7 @@ function App() {
       if (!selectedOrderCustomerId && (customersData || []).length === 1) {
         setSelectedOrderCustomerId(customersData[0].id);
       }
+      markViewDataFresh(ORDERS_MODULE);
     } catch (loadOrdersError) {
       setOrdersError(loadOrdersError?.message || "Nepodarilo sa načítať objednávky.");
       setCustomers([]);
@@ -5889,6 +5910,7 @@ function App() {
       setProductionOrderInputs(inputsData);
       setProductionOrderOutputs(outputsData);
       setProductionStockRows(stockData || []);
+      markViewDataFresh(PRODUCTION_MODULE);
     } catch (loadProductionError) {
       setProductionError(loadProductionError?.message || "Nepodarilo sa načítať výrobné objednávky.");
       setProductionOrders([]);
@@ -6015,6 +6037,7 @@ function App() {
       setMesDowntimeReasons(downtimeReasonsData || []);
       setMesWorkstations((workstationData || []).map((row) => normalizeMesWorkstationRow(row)));
       setMesMachines((machineData || []).map((row) => normalizeMesMachineCatalogRow(row)));
+      markViewDataFresh(PRODUCTION_MODULE);
     } catch (loadMesError) {
       if (latestMesOverviewRequestRef.current !== requestId) {
         return;
@@ -7485,6 +7508,7 @@ function App() {
         setDeadStockByKey({});
         setStockAgeStats({ avgDays: null, sampleCount: 0 });
         setOccupancySeries([]);
+        markViewDataFresh(table);
         return;
       }
 
@@ -7577,6 +7601,7 @@ function App() {
       } else {
         setOccupancySeries([]);
       }
+      markViewDataFresh(table);
     } catch (queryError) {
       if (!isLatestRequest()) {
         return;
@@ -7908,6 +7933,7 @@ function App() {
       setCompanyInvoiceOutroTextInput("");
       setCustomerIcDphInput("");
       setLoading(false);
+      lastDataRefreshAtRef.current = {};
       return undefined;
     }
 
@@ -8135,46 +8161,55 @@ function App() {
       return undefined;
     }
 
-    if (isCustomerModule(selectedTable)) {
-      const intervalId = window.setInterval(() => {
+    const refreshIfStale = () => {
+      const lastRefreshAt = lastDataRefreshAtRef.current[buildViewRefreshKey(selectedTable)] || 0;
+      if (Date.now() - lastRefreshAt < DATA_STALE_REFRESH_MS) {
+        return;
+      }
+
+      if (isCustomerModule(selectedTable)) {
         loadCustomersModuleData();
-      }, AUTO_REFRESH_MS);
-
-      return () => {
-        window.clearInterval(intervalId);
-      };
-    }
-
-    if (isOrdersModule(selectedTable)) {
-      const intervalId = window.setInterval(() => {
+        return;
+      }
+      if (isOrdersModule(selectedTable)) {
         loadOrdersModuleData();
-      }, AUTO_REFRESH_MS);
-
-      return () => {
-        window.clearInterval(intervalId);
-      };
-    }
-
-    if (isQuoteModule(selectedTable)) {
-      const intervalId = window.setInterval(() => {
+        return;
+      }
+      if (isQuoteModule(selectedTable)) {
         loadQuotesModuleData();
-      }, AUTO_REFRESH_MS);
-
-      return () => {
-        window.clearInterval(intervalId);
-      };
-    }
-
-    if (isProductionModule(selectedTable)) {
-      return undefined;
-    }
-
-    const intervalId = window.setInterval(() => {
+        return;
+      }
+      if (isInvoiceModule(selectedTable)) {
+        loadInvoicesModuleData();
+        return;
+      }
+      if (isProductionModule(selectedTable)) {
+        if (canAccessOrdersModule) {
+          loadProductionModuleData();
+        }
+        if (canAccessMesModule) {
+          loadMesModuleData();
+        }
+        return;
+      }
       loadRows(selectedTable);
-    }, AUTO_REFRESH_MS);
+    };
+
+    const handleWindowFocus = () => {
+      refreshIfStale();
+    };
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        refreshIfStale();
+      }
+    };
+
+    window.addEventListener("focus", handleWindowFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
-      window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleWindowFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [isLoggedIn, selectedTable, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id, occupancyChartRange, effectiveMaxPositions, activeCompany?.tracks_expiry_date, canAccessOrdersModule, canAccessMesModule]);
 
@@ -11123,6 +11158,10 @@ function App() {
                 }
                 if (isQuoteModule(selectedTable)) {
                   loadQuotesModuleData();
+                  return;
+                }
+                if (isInvoiceModule(selectedTable)) {
+                  loadInvoicesModuleData();
                   return;
                 }
                 if (isProductionModule(selectedTable)) {

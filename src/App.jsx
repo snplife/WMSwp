@@ -247,10 +247,10 @@ const OCCUPANCY_RANGE_CONFIG = {
   month: { label: "Mesiac", bucketMs: 24 * 60 * 60 * 1000, points: 30 }
 };
 const LANDING_FEATURES = [
-  "Skladový monitoring a prehľad zásob v reálnom čase",
-  "Evidencia skladových pohybov podľa akcie, pozície a materiálu",
-  "Dead stock, obsadenosť skladu a rýchly export dát do Excelu",
-  "QR štítky a napojenie na Traktile lokátory pre sledovanie presunov"
+  "Online skladový prehľad pre operatívu, vedúcich skladu aj manažment",
+  "Fakturácia, cenové ponuky, objednávky a workflow v jednom firemnom systéme",
+  "QR štítky, lokácie, pohyby materiálu a auditovateľná história skladových operácií",
+  "Pripravenosť na e-shopy, order processing, mobilnú appku a viac firiem v jednom prostredí"
 ];
 const SITE_NAME = "WMS Online";
 const DEFAULT_SITE_URL = String(import.meta.env.VITE_SITE_URL || "")
@@ -260,25 +260,37 @@ const LANDING_TITLE = `${SITE_NAME} | Skladový monitoring a online prehľad zá
 const LANDING_DESCRIPTION =
   "Skladový monitoring, online prehľad zásob a evidencia skladových pohybov v reálnom čase pre výrobu, logistiku a interné sklady.";
 const LANDING_USE_CASES = [
-  "Sklady a logistické tímy, ktoré potrebujú online prehľad zásob podľa pozície a materiálu.",
-  "Výrobné prevádzky, ktoré chcú mať evidenciu skladových pohybov bez ručných Excel reportov.",
-  "Manažéri, ktorí potrebujú rýchlo vidieť dead stock, obsadenosť skladu a denný pohyb materiálu."
+  "Sklady a logistické tímy, ktoré potrebujú mať zásoby, pohyby a lokácie pod kontrolou v reálnom čase.",
+  "Výrobné firmy, ktoré chcú prepojiť sklad, objednávky, materiál a interné workflow do jedného systému.",
+  "Majitelia a manažéri, ktorí chcú menej Excelu, menej chaosu a viac dát pre rozhodovanie."
+];
+const LANDING_SERVICE_AREAS = [
+  "Návrh a digitalizácia skladových procesov podľa konkrétnej prevádzky",
+  "Nasadenie WMS, objednávok, fakturácie a firemných workflow modulov",
+  "Prispôsobenie systému pre konkrétnu firmu, role, tlačové výstupy a dokumenty",
+  "Príprava na e-shop integrácie, mobilný picking a order processing"
+];
+const LANDING_OUTCOMES = [
+  "Rýchlejší prehľad o stave skladu bez ručného dohľadávania",
+  "Nižší počet chýb pri pohyboch, výdaji, fakturácii a objednávkach",
+  "Jedno spoločné prostredie pre sklad, obchod aj backoffice",
+  "Systém pripravený rásť spolu s firmou, nie len riešiť aktuálny problém"
 ];
 const LANDING_FAQ = [
   {
     question: "Čo dokáže WMS Online sledovať?",
     answer:
-      "Aplikácia zobrazuje stav skladu, online prehľad zásob, históriu pohybov, príjmy, výdaje, presuny, obsadenosť pozícií aj dead stock v jednom rozhraní."
+      "Aplikácia zobrazuje stav skladu, zásoby podľa lokácie, históriu pohybov, príjmy, výdaje, presuny, dokumenty aj firemné workflow v jednom rozhraní."
   },
   {
     question: "Je systém vhodný pre výrobu aj logistiku?",
     answer:
-      "Áno. Je vhodný pre interné sklady, výrobu aj logistiku, kde treba mať rýchly prehľad zásob a pohybov."
+      "Áno. Systém je vhodný pre interné sklady, výrobu, logistiku aj obchodné tímy, ktoré potrebujú mať procesy v jednom firemnom nástroji."
   },
   {
     question: "Dá sa WMS Online napojiť na existujúce procesy?",
     answer:
-      "Áno. Riešenie sa dá prispôsobiť interným skladovým procesom, QR štítkom aj lokátorom."
+      "Áno. Riešenie sa dá prispôsobiť konkrétnej firme, rolám, dokumentom, QR štítkom, lokátorom aj budúcim e-shop integráciám."
   }
 ];
 
@@ -10234,10 +10246,11 @@ function App() {
           <article className="landing-card">
             <img src={logo} alt="WMS Online" className="landing-logo" />
             <p className="landing-tag">WMS Online</p>
-            <h1>Skladový monitoring a online prehľad zásob na jednom mieste</h1>
+            <h1>Vyvíjame firemný systém pre sklad, objednávky, fakturáciu a procesy okolo nich</h1>
             <p className="subtitle">
-              Sleduj zásoby, evidenciu skladových pohybov, príjmy, výdaje a presuny v jednej aplikácii s okamžitou
-              aktualizáciou dát.
+              WMS Online pomáha firmám dostať sklad, dokumenty a operatívu do jedného prostredia. Namiesto rozbitých
+              Excelov, izolovaných evidencií a ručných prepisov dostaneš systém, ktorý sa dá prispôsobiť konkrétnej
+              prevádzke.
             </p>
 
             <ul className="landing-list">
@@ -10247,26 +10260,40 @@ function App() {
             </ul>
 
             <div className="landing-note">
-              <h2>Traktile lokátory</h2>
+              <h2>Čo robíme</h2>
               <p>
-                Integrácia Traktile lokátorov ti umožní spárovať fyzickú pozíciu vozíka alebo palety s operáciami v
-                systéme a zjednotiť presuny do jedného dátového toku.
+                Navrhujeme a nasadzujeme WMS riešenie pre firmy, ktoré chcú mať sklad, pohyby materiálu, objednávky,
+                cenové ponuky, faktúry a budúci order processing v jednom systéme na webe aj v appke.
               </p>
             </div>
           </article>
 
-          <section className="login-card">
-            <div className="login-mode-switch">
+          <section className="login-card auth-card">
+            <div className="auth-card-top">
+              <p className="auth-kicker">Prístup do systému</p>
+              <h2>{authMode === "login" ? "Firemné prihlásenie" : normalizeInviteToken(authRegisterInviteTokenInput) ? "Prijatie firemnej pozvánky" : "Založenie novej firmy"}</h2>
+              <p className="auth-subtitle">
+                {authMode === "login"
+                  ? getPendingCompanyInviteToken()
+                    ? "Prihlás existujúci účet. Uložená pozvánka sa po prihlásení automaticky spracuje."
+                    : "Prihlás sa do svojho firemného účtu cez login alebo email a heslo."
+                  : normalizeInviteToken(authRegisterInviteTokenInput)
+                    ? "Vytvor účet a pripoj sa do existujúcej firmy cez pozvánku."
+                    : "Založ novú firmu, nastav prvý admin účet a pokračuj priamo do aplikácie."}
+              </p>
+            </div>
+
+            <div className="login-mode-switch" role="tablist" aria-label="Výber režimu prístupu">
               <button
                 type="button"
-                className={`clear-btn ${authMode === "login" ? "stock-view-btn-active" : ""}`}
+                className={`auth-mode-pill ${authMode === "login" ? "auth-mode-pill-active" : ""}`}
                 onClick={() => setAuthMode("login")}
               >
                 Prihlásenie
               </button>
               <button
                 type="button"
-                className={`clear-btn ${authMode === "signup" ? "stock-view-btn-active" : ""}`}
+                className={`auth-mode-pill ${authMode === "signup" ? "auth-mode-pill-active" : ""}`}
                 onClick={() => setAuthMode("signup")}
               >
                 Registrácia
@@ -10274,55 +10301,46 @@ function App() {
             </div>
 
             {authMode === "login" ? (
-              <>
-                <h2>Prihlásenie</h2>
-                <p className="subtitle">
-                  {getPendingCompanyInviteToken()
-                    ? "Prihlás sa do existujúceho účtu. Ak máš uloženú pozvánku, po prihlásení sa automaticky spracuje."
-                    : "Prihlás sa loginom alebo emailom a heslom."}
-                </p>
-                <form className="login-form" onSubmit={handleSignIn}>
-                  <label className="login-label" htmlFor="username">
-                    Login alebo email
+              <form className="login-form auth-form" onSubmit={handleSignIn}>
+                <div className="auth-form-grid">
+                  <label className="login-label auth-field" htmlFor="username">
+                    <span>Login alebo email</span>
+                    <input
+                      id="username"
+                      type="text"
+                      className="search-input"
+                      value={authUsernameInput}
+                      onChange={(event) => setAuthUsernameInput(event.target.value)}
+                      required
+                      autoComplete="username"
+                    />
                   </label>
-                  <input
-                    id="username"
-                    type="text"
-                    className="search-input"
-                    value={authUsernameInput}
-                    onChange={(event) => setAuthUsernameInput(event.target.value)}
-                    required
-                    autoComplete="username"
-                  />
-                  <label className="login-label" htmlFor="password">
-                    Heslo
+                  <label className="login-label auth-field" htmlFor="password">
+                    <span>Heslo</span>
+                    <input
+                      id="password"
+                      type="password"
+                      className="search-input"
+                      value={authPassword}
+                      onChange={(event) => setAuthPassword(event.target.value)}
+                      required
+                      autoComplete="current-password"
+                    />
                   </label>
-                  <input
-                    id="password"
-                    type="password"
-                    className="search-input"
-                    value={authPassword}
-                    onChange={(event) => setAuthPassword(event.target.value)}
-                    required
-                    autoComplete="current-password"
-                  />
-                  <button type="submit" className="refresh-btn" disabled={authSubmitting}>
+                </div>
+                <div className="auth-form-footer">
+                  <p className="auth-footnote">Prístup je viazaný na tvoju firmu a oprávnenia v systéme.</p>
+                  <button type="submit" className="refresh-btn auth-submit-btn" disabled={authSubmitting}>
                     {authSubmitting ? "Prihlasujem..." : "Prihlásiť sa"}
                   </button>
-                </form>
-              </>
+                </div>
+              </form>
             ) : (
-              <>
-                <h2>{normalizeInviteToken(authRegisterInviteTokenInput) ? "Prijať pozvánku" : "Registrácia"}</h2>
-                <p className="subtitle">
-                  {normalizeInviteToken(authRegisterInviteTokenInput)
-                    ? "Vytvor účet a pripoj sa do existujúcej firmy cez pozvánku."
-                    : "Vytvor si nový účet a založ novú firmu."}
-                </p>
-                <form className="login-form" onSubmit={handleRegister}>
+              <form className="login-form auth-form" onSubmit={handleRegister}>
+                <div className="auth-form-grid">
                   {normalizeInviteToken(authRegisterInviteTokenInput) ? (
-                    <label className="login-label" htmlFor="register-invite-token">
-                      Pozvánka
+                    <label className="login-label auth-field auth-field-full" htmlFor="register-invite-token">
+                      <span>Pozvánkový kód</span>
                       <input
                         id="register-invite-token"
                         type="text"
@@ -10337,8 +10355,8 @@ function App() {
                       />
                     </label>
                   ) : (
-                    <label className="login-label" htmlFor="register-company-name">
-                      Názov firmy
+                    <label className="login-label auth-field auth-field-full" htmlFor="register-company-name">
+                      <span>Názov firmy</span>
                       <input
                         id="register-company-name"
                         type="text"
@@ -10349,8 +10367,8 @@ function App() {
                       />
                     </label>
                   )}
-                  <label className="login-label" htmlFor="register-username">
-                    Login
+                  <label className="login-label auth-field" htmlFor="register-username">
+                    <span>Login</span>
                     <input
                       id="register-username"
                       type="text"
@@ -10361,8 +10379,8 @@ function App() {
                       autoComplete="username"
                     />
                   </label>
-                  <label className="login-label" htmlFor="register-email">
-                    Email
+                  <label className="login-label auth-field" htmlFor="register-email">
+                    <span>Email</span>
                     <input
                       id="register-email"
                       type="email"
@@ -10373,8 +10391,8 @@ function App() {
                       autoComplete="email"
                     />
                   </label>
-                  <label className="login-label" htmlFor="register-password">
-                    Heslo
+                  <label className="login-label auth-field auth-field-full" htmlFor="register-password">
+                    <span>Heslo</span>
                     <input
                       id="register-password"
                       type="password"
@@ -10385,28 +10403,43 @@ function App() {
                       autoComplete="new-password"
                     />
                   </label>
-                  <button type="submit" className="refresh-btn" disabled={authSubmitting}>
+                </div>
+                <div className="auth-form-footer">
+                  <p className="auth-footnote">
+                    {normalizeInviteToken(authRegisterInviteTokenInput)
+                      ? "Účet sa po potvrdení automaticky priradí k firme podľa pozvánky."
+                      : "Po registrácii sa vytvorí nová firma a tento účet získa plný prístup k nastaveniam."}
+                  </p>
+                  <button type="submit" className="refresh-btn auth-submit-btn" disabled={authSubmitting}>
                     {authSubmitting ? "Vytváram účet..." : normalizeInviteToken(authRegisterInviteTokenInput) ? "Vytvoriť účet a prijať pozvánku" : "Vytvoriť účet"}
                   </button>
-                </form>
-              </>
+                </div>
+              </form>
             )}
             {authError && <p className="error">{authError}</p>}
           </section>
         </section>
         <section className="landing-supporting" aria-label="Informácie o riešení WMS Online">
           <article className="landing-card seo-section">
-            <h2>Skladový monitoring a evidencia skladových pohybov</h2>
-            <p>
-              WMS Online pomáha sledovať skladové zásoby, pohyby materiálu a obsadenosť pozícií v reálnom čase. Je
-              vhodný pre firmy, ktoré chcú mať online prehľad zásob, znížiť manuálne reportovanie a zrýchliť prácu
-              operatívy aj manažmentu.
-            </p>
+            <h2>Čo pre firmy dodávame</h2>
+            <ul className="landing-list seo-list">
+              {LANDING_SERVICE_AREAS.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
           </article>
           <article className="landing-card seo-section">
-            <h2>Pre koho je skladový monitoring vhodný</h2>
+            <h2>Komu systém najviac pomáha</h2>
             <ul className="landing-list seo-list">
               {LANDING_USE_CASES.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </article>
+          <article className="landing-card seo-section">
+            <h2>Čo tým firma získa</h2>
+            <ul className="landing-list seo-list">
+              {LANDING_OUTCOMES.map((item) => (
                 <li key={item}>{item}</li>
               ))}
             </ul>

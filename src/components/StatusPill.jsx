@@ -13,6 +13,14 @@
     issued: "vystavená",
     paid: "uhradená",
     cancelled: "stornovaná",
+    inactive: "neaktivne",
+    trialing: "skusobna doba",
+    active: "aktivne",
+    past_due: "po splatnosti",
+    unpaid: "neuhradene",
+    incomplete: "caka na platbu",
+    incomplete_expired: "checkout expiroval",
+    canceled: "zrusene",
     completed: "dokončené",
     unknown: "neznáme"
   };

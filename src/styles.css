@@ -1937,6 +1937,45 @@ select {
   gap: 0.6rem;
 }
 
+.billing-section {
+  margin-top: 0.8rem;
+}
+
+.billing-status-card {
+  border: 1px solid #d8e4f2;
+  border-radius: 12px;
+  background: #f8fbff;
+  padding: 0.85rem 0.95rem;
+}
+
+.billing-status-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  margin-bottom: 0.35rem;
+}
+
+.billing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 0.85rem;
+}
+
+.master-billing-cell {
+  min-width: 220px;
+}
+
+.master-billing-editor {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.master-billing-actions {
+  margin-top: 0.45rem;
+}
+
 .master-users-table td .table-badge {
   margin-left: 0.35rem;
 }
@@ -2804,6 +2843,8 @@ tbody tr:nth-child(even) {
 .pill-receive,
 .pill-completed,
 .pill-accepted,
+.pill-active,
+.pill-trialing,
 .pill-success {
   background: #dff8e9;
   color: #0e7443;
@@ -2814,6 +2855,8 @@ tbody tr:nth-child(even) {
 .pill-out,
 .pill-issue,
 .pill-rejected,
+.pill-past_due,
+.pill-unpaid,
 .pill-remove {
   background: #ffe6e6;
   color: #9b1d1d;
@@ -2825,6 +2868,10 @@ tbody tr:nth-child(even) {
 .pill-adjust,
 .pill-move_all,
 .pill-undo,
+.pill-inactive,
+.pill-incomplete,
+.pill-incomplete_expired,
+.pill-canceled,
 .pill-unknown {
   background: #fff1d9;
   color: #8c6000;

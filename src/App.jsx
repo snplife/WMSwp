@@ -6,6 +6,7 @@ import * as XLSX from "xlsx";
 import { installHotjar, uninstallHotjar } from "./hotjar";
 import StatusPill from "./components/StatusPill";
 import { clearSupabaseAuthStorage, noStoreFetch, supabase, supabaseAnonKey, supabaseUrl, tableNames } from "./supabaseClient";
+import { estimateWmsPricing, normalizeBillingPriceValue, resolveCompanyBillingPricing } from "../shared/billingPricing";
 import logo from "../logo.png";
 
 const DAILY_OVERVIEW_TABLE = "__daily_overview__";
@@ -15,6 +16,7 @@ const INVOICES_MODULE = "__invoices__";
 const ORDERS_MODULE = "__orders__";
 const PRODUCTION_MODULE = "__production__";
 const PRICE_LIST_TABLE = "price_list";
+const BILLING_API_BASE = "/api/v1/billing";
 const QUOTE_VAT_OPTIONS = [0, 5, 19, 23];
 const COMPANY_LOOKUP_DEBOUNCE_MS = 250;
 
@@ -192,6 +194,17 @@ const INVOICE_STYLE_OPTIONS = [
   { value: "modern", label: "Moderná" },
   { value: "typewriter", label: "Písací stroj" }
 ];
+const BILLING_MANAGED_STATUSES = new Set(["trialing", "active", "past_due", "unpaid", "incomplete"]);
+const BILLING_STATUS_LABELS = {
+  inactive: "Neaktivne",
+  trialing: "Skusobna doba",
+  active: "Aktivne",
+  past_due: "Po splatnosti",
+  unpaid: "Neuhradene",
+  incomplete: "Caka na platbu",
+  incomplete_expired: "Expiracia checkoutu",
+  canceled: "Zrusene"
+};
 const SLOVAK_BANK_SWIFT_BY_CODE = {
   "0200": "SUBASKBX",
   "0600": "AGBACZPP",
@@ -2660,8 +2673,48 @@ function normalizeCompanyRecord(row) {
     ...row,
     max_positions: normalizeMaxPositions(row.max_positions ?? ENV_DEFAULT_MAX_POSITIONS),
     tracks_expiry_date: Boolean(row.tracks_expiry_date),
-    mes_enabled: Boolean(row.mes_enabled)
+    mes_enabled: Boolean(row.mes_enabled),
+    stripe_customer_id: String(row.stripe_customer_id || "").trim(),
+    billing_email: String(row.billing_email || "").trim().toLowerCase(),
+    billing_status: normalizeCompanyBillingStatus(row.billing_status),
+    billing_plan_key: String(row.billing_plan_key || "").trim().toLowerCase(),
+    billing_interval: normalizeCompanyBillingInterval(row.billing_interval),
+    billing_currency: String(row.billing_currency || "eur").trim().toLowerCase(),
+    billing_subscription_id: String(row.billing_subscription_id || "").trim(),
+    billing_price_id: String(row.billing_price_id || "").trim(),
+    billing_price_monthly: normalizeBillingPriceValue(row.billing_price_monthly),
+    billing_price_annual: normalizeBillingPriceValue(row.billing_price_annual),
+    billing_setup_fee: normalizeBillingPriceValue(row.billing_setup_fee),
+    billing_price_note: String(row.billing_price_note || "").trim(),
+    billing_current_period_end: row.billing_current_period_end || null,
+    billing_trial_ends_at: row.billing_trial_ends_at || null,
+    billing_cancel_at_period_end: Boolean(row.billing_cancel_at_period_end),
+    billing_checkout_session_id: String(row.billing_checkout_session_id || "").trim()
   };
+}
+
+function normalizeCompanyBillingStatus(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) {
+    return "inactive";
+  }
+
+  return normalized === "cancelled" ? "canceled" : normalized;
+}
+
+function normalizeCompanyBillingInterval(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "year" || normalized === "month" ? normalized : "";
+}
+
+function formatCompanyBillingStatus(status) {
+  const normalized = normalizeCompanyBillingStatus(status);
+  return BILLING_STATUS_LABELS[normalized] || normalized;
+}
+
+function hasManagedCompanyBilling(company) {
+  const normalizedStatus = normalizeCompanyBillingStatus(company?.billing_status);
+  return Boolean(String(company?.billing_subscription_id || "").trim()) && BILLING_MANAGED_STATUSES.has(normalizedStatus);
 }
 
 function normalizeCompanyProfileRecord(row) {
@@ -3080,6 +3133,11 @@ function normalizePriceInput(value) {
   return Math.round(parsed * 100) / 100;
 }
 
+function formatPriceInputValue(value) {
+  const normalized = normalizeBillingPriceValue(value);
+  return normalized === null ? "" : String(normalized);
+}
+
 function normalizeImportHeader(value) {
   return String(value || "")
     .normalize("NFD")
@@ -3427,6 +3485,10 @@ function App() {
   const [editingCompanyId, setEditingCompanyId] = useState("");
   const [editingCompanyName, setEditingCompanyName] = useState("");
   const [editingCompanyTracksExpiryDate, setEditingCompanyTracksExpiryDate] = useState(false);
+  const [editingCompanyBillingMonthly, setEditingCompanyBillingMonthly] = useState("");
+  const [editingCompanyBillingAnnual, setEditingCompanyBillingAnnual] = useState("");
+  const [editingCompanyBillingSetup, setEditingCompanyBillingSetup] = useState("");
+  const [editingCompanyBillingNote, setEditingCompanyBillingNote] = useState("");
   const [createCompanySubmitting, setCreateCompanySubmitting] = useState(false);
   const [updateCompanySubmitting, setUpdateCompanySubmitting] = useState(false);
   const [deleteCompanySubmitting, setDeleteCompanySubmitting] = useState(false);
@@ -3474,6 +3536,9 @@ function App() {
   const [pricingUserCount, setPricingUserCount] = useState("12");
   const [pricingWarehouseCount, setPricingWarehouseCount] = useState("1");
   const [pricingNeedsCustomSupport, setPricingNeedsCustomSupport] = useState(false);
+  const [billingSubmittingAction, setBillingSubmittingAction] = useState("");
+  const [billingError, setBillingError] = useState("");
+  const [billingMessage, setBillingMessage] = useState("");
   const [materialSubscriptions, setMaterialSubscriptions] = useState([]);
   const [materialSubscriptionsError, setMaterialSubscriptionsError] = useState("");
   const [materialSubscriptionSavingKey, setMaterialSubscriptionSavingKey] = useState("");
@@ -3617,6 +3682,18 @@ function App() {
   const activeCompanyProfile = useMemo(
     () => buildEffectiveCompanyProfile(activeCompany, activeCompanyId ? companyProfilesById[activeCompanyId] : null),
     [activeCompany, activeCompanyId, companyProfilesById]
+  );
+  const activeCompanyBillingStatus = useMemo(
+    () => normalizeCompanyBillingStatus(activeCompany?.billing_status),
+    [activeCompany?.billing_status]
+  );
+  const activeCompanyHasManagedBilling = useMemo(
+    () => hasManagedCompanyBilling(activeCompany),
+    [activeCompany]
+  );
+  const activeCompanyBillingPricing = useMemo(
+    () => resolveCompanyBillingPricing(activeCompany || {}, pricingEstimate),
+    [activeCompany, pricingEstimate]
   );
   useEffect(() => {
     if (!isLoggedIn || !activeCompanyId || (!isMaster && !canManageOrders)) {
@@ -3907,53 +3984,12 @@ function App() {
     lastDataRefreshAtRef.current[buildViewRefreshKey(table)] = Date.now();
   };
   const pricingEstimate = useMemo(() => {
-    const employees = normalizePositiveInt(pricingEmployeeCount, 0);
-    const users = Math.max(1, normalizePositiveInt(pricingUserCount, 1));
-    const warehouses = Math.max(1, normalizePositiveInt(pricingWarehouseCount, 1));
-
-    let monthly = 90;
-    let setup = 900;
-
-    if (employees >= 150) {
-      monthly = 549;
-      setup = 4900;
-    } else if (employees >= 50) {
-      monthly = 279;
-      setup = 2400;
-    }
-
-    if (users > 5) {
-      monthly += (users - 5) * 9;
-    }
-    if (warehouses > 1) {
-      monthly += (warehouses - 1) * 90;
-      setup += (warehouses - 1) * 600;
-    }
-    if (pricingNeedsCustomSupport) {
-      monthly += 140;
-      setup += 1200;
-    }
-
-    const annual = monthly * 12;
-    const annualDiscounted = Math.round(annual * 0.8);
-    const annualMonthlyEquivalent = Math.round(annualDiscounted / 12);
-
-    return {
-      employees,
-      users,
-      warehouses,
-      monthly,
-      setup,
-      annual,
-      annualDiscounted,
-      annualMonthlyEquivalent,
-      summary:
-        employees >= 150
-          ? "Mid-market nasadenie"
-          : employees >= 50
-            ? "Rastúca firma"
-            : "Menšie nasadenie"
-    };
+    return estimateWmsPricing({
+      employees: pricingEmployeeCount,
+      users: pricingUserCount,
+      warehouses: pricingWarehouseCount,
+      needsCustomSupport: pricingNeedsCustomSupport
+    });
   }, [
     pricingEmployeeCount,
     pricingUserCount,
@@ -4145,6 +4181,107 @@ function App() {
 
     setCompanyInvites(data || []);
     setCompanyInvitesLoading(false);
+  };
+
+  const postBillingRequest = async (path, payload = {}) => {
+    const {
+      data: { session }
+    } = await supabase.auth.getSession();
+    const accessToken = String(session?.access_token || "").trim();
+
+    if (!accessToken) {
+      throw new Error("Relacia vyprsala. Prihlas sa znova.");
+    }
+
+    const response = await noStoreFetch(`${BILLING_API_BASE}${path}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`
+      },
+      body: JSON.stringify(payload)
+    });
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok || !result?.ok) {
+      throw new Error(result?.error || "Billing request zlyhal.");
+    }
+
+    return result;
+  };
+
+  const handleOpenBillingPortal = async (targetCompanyId = activeCompanyId) => {
+    if (!targetCompanyId) {
+      setBillingError("Najprv vyber firmu, pre ktoru chces otvorit billing portal.");
+      return;
+    }
+
+    setBillingSubmittingAction(`portal-${targetCompanyId}`);
+    setBillingError("");
+    setBillingMessage("");
+
+    try {
+      const result = await postBillingRequest("/portal", {
+        companyId: targetCompanyId
+      });
+
+      if (!result?.url) {
+        throw new Error("Stripe portal nevratil redirect URL.");
+      }
+
+      window.location.assign(result.url);
+    } catch (portalError) {
+      setBillingError(portalError?.message || "Nepodarilo sa otvorit billing portal.");
+      setBillingSubmittingAction("");
+    }
+  };
+
+  const handleStartBillingCheckout = async (billingCycle, targetCompanyId = activeCompanyId) => {
+    if (!targetCompanyId) {
+      setBillingError("Najprv vyber firmu, pre ktoru chces aktivovat predplatne.");
+      return;
+    }
+
+    const normalizedCycle = String(billingCycle || "").trim().toLowerCase() === "annual" ? "annual" : "monthly";
+    setBillingSubmittingAction(`checkout-${normalizedCycle}-${targetCompanyId}`);
+    setBillingError("");
+    setBillingMessage("");
+
+    try {
+      const result = await postBillingRequest("/checkout", {
+        companyId: targetCompanyId,
+        billingCycle: normalizedCycle,
+        pricing: {
+          employees: pricingEstimate.employees,
+          users: pricingEstimate.users,
+          warehouses: pricingEstimate.warehouses,
+          needsCustomSupport: pricingNeedsCustomSupport
+        }
+      });
+
+      if (!result?.url) {
+        throw new Error("Stripe checkout nevratil redirect URL.");
+      }
+
+      window.location.assign(result.url);
+    } catch (checkoutError) {
+      setBillingError(checkoutError?.message || "Nepodarilo sa spustit Stripe checkout.");
+      setBillingSubmittingAction("");
+    }
+  };
+
+  const handleRefreshBillingState = async () => {
+    setBillingSubmittingAction("refresh");
+    setBillingError("");
+
+    try {
+      await Promise.all([loadCompanies(), loadCompanyProfiles()]);
+      setBillingMessage("Billing stav bol obnoveny.");
+    } catch (refreshError) {
+      setBillingError(refreshError?.message || "Nepodarilo sa obnovit billing stav.");
+    } finally {
+      setBillingSubmittingAction("");
+    }
   };
 
   const loadStockTwinSettings = async () => {
@@ -4677,6 +4814,10 @@ function App() {
     setEditingCompanyId(company?.id || "");
     setEditingCompanyName(String(company?.name || ""));
     setEditingCompanyTracksExpiryDate(Boolean(company?.tracks_expiry_date));
+    setEditingCompanyBillingMonthly(formatPriceInputValue(company?.billing_price_monthly));
+    setEditingCompanyBillingAnnual(formatPriceInputValue(company?.billing_price_annual));
+    setEditingCompanyBillingSetup(formatPriceInputValue(company?.billing_setup_fee));
+    setEditingCompanyBillingNote(String(company?.billing_price_note || ""));
     setCompaniesError("");
   };
 
@@ -4684,6 +4825,10 @@ function App() {
     setEditingCompanyId("");
     setEditingCompanyName("");
     setEditingCompanyTracksExpiryDate(false);
+    setEditingCompanyBillingMonthly("");
+    setEditingCompanyBillingAnnual("");
+    setEditingCompanyBillingSetup("");
+    setEditingCompanyBillingNote("");
   };
 
   const handleSaveCompany = async (companyId) => {
@@ -4692,11 +4837,36 @@ function App() {
       setCompaniesError("Názov firmy nemôže byť prázdny.");
       return;
     }
+
+    const normalizedMonthly = String(editingCompanyBillingMonthly || "").trim() ? normalizePriceInput(editingCompanyBillingMonthly) : null;
+    const normalizedAnnual = String(editingCompanyBillingAnnual || "").trim() ? normalizePriceInput(editingCompanyBillingAnnual) : null;
+    const normalizedSetup = String(editingCompanyBillingSetup || "").trim() ? normalizePriceInput(editingCompanyBillingSetup) : null;
+
+    if (String(editingCompanyBillingMonthly || "").trim() && normalizedMonthly === null) {
+      setCompaniesError("Mesačná cena musí byť platné nezáporné číslo.");
+      return;
+    }
+    if (String(editingCompanyBillingAnnual || "").trim() && normalizedAnnual === null) {
+      setCompaniesError("Ročná cena musí byť platné nezáporné číslo.");
+      return;
+    }
+    if (String(editingCompanyBillingSetup || "").trim() && normalizedSetup === null) {
+      setCompaniesError("Setup fee musí byť platné nezáporné číslo.");
+      return;
+    }
+
     setUpdateCompanySubmitting(true);
     setCompaniesError("");
     const { data, error: updateError } = await supabase
       .from("companies")
-      .update({ name, tracks_expiry_date: editingCompanyTracksExpiryDate })
+      .update({
+        name,
+        tracks_expiry_date: editingCompanyTracksExpiryDate,
+        billing_price_monthly: normalizedMonthly,
+        billing_price_annual: normalizedAnnual,
+        billing_setup_fee: normalizedSetup,
+        billing_price_note: String(editingCompanyBillingNote || "").trim()
+      })
       .eq("id", companyId)
       .select("*")
       .single();
@@ -7637,6 +7807,34 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!authReady || !isLoggedIn) {
+      return;
+    }
+
+    const url = new URL(window.location.href);
+    const billingState = String(url.searchParams.get("billing") || "").trim().toLowerCase();
+    if (!billingState) {
+      return;
+    }
+
+    if (billingState === "success") {
+      setBillingMessage("Platba bola odoslana do Stripe. Po webhooku sa stav firmy prepise automaticky.");
+      setBillingError("");
+      void loadCompanies();
+    } else if (billingState === "cancel") {
+      setBillingMessage("Stripe checkout bol zruseny.");
+      setBillingError("");
+    } else if (billingState === "portal") {
+      setBillingMessage("Vratil si sa z billing portalu.");
+      setBillingError("");
+      void loadCompanies();
+    }
+
+    url.searchParams.delete("billing");
+    window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
+  }, [authReady, isLoggedIn]);
+
+  useEffect(() => {
     let mounted = true;
     let hydrationSequence = 0;
     const clearInitTimeout = () => {
@@ -8377,6 +8575,11 @@ function App() {
     activeCompanyProfile?.invoice_intro_text,
     activeCompanyProfile?.invoice_outro_text
   ]);
+
+  useEffect(() => {
+    setBillingError("");
+    setBillingMessage("");
+  }, [activeCompanyId]);
 
   useEffect(() => {
     if (editingInvoiceId) {
@@ -10216,6 +10419,9 @@ function App() {
     setCompanyInvoiceStyleInput("clean");
     setCompanyInvoiceIntroTextInput("");
     setCompanyInvoiceOutroTextInput("");
+    setBillingSubmittingAction("");
+    setBillingError("");
+    setBillingMessage("");
     setIsStockTwinSettingsOpen(false);
     setStockTwinLayout(DEFAULT_STOCK_TWIN_LAYOUT);
     setStockTwinRackDrafts([]);
@@ -10443,7 +10649,7 @@ function App() {
                   <p className="auth-footnote">
                     {normalizeInviteToken(authRegisterInviteTokenInput)
                       ? "Účet sa po potvrdení automaticky priradí k firme podľa pozvánky."
-                      : "Po registrácii sa vytvorí nová firma a tento účet získa plný prístup k nastaveniam."}
+                      : "Po registrácii sa vytvorí nová firma a tento účet získa plný prístup k nastaveniam. Predplatné potom aktivuješ v nastaveniach firmy cez Stripe checkout."}
                   </p>
                   <button type="submit" className="refresh-btn auth-submit-btn" disabled={authSubmitting}>
                     {authSubmitting ? "Vytváram účet..." : normalizeInviteToken(authRegisterInviteTokenInput) ? "Vytvoriť účet a prijať pozvánku" : "Vytvoriť účet"}
@@ -11497,6 +11703,85 @@ function App() {
                     </label>
                   </label>
                 )}
+                {(isMaster || canManageOrders) && (
+                  <div className="workflow-form-section billing-section">
+                    <div className="workflow-subsection-head">
+                      <h3>SaaS billing</h3>
+                      <p className="panel-meta">Stripe checkout a customer portal sú naviazané na aktuálne vybranú firmu.</p>
+                    </div>
+                    <div className="billing-status-card">
+                      <div className="billing-status-head">
+                        <StatusPill status={activeCompanyBillingStatus} />
+                        <strong>{formatCompanyBillingStatus(activeCompanyBillingStatus)}</strong>
+                      </div>
+                      <p className="panel-meta">
+                        {activeCompany?.billing_interval === "year"
+                          ? "Fakturácia ročne"
+                          : activeCompany?.billing_interval === "month"
+                            ? "Fakturácia mesačne"
+                            : "Predplatné zatiaľ nie je aktivované."}
+                      </p>
+                      {activeCompany?.billing_current_period_end && (
+                        <p className="settings-hint">{`Aktuálne obdobie do ${formatDate(activeCompany.billing_current_period_end)}.`}</p>
+                      )}
+                      {activeCompany?.billing_trial_ends_at && (
+                        <p className="settings-hint">{`Skúšobné obdobie do ${formatDate(activeCompany.billing_trial_ends_at)}.`}</p>
+                      )}
+                      {activeCompany?.billing_cancel_at_period_end && (
+                        <p className="settings-hint">Predplatné je nastavené na ukončenie na konci aktuálneho obdobia.</p>
+                      )}
+                      {!activeCompanyHasManagedBilling && (
+                        <p className="settings-hint">
+                          {`Prvý checkout zahrnie setup ${new Intl.NumberFormat("sk-SK").format(activeCompanyBillingPricing.setup)} EUR a potom ${
+                            new Intl.NumberFormat("sk-SK").format(activeCompanyBillingPricing.monthly)
+                          } EUR / mes. alebo ${new Intl.NumberFormat("sk-SK").format(activeCompanyBillingPricing.annualDiscounted)} EUR / rok.`}
+                        </p>
+                      )}
+                      {activeCompanyBillingPricing.billingNote && <p className="settings-hint">{activeCompanyBillingPricing.billingNote}</p>}
+                    </div>
+                    <div className="billing-actions">
+                      {activeCompanyHasManagedBilling ? (
+                        <button
+                          type="button"
+                          className="settings-btn"
+                          onClick={handleOpenBillingPortal}
+                          disabled={!activeCompanyId || billingSubmittingAction === `portal-${activeCompanyId}`}
+                        >
+                          {billingSubmittingAction === `portal-${activeCompanyId}` ? "Otváram portal..." : "Spravovať billing"}
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className="settings-btn"
+                            onClick={() => handleStartBillingCheckout("monthly")}
+                            disabled={!activeCompanyId || Boolean(billingSubmittingAction)}
+                          >
+                            {billingSubmittingAction === `checkout-monthly-${activeCompanyId}` ? "Presmerovávam..." : "Aktivovať mesačne"}
+                          </button>
+                          <button
+                            type="button"
+                            className="settings-btn"
+                            onClick={() => handleStartBillingCheckout("annual")}
+                            disabled={!activeCompanyId || Boolean(billingSubmittingAction)}
+                          >
+                            {billingSubmittingAction === `checkout-annual-${activeCompanyId}` ? "Presmerovávam..." : "Aktivovať ročne"}
+                          </button>
+                        </>
+                      )}
+                      <button
+                        type="button"
+                        className="clear-btn"
+                        onClick={handleRefreshBillingState}
+                        disabled={billingSubmittingAction === "refresh"}
+                      >
+                        {billingSubmittingAction === "refresh" ? "Obnovujem..." : "Obnoviť billing stav"}
+                      </button>
+                    </div>
+                    {billingMessage && <p className="settings-hint">{billingMessage}</p>}
+                    {billingError && <p className="error">{billingError}</p>}
+                  </div>
+                )}
                 <button type="submit" className="settings-btn" disabled={!activeCompanyId || companySettingsSubmitting}>
                   {companySettingsSubmitting ? "Ukladám..." : "Uložiť nastavenia firmy"}
                 </button>
@@ -12196,6 +12481,8 @@ function App() {
 
           {managedUsersError && <p className="error">{managedUsersError}</p>}
           {companiesError && <p className="error">{companiesError}</p>}
+          {billingMessage && <p className="settings-hint">{billingMessage}</p>}
+          {billingError && <p className="error">{billingError}</p>}
 
           <div className="table-wrap">
             <table className="master-users-table">
@@ -12204,6 +12491,7 @@ function App() {
                   <th>Firma</th>
                   <th>Expirácia</th>
                   <th>MES</th>
+                  <th>Billing</th>
                   <th>ID</th>
                   <th>Vytvorená</th>
                   <th>Akcie</th>
@@ -12212,6 +12500,7 @@ function App() {
               <tbody>
                 {companies.map((company) => {
                   const isEditing = editingCompanyId === company.id;
+                  const companyBillingPricing = resolveCompanyBillingPricing(company, pricingEstimate);
                   return (
                     <tr key={company.id}>
                       <td>
@@ -12247,6 +12536,97 @@ function App() {
                           <span className="table-badge table-badge-master">zapnuté</span>
                         ) : (
                           <span className="master-user-email">vypnuté</span>
+                        )}
+                      </td>
+                      <td className="master-billing-cell">
+                        {isEditing ? (
+                          <div className="master-billing-editor">
+                            <input
+                              type="text"
+                              className="search-input"
+                              placeholder="Mesačne EUR"
+                              value={editingCompanyBillingMonthly}
+                              onChange={(event) => setEditingCompanyBillingMonthly(event.target.value)}
+                            />
+                            <input
+                              type="text"
+                              className="search-input"
+                              placeholder="Ročne EUR"
+                              value={editingCompanyBillingAnnual}
+                              onChange={(event) => setEditingCompanyBillingAnnual(event.target.value)}
+                            />
+                            <input
+                              type="text"
+                              className="search-input"
+                              placeholder="Setup EUR"
+                              value={editingCompanyBillingSetup}
+                              onChange={(event) => setEditingCompanyBillingSetup(event.target.value)}
+                            />
+                            <input
+                              type="text"
+                              className="search-input"
+                              placeholder="Poznámka pre billing"
+                              value={editingCompanyBillingNote}
+                              onChange={(event) => setEditingCompanyBillingNote(event.target.value)}
+                            />
+                          </div>
+                        ) : (
+                          <>
+                            <div className="billing-status-head">
+                              <StatusPill status={company.billing_status || "inactive"} />
+                              <strong>{formatCompanyBillingStatus(company.billing_status)}</strong>
+                            </div>
+                            <div className="master-user-email">
+                              {company.billing_interval === "year"
+                                ? "ročný billing"
+                                : company.billing_interval === "month"
+                                  ? "mesačný billing"
+                                  : "bez predplatného"}
+                            </div>
+                            <div className="master-user-email">
+                              {`cenník ${new Intl.NumberFormat("sk-SK").format(companyBillingPricing.monthly)} EUR / mes. | ${new Intl.NumberFormat("sk-SK").format(companyBillingPricing.annualDiscounted)} EUR / rok`}
+                            </div>
+                            <div className="master-user-email">
+                              {`setup ${new Intl.NumberFormat("sk-SK").format(companyBillingPricing.setup)} EUR${
+                                companyBillingPricing.usesCustomPricing ? " | custom" : " | kalkulačka"
+                              }`}
+                            </div>
+                            {company.billing_price_note && <div className="master-user-email">{company.billing_price_note}</div>}
+                            {company.billing_current_period_end && (
+                              <div className="master-user-email">{`do ${formatDate(company.billing_current_period_end)}`}</div>
+                            )}
+                            <div className="master-role-actions master-billing-actions">
+                              {hasManagedCompanyBilling(company) ? (
+                                <button
+                                  type="button"
+                                  className="clear-btn"
+                                  onClick={() => handleOpenBillingPortal(company.id)}
+                                  disabled={billingSubmittingAction === `portal-${company.id}`}
+                                >
+                                  {billingSubmittingAction === `portal-${company.id}` ? "Portal..." : "Portal"}
+                                </button>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="clear-btn"
+                                    onClick={() => handleStartBillingCheckout("monthly", company.id)}
+                                    disabled={Boolean(billingSubmittingAction)}
+                                  >
+                                    {billingSubmittingAction === `checkout-monthly-${company.id}` ? "Mesačne..." : "Mesačne"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="clear-btn"
+                                    onClick={() => handleStartBillingCheckout("annual", company.id)}
+                                    disabled={Boolean(billingSubmittingAction)}
+                                  >
+                                    {billingSubmittingAction === `checkout-annual-${company.id}` ? "Ročne..." : "Ročne"}
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </>
                         )}
                       </td>
                       <td className="master-user-email">{company.id}</td>

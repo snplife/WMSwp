@@ -1,0 +1,53 @@
+alter table if exists public.companies
+  add column if not exists billing_price_monthly numeric(12,2);
+
+alter table if exists public.companies
+  add column if not exists billing_price_annual numeric(12,2);
+
+alter table if exists public.companies
+  add column if not exists billing_setup_fee numeric(12,2);
+
+alter table if exists public.companies
+  add column if not exists billing_price_note text not null default '';
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'companies_billing_price_monthly_check'
+  ) then
+    alter table public.companies
+      add constraint companies_billing_price_monthly_check
+      check (billing_price_monthly is null or billing_price_monthly >= 0);
+  end if;
+end;
+$$;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'companies_billing_price_annual_check'
+  ) then
+    alter table public.companies
+      add constraint companies_billing_price_annual_check
+      check (billing_price_annual is null or billing_price_annual >= 0);
+  end if;
+end;
+$$;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'companies_billing_setup_fee_check'
+  ) then
+    alter table public.companies
+      add constraint companies_billing_setup_fee_check
+      check (billing_setup_fee is null or billing_setup_fee >= 0);
+  end if;
+end;
+$$;

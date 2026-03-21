@@ -3674,6 +3674,19 @@ function App() {
       ),
     [companyProfiles]
   );
+  const pricingEstimate = useMemo(() => {
+    return estimateWmsPricing({
+      employees: pricingEmployeeCount,
+      users: pricingUserCount,
+      warehouses: pricingWarehouseCount,
+      needsCustomSupport: pricingNeedsCustomSupport
+    });
+  }, [
+    pricingEmployeeCount,
+    pricingUserCount,
+    pricingWarehouseCount,
+    pricingNeedsCustomSupport
+  ]);
   const activeCompanyId = isMaster ? (selectedCompanyId === "all" ? null : selectedCompanyId) : userCompanyId;
   const activeCompany = useMemo(
     () => companies.find((company) => company.id === activeCompanyId) || null,
@@ -3979,23 +3992,10 @@ function App() {
       tracksExpiryDate: Boolean(activeCompany?.tracks_expiry_date),
       canAccessOrdersModule,
       canAccessMesModule
-    });
+  });
   const markViewDataFresh = (table = selectedTable) => {
     lastDataRefreshAtRef.current[buildViewRefreshKey(table)] = Date.now();
   };
-  const pricingEstimate = useMemo(() => {
-    return estimateWmsPricing({
-      employees: pricingEmployeeCount,
-      users: pricingUserCount,
-      warehouses: pricingWarehouseCount,
-      needsCustomSupport: pricingNeedsCustomSupport
-    });
-  }, [
-    pricingEmployeeCount,
-    pricingUserCount,
-    pricingWarehouseCount,
-    pricingNeedsCustomSupport
-  ]);
 
   const resolveUserRole = async (user) => {
     if (!user) {

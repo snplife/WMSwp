@@ -15,6 +15,7 @@ const QUOTES_MODULE = "__quotes__";
 const INVOICES_MODULE = "__invoices__";
 const ORDERS_MODULE = "__orders__";
 const PRODUCTION_MODULE = "__production__";
+const ATTENDANCE_MODULE = "__attendance__";
 const PRICE_LIST_TABLE = "price_list";
 const BILLING_API_BASE = "/api/v1/billing";
 const QUOTE_VAT_OPTIONS = [0, 5, 19, 23];
@@ -140,6 +141,18 @@ const TABLE_CONFIG = {
     orderBy: "created_at",
     orderAsc: false,
     metricLabel: "Objednávky",
+    metricValue: (rows) => rows.length
+  },
+  [ATTENDANCE_MODULE]: {
+    title: "Dochádzka",
+    subtitle: "Zamestnanci, terminály a log príchodov a odchodov",
+    columns: [],
+    searchKeys: [],
+    statusKeys: [],
+    timeKeys: [],
+    orderBy: "created_at",
+    orderAsc: false,
+    metricLabel: "Eventy",
     metricValue: (rows) => rows.length
   },
   [PRODUCTION_MODULE]: {
@@ -349,12 +362,16 @@ function isOrdersModule(table) {
   return String(table || "").trim() === ORDERS_MODULE;
 }
 
+function isAttendanceModule(table) {
+  return String(table || "").trim() === ATTENDANCE_MODULE;
+}
+
 function isProductionModule(table) {
   return String(table || "").trim() === PRODUCTION_MODULE;
 }
 
 function isWorkflowModule(table) {
-  return isCustomerModule(table) || isQuoteModule(table) || isInvoiceModule(table) || isOrdersModule(table) || isProductionModule(table);
+  return isCustomerModule(table) || isQuoteModule(table) || isInvoiceModule(table) || isOrdersModule(table) || isAttendanceModule(table) || isProductionModule(table);
 }
 
 function isDailyOverviewTable(table) {
@@ -382,6 +399,9 @@ function getTableLabel(table) {
   }
   if (isOrdersModule(table)) {
     return "Objednávky";
+  }
+  if (isAttendanceModule(table)) {
+    return "Dochádzka";
   }
   if (isProductionModule(table)) {
     return "MES";
@@ -2717,6 +2737,19 @@ function hasManagedCompanyBilling(company) {
   return Boolean(String(company?.billing_subscription_id || "").trim()) && BILLING_MANAGED_STATUSES.has(normalizedStatus);
 }
 
+function hasCompanyBillingIssue(company) {
+  return ["past_due", "unpaid", "incomplete", "incomplete_expired"].includes(normalizeCompanyBillingStatus(company?.billing_status));
+}
+
+function hasCompanyCustomPricing(company) {
+  return (
+    normalizeBillingPriceValue(company?.billing_price_monthly) !== null ||
+    normalizeBillingPriceValue(company?.billing_price_annual) !== null ||
+    normalizeBillingPriceValue(company?.billing_setup_fee) !== null ||
+    Boolean(String(company?.billing_price_note || "").trim())
+  );
+}
+
 function normalizeCompanyProfileRecord(row) {
   if (!row || typeof row !== "object") {
     return row;
@@ -2829,6 +2862,78 @@ function normalizeMesMachineCatalogRow(row) {
     ...row,
     is_active: Boolean(row.is_active)
   };
+}
+
+function normalizeAttendanceProfileRow(row) {
+  if (!row || typeof row !== "object") {
+    return row;
+  }
+  return {
+    ...row,
+    employee_code: String(row.employee_code || "").trim(),
+    full_name: String(row.full_name || "").trim(),
+    pin_code: String(row.pin_code || "").trim(),
+    badge_code: String(row.badge_code || "").trim(),
+    note: String(row.note || "").trim(),
+    is_active: Boolean(row.is_active)
+  };
+}
+
+function normalizeAttendanceTerminalRow(row) {
+  if (!row || typeof row !== "object") {
+    return row;
+  }
+  return {
+    ...row,
+    terminal_code: String(row.terminal_code || "").trim().toLowerCase(),
+    name: String(row.name || "").trim(),
+    note: String(row.note || "").trim(),
+    is_active: Boolean(row.is_active)
+  };
+}
+
+function normalizeAttendanceEventRow(row) {
+  if (!row || typeof row !== "object") {
+    return row;
+  }
+  return {
+    ...row,
+    event_type: String(row.event_type || "").trim().toLowerCase(),
+    source: String(row.source || "").trim().toLowerCase(),
+    note: String(row.note || "").trim()
+  };
+}
+
+function getAttendanceEventLabel(eventType) {
+  const normalized = String(eventType || "").trim().toLowerCase();
+  if (normalized === "clock_in") return "Príchod";
+  if (normalized === "clock_out") return "Odchod";
+  if (normalized === "break_start") return "Pauza štart";
+  if (normalized === "break_end") return "Pauza koniec";
+  return normalized || "-";
+}
+
+function getAttendancePresenceState(eventType) {
+  const normalized = String(eventType || "").trim().toLowerCase();
+  if (normalized === "clock_in" || normalized === "break_end") {
+    return "in";
+  }
+  if (normalized === "break_start") {
+    return "pause";
+  }
+  return "out";
+}
+
+function generateAttendanceTerminalToken() {
+  const bytes = new Uint8Array(18);
+  window.crypto.getRandomValues(bytes);
+  return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+async function sha256Hex(value) {
+  const input = new TextEncoder().encode(String(value || ""));
+  const digest = await window.crypto.subtle.digest("SHA-256", input);
+  return Array.from(new Uint8Array(digest), (valueByte) => valueByte.toString(16).padStart(2, "0")).join("");
 }
 
 function pickValue(row, keys) {
@@ -3497,6 +3602,8 @@ function App() {
   const [deleteUserSubmitting, setDeleteUserSubmitting] = useState(false);
   const [masterUserSearch, setMasterUserSearch] = useState("");
   const [masterUserCompanyFilter, setMasterUserCompanyFilter] = useState("all");
+  const [masterCompanySearch, setMasterCompanySearch] = useState("");
+  const [masterCompanyBillingFilter, setMasterCompanyBillingFilter] = useState("all");
   const [occupancyChartRange, setOccupancyChartRange] = useState("week");
   const [occupancySeries, setOccupancySeries] = useState([]);
   const [isCompanySettingsOpen, setIsCompanySettingsOpen] = useState(false);
@@ -3561,6 +3668,30 @@ function App() {
   const [priceListImportSubmitting, setPriceListImportSubmitting] = useState(false);
   const [priceListImportResult, setPriceListImportResult] = useState("");
   const [priceListFormError, setPriceListFormError] = useState("");
+  const [attendanceProfiles, setAttendanceProfiles] = useState([]);
+  const [attendanceTerminals, setAttendanceTerminals] = useState([]);
+  const [attendanceEvents, setAttendanceEvents] = useState([]);
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
+  const [attendanceError, setAttendanceError] = useState("");
+  const [attendanceProfileSearch, setAttendanceProfileSearch] = useState("");
+  const [attendanceEventSearch, setAttendanceEventSearch] = useState("");
+  const [editingAttendanceProfileId, setEditingAttendanceProfileId] = useState("");
+  const [attendanceProfileNameInput, setAttendanceProfileNameInput] = useState("");
+  const [attendanceProfileCodeInput, setAttendanceProfileCodeInput] = useState("");
+  const [attendanceProfilePinInput, setAttendanceProfilePinInput] = useState("");
+  const [attendanceProfileBadgeInput, setAttendanceProfileBadgeInput] = useState("");
+  const [attendanceProfileNoteInput, setAttendanceProfileNoteInput] = useState("");
+  const [attendanceProfileActiveInput, setAttendanceProfileActiveInput] = useState(true);
+  const [attendanceProfileSubmitting, setAttendanceProfileSubmitting] = useState(false);
+  const [attendanceProfileDeletingId, setAttendanceProfileDeletingId] = useState("");
+  const [editingAttendanceTerminalId, setEditingAttendanceTerminalId] = useState("");
+  const [attendanceTerminalNameInput, setAttendanceTerminalNameInput] = useState("");
+  const [attendanceTerminalCodeInput, setAttendanceTerminalCodeInput] = useState("");
+  const [attendanceTerminalNoteInput, setAttendanceTerminalNoteInput] = useState("");
+  const [attendanceTerminalActiveInput, setAttendanceTerminalActiveInput] = useState(true);
+  const [attendanceTerminalSubmitting, setAttendanceTerminalSubmitting] = useState(false);
+  const [attendanceTerminalDeletingId, setAttendanceTerminalDeletingId] = useState("");
+  const [attendanceGeneratedTerminalToken, setAttendanceGeneratedTerminalToken] = useState("");
   const [customers, setCustomers] = useState([]);
   const [quotes, setQuotes] = useState([]);
   const [quoteItems, setQuoteItems] = useState([]);
@@ -3721,7 +3852,7 @@ function App() {
     isMaster || (canAccessMes && Boolean(userCompanyId) && (companies.length === 0 ? true : Boolean(activeCompany?.mes_enabled)));
   const visibleTableNames = useMemo(() => {
     if (isMaster) {
-      return Array.from(new Set([...tableNames, PRICE_LIST_TABLE, CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE, PRODUCTION_MODULE]));
+      return Array.from(new Set([...tableNames, PRICE_LIST_TABLE, CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE, ATTENDANCE_MODULE, PRODUCTION_MODULE]));
     }
     const userBaseTables = Array.from(
       new Set([DAILY_OVERVIEW_TABLE, ...tableNames.filter((table) => !isCompaniesTable(table) && (table === "stock" || isTransactionsTable(table)))])
@@ -3738,6 +3869,7 @@ function App() {
         QUOTES_MODULE,
         INVOICES_MODULE,
         ...(canAccessOrdersModule ? [ORDERS_MODULE] : []),
+        ...(canAccessOrdersModule ? [ATTENDANCE_MODULE] : []),
         ...(canAccessMesModule ? [PRODUCTION_MODULE] : [])
       ])
     );
@@ -5999,6 +6131,293 @@ function App() {
     }
   };
 
+  const resetAttendanceProfileForm = () => {
+    setEditingAttendanceProfileId("");
+    setAttendanceProfileNameInput("");
+    setAttendanceProfileCodeInput("");
+    setAttendanceProfilePinInput("");
+    setAttendanceProfileBadgeInput("");
+    setAttendanceProfileNoteInput("");
+    setAttendanceProfileActiveInput(true);
+  };
+
+  const resetAttendanceTerminalForm = () => {
+    setEditingAttendanceTerminalId("");
+    setAttendanceTerminalNameInput("");
+    setAttendanceTerminalCodeInput("");
+    setAttendanceTerminalNoteInput("");
+    setAttendanceTerminalActiveInput(true);
+    setAttendanceGeneratedTerminalToken("");
+  };
+
+  const resetAttendanceModuleState = () => {
+    setAttendanceProfiles([]);
+    setAttendanceTerminals([]);
+    setAttendanceEvents([]);
+    setAttendanceLoading(false);
+    setAttendanceError("");
+    setAttendanceProfileSearch("");
+    setAttendanceEventSearch("");
+    setAttendanceProfileSubmitting(false);
+    setAttendanceProfileDeletingId("");
+    setAttendanceTerminalSubmitting(false);
+    setAttendanceTerminalDeletingId("");
+    resetAttendanceProfileForm();
+    resetAttendanceTerminalForm();
+  };
+
+  const loadAttendanceModuleData = async () => {
+    if (!authReady || !isLoggedIn || !canAccessOrdersModule) {
+      setAttendanceProfiles([]);
+      setAttendanceTerminals([]);
+      setAttendanceEvents([]);
+      setAttendanceLoading(false);
+      setAttendanceError("");
+      return;
+    }
+
+    setAttendanceLoading(true);
+    setAttendanceError("");
+
+    try {
+      const scopedCompanyId = await resolveCustomerScope();
+      if (!scopedCompanyId) {
+        setAttendanceProfiles([]);
+        setAttendanceTerminals([]);
+        setAttendanceEvents([]);
+        setAttendanceLoading(false);
+        return;
+      }
+
+      const [{ data: profilesData, error: profilesError }, { data: terminalsData, error: terminalsError }, { data: eventsData, error: eventsError }] =
+        await Promise.all([
+          supabase
+            .from("attendance_profiles")
+            .select("id,company_id,employee_code,full_name,pin_code,badge_code,note,is_active,linked_user_id,created_at,updated_at")
+            .eq("company_id", scopedCompanyId)
+            .order("full_name", { ascending: true }),
+          supabase
+            .from("attendance_terminals")
+            .select("id,company_id,terminal_code,name,note,is_active,last_seen_at,created_at,updated_at")
+            .eq("company_id", scopedCompanyId)
+            .order("name", { ascending: true }),
+          supabase
+            .from("attendance_events")
+            .select("id,company_id,profile_id,terminal_id,event_type,source,happened_at,note,created_at")
+            .eq("company_id", scopedCompanyId)
+            .order("happened_at", { ascending: false })
+            .limit(250)
+        ]);
+
+      if (profilesError) {
+        throw profilesError;
+      }
+      if (terminalsError) {
+        throw terminalsError;
+      }
+      if (eventsError) {
+        throw eventsError;
+      }
+
+      setAttendanceProfiles((profilesData || []).map((row) => normalizeAttendanceProfileRow(row)));
+      setAttendanceTerminals((terminalsData || []).map((row) => normalizeAttendanceTerminalRow(row)));
+      setAttendanceEvents((eventsData || []).map((row) => normalizeAttendanceEventRow(row)));
+      markViewDataFresh(ATTENDANCE_MODULE);
+    } catch (loadAttendanceError) {
+      setAttendanceProfiles([]);
+      setAttendanceTerminals([]);
+      setAttendanceEvents([]);
+      setAttendanceError(loadAttendanceError?.message || "Nepodarilo sa načítať dochádzku.");
+    } finally {
+      setAttendanceLoading(false);
+    }
+  };
+
+  const handleEditAttendanceProfile = (profile) => {
+    setEditingAttendanceProfileId(String(profile?.id || ""));
+    setAttendanceProfileNameInput(String(profile?.full_name || ""));
+    setAttendanceProfileCodeInput(String(profile?.employee_code || ""));
+    setAttendanceProfilePinInput(String(profile?.pin_code || ""));
+    setAttendanceProfileBadgeInput(String(profile?.badge_code || ""));
+    setAttendanceProfileNoteInput(String(profile?.note || ""));
+    setAttendanceProfileActiveInput(Boolean(profile?.is_active));
+  };
+
+  const handleSaveAttendanceProfile = async (event) => {
+    event.preventDefault();
+    if (!activeCompanyId) {
+      setAttendanceError("Vyber firmu, pre ktorú chceš spravovať dochádzku.");
+      return;
+    }
+
+    const fullName = String(attendanceProfileNameInput || "").trim();
+    const employeeCode = String(attendanceProfileCodeInput || "").trim();
+    if (!fullName || !employeeCode) {
+      setAttendanceError("Meno a interný kód zamestnanca sú povinné.");
+      return;
+    }
+
+    setAttendanceProfileSubmitting(true);
+    setAttendanceError("");
+    try {
+      const payload = {
+        company_id: activeCompanyId,
+        full_name: fullName,
+        employee_code: employeeCode,
+        pin_code: String(attendanceProfilePinInput || "").trim() || null,
+        badge_code: String(attendanceProfileBadgeInput || "").trim() || null,
+        note: String(attendanceProfileNoteInput || "").trim(),
+        is_active: Boolean(attendanceProfileActiveInput),
+        updated_by: authUser?.id || null
+      };
+
+      let query = supabase.from("attendance_profiles");
+      if (editingAttendanceProfileId) {
+        query = query.update({ ...payload, updated_at: new Date().toISOString() }).eq("id", editingAttendanceProfileId);
+      } else {
+        query = query.insert([{ ...payload, created_by: authUser?.id || null }]);
+      }
+
+      const { error } = await query;
+      if (error) {
+        throw error;
+      }
+
+      resetAttendanceProfileForm();
+      await loadAttendanceModuleData();
+    } catch (saveError) {
+      setAttendanceError(saveError?.message || "Nepodarilo sa uložiť attendance profil.");
+    } finally {
+      setAttendanceProfileSubmitting(false);
+    }
+  };
+
+  const handleDeleteAttendanceProfile = async (profile) => {
+    if (!profile?.id) {
+      return;
+    }
+    if (!window.confirm(`Zmazať attendance profil "${profile.full_name}"?`)) {
+      return;
+    }
+
+    setAttendanceProfileDeletingId(profile.id);
+    setAttendanceError("");
+    try {
+      const { error } = await supabase.from("attendance_profiles").delete().eq("id", profile.id);
+      if (error) {
+        throw error;
+      }
+      if (editingAttendanceProfileId === profile.id) {
+        resetAttendanceProfileForm();
+      }
+      await loadAttendanceModuleData();
+    } catch (deleteError) {
+      setAttendanceError(deleteError?.message || "Nepodarilo sa zmazať attendance profil.");
+    } finally {
+      setAttendanceProfileDeletingId("");
+    }
+  };
+
+  const handleEditAttendanceTerminal = (terminal) => {
+    setEditingAttendanceTerminalId(String(terminal?.id || ""));
+    setAttendanceTerminalNameInput(String(terminal?.name || ""));
+    setAttendanceTerminalCodeInput(String(terminal?.terminal_code || ""));
+    setAttendanceTerminalNoteInput(String(terminal?.note || ""));
+    setAttendanceTerminalActiveInput(Boolean(terminal?.is_active));
+    setAttendanceGeneratedTerminalToken("");
+  };
+
+  const handleSaveAttendanceTerminal = async (event) => {
+    event.preventDefault();
+    if (!activeCompanyId) {
+      setAttendanceError("Vyber firmu, pre ktorú chceš spravovať terminály.");
+      return;
+    }
+
+    const name = String(attendanceTerminalNameInput || "").trim();
+    const terminalCode = String(attendanceTerminalCodeInput || "").trim().toLowerCase();
+    if (!name || !terminalCode) {
+      setAttendanceError("Názov a kód terminálu sú povinné.");
+      return;
+    }
+
+    setAttendanceTerminalSubmitting(true);
+    setAttendanceError("");
+    try {
+      const payload = {
+        company_id: activeCompanyId,
+        name,
+        terminal_code: terminalCode,
+        note: String(attendanceTerminalNoteInput || "").trim(),
+        is_active: Boolean(attendanceTerminalActiveInput),
+        updated_by: authUser?.id || null,
+        updated_at: new Date().toISOString()
+      };
+
+      if (editingAttendanceTerminalId) {
+        const { error } = await supabase.from("attendance_terminals").update(payload).eq("id", editingAttendanceTerminalId);
+        if (error) {
+          throw error;
+        }
+        resetAttendanceTerminalForm();
+      } else {
+        const plainToken = generateAttendanceTerminalToken();
+        const tokenHash = await sha256Hex(plainToken);
+        const { error } = await supabase.from("attendance_terminals").insert([
+          {
+            ...payload,
+            api_token_hash: tokenHash,
+            token_last_rotated_at: new Date().toISOString(),
+            created_by: authUser?.id || null
+          }
+        ]);
+        if (error) {
+          throw error;
+        }
+        setAttendanceGeneratedTerminalToken(`${terminalCode}:${plainToken}`);
+        try {
+          await navigator.clipboard.writeText(`${terminalCode}:${plainToken}`);
+        } catch {
+          // Ignore clipboard failures.
+        }
+        resetAttendanceTerminalForm();
+        setAttendanceGeneratedTerminalToken(`${terminalCode}:${plainToken}`);
+      }
+
+      await loadAttendanceModuleData();
+    } catch (saveError) {
+      setAttendanceError(saveError?.message || "Nepodarilo sa uložiť terminál dochádzky.");
+    } finally {
+      setAttendanceTerminalSubmitting(false);
+    }
+  };
+
+  const handleDeleteAttendanceTerminal = async (terminal) => {
+    if (!terminal?.id) {
+      return;
+    }
+    if (!window.confirm(`Zmazať terminál "${terminal.name}"?`)) {
+      return;
+    }
+
+    setAttendanceTerminalDeletingId(terminal.id);
+    setAttendanceError("");
+    try {
+      const { error } = await supabase.from("attendance_terminals").delete().eq("id", terminal.id);
+      if (error) {
+        throw error;
+      }
+      if (editingAttendanceTerminalId === terminal.id) {
+        resetAttendanceTerminalForm();
+      }
+      await loadAttendanceModuleData();
+    } catch (deleteError) {
+      setAttendanceError(deleteError?.message || "Nepodarilo sa zmazať terminál dochádzky.");
+    } finally {
+      setAttendanceTerminalDeletingId("");
+    }
+  };
+
   const resetProductionDraft = () => {
     setProductionTitleInput("");
     setProductionDraftInputs([createEmptyProductionInputDraft()]);
@@ -8074,6 +8493,7 @@ function App() {
       setRows([]);
       setStockSnapshotRows([]);
       setCompanyProfiles([]);
+      resetAttendanceModuleState();
       setCustomers([]);
       setCustomersError("");
       setCustomersLoading(false);
@@ -8133,6 +8553,49 @@ function App() {
       setLoading(false);
       lastDataRefreshAtRef.current = {};
       return undefined;
+    }
+
+    if (isAttendanceModule(selectedTable)) {
+      setRows([]);
+      setStockSnapshotRows([]);
+      setDeadStockByKey({});
+      setStockAgeStats({ avgDays: null, sampleCount: 0 });
+      setOccupancySeries([]);
+      setLoading(false);
+      if (canAccessOrdersModule) {
+        loadAttendanceModuleData();
+      } else {
+        resetAttendanceModuleState();
+      }
+
+      let reloadTimer = null;
+      const scheduleReload = () => {
+        if (!canAccessOrdersModule) {
+          return;
+        }
+        if (reloadTimer) {
+          window.clearTimeout(reloadTimer);
+        }
+        reloadTimer = window.setTimeout(() => loadAttendanceModuleData(), 350);
+      };
+
+      let channel = null;
+      if (canAccessOrdersModule) {
+        channel = supabase.channel(`attendance-${selectedCompanyId || userCompanyId || "own"}`);
+        ["attendance_profiles", "attendance_terminals", "attendance_events"].forEach((table) => {
+          channel.on("postgres_changes", { event: "*", schema: "public", table }, scheduleReload);
+        });
+        channel.subscribe();
+      }
+
+      return () => {
+        if (reloadTimer) {
+          window.clearTimeout(reloadTimer);
+        }
+        if (channel) {
+          supabase.removeChannel(channel);
+        }
+      };
     }
 
     if (isCustomerModule(selectedTable)) {
@@ -8367,6 +8830,10 @@ function App() {
 
       if (isCustomerModule(selectedTable)) {
         loadCustomersModuleData();
+        return;
+      }
+      if (isAttendanceModule(selectedTable)) {
+        loadAttendanceModuleData();
         return;
       }
       if (isOrdersModule(selectedTable)) {
@@ -8650,6 +9117,146 @@ function App() {
       return haystack.includes(normalizedSearch);
     });
   }, [managedUsers, masterUserSearch, masterUserCompanyFilter, companyNameById]);
+  const filteredCompanies = useMemo(() => {
+    const normalizedSearch = String(masterCompanySearch || "").trim().toLowerCase();
+
+    return companies.filter((company) => {
+      if (masterCompanyBillingFilter !== "all") {
+        if (masterCompanyBillingFilter === "active" && !hasManagedCompanyBilling(company)) {
+          return false;
+        }
+        if (masterCompanyBillingFilter === "issue" && !hasCompanyBillingIssue(company)) {
+          return false;
+        }
+        if (masterCompanyBillingFilter === "inactive" && hasManagedCompanyBilling(company)) {
+          return false;
+        }
+        if (masterCompanyBillingFilter === "custom" && !hasCompanyCustomPricing(company)) {
+          return false;
+        }
+      }
+
+      if (!normalizedSearch) {
+        return true;
+      }
+
+      const haystack = [
+        company.name,
+        company.id,
+        company.billing_status,
+        company.billing_price_note
+      ]
+        .map((value) => String(value || "").toLowerCase())
+        .join(" ");
+
+      return haystack.includes(normalizedSearch);
+    });
+  }, [companies, masterCompanySearch, masterCompanyBillingFilter]);
+  const masterPlatformStats = useMemo(() => {
+    const totalCompanies = companies.length;
+    const billingActive = companies.filter((company) => hasManagedCompanyBilling(company)).length;
+    const billingIssues = companies.filter((company) => hasCompanyBillingIssue(company)).length;
+    const customPricing = companies.filter((company) => hasCompanyCustomPricing(company)).length;
+    const mesEnabled = companies.filter((company) => Boolean(company.mes_enabled)).length;
+    const expiryTracking = companies.filter((company) => Boolean(company.tracks_expiry_date)).length;
+    const totalUsers = managedUsers.length;
+    const masterUsers = managedUsers.filter((row) => row.role === "master").length;
+    const usersWithoutCompany = managedUsers.filter((row) => row.role !== "master" && !row.company_id).length;
+
+    return {
+      totalCompanies,
+      billingActive,
+      billingIssues,
+      customPricing,
+      mesEnabled,
+      expiryTracking,
+      totalUsers,
+      masterUsers,
+      usersWithoutCompany
+    };
+  }, [companies, managedUsers]);
+  const attendanceProfilesById = useMemo(
+    () => Object.fromEntries(attendanceProfiles.map((row) => [row.id, row])),
+    [attendanceProfiles]
+  );
+  const attendanceTerminalsById = useMemo(
+    () => Object.fromEntries(attendanceTerminals.map((row) => [row.id, row])),
+    [attendanceTerminals]
+  );
+  const filteredAttendanceProfiles = useMemo(() => {
+    const normalizedSearch = String(attendanceProfileSearch || "").trim().toLowerCase();
+    if (!normalizedSearch) {
+      return attendanceProfiles;
+    }
+
+    return attendanceProfiles.filter((row) =>
+      [row.full_name, row.employee_code, row.badge_code, row.pin_code, row.note]
+        .map((value) => String(value || "").toLowerCase())
+        .join(" ")
+        .includes(normalizedSearch)
+    );
+  }, [attendanceProfiles, attendanceProfileSearch]);
+  const filteredAttendanceEvents = useMemo(() => {
+    const normalizedSearch = String(attendanceEventSearch || "").trim().toLowerCase();
+    if (!normalizedSearch) {
+      return attendanceEvents;
+    }
+
+    return attendanceEvents.filter((row) => {
+      const profile = attendanceProfilesById[row.profile_id] || null;
+      const terminal = attendanceTerminalsById[row.terminal_id] || null;
+      return [
+        getAttendanceEventLabel(row.event_type),
+        profile?.full_name,
+        profile?.employee_code,
+        terminal?.name,
+        row.note,
+        formatDate(row.happened_at)
+      ]
+        .map((value) => String(value || "").toLowerCase())
+        .join(" ")
+        .includes(normalizedSearch);
+    });
+  }, [attendanceEvents, attendanceEventSearch, attendanceProfilesById, attendanceTerminalsById]);
+  const attendancePresenceByProfileId = useMemo(() => {
+    const sortedEvents = [...attendanceEvents].sort((a, b) => new Date(b.happened_at || 0).getTime() - new Date(a.happened_at || 0).getTime());
+    const nextMap = {};
+    sortedEvents.forEach((row) => {
+      if (!row.profile_id || nextMap[row.profile_id]) {
+        return;
+      }
+      nextMap[row.profile_id] = {
+        state: getAttendancePresenceState(row.event_type),
+        eventType: row.event_type,
+        happenedAt: row.happened_at,
+        terminalId: row.terminal_id || ""
+      };
+    });
+    return nextMap;
+  }, [attendanceEvents]);
+  const attendanceSummary = useMemo(() => {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const startMs = startOfToday.getTime();
+    const todayEvents = attendanceEvents.filter((row) => {
+      const happenedMs = new Date(row.happened_at || "").getTime();
+      return Number.isFinite(happenedMs) && happenedMs >= startMs;
+    });
+    const clockedInCount = Object.values(attendancePresenceByProfileId).filter((row) => row.state === "in" || row.state === "pause").length;
+    const onlineTerminals = attendanceTerminals.filter((row) => {
+      const lastSeenMs = new Date(row.last_seen_at || "").getTime();
+      return row.is_active && Number.isFinite(lastSeenMs) && Date.now() - lastSeenMs <= 5 * 60 * 1000;
+    }).length;
+
+    return {
+      profiles: attendanceProfiles.length,
+      activeProfiles: attendanceProfiles.filter((row) => row.is_active).length,
+      clockedInCount,
+      todayEvents: todayEvents.length,
+      terminals: attendanceTerminals.length,
+      onlineTerminals
+    };
+  }, [attendanceProfiles, attendanceEvents, attendanceTerminals, attendancePresenceByProfileId]);
 
   const metricValue = useMemo(() => effectiveTableConfig.metricValue(rows), [rows, effectiveTableConfig]);
   const issueCount = useMemo(() => {
@@ -9926,7 +10533,7 @@ function App() {
   }, [machineDashboardRows]);
   const sidebarSections = useMemo(() => {
     const manufacturingItems = [PRODUCTION_MODULE].filter((table) => visibleTableNames.includes(table));
-    const workflowItems = [PRICE_LIST_TABLE, CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE].filter((table) =>
+    const workflowItems = [PRICE_LIST_TABLE, CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE, ATTENDANCE_MODULE].filter((table) =>
       visibleTableNames.includes(table)
     );
     const monitoringItems = visibleTableNames.filter((table) => !workflowItems.includes(table) && !manufacturingItems.includes(table));
@@ -10419,6 +11026,7 @@ function App() {
     setCompanyInvoiceStyleInput("clean");
     setCompanyInvoiceIntroTextInput("");
     setCompanyInvoiceOutroTextInput("");
+    resetAttendanceModuleState();
     setBillingSubmittingAction("");
     setBillingError("");
     setBillingMessage("");
@@ -11362,6 +11970,10 @@ function App() {
                   loadCustomersModuleData();
                   return;
                 }
+                if (isAttendanceModule(selectedTable)) {
+                  loadAttendanceModuleData();
+                  return;
+                }
                 if (isQuoteModule(selectedTable)) {
                   loadQuotesModuleData();
                   return;
@@ -12222,17 +12834,18 @@ function App() {
 
       {isMaster && (
         <section className="panel master-panel">
-          <div className="panel-head">
+          <div className="panel-head master-panel-head">
             <div>
+              <p className="workflow-eyebrow">Superadmin</p>
               <h2>Master Dashboard</h2>
-              <p className="panel-meta">Správa používateľov pre tento Supabase projekt</p>
+              <p className="panel-meta">Tenanty, billing, prístupy a servisné nástroje pre celý WMS projekt.</p>
             </div>
             <div className="master-head-actions">
               <button type="button" className="refresh-btn" onClick={loadCompanies}>
-                Obnoviť firmy
+                Obnoviť tenantov
               </button>
               <button type="button" className="refresh-btn" onClick={loadManagedUsers} disabled={managedUsersLoading}>
-                {managedUsersLoading ? "Načítavam..." : "Obnoviť používateľov"}
+                {managedUsersLoading ? "Načítavam..." : "Obnoviť účty"}
               </button>
               <button
                 type="button"
@@ -12245,6 +12858,37 @@ function App() {
             </div>
           </div>
 
+          <div className="master-summary-grid">
+            <article className="card master-summary-card">
+              <p>Tenanty</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(masterPlatformStats.totalCompanies)}</strong>
+              <span>{`${masterPlatformStats.expiryTracking} s expiráciou | ${masterPlatformStats.mesEnabled} s MES`}</span>
+            </article>
+            <article className="card master-summary-card">
+              <p>Billing aktívny</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(masterPlatformStats.billingActive)}</strong>
+              <span>{`${masterPlatformStats.customPricing} s custom cenou`}</span>
+            </article>
+            <article className="card master-summary-card">
+              <p>Billing problémy</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(masterPlatformStats.billingIssues)}</strong>
+              <span>past_due, unpaid, incomplete</span>
+            </article>
+            <article className="card master-summary-card">
+              <p>Používatelia</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(masterPlatformStats.totalUsers)}</strong>
+              <span>{`${masterPlatformStats.masterUsers} master | ${masterPlatformStats.usersWithoutCompany} bez firmy`}</span>
+            </article>
+          </div>
+
+          <div className="master-layout">
+          <article className="master-section-card">
+            <div className="workflow-subsection-head">
+              <div>
+                <h3>Tenant management</h3>
+                <p className="panel-meta">Zakladanie firiem, demo profilov a rýchly kontext nad vybraným tenantom.</p>
+              </div>
+            </div>
           <form className="master-company-form" onSubmit={handleCreateCompany}>
             <input
               type="text"
@@ -12267,6 +12911,25 @@ function App() {
             </button>
           </form>
 
+          {activeCompany ? (
+            <div className="master-focus-card">
+              <strong>{activeCompany.name}</strong>
+              <p>{`Vybraný tenant: ${activeCompany.id}`}</p>
+              <span>{activeCompany.tracks_expiry_date ? "Sleduje expiráciu" : "Bez expirácie"}</span>
+              <span>{activeCompany.mes_enabled ? "MES zapnuté" : "MES vypnuté"}</span>
+            </div>
+          ) : (
+            <p className="settings-hint">Keď v hlavičke vyberieš konkrétnu firmu, tu sa zobrazí jej stručný kontext.</p>
+          )}
+          </article>
+
+          <article className="master-section-card">
+            <div className="workflow-subsection-head">
+              <div>
+                <h3>Prístupy a role</h3>
+                <p className="panel-meta">Tvorba interných účtov a mapovanie práv na tenantov.</p>
+              </div>
+            </div>
           <form className="master-create-form" onSubmit={handleCreateManagedUser}>
             <input
               type="text"
@@ -12324,7 +12987,7 @@ function App() {
               {createUserSubmitting ? "Vytváram..." : "Vytvoriť účet"}
             </button>
           </form>
-          <div className="master-head-actions">
+          <div className="master-inline-actions">
             <button
               type="button"
               className="refresh-btn"
@@ -12340,7 +13003,16 @@ function App() {
               {`Demo login: ${lastCreatedDemoCredentials.username} | heslo: ${lastCreatedDemoCredentials.password} | firma: ${lastCreatedDemoCredentials.companyName}`}
             </p>
           )}
+          <p className="settings-hint">Master účet vidí všetky firmy. User účet môže byť bez firmy len dočasne, kým ho nepriradíš.</p>
+          </article>
 
+          <article className="master-section-card">
+            <div className="workflow-subsection-head">
+              <div>
+                <h3>Platform tools</h3>
+                <p className="panel-meta">QR utility a servisné zásahy, ktoré nepatria koncovému používateľovi.</p>
+              </div>
+            </div>
           <form className="master-qr-form" onSubmit={handleGenerateQrLabels}>
             <input
               type="text"
@@ -12414,14 +13086,16 @@ function App() {
             otvoria v tlačovom okne ako 40 mm x 40 mm PDF.
           </p>
           {qrGeneratorError && <p className="error">{qrGeneratorError}</p>}
+          </article>
 
-          <section className="pricing-panel">
-            <div className="panel-head">
+          <article className="master-section-card">
+            <div className="workflow-subsection-head">
               <div>
-                <h2>Kalkulačka ceny</h2>
-                <p className="panel-meta">Interný odhad setupu a mesačnej ceny pre WMS nasadenie.</p>
+                <h3>Pricing stratégia</h3>
+                <p className="panel-meta">Referenčná kalkulačka pre billing a custom pricing override na tenantovi.</p>
               </div>
             </div>
+          <section className="pricing-panel master-pricing-panel">
             <div className="pricing-grid">
               <label className="settings-field">
                 <span>Počet zamestnancov</span>
@@ -12478,12 +13152,39 @@ function App() {
               </article>
             </div>
           </section>
+          </article>
+
+          </div>
 
           {managedUsersError && <p className="error">{managedUsersError}</p>}
           {companiesError && <p className="error">{companiesError}</p>}
           {billingMessage && <p className="settings-hint">{billingMessage}</p>}
           {billingError && <p className="error">{billingError}</p>}
 
+          <section className="master-section-card master-table-section">
+          <div className="panel-head">
+            <div>
+              <h3>Tenant portfolio</h3>
+              <p className="panel-meta">Operatívny prehľad firiem, billing stavu a master zásahov na tenant úrovni.</p>
+            </div>
+          </div>
+          <div className="panel-controls master-filters">
+            <input
+              type="search"
+              className="search-input"
+              placeholder="Hľadaj firmu, billing stav alebo poznámku"
+              value={masterCompanySearch}
+              onChange={(event) => setMasterCompanySearch(event.target.value)}
+            />
+            <select value={masterCompanyBillingFilter} onChange={(event) => setMasterCompanyBillingFilter(event.target.value)}>
+              <option value="all">Všetky firmy</option>
+              <option value="active">Aktívny billing</option>
+              <option value="issue">Billing problém</option>
+              <option value="inactive">Bez aktívneho billing</option>
+              <option value="custom">Custom pricing</option>
+            </select>
+            <span className="panel-meta">{`Nájdené firmy: ${filteredCompanies.length} / ${companies.length}`}</span>
+          </div>
           <div className="table-wrap">
             <table className="master-users-table">
               <thead>
@@ -12498,7 +13199,7 @@ function App() {
                 </tr>
               </thead>
               <tbody>
-                {companies.map((company) => {
+                {filteredCompanies.map((company) => {
                   const isEditing = editingCompanyId === company.id;
                   const companyBillingPricing = resolveCompanyBillingPricing(company, pricingEstimate);
                   return (
@@ -12665,11 +13366,24 @@ function App() {
                     </tr>
                   );
                 })}
+                {filteredCompanies.length === 0 && (
+                  <tr>
+                    <td colSpan={7}>Žiadne firmy pre tento filter.</td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
+          </section>
 
-          <div className="panel-controls">
+          <section className="master-section-card master-table-section">
+          <div className="panel-head">
+            <div>
+              <h3>Platform users</h3>
+              <p className="panel-meta">Správa interných používateľov, rolí a tenant prístupov.</p>
+            </div>
+          </div>
+          <div className="panel-controls master-filters">
             <input
               type="search"
               className="search-input"
@@ -12794,11 +13508,408 @@ function App() {
                 ))}
                 {filteredManagedUsers.length === 0 && (
                   <tr>
-                    <td colSpan={7}>Žiadne účty pre tento filter.</td>
+                    <td colSpan={8}>Žiadne účty pre tento filter.</td>
                   </tr>
                 )}
               </tbody>
             </table>
+          </div>
+          </section>
+        </section>
+      )}
+
+      {isAttendanceModule(selectedTable) && canAccessOrdersModule && (
+        <section className="panel workflow-shell workflow-shell-attendance">
+          <div className="panel-head workflow-header">
+            <div>
+              <p className="workflow-eyebrow">Dochádzka</p>
+              <h2>Attendance terminál</h2>
+              <p className="panel-meta">
+                {activeCompanyId
+                  ? `Správa zamestnancov, terminálov a dochádzkových eventov pre firmu ${currentCompanyLabel}`
+                  : "Vyber konkrétnu firmu, aby sa dala spravovať dochádzka a Android terminály."}
+              </p>
+            </div>
+          </div>
+
+          {attendanceError && <p className="error">{attendanceError}</p>}
+
+          <div className="orders-summary-grid workflow-summary-grid">
+            <article className="card workflow-stat-card">
+              <p>Profily</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(attendanceSummary.profiles)}</strong>
+              <span>{`${attendanceSummary.activeProfiles} aktívnych`}</span>
+            </article>
+            <article className="card workflow-stat-card">
+              <p>V práci</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(attendanceSummary.clockedInCount)}</strong>
+              <span>príchod alebo pauza</span>
+            </article>
+            <article className="card workflow-stat-card">
+              <p>Eventy dnes</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(attendanceSummary.todayEvents)}</strong>
+              <span>príchody, odchody a pauzy</span>
+            </article>
+            <article className="card workflow-stat-card">
+              <p>Terminály online</p>
+              <strong>{`${new Intl.NumberFormat("sk-SK").format(attendanceSummary.onlineTerminals)} / ${new Intl.NumberFormat("sk-SK").format(attendanceSummary.terminals)}`}</strong>
+              <span>heartbeat do 5 minút</span>
+            </article>
+          </div>
+
+          <div className="orders-layout workflow-grid attendance-layout">
+            <div className="orders-column workflow-editor-column">
+              <article className="orders-panel-card workflow-card workflow-card-strong">
+                <div className="panel-head workflow-section-head">
+                  <div>
+                    <p className="workflow-section-kicker">{editingAttendanceProfileId ? "Úprava profilu" : "Nový profil"}</p>
+                    <h2>{editingAttendanceProfileId ? "Upraviť zamestnanca" : "Pridať zamestnanca"}</h2>
+                    <p className="panel-meta">Profil sa páruje podľa interného kódu, PIN-u alebo badge kódu z Android terminálu.</p>
+                  </div>
+                </div>
+
+                <form className="orders-form" onSubmit={handleSaveAttendanceProfile}>
+                  <div className="workflow-field-grid">
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Meno a priezvisko</span>
+                      <input
+                        type="text"
+                        className="search-input"
+                        value={attendanceProfileNameInput}
+                        onChange={(event) => setAttendanceProfileNameInput(event.target.value)}
+                        disabled={!activeCompanyId || attendanceProfileSubmitting}
+                        required
+                      />
+                    </label>
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Interný kód</span>
+                      <input
+                        type="text"
+                        className="search-input"
+                        value={attendanceProfileCodeInput}
+                        onChange={(event) => setAttendanceProfileCodeInput(event.target.value)}
+                        disabled={!activeCompanyId || attendanceProfileSubmitting}
+                        required
+                      />
+                    </label>
+                  </div>
+                  <div className="workflow-field-grid">
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">PIN</span>
+                      <input
+                        type="text"
+                        className="search-input"
+                        placeholder="napr. 1234"
+                        value={attendanceProfilePinInput}
+                        onChange={(event) => setAttendanceProfilePinInput(event.target.value)}
+                        disabled={!activeCompanyId || attendanceProfileSubmitting}
+                      />
+                    </label>
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Badge / QR</span>
+                      <input
+                        type="text"
+                        className="search-input"
+                        placeholder="scan kód"
+                        value={attendanceProfileBadgeInput}
+                        onChange={(event) => setAttendanceProfileBadgeInput(event.target.value)}
+                        disabled={!activeCompanyId || attendanceProfileSubmitting}
+                      />
+                    </label>
+                  </div>
+                  <label className="workflow-field">
+                    <span className="workflow-field-label">Poznámka</span>
+                    <textarea
+                      className="order-note-input"
+                      placeholder="Voliteľná interná poznámka"
+                      value={attendanceProfileNoteInput}
+                      onChange={(event) => setAttendanceProfileNoteInput(event.target.value)}
+                      disabled={!activeCompanyId || attendanceProfileSubmitting}
+                    />
+                  </label>
+                  <label className="pricing-options">
+                    <input
+                      type="checkbox"
+                      checked={attendanceProfileActiveInput}
+                      onChange={(event) => setAttendanceProfileActiveInput(event.target.checked)}
+                      disabled={!activeCompanyId || attendanceProfileSubmitting}
+                    />
+                    <span>Profil je aktívny na termináloch</span>
+                  </label>
+                  <div className="orders-form-actions">
+                    <button type="submit" className="settings-btn" disabled={!activeCompanyId || attendanceProfileSubmitting}>
+                      {attendanceProfileSubmitting ? "Ukladám..." : editingAttendanceProfileId ? "Uložiť profil" : "Pridať profil"}
+                    </button>
+                    {editingAttendanceProfileId && (
+                      <button type="button" className="clear-btn" onClick={resetAttendanceProfileForm} disabled={attendanceProfileSubmitting}>
+                        Zrušiť úpravu
+                      </button>
+                    )}
+                  </div>
+                </form>
+              </article>
+
+              <article className="orders-panel-card workflow-card workflow-card-soft">
+                <div className="panel-head workflow-section-head">
+                  <div>
+                    <p className="workflow-section-kicker">{editingAttendanceTerminalId ? "Úprava terminálu" : "Nový terminál"}</p>
+                    <h2>{editingAttendanceTerminalId ? "Upraviť Android terminál" : "Pridať Android terminál"}</h2>
+                    <p className="panel-meta">Po vytvorení sa vygeneruje credential pár `terminal_code:token`, ktorý vložíš do Android appky.</p>
+                  </div>
+                </div>
+
+                <form className="orders-form" onSubmit={handleSaveAttendanceTerminal}>
+                  <div className="workflow-field-grid">
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Názov terminálu</span>
+                      <input
+                        type="text"
+                        className="search-input"
+                        value={attendanceTerminalNameInput}
+                        onChange={(event) => setAttendanceTerminalNameInput(event.target.value)}
+                        disabled={!activeCompanyId || attendanceTerminalSubmitting}
+                        required
+                      />
+                    </label>
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Kód terminálu</span>
+                      <input
+                        type="text"
+                        className="search-input"
+                        placeholder="napr. reception-1"
+                        value={attendanceTerminalCodeInput}
+                        onChange={(event) => setAttendanceTerminalCodeInput(event.target.value)}
+                        disabled={!activeCompanyId || attendanceTerminalSubmitting}
+                        required
+                      />
+                    </label>
+                  </div>
+                  <label className="workflow-field">
+                    <span className="workflow-field-label">Poznámka</span>
+                    <textarea
+                      className="order-note-input"
+                      placeholder="Kde je terminál umiestnený"
+                      value={attendanceTerminalNoteInput}
+                      onChange={(event) => setAttendanceTerminalNoteInput(event.target.value)}
+                      disabled={!activeCompanyId || attendanceTerminalSubmitting}
+                    />
+                  </label>
+                  <label className="pricing-options">
+                    <input
+                      type="checkbox"
+                      checked={attendanceTerminalActiveInput}
+                      onChange={(event) => setAttendanceTerminalActiveInput(event.target.checked)}
+                      disabled={!activeCompanyId || attendanceTerminalSubmitting}
+                    />
+                    <span>Terminál je aktívny</span>
+                  </label>
+                  <div className="orders-form-actions">
+                    <button type="submit" className="settings-btn" disabled={!activeCompanyId || attendanceTerminalSubmitting}>
+                      {attendanceTerminalSubmitting ? "Ukladám..." : editingAttendanceTerminalId ? "Uložiť terminál" : "Pridať terminál"}
+                    </button>
+                    {(editingAttendanceTerminalId || attendanceGeneratedTerminalToken) && (
+                      <button type="button" className="clear-btn" onClick={resetAttendanceTerminalForm} disabled={attendanceTerminalSubmitting}>
+                        Vyčistiť
+                      </button>
+                    )}
+                  </div>
+                </form>
+
+                {attendanceGeneratedTerminalToken && (
+                  <div className="attendance-terminal-token">
+                    <span className="draft-field-label">Credential pre Android Studio</span>
+                    <code>{attendanceGeneratedTerminalToken}</code>
+                    <p className="settings-hint">Token sa zobrazí len po vytvorení terminálu. Skopíruj ho do konfigurácie Android appky.</p>
+                  </div>
+                )}
+              </article>
+            </div>
+
+            <div className="orders-column workflow-feed-column attendance-feed-column">
+              <article className="orders-panel-card workflow-card workflow-card-list">
+                <div className="panel-head workflow-section-head">
+                  <div>
+                    <h2>Zamestnanci</h2>
+                    <p className="panel-meta">{`${filteredAttendanceProfiles.length} / ${attendanceProfiles.length} profilov`}</p>
+                  </div>
+                  <input
+                    type="search"
+                    className="search-input workflow-list-search"
+                    placeholder="Hľadaj meno, kód, badge alebo PIN"
+                    value={attendanceProfileSearch}
+                    onChange={(event) => setAttendanceProfileSearch(event.target.value)}
+                    disabled={!activeCompanyId}
+                  />
+                </div>
+
+                {attendanceLoading ? (
+                  <p className="hint">Načítavam dochádzku...</p>
+                ) : filteredAttendanceProfiles.length === 0 ? (
+                  <p className="hint">Zatiaľ tu nie sú žiadne attendance profily.</p>
+                ) : (
+                  <div className="orders-list attendance-list">
+                    {filteredAttendanceProfiles.map((profile) => {
+                      const presence = attendancePresenceByProfileId[profile.id] || null;
+                      const terminal = presence?.terminalId ? attendanceTerminalsById[presence.terminalId] || null : null;
+                      return (
+                        <article key={profile.id} className="order-card attendance-card">
+                          <div className="order-card-head attendance-card-head">
+                            <div>
+                              <strong>{profile.full_name}</strong>
+                              <p>{`${profile.employee_code}${profile.badge_code ? ` | badge ${profile.badge_code}` : ""}`}</p>
+                            </div>
+                            <div className="attendance-card-pills">
+                              <StatusPill status={profile.is_active ? presence?.state || "out" : "inactive"} />
+                              {!profile.is_active && <span className="table-badge">vypnutý profil</span>}
+                            </div>
+                          </div>
+                          <div className="order-detail attendance-card-body">
+                            <div className="attendance-meta-grid">
+                              <div>
+                                <span className="draft-field-label">PIN</span>
+                                <p>{profile.pin_code || "-"}</p>
+                              </div>
+                              <div>
+                                <span className="draft-field-label">Posledný terminál</span>
+                                <p>{terminal?.name || "-"}</p>
+                              </div>
+                              <div>
+                                <span className="draft-field-label">Posledný event</span>
+                                <p>{presence ? `${getAttendanceEventLabel(presence.eventType)} | ${formatCell(presence.happenedAt, "date_time")}` : "-"}</p>
+                              </div>
+                              <div className="attendance-meta-grid-wide">
+                                <span className="draft-field-label">Poznámka</span>
+                                <p>{profile.note || "-"}</p>
+                              </div>
+                            </div>
+                            <div className="order-card-actions">
+                              <button type="button" className="clear-btn" onClick={() => handleEditAttendanceProfile(profile)}>
+                                Upraviť
+                              </button>
+                              <button
+                                type="button"
+                                className="clear-btn"
+                                onClick={() => handleDeleteAttendanceProfile(profile)}
+                                disabled={attendanceProfileDeletingId === profile.id}
+                              >
+                                {attendanceProfileDeletingId === profile.id ? "Mažem..." : "Zmazať"}
+                              </button>
+                            </div>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </article>
+
+              <article className="orders-panel-card workflow-card workflow-card-list">
+                <div className="panel-head workflow-section-head">
+                  <div>
+                    <h2>Terminály</h2>
+                    <p className="panel-meta">Heartbeat sa považuje za online 5 minút od posledného pingu.</p>
+                  </div>
+                </div>
+
+                {attendanceLoading ? (
+                  <p className="hint">Načítavam terminály...</p>
+                ) : attendanceTerminals.length === 0 ? (
+                  <p className="hint">Zatiaľ tu nie sú žiadne attendance terminály.</p>
+                ) : (
+                  <div className="orders-list attendance-list">
+                    {attendanceTerminals.map((terminal) => {
+                      const lastSeenMs = new Date(terminal.last_seen_at || "").getTime();
+                      const isOnline = terminal.is_active && Number.isFinite(lastSeenMs) && Date.now() - lastSeenMs <= 5 * 60 * 1000;
+                      return (
+                        <article key={terminal.id} className="order-card attendance-card">
+                          <div className="order-card-head attendance-card-head">
+                            <div>
+                              <strong>{terminal.name}</strong>
+                              <p>{terminal.terminal_code}</p>
+                            </div>
+                            <div className="attendance-card-pills">
+                              <StatusPill status={terminal.is_active ? (isOnline ? "active" : "inactive") : "inactive"} />
+                              {isOnline && <span className="table-badge">online</span>}
+                            </div>
+                          </div>
+                          <div className="order-detail attendance-card-body">
+                            <div className="attendance-meta-grid">
+                              <div>
+                                <span className="draft-field-label">Posledný ping</span>
+                                <p>{terminal.last_seen_at ? formatCell(terminal.last_seen_at, "date_time") : "-"}</p>
+                              </div>
+                              <div className="attendance-meta-grid-wide">
+                                <span className="draft-field-label">Poznámka</span>
+                                <p>{terminal.note || "-"}</p>
+                              </div>
+                            </div>
+                            <div className="order-card-actions">
+                              <button type="button" className="clear-btn" onClick={() => handleEditAttendanceTerminal(terminal)}>
+                                Upraviť
+                              </button>
+                              <button
+                                type="button"
+                                className="clear-btn"
+                                onClick={() => handleDeleteAttendanceTerminal(terminal)}
+                                disabled={attendanceTerminalDeletingId === terminal.id}
+                              >
+                                {attendanceTerminalDeletingId === terminal.id ? "Mažem..." : "Zmazať"}
+                              </button>
+                            </div>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </article>
+
+              <article className="orders-panel-card workflow-card workflow-card-list">
+                <div className="panel-head workflow-section-head">
+                  <div>
+                    <h2>Posledné eventy</h2>
+                    <p className="panel-meta">{`${filteredAttendanceEvents.length} / ${attendanceEvents.length} eventov`}</p>
+                  </div>
+                  <input
+                    type="search"
+                    className="search-input workflow-list-search"
+                    placeholder="Hľadaj event, zamestnanca alebo terminál"
+                    value={attendanceEventSearch}
+                    onChange={(event) => setAttendanceEventSearch(event.target.value)}
+                    disabled={!activeCompanyId}
+                  />
+                </div>
+
+                {attendanceLoading ? (
+                  <p className="hint">Načítavam eventy...</p>
+                ) : filteredAttendanceEvents.length === 0 ? (
+                  <p className="hint">Zatiaľ tu nie sú žiadne attendance eventy.</p>
+                ) : (
+                  <div className="attendance-event-list">
+                    {filteredAttendanceEvents.slice(0, 40).map((event) => {
+                      const profile = attendanceProfilesById[event.profile_id] || null;
+                      const terminal = attendanceTerminalsById[event.terminal_id] || null;
+                      return (
+                        <article key={event.id} className="attendance-event-card">
+                          <div className="attendance-event-head">
+                            <div>
+                              <strong>{profile?.full_name || profile?.employee_code || "Neznámy profil"}</strong>
+                              <p>{terminal?.name || terminal?.terminal_code || "web/import"}</p>
+                            </div>
+                            <StatusPill status={event.event_type} />
+                          </div>
+                          <div className="attendance-event-meta">
+                            <span>{formatCell(event.happened_at, "date_time")}</span>
+                            <span>{event.source || "-"}</span>
+                            {event.note && <span>{event.note}</span>}
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </article>
+            </div>
           </div>
         </section>
       )}

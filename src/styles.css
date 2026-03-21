@@ -546,9 +546,76 @@ select {
   margin-top: 1rem;
 }
 
+.master-panel-head {
+  align-items: flex-start;
+}
+
 .master-head-actions {
   display: inline-flex;
+  flex-wrap: wrap;
   gap: 0.4rem;
+}
+
+.master-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.7rem;
+  margin-bottom: 0.9rem;
+}
+
+.master-summary-card {
+  border-color: #d7e4f2;
+  background: linear-gradient(180deg, #fbfdff, #f4f8fd);
+}
+
+.master-summary-card span {
+  display: block;
+  margin-top: 0.35rem;
+  color: #617588;
+  font-size: 0.78rem;
+}
+
+.master-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin-bottom: 0.9rem;
+}
+
+.master-section-card {
+  border: 1px solid #dce6f2;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #fbfdff, #f7fbff);
+  padding: 0.95rem;
+}
+
+.master-table-section {
+  margin-top: 0.9rem;
+}
+
+.master-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+  margin: 0.7rem 0;
+}
+
+.master-focus-card {
+  display: grid;
+  gap: 0.18rem;
+  margin-top: 0.75rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid #d6e2ef;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.master-focus-card p,
+.master-focus-card span {
+  margin: 0;
+  color: #627486;
+  font-size: 0.8rem;
 }
 
 .master-company-form {
@@ -681,6 +748,10 @@ select {
 
 .workflow-shell-production::before {
   background: linear-gradient(135deg, rgba(0, 120, 110, 0.16), rgba(255, 255, 255, 0));
+}
+
+.workflow-shell-attendance::before {
+  background: linear-gradient(135deg, rgba(214, 122, 30, 0.16), rgba(255, 255, 255, 0));
 }
 
 .workflow-header,
@@ -1976,6 +2047,14 @@ select {
   margin-top: 0.45rem;
 }
 
+.master-pricing-panel {
+  margin: 0;
+}
+
+.master-filters {
+  margin-bottom: 0.75rem;
+}
+
 .master-users-table td .table-badge {
   margin-left: 0.35rem;
 }
@@ -2839,7 +2918,9 @@ tbody tr:nth-child(even) {
 
 .pill-healthy,
 .pill-in,
+.pill-break_end,
 .pill-restock,
+.pill-clock_in,
 .pill-receive,
 .pill-completed,
 .pill-accepted,
@@ -2852,6 +2933,7 @@ tbody tr:nth-child(even) {
 
 .pill-failed,
 .pill-error,
+.pill-clock_out,
 .pill-out,
 .pill-issue,
 .pill-rejected,
@@ -2863,6 +2945,8 @@ tbody tr:nth-child(even) {
 }
 
 .pill-pending,
+.pill-pause,
+.pill-break_start,
 .pill-draft,
 .pill-sent,
 .pill-adjust,
@@ -2884,6 +2968,114 @@ tbody tr:nth-child(even) {
 .error {
   color: #b10000;
   font-weight: 600;
+}
+
+.attendance-layout {
+  grid-template-columns: minmax(360px, 0.92fr) minmax(0, 1.38fr);
+}
+
+.attendance-feed-column {
+  width: 100%;
+  justify-self: stretch;
+}
+
+.attendance-terminal-token {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.9rem;
+  border: 1px solid #ecd5b7;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #fff7ef, #fffdf9);
+}
+
+.attendance-terminal-token code {
+  display: block;
+  overflow-wrap: anywhere;
+  padding: 0.75rem 0.85rem;
+  border-radius: 14px;
+  background: #17212b;
+  color: #f3f7fb;
+  font-size: 0.84rem;
+}
+
+.attendance-list {
+  gap: 0.7rem;
+}
+
+.attendance-card {
+  border-radius: 18px;
+}
+
+.attendance-card-head {
+  align-items: flex-start;
+}
+
+.attendance-card-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  justify-content: flex-end;
+}
+
+.attendance-card-body {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.attendance-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.attendance-meta-grid p {
+  margin: 0.18rem 0 0;
+}
+
+.attendance-meta-grid-wide {
+  grid-column: 1 / -1;
+}
+
+.attendance-event-list {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.attendance-event-card {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.95rem 1rem;
+  border: 1px solid #dde6f1;
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(247, 251, 255, 0.92));
+  box-shadow: 0 10px 22px rgba(23, 33, 43, 0.05);
+}
+
+.attendance-event-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.85rem;
+  align-items: flex-start;
+}
+
+.attendance-event-head p {
+  margin: 0.15rem 0 0;
+  color: var(--muted);
+}
+
+.attendance-event-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.attendance-event-meta span {
+  padding: 0.18rem 0.48rem;
+  border-radius: 999px;
+  background: #eef4fb;
+  color: #38506a;
+  font-size: 0.76rem;
 }
 
 .login-screen {
@@ -3268,6 +3460,14 @@ tbody tr:nth-child(even) {
     grid-template-columns: 1fr;
   }
 
+  .attendance-meta-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .attendance-event-head {
+    flex-direction: column;
+  }
+
   .workflow-list-search {
     min-width: 0;
     width: 100%;
@@ -3304,6 +3504,17 @@ tbody tr:nth-child(even) {
 
   .stock-view-switch .clear-btn {
     width: 100%;
+  }
+
+  .master-summary-grid,
+  .master-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .master-company-form,
+  .master-create-form,
+  .master-qr-form {
+    grid-template-columns: 1fr;
   }
 
   .stock-twin-shell {
@@ -3399,11 +3610,13 @@ tbody tr:nth-child(even) {
 }
 
 @media (max-width: 1180px) {
+  .attendance-layout,
   .workflow-shell-quotes .orders-layout,
   .workflow-shell-invoices .orders-layout {
     grid-template-columns: 1fr;
   }
 
+  .attendance-feed-column,
   .workflow-shell-quotes .workflow-feed-column,
   .workflow-shell-invoices .workflow-feed-column {
     width: 100%;

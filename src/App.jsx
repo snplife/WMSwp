@@ -795,6 +795,7 @@ function createDefaultCompanyAdminSetupDraft(overrides = {}) {
   return {
     companyId: String(overrides?.companyId || "").trim(),
     companyName: String(overrides?.companyName || "").trim(),
+    contactPhone: String(overrides?.contactPhone || "").trim(),
     warehouseCount: String(overrides?.warehouseCount || "1").trim() || "1",
     employeeCount: String(overrides?.employeeCount || "10").trim() || "10",
     officeUserCount: String(overrides?.officeUserCount || "3").trim() || "3",
@@ -4043,6 +4044,7 @@ function App() {
   const [authUsernameInput, setAuthUsernameInput] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authRegisterEmailInput, setAuthRegisterEmailInput] = useState("");
+  const [authRegisterPhoneInput, setAuthRegisterPhoneInput] = useState("");
   const [authRegisterUsernameInput, setAuthRegisterUsernameInput] = useState("");
   const [authRegisterCompanyNameInput, setAuthRegisterCompanyNameInput] = useState("");
   const [authRegisterPasswordInput, setAuthRegisterPasswordInput] = useState("");
@@ -5307,6 +5309,7 @@ function App() {
           mode: "company_admin_setup",
           userId: user.id,
           email,
+          contactPhone: String(pendingBootstrap?.phone || user.user_metadata?.phone || "").trim(),
           companyId: String(signupBootstrapData?.company_id || "").trim() || null,
           companyName: String(signupBootstrapData?.company_name || pendingBootstrap.companyName || "").trim()
         });
@@ -12186,6 +12189,7 @@ function App() {
     setAuthReady(true);
 
     const email = String(authRegisterEmailInput || "").trim().toLowerCase();
+    const phone = String(authRegisterPhoneInput || "").trim();
     const username = normalizeUsernameInput(authRegisterUsernameInput || usernameFromInternalEmail(email));
     const password = String(authRegisterPasswordInput || "");
     const inviteToken = normalizeInviteToken(authRegisterInviteTokenInput);
@@ -12203,6 +12207,12 @@ function App() {
       return;
     }
 
+    if (!phone) {
+      setAuthError("Zadaj telefónne číslo.");
+      setAuthSubmitting(false);
+      return;
+    }
+
     if (password.length < MIN_MANAGED_PASSWORD_LENGTH) {
       setAuthError(`Heslo musí mať aspoň ${MIN_MANAGED_PASSWORD_LENGTH} znakov.`);
       setAuthSubmitting(false);
@@ -12216,8 +12226,8 @@ function App() {
     }
 
     const pendingBootstrapPayload = inviteToken
-      ? { mode: "invite", email, username, inviteToken }
-      : { mode: "signup", email, username, companyName };
+      ? { mode: "invite", email, username, phone, inviteToken }
+      : { mode: "signup", email, username, phone, companyName };
 
     setPendingAuthBootstrap(pendingBootstrapPayload);
     if (inviteToken) {
@@ -12238,7 +12248,8 @@ function App() {
       password,
       options: {
         data: {
-          username
+          username,
+          phone
         }
       }
     });
@@ -12464,7 +12475,7 @@ function App() {
 
             <div className="landing-hero-copy">
               <p className="landing-hero-kicker">Sklad, výroba, dochádzka a fakturácia v jednom prostredí</p>
-              <h1>Jedna platforma pre firmu, ktorá už nechce fungovať cez Excel a ručné prepisy</h1>
+              <h1>Platforma pre firmy, ktoré chcú zvyšovať efektivitu a nezaspali na inováciách</h1>
               <p className="subtitle">
                 WMS Online pomáha firmám dostať sklad, dokumenty a operatívu do jedného systému. Namiesto rozbitých
                 evidencií dostaneš prehľadný web, Android terminály a setup podľa reálnej prevádzky.
@@ -12686,6 +12697,19 @@ function App() {
                           onChange={(event) => setAuthRegisterEmailInput(event.target.value)}
                           required
                           autoComplete="email"
+                        />
+                      </label>
+                      <label className="login-label auth-field" htmlFor="register-phone">
+                        <span>Telefón</span>
+                        <input
+                          id="register-phone"
+                          type="tel"
+                          className="search-input"
+                          value={authRegisterPhoneInput}
+                          onChange={(event) => setAuthRegisterPhoneInput(event.target.value)}
+                          required
+                          autoComplete="tel"
+                          inputMode="tel"
                         />
                       </label>
                       <label className="login-label auth-field auth-field-full" htmlFor="register-password">

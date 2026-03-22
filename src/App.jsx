@@ -4638,6 +4638,10 @@ function App() {
     () => normalizeCompanyBillingStatus(activeCompany?.billing_status),
     [activeCompany?.billing_status]
   );
+  const isActiveCompanyBasicFree = useMemo(
+    () => !isMaster && String(activeCompany?.billing_plan_key || "").trim().toLowerCase() === "basic_free",
+    [isMaster, activeCompany?.billing_plan_key]
+  );
   const activeCompanyLeadSetup = useMemo(() => {
     if (!activeCompanyId) {
       return null;
@@ -4695,6 +4699,9 @@ function App() {
         ])
       );
     }
+    if (isActiveCompanyBasicFree) {
+      return [PRICE_LIST_TABLE, CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE];
+    }
     const userBaseTables = Array.from(
       new Set([DAILY_OVERVIEW_TABLE, ...tableNames.filter((table) => !isCompaniesTable(table) && (table === "stock" || isTransactionsTable(table)))])
     );
@@ -4717,7 +4724,7 @@ function App() {
         ...(canAccessMesModule ? [PRODUCTION_MODULE] : [])
       ])
     );
-  }, [isMaster, canAccessOrdersModule, canAccessMesModule]);
+  }, [isMaster, isActiveCompanyBasicFree, canAccessOrdersModule, canAccessMesModule]);
   const normalizedStockTwinLayout = useMemo(() => normalizeStockTwinLayout(stockTwinLayout), [stockTwinLayout]);
   const customersById = useMemo(
     () => Object.fromEntries(customers.map((customer) => [customer.id, customer])),
@@ -5490,7 +5497,25 @@ function App() {
         inviteDrafts: Array.isArray(savedDraft.inviteDrafts) ? savedDraft.inviteDrafts : []
       };
 
-      if (!selectedOnlyInvoicingModule) {
+      if (selectedOnlyInvoicingModule) {
+        const basicActivationResult = await postBillingRequest("/checkout", {
+          companyId: activeCompanyId,
+          billingCycle: "monthly",
+          pricing: {
+            employees: 0,
+            users: 1,
+            warehouses: 1,
+            needsCustomSupport: false,
+            selectedModules: ["invoicing"]
+          },
+          onboardingSetup
+        });
+
+        if (basicActivationResult?.url && !basicActivationResult?.activatedDirectly) {
+          window.location.assign(basicActivationResult.url);
+          return;
+        }
+      } else {
         await postAuthenticatedRequest("/api/v1/onboarding/submit-interest", {
           companyId: activeCompanyId,
           onboardingSetup

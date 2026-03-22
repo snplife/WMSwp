@@ -11,7 +11,7 @@ function readBearerToken(req) {
   return authorization.slice(7).trim();
 }
 
-export async function requireAuthenticatedCompanyManager(req, requestedCompanyId = "") {
+export async function requireAuthenticatedUser(req) {
   const accessToken = readBearerToken(req);
   if (!accessToken) {
     return {
@@ -44,6 +44,23 @@ export async function requireAuthenticatedCompanyManager(req, requestedCompanyId
   if (appUserError) {
     throw new Error(`app user lookup failed: ${appUserError.message}`);
   }
+
+  return {
+    ok: true,
+    supabase,
+    user,
+    appUser: appUser || null,
+    accessToken
+  };
+}
+
+export async function requireAuthenticatedCompanyManager(req, requestedCompanyId = "") {
+  const authResult = await requireAuthenticatedUser(req);
+  if (!authResult.ok) {
+    return authResult;
+  }
+
+  const { supabase, user, appUser } = authResult;
 
   if (!appUser) {
     return {

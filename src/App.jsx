@@ -550,15 +550,15 @@ const LANDING_FLOW_SCENARIOS = [
     key: "attendance",
     icon: Clock3,
     eyebrow: "Dochádzka",
-    title: "Zmeny, prítomnosť a kapacita tímu",
+    title: "Smeny, prítomnosť a kapacita tímu",
     detail: "Terminály a HR modul ukážu, kto je na zmene, koľko ľudí je na linke a kde hrozí výpadok kapacity.",
-    metric: "92% obsadenie zmeny",
+    metric: "92% obsadenie smeny",
     panelTitle: "Dochádzková vrstva",
-    panelLabel: "Živý sample zmeny",
+    panelLabel: "Živý sample smeny",
     kpis: [
       { label: "Prítomní", value: "25", note: "z 27 plánovaných" },
       { label: "Absencie", value: "2", note: "1 PN, 1 dovolenka" },
-      { label: "Kapacita", value: "92%", note: "obsadenie zmeny" }
+      { label: "Kapacita", value: "92%", note: "obsadenie smeny" }
     ],
     bars: [
       { label: "Ranná zmena", value: "92%", width: "92%" },
@@ -566,7 +566,7 @@ const LANDING_FLOW_SCENARIOS = [
       { label: "Skladový tím", value: "96%", width: "96%" }
     ],
     events: [
-      { time: "09:12", text: "Dochádzka potvrdila plný nábeh rannej zmeny na 3 pracoviskách" },
+      { time: "09:12", text: "Dochádzka potvrdila plný nábeh rannej smeny na 3 pracoviskách" },
       { time: "09:20", text: "Vedúci vidí absenciu operátora a presun na náhradné pracovisko" },
       { time: "09:33", text: "Kapacitný prehľad znížil výkon plánu na pracovisku Montáž 1" }
     ]
@@ -611,14 +611,14 @@ const LANDING_FLOW_SCENARIOS = [
       { label: "Marža", value: "23.1%", note: "na dnešných zákazkách" }
     ],
     bars: [
-      { label: "Výkon zmeny", value: "78.4%", width: "78%" },
+      { label: "Výkon smeny", value: "78.4%", width: "78%" },
       { label: "Plnenie termínov", value: "86%", width: "86%" },
       { label: "Maržová disciplína", value: "73%", width: "73%" }
     ],
     events: [
       { time: "10:30", text: "Dashboard vyhodnotil pokles výkonu na jednej linke a dopad na maržu" },
       { time: "10:52", text: "KPI tabuľa upozornila na rast čakacej doby medzi skladom a montážou" },
-      { time: "11:06", text: "Vedúci výroby porovnal aktuálny výkon zmeny s plánom a minulým týždňom" }
+      { time: "11:06", text: "Vedúci výroby porovnal aktuálny výkon smeny s plánom a minulým týždňom" }
     ]
   },
   {
@@ -4396,6 +4396,10 @@ function App() {
   const [companyInvites, setCompanyInvites] = useState([]);
   const [companyInvitesLoading, setCompanyInvitesLoading] = useState(false);
   const [companyInvitesError, setCompanyInvitesError] = useState("");
+  const [companyInvitesMessage, setCompanyInvitesMessage] = useState("");
+  const [incomingCompanyInvites, setIncomingCompanyInvites] = useState([]);
+  const [incomingCompanyInvitesLoading, setIncomingCompanyInvitesLoading] = useState(false);
+  const [incomingCompanyInvitesError, setIncomingCompanyInvitesError] = useState("");
   const [companyAdminSetupDraft, setCompanyAdminSetupDraft] = useState(() => createDefaultCompanyAdminSetupDraft());
   const [companyAdminSetupMessage, setCompanyAdminSetupMessage] = useState("");
   const [isCompanyAdminSetupOpen, setIsCompanyAdminSetupOpen] = useState(false);
@@ -4410,6 +4414,7 @@ function App() {
   const [inviteCanAccessMesInput, setInviteCanAccessMesInput] = useState(false);
   const [inviteSubmitting, setInviteSubmitting] = useState(false);
   const [inviteRevokingId, setInviteRevokingId] = useState("");
+  const [incomingInviteAcceptingId, setIncomingInviteAcceptingId] = useState("");
   const [qrRackPrefix, setQrRackPrefix] = useState("A");
   const [qrRowCount, setQrRowCount] = useState("1");
   const [qrColumnCount, setQrColumnCount] = useState("1");
@@ -5133,6 +5138,7 @@ function App() {
 
     setCompanyInvitesLoading(true);
     setCompanyInvitesError("");
+    setCompanyInvitesMessage("");
     const { data, error: invitesError } = await supabase
       .from("company_invites")
       .select("*")
@@ -5148,6 +5154,48 @@ function App() {
 
     setCompanyInvites(data || []);
     setCompanyInvitesLoading(false);
+  };
+
+  const loadIncomingCompanyInvites = async () => {
+    if (!authReady || !isLoggedIn) {
+      setIncomingCompanyInvites([]);
+      setIncomingCompanyInvitesLoading(false);
+      return;
+    }
+
+    const {
+      data: { session }
+    } = await supabase.auth.getSession();
+    const accessToken = String(session?.access_token || "").trim();
+
+    if (!accessToken) {
+      setIncomingCompanyInvites([]);
+      setIncomingCompanyInvitesLoading(false);
+      return;
+    }
+
+    setIncomingCompanyInvitesLoading(true);
+    setIncomingCompanyInvitesError("");
+
+    try {
+      const response = await noStoreFetch("/api/v1/invites/incoming", {
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        }
+      });
+      const payload = await response.json().catch(() => null);
+
+      if (!response.ok || !payload?.ok) {
+        throw new Error(payload?.error || "Nepodarilo sa načítať firemné pozvánky.");
+      }
+
+      setIncomingCompanyInvites(Array.isArray(payload?.invites) ? payload.invites : []);
+    } catch (error) {
+      setIncomingCompanyInvites([]);
+      setIncomingCompanyInvitesError(error instanceof Error ? error.message : "Nepodarilo sa načítať firemné pozvánky.");
+    } finally {
+      setIncomingCompanyInvitesLoading(false);
+    }
   };
 
   const handleCompanyAdminSetupDraftChange = (field, value) => {
@@ -6609,6 +6657,7 @@ function App() {
 
     setInviteSubmitting(true);
     setCompanyInvitesError("");
+    setCompanyInvitesMessage("");
     const { data, error: inviteError } = await supabase
       .from("company_invites")
       .insert({
@@ -6640,6 +6689,7 @@ function App() {
     setInviteEmailInput("");
     setInviteCanManageOrdersInput(false);
     setInviteCanAccessMesInput(false);
+    setCompanyInvitesMessage("Pozvánka je vytvorená. Existujúci účet s týmto emailom ju uvidí po prihlásení ako internú notifikáciu. Link je zároveň skopírovaný do schránky.");
     setInviteSubmitting(false);
     await loadCompanyInvites(activeCompanyId);
   };
@@ -6651,6 +6701,7 @@ function App() {
 
     setInviteRevokingId(invite.id);
     setCompanyInvitesError("");
+    setCompanyInvitesMessage("");
     const { error: revokeError } = await supabase
       .from("company_invites")
       .update({ status: "revoked", revoked_at: new Date().toISOString() })
@@ -6672,11 +6723,45 @@ function App() {
       return;
     }
 
+    setCompanyInvitesMessage("");
     const inviteUrl = `${window.location.origin}${window.location.pathname}?invite=${inviteToken}`;
     try {
       await navigator.clipboard.writeText(inviteUrl);
     } catch {
       setCompanyInvitesError("Pozvánku sa nepodarilo skopírovať do schránky.");
+    }
+  };
+
+  const handleAcceptIncomingCompanyInvite = async (invite) => {
+    const inviteToken = normalizeInviteToken(invite?.token || "");
+    if (!inviteToken) {
+      setIncomingCompanyInvitesError("Pozvánka nemá platný token.");
+      return;
+    }
+
+    setIncomingInviteAcceptingId(invite.id);
+    setIncomingCompanyInvitesError("");
+
+    try {
+      const { error: inviteAcceptError } = await supabase.rpc("accept_company_invite", {
+        p_token: inviteToken,
+        p_username: authUsername || usernameFromInternalEmail(authUser?.email)
+      });
+
+      if (inviteAcceptError) {
+        throw inviteAcceptError;
+      }
+
+      await supabase.auth.refreshSession();
+      await loadIncomingCompanyInvites();
+      await loadCompanies();
+      await loadManagedUsers();
+      setBillingMessage(`Pozvánka do firmy ${invite.company_name || "Firma"} bola prijatá.`);
+      setBillingError("");
+    } catch (error) {
+      setIncomingCompanyInvitesError(error?.message || "Pozvánku sa nepodarilo prijať.");
+    } finally {
+      setIncomingInviteAcceptingId("");
     }
   };
 
@@ -9870,6 +9955,17 @@ function App() {
   }, [authReady, isLoggedIn]);
 
   useEffect(() => {
+    if (!authReady || !isLoggedIn) {
+      setIncomingCompanyInvites([]);
+      setIncomingCompanyInvitesLoading(false);
+      setIncomingCompanyInvitesError("");
+      return;
+    }
+
+    void loadIncomingCompanyInvites();
+  }, [authReady, isLoggedIn, authUser?.email]);
+
+  useEffect(() => {
     let mounted = true;
     let hydrationSequence = 0;
     const clearInitTimeout = () => {
@@ -12292,7 +12388,7 @@ function App() {
       [
         { table: ROLE_TABLE, label: "Zamestnanci", description: "Profily, identifikácia a personálne karty", icon: Users },
         { table: ATTENDANCE_MODULE, label: "Dochádzka", description: "Operatíva, eventy a aktuálna prítomnosť", icon: Clock3 },
-        { table: ATTENDANCE_GROUPS_MODULE, label: "Skupiny", description: "Zmeny, rozpisy a prestávky", icon: ClipboardList },
+        { table: ATTENDANCE_GROUPS_MODULE, label: "Skupiny", description: "Smeny, rozpisy a prestávky", icon: ClipboardList },
         { table: ATTENDANCE_SETTINGS_MODULE, label: "Nastavenia", description: "Terminály, tokeny a prepojenie HR modulov", icon: Settings2 }
       ].filter((item) => visibleTableNames.includes(item.table)),
     [visibleTableNames]
@@ -12347,67 +12443,6 @@ function App() {
       unpricedCount: selectedItems.filter((item) => typeof item.lineTotal !== "number").length
     };
   }, [companyAdminSetupDraft, companyHardwarePriceCatalog]);
-  const landingPricingPlans = useMemo(
-    () => [
-      {
-        key: "basic",
-        eyebrow: "Bezplatný štart",
-        title: "Basic",
-        price: "Zdarma",
-        detail: "Fakturácia a cenové ponuky pre menšie firmy alebo prvý štart.",
-        estimate: estimateWmsPricing({
-          employees: 5,
-          users: 1,
-          warehouses: 1,
-          selectedModules: ["invoicing"]
-        }),
-        features: ["Cenové ponuky", "Faktúry", "Zákazníci", "Bez mesačného poplatku"],
-        accentClass: "is-free"
-      },
-      {
-        key: "operations",
-        eyebrow: "Prevádzkový základ",
-        title: "Factory OS Start",
-        price: `${new Intl.NumberFormat("sk-SK").format(
-          estimateWmsPricing({ employees: 15, users: 5, warehouses: 1, selectedModules: ["wms"] }).monthly
-        )} EUR / mes.`,
-        detail: "Pre firmy, ktoré chcú rozbehnúť sklad a digitálne pohyby materiálu.",
-        estimate: estimateWmsPricing({
-          employees: 15,
-          users: 5,
-          warehouses: 1,
-          selectedModules: ["wms"]
-        }),
-        features: ["WMS / sklad", "1 sklad v cene", "5 používateľov v cene", "Setup podľa prevádzky"],
-        accentClass: "is-paid"
-      },
-      {
-        key: "growth",
-        eyebrow: "Rastúca firma",
-        title: "Factory OS Growth",
-        price: `${new Intl.NumberFormat("sk-SK").format(
-          estimateWmsPricing({ employees: 50, users: 8, warehouses: 2, selectedModules: ["wms", "attendance", "invoicing"] }).monthly
-        )} EUR / mes.`,
-        detail: "Pre sklad, dochádzku a viac prevádzkových rolí v jednej firme.",
-        estimate: estimateWmsPricing({
-          employees: 50,
-          users: 8,
-          warehouses: 2,
-          selectedModules: ["wms", "attendance", "invoicing"]
-        }),
-        features: ["Viac používateľov", "Viac skladov", "Dochádzka", "Silnejší onboarding"],
-        accentClass: "is-paid"
-      }
-    ],
-    []
-  );
-  const landingHardwareHighlights = useMemo(
-    () =>
-      companyHardwareCatalogRows
-        .filter((option) => typeof option.configuredPriceExVat === "number")
-        .slice(0, 4),
-    [companyHardwareCatalogRows]
-  );
   const companyAdminPlannedInvites = useMemo(
     () =>
       (Array.isArray(companyAdminSetupDraft.inviteDrafts) ? companyAdminSetupDraft.inviteDrafts : []).filter(
@@ -13451,7 +13486,7 @@ function App() {
                     <Settings2 size={17} strokeWidth={2.05} />
                   </span>
                   <strong>Cena podľa reality firmy</strong>
-                  <p>Rozhoduje výber modulov, hardware, onboarding a reálny rollout, nie umelo nafúknutá usage metriku.</p>
+                  <p>Rozhoduje výber modulov, hardware, onboarding a reálny rollout, nie umelo nafúknuté usage metriky.</p>
                 </article>
               </div>
             </article>
@@ -13543,84 +13578,6 @@ function App() {
                     ))}
                   </div>
                 </div>
-              </div>
-            </div>
-          </article>
-
-          <article className="landing-card landing-pricing-section">
-            <div className="landing-pricing-head">
-              <div>
-                <p className="auth-kicker">Cenník</p>
-                <h2>Jasný štart zdarma, sklad a prevádzka už ako platené moduly</h2>
-                <p className="panel-meta">
-                  Basic vrstva je určená pre fakturáciu a cenové ponuky. Ak firma chce sklad, dochádzku, výrobu alebo
-                  širšiu prevádzku, onboarding už pripraví platený setup aj hardware podľa reálnej potreby.
-                </p>
-              </div>
-            </div>
-
-            <div className="landing-pricing-grid">
-              {landingPricingPlans.map((plan) => (
-                <article key={plan.key} className={`landing-pricing-card ${plan.accentClass}`}>
-                  <span className="landing-pricing-eyebrow">{plan.eyebrow}</span>
-                  <h3>{plan.title}</h3>
-                  <strong className="landing-pricing-price">{plan.price}</strong>
-                  <p>{plan.detail}</p>
-                  <div className="landing-pricing-meta">
-                    <span>{`Setup ${formatCurrencyValue(plan.estimate.setup)} bez DPH`}</span>
-                    {!plan.estimate.isFreeBasic && <span>{`${plan.estimate.users} používateľov / ${plan.estimate.warehouses} sklad`}</span>}
-                  </div>
-                  <ul className="landing-pricing-features">
-                    {plan.features.map((feature) => (
-                      <li key={feature}>{feature}</li>
-                    ))}
-                  </ul>
-                </article>
-              ))}
-            </div>
-
-            <div className="landing-pricing-module-grid" aria-label="Cenník modulov">
-              {COMPANY_ADMIN_MODULE_OPTIONS.map((moduleOption) => {
-                const Icon = getModuleIcon(moduleOption.iconKey);
-                return (
-                  <article key={moduleOption.key} className="landing-pricing-module-card">
-                    <div className="landing-pricing-module-head">
-                      <span className="landing-pricing-module-icon" aria-hidden="true">
-                        <Icon size={18} strokeWidth={2.05} />
-                      </span>
-                      <div>
-                        <strong>{moduleOption.label}</strong>
-                        <span>{moduleOption.pricingLabel}</span>
-                      </div>
-                    </div>
-                    <p>{moduleOption.description}</p>
-                  </article>
-                );
-              })}
-            </div>
-
-            <div className="landing-hardware-section">
-              <div className="landing-hardware-head">
-                <strong>Orientačný hardware</strong>
-                <span>Ceny bez DPH, finálne nacenenie sa môže upraviť podľa rollout-u a montáže.</span>
-              </div>
-              <div className="landing-hardware-grid">
-                {landingHardwareHighlights.map((item) => (
-                  <article key={item.key} className="landing-hardware-card">
-                    <strong>{item.label}</strong>
-                    <p>{item.description}</p>
-                    <span>{`${formatCurrencyValue(item.configuredPriceExVat)} / ks`}</span>
-                  </article>
-                ))}
-                {COMPANY_ADMIN_HARDWARE_OPTIONS.filter((item) => typeof normalizePriceInput(companyHardwarePriceCatalog?.[item.key]) !== "number")
-                  .slice(0, 2)
-                  .map((item) => (
-                    <article key={item.key} className="landing-hardware-card is-custom">
-                      <strong>{item.label}</strong>
-                      <p>{item.description}</p>
-                      <span>Individuálne naceniť</span>
-                    </article>
-                  ))}
               </div>
             </div>
           </article>
@@ -14974,6 +14931,51 @@ function App() {
         </div>
       </section>
 
+      {(incomingCompanyInvitesLoading || incomingCompanyInvitesError || incomingCompanyInvites.length > 0) && (
+        <section className="panel incoming-invites-panel">
+          <div className="panel-head">
+            <div>
+              <p className="workflow-eyebrow">Notifikácie</p>
+              <h2>Firemné pozvánky</h2>
+              <p className="panel-meta">Ak ti admin vytvoril pozvánku na email tvojho účtu, zobrazí sa tu po prihlásení.</p>
+            </div>
+          </div>
+          {incomingCompanyInvitesError && <p className="error">{incomingCompanyInvitesError}</p>}
+          {incomingCompanyInvitesLoading ? (
+            <p className="panel-meta">Načítavam firemné pozvánky...</p>
+          ) : incomingCompanyInvites.length > 0 ? (
+            <div className="incoming-invites-list">
+              {incomingCompanyInvites.map((invite) => (
+                <article key={invite.id} className="incoming-invite-card">
+                  <div className="incoming-invite-copy">
+                    <strong>{invite.company_name || "Firma"}</strong>
+                    <p>
+                      {[
+                        invite.can_manage_orders ? "objednávky" : "",
+                        invite.can_access_mes ? "MES" : ""
+                      ].filter(Boolean).join(" | ") || "základný prístup"}
+                    </p>
+                    <span>{invite.expires_at ? `Platí do ${formatDate(invite.expires_at)}` : "Pozvánka bez nastavenej expirácie"}</span>
+                  </div>
+                  <div className="incoming-invite-actions">
+                    <button
+                      type="button"
+                      className="settings-btn"
+                      onClick={() => handleAcceptIncomingCompanyInvite(invite)}
+                      disabled={incomingInviteAcceptingId === invite.id}
+                    >
+                      {incomingInviteAcceptingId === invite.id ? "Prijímam..." : "Prijať pozvánku"}
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className="panel-meta">Momentálne nemáš žiadne čakajúce firemné pozvánky.</p>
+          )}
+        </section>
+      )}
+
       {selectedTable === "stock" && isCompanySettingsOpen && (
         <section className="panel">
           <div className="panel-head">
@@ -15278,7 +15280,7 @@ function App() {
                   <div className="workflow-form-section" ref={companyInvitesSectionRef}>
                     <div className="workflow-subsection-head">
                       <h3>Pozvánky do firmy</h3>
-                      <p className="panel-meta">Noví používatelia si môžu vytvoriť účet sami a pripojiť sa cez invite link.</p>
+                      <p className="panel-meta">Existujúci účet s týmto emailom uvidí pozvánku ako internú notifikáciu po prihlásení. Invite link ostáva ako fallback pre nový účet.</p>
                     </div>
                     <div className="invite-form">
                       <label className="settings-field">
@@ -15321,6 +15323,7 @@ function App() {
                       </button>
                     </div>
                     {companyInvitesError && <p className="error">{companyInvitesError}</p>}
+                    {companyInvitesMessage && <p className="settings-hint">{companyInvitesMessage}</p>}
                     {companyInvitesLoading ? (
                       <p className="panel-meta">Načítavam pozvánky...</p>
                     ) : companyInvites.length > 0 ? (

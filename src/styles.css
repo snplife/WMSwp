@@ -2319,6 +2319,54 @@ select {
   gap: 0.75rem;
 }
 
+.incoming-invites-panel {
+  margin-top: 1rem;
+  background:
+    radial-gradient(circle at top right, rgba(36, 89, 135, 0.08), transparent 30%),
+    radial-gradient(circle at bottom left, rgba(214, 122, 30, 0.08), transparent 24%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(244, 248, 253, 0.96));
+}
+
+.incoming-invites-list {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.incoming-invite-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.95rem 1rem;
+  border-radius: 18px;
+  border: 1px solid #dce7f1;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(245, 249, 254, 0.94));
+  box-shadow: 0 12px 22px rgba(23, 33, 43, 0.05);
+}
+
+.incoming-invite-copy {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.incoming-invite-copy strong {
+  color: #17324a;
+  font-size: 0.95rem;
+}
+
+.incoming-invite-copy p,
+.incoming-invite-copy span {
+  margin: 0;
+  color: #66798d;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.incoming-invite-actions {
+  flex-shrink: 0;
+}
+
 .table-wrap {
   overflow-x: auto;
   border: 1px solid #e7edf5;
@@ -6250,6 +6298,19 @@ tbody tr:nth-child(even) {
   .empty-state {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .incoming-invite-card {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .incoming-invite-actions {
+    width: 100%;
+  }
+
+  .incoming-invite-actions .settings-btn {
+    width: 100%;
   }
 }
 

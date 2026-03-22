@@ -4816,6 +4816,7 @@ function App() {
   }, [productionOrderOutputs]);
   const productionOrderInsights = useMemo(() => {
     const nowMs = Date.now();
+    const startOfTodayMs = new Date(new Date().setHours(0, 0, 0, 0)).getTime();
     const rows = productionOrders.map((order) => {
       const orderId = String(order.id || "");
       const inputs = productionInputsByOrderId[orderId] || [];
@@ -4850,7 +4851,12 @@ function App() {
 
     const openRows = rows.filter((row) => !row.isCompleted);
     const completedRows = rows.filter((row) => row.isCompleted);
+    const todayCompletedRows = completedRows.filter((row) => {
+      const completedAtMs = Date.parse(row.completed_at || "");
+      return Number.isFinite(completedAtMs) && completedAtMs >= startOfTodayMs;
+    });
     const returnedQuantity = completedRows.reduce((sum, row) => sum + Number(row.outputQuantity || 0), 0);
+    const todayReturnedQuantity = todayCompletedRows.reduce((sum, row) => sum + Number(row.outputQuantity || 0), 0);
     const averageCompletedDurationMs =
       completedRows.length > 0
         ? completedRows.reduce((sum, row) => sum + Number(row.durationMs || 0), 0) / completedRows.length
@@ -4860,9 +4866,12 @@ function App() {
       rows,
       openRows,
       completedRows,
+      todayCompletedRows,
       openCount: openRows.length,
       completedCount: completedRows.length,
+      todayCompletedCount: todayCompletedRows.length,
       returnedQuantity,
+      todayReturnedQuantity,
       averageCompletedDurationMs
     };
   }, [productionOrders, productionInputsByOrderId, productionOutputsByOrderId]);
@@ -20500,6 +20509,22 @@ function App() {
               <p>Posledná operácia</p>
               <strong className="small-text">{lastTimestamp}</strong>
             </article>
+            {canAccessMesModule && (
+              <>
+                <article className="card">
+                  <p>Vo výrobe</p>
+                  <strong>{new Intl.NumberFormat("sk-SK").format(productionOrderInsights.openCount)}</strong>
+                </article>
+                <article className="card">
+                  <p>Dnes dokončené výroby</p>
+                  <strong>{new Intl.NumberFormat("sk-SK").format(productionOrderInsights.todayCompletedCount)}</strong>
+                </article>
+                <article className="card">
+                  <p>Dnes vrátené do skladu</p>
+                  <strong>{`${new Intl.NumberFormat("sk-SK").format(productionOrderInsights.todayReturnedQuantity)} ks`}</strong>
+                </article>
+              </>
+            )}
           </>
         )}
         {!isDailyOverviewTable(selectedTable) && selectedTable !== "stock" && (
@@ -20612,6 +20637,26 @@ function App() {
                 </div>
               )}
             </article>
+            {canAccessMesModule && (
+              <article className="card">
+                <p>Aktívne výrobné objednávky</p>
+                {productionOrderInsights.openRows.length === 0 ? (
+                  <p className="hint">Aktuálne nie je nič vo výrobe.</p>
+                ) : (
+                  <div className="daily-activity-list">
+                    {productionOrderInsights.openRows.slice(0, 6).map((productionOrder) => (
+                      <div key={productionOrder.id} className="daily-activity-item">
+                        <div>
+                          <strong>{productionOrder.production_number || "-"}</strong>
+                          <p>{`${productionOrder.title || "-"} | výstup ${productionOrder.outputMaterialLabel}`}</p>
+                        </div>
+                        <span>{productionOrder.activeDurationLabel}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </article>
+            )}
           </div>
         </section>
       )}

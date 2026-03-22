@@ -38,13 +38,55 @@ const ATTENDANCE_SHIFT_OPTIONS = [
   { value: "continuous", label: "Nepretržitá" },
   { value: "custom", label: "Vlastný režim" }
 ];
+const COMPANY_ADMIN_MODULE_OPTIONS = [
+  { key: "wms", label: "WMS", description: "Sklad, pohyby materiálu, lokácie a mobilný picking" },
+  { key: "mes", label: "MES", description: "Výroba, pracoviská a výrobné terminály pri linke" },
+  { key: "attendance", label: "Dochádzka", description: "Príchody, odchody, skupiny a Android terminály" },
+  { key: "invoicing", label: "Fakturácia", description: "Zákazníci, cenové ponuky a faktúry" }
+];
 const COMPANY_ADMIN_HARDWARE_OPTIONS = [
-  { key: "mobile_scanners", label: "PDA Skladník", description: "príjem, výdaj, inventúra v sklade", priceExVat: 509 },
-  { key: "label_printer", label: "Tlač etikiet", description: "pozície, materiál, interné štítky", priceExVat: null },
-  { key: "attendance_terminal", label: "Dochádzkový terminál", description: "Android kiosk pre príchody a odchody", priceExVat: 419 },
-  { key: "mes_terminal", label: "MES terminál", description: "výrobný terminál pri pracovisku s montážou", priceExVat: 519 },
-  { key: "tablets_dashboard", label: "Tablety / dashboardy", description: "vedúci, skladníci alebo majstri", priceExVat: null },
-  { key: "network_upgrade", label: "Sieť a Wi‑Fi", description: "pokrytie haly, kiosk zóna, stabilita terminálov", priceExVat: null }
+  {
+    key: "mobile_scanners",
+    label: "PDA Skladník",
+    description: "príjem, výdaj, inventúra v sklade",
+    priceExVat: 509,
+    moduleKeys: ["wms"]
+  },
+  {
+    key: "label_printer",
+    label: "Tlač etikiet",
+    description: "pozície, materiál, interné štítky",
+    priceExVat: null,
+    moduleKeys: ["wms", "invoicing"]
+  },
+  {
+    key: "attendance_terminal",
+    label: "Dochádzkový terminál",
+    description: "Android kiosk pre príchody a odchody",
+    priceExVat: 419,
+    moduleKeys: ["attendance"]
+  },
+  {
+    key: "mes_terminal",
+    label: "MES terminál",
+    description: "výrobný terminál pri pracovisku s montážou",
+    priceExVat: 519,
+    moduleKeys: ["mes"]
+  },
+  {
+    key: "tablets_dashboard",
+    label: "Tablety / dashboardy",
+    description: "vedúci, skladníci alebo majstri",
+    priceExVat: null,
+    moduleKeys: ["mes", "attendance", "invoicing"]
+  },
+  {
+    key: "network_upgrade",
+    label: "Sieť a Wi‑Fi",
+    description: "pokrytie haly, kiosk zóna, stabilita terminálov",
+    priceExVat: null,
+    moduleKeys: ["wms", "mes", "attendance", "invoicing"]
+  }
 ];
 
 const TABLE_CONFIG = {
@@ -697,13 +739,30 @@ function clearPendingCompanyAdminSetup() {
   removeStoredJson(PENDING_COMPANY_ADMIN_SETUP_STORAGE_KEY);
 }
 
+function createEmptyCompanyAdminInviteDraft(index = 0, overrides = {}) {
+  return {
+    draftId: String(overrides?.draftId || `${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`),
+    email: String(overrides?.email || "").trim(),
+    position: String(overrides?.position || "").trim(),
+    canManageOrders: Boolean(overrides?.canManageOrders),
+    canAccessMes: Boolean(overrides?.canAccessMes)
+  };
+}
+
 function createDefaultCompanyAdminSetupDraft(overrides = {}) {
+  const defaultModuleSelections = Object.fromEntries(COMPANY_ADMIN_MODULE_OPTIONS.map((option) => [option.key, false]));
   const defaultHardwareSelections = Object.fromEntries(COMPANY_ADMIN_HARDWARE_OPTIONS.map((option) => [option.key, false]));
   const defaultHardwareQuantities = Object.fromEntries(COMPANY_ADMIN_HARDWARE_OPTIONS.map((option) => [option.key, "1"]));
+  const rawModuleSelections =
+    overrides?.moduleSelections && typeof overrides.moduleSelections === "object" ? overrides.moduleSelections : defaultModuleSelections;
   const rawSelections =
     overrides?.hardwareSelections && typeof overrides.hardwareSelections === "object" ? overrides.hardwareSelections : defaultHardwareSelections;
   const rawQuantities =
     overrides?.hardwareQuantities && typeof overrides.hardwareQuantities === "object" ? overrides.hardwareQuantities : defaultHardwareQuantities;
+  const inviteDrafts =
+    Array.isArray(overrides?.inviteDrafts) && overrides.inviteDrafts.length > 0
+      ? overrides.inviteDrafts.map((draft, index) => createEmptyCompanyAdminInviteDraft(index, draft))
+      : [createEmptyCompanyAdminInviteDraft(0)];
 
   return {
     companyId: String(overrides?.companyId || "").trim(),
@@ -711,8 +770,15 @@ function createDefaultCompanyAdminSetupDraft(overrides = {}) {
     warehouseCount: String(overrides?.warehouseCount || "1").trim() || "1",
     employeeCount: String(overrides?.employeeCount || "10").trim() || "10",
     officeUserCount: String(overrides?.officeUserCount || "3").trim() || "3",
+    wmsRackCount: String(overrides?.wmsRackCount || "4").trim() || "4",
+    wmsPositionsPerRack: String(overrides?.wmsPositionsPerRack || "12").trim() || "12",
+    skipWmsRackPlanning: Boolean(overrides?.skipWmsRackPlanning),
     setupNote: String(overrides?.setupNote || "").trim(),
     completedAt: String(overrides?.completedAt || "").trim(),
+    moduleSelections: {
+      ...defaultModuleSelections,
+      ...Object.fromEntries(COMPANY_ADMIN_MODULE_OPTIONS.map((option) => [option.key, Boolean(rawModuleSelections?.[option.key])]))
+    },
     hardwareSelections: {
       ...defaultHardwareSelections,
       ...Object.fromEntries(
@@ -724,7 +790,8 @@ function createDefaultCompanyAdminSetupDraft(overrides = {}) {
       ...Object.fromEntries(
         COMPANY_ADMIN_HARDWARE_OPTIONS.map((option) => [option.key, String(rawQuantities?.[option.key] || "1").trim() || "1"])
       )
-    }
+    },
+    inviteDrafts
   };
 }
 
@@ -1018,6 +1085,15 @@ function buildRackLocationCodes(rackPrefix, rowCount, columnCount) {
   }
 
   return codes;
+}
+
+function buildRackPositionPreview(rackCode, positionCount) {
+  const normalizedRackCode = String(rackCode || "R")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "") || "R";
+  const total = Math.max(1, Number.parseInt(String(positionCount || "1"), 10) || 1);
+  return Array.from({ length: total }, (_, index) => `${normalizedRackCode}-${String(index + 1).padStart(2, "0")}`);
 }
 
 function buildScopedStockPositionLabel(row, isMaster, selectedCompanyId, companyNameById) {
@@ -4005,6 +4081,10 @@ function App() {
   const [isCompanyAdminSetupOpen, setIsCompanyAdminSetupOpen] = useState(false);
   const [companyHardwarePriceCatalog, setCompanyHardwarePriceCatalog] = useState(() => getStoredCompanyHardwarePriceCatalog());
   const [companyHardwarePriceCatalogMessage, setCompanyHardwarePriceCatalogMessage] = useState("");
+  const [isCompanyAdminOnboardingActive, setIsCompanyAdminOnboardingActive] = useState(false);
+  const [companyAdminOnboardingStep, setCompanyAdminOnboardingStep] = useState(0);
+  const [companyAdminOnboardingSubmitting, setCompanyAdminOnboardingSubmitting] = useState(false);
+  const [companyAdminOnboardingError, setCompanyAdminOnboardingError] = useState("");
   const [inviteEmailInput, setInviteEmailInput] = useState("");
   const [inviteCanManageOrdersInput, setInviteCanManageOrdersInput] = useState(false);
   const [inviteCanAccessMesInput, setInviteCanAccessMesInput] = useState(false);
@@ -4791,6 +4871,47 @@ function App() {
     setCompanyAdminSetupMessage("");
   };
 
+  const handleCompanyAdminModuleToggle = (moduleKey) => {
+    setCompanyAdminSetupDraft((current) => {
+      const nextModuleSelections = {
+        ...current.moduleSelections,
+        [moduleKey]: !current.moduleSelections?.[moduleKey]
+      };
+      const nextHardwareSelections = Object.fromEntries(
+        COMPANY_ADMIN_HARDWARE_OPTIONS.map((option) => {
+          const stillRelevant = (option.moduleKeys || []).some((key) => nextModuleSelections[key]);
+          return [option.key, stillRelevant ? Boolean(current.hardwareSelections?.[option.key]) : false];
+        })
+      );
+
+      return {
+        ...current,
+        moduleSelections: nextModuleSelections,
+        hardwareSelections: nextHardwareSelections
+      };
+    });
+    setCompanyAdminSetupMessage("");
+    setCompanyAdminOnboardingError("");
+  };
+
+  const applyCompanyAdminWmsPreset = (rackCount, positionsPerRack) => {
+    setCompanyAdminSetupDraft((current) => ({
+      ...current,
+      wmsRackCount: String(rackCount),
+      wmsPositionsPerRack: String(positionsPerRack),
+      skipWmsRackPlanning: false
+    }));
+    setCompanyAdminOnboardingError("");
+  };
+
+  const handleToggleCompanyAdminWmsPlanningSkip = () => {
+    setCompanyAdminSetupDraft((current) => ({
+      ...current,
+      skipWmsRackPlanning: !current.skipWmsRackPlanning
+    }));
+    setCompanyAdminOnboardingError("");
+  };
+
   const handleCompanyHardwarePriceCatalogChange = (hardwareKey, value) => {
     const sanitizedValue = String(value || "")
       .replace(",", ".")
@@ -4815,8 +4936,156 @@ function App() {
     setCompanyHardwarePriceCatalogMessage("Cenník je vrátený na predvolené orientačné ceny.");
   };
 
+  const handleAddCompanyAdminInviteDraft = () => {
+    setCompanyAdminSetupDraft((current) => ({
+      ...current,
+      inviteDrafts: [...(Array.isArray(current.inviteDrafts) ? current.inviteDrafts : []), createEmptyCompanyAdminInviteDraft(current.inviteDrafts?.length || 0)]
+    }));
+    setCompanyAdminOnboardingError("");
+  };
+
+  const handleRemoveCompanyAdminInviteDraft = (draftId) => {
+    setCompanyAdminSetupDraft((current) => {
+      const nextDrafts = (Array.isArray(current.inviteDrafts) ? current.inviteDrafts : []).filter((draft) => draft.draftId !== draftId);
+      return {
+        ...current,
+        inviteDrafts: nextDrafts.length > 0 ? nextDrafts : [createEmptyCompanyAdminInviteDraft(0)]
+      };
+    });
+    setCompanyAdminOnboardingError("");
+  };
+
+  const handleCompanyAdminInviteDraftChange = (draftId, field, value) => {
+    setCompanyAdminSetupDraft((current) => ({
+      ...current,
+      inviteDrafts: (Array.isArray(current.inviteDrafts) ? current.inviteDrafts : []).map((draft) =>
+        draft.draftId === draftId
+          ? {
+              ...draft,
+              [field]:
+                field === "canManageOrders" || field === "canAccessMes"
+                  ? Boolean(value)
+                  : String(value || "")
+            }
+          : draft
+      )
+    }));
+    setCompanyAdminOnboardingError("");
+  };
+
   const handleScrollToCompanyInvites = () => {
     companyInvitesSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const persistCompanyAdminOnboardingProfile = async () => {
+    if (!activeCompanyId) {
+      throw new Error("Najprv vyber konkrétnu firmu.");
+    }
+
+    const companyProfilePayload = {
+      company_id: activeCompanyId,
+      name: String(companyProfileNameInput || "").trim() || activeCompanyProfile?.name || activeCompany?.name || "",
+      ico: String(companyProfileIcoInput || "").trim(),
+      dic: String(companyProfileDicInput || "").trim(),
+      ic_dph: String(companyProfileIcDphInput || "").trim(),
+      address: String(companyProfileAddressInput || "").trim(),
+      bank_account: formatIbanInput(companyProfileBankAccountInput),
+      invoice_due_days: normalizeInvoiceDueDays(activeCompanyProfile?.invoice_due_days ?? 14),
+      invoice_style: normalizeInvoiceStyle(activeCompanyProfile?.invoice_style || companyInvoiceStyleInput || "clean"),
+      invoice_intro_text: String(activeCompanyProfile?.invoice_intro_text || companyInvoiceIntroTextInput || "").trim(),
+      invoice_outro_text: String(activeCompanyProfile?.invoice_outro_text || companyInvoiceOutroTextInput || "").trim(),
+      updated_at: new Date().toISOString(),
+      updated_by: authUser?.id || null
+    };
+
+    const { data: profileSavedCompanyRows, error: profileError } = await supabase
+      .from("company_profiles")
+      .upsert(companyProfilePayload, { onConflict: "company_id" })
+      .select("*");
+
+    if (profileError) {
+      throw new Error(profileError.message || "Nepodarilo sa uložiť firemný profil.");
+    }
+
+    const profileSavedCompany = normalizeCompanyProfileRecord(Array.isArray(profileSavedCompanyRows) ? profileSavedCompanyRows[0] : profileSavedCompanyRows);
+    if (!profileSavedCompany) {
+      throw new Error("Firemný profil sa v databáze neuložil.");
+    }
+
+    setCompanyProfiles((prev) => {
+      const next = prev.filter((profile) => profile.company_id !== activeCompanyId);
+      return [...next, profileSavedCompany];
+    });
+    setCompanyProfileNameInput(String(profileSavedCompany.name || activeCompany?.name || ""));
+    setCompanyProfileIcoInput(String(profileSavedCompany.ico || ""));
+    setCompanyProfileDicInput(String(profileSavedCompany.dic || ""));
+    setCompanyProfileIcDphInput(String(profileSavedCompany.ic_dph || ""));
+    setCompanyProfileAddressInput(String(profileSavedCompany.address || ""));
+    setCompanyProfileBankAccountInput(formatIbanInput(profileSavedCompany.bank_account));
+    await Promise.all([loadCompanies(), loadCompanyProfiles()]);
+  };
+
+  const handleAdvanceCompanyAdminOnboarding = async () => {
+    if (companyAdminOnboardingStep === 0) {
+      if (!String(companyProfileNameInput || activeCompany?.name || "").trim()) {
+        setCompanyAdminOnboardingError("Doplň názov firmy, aby sme vedeli dokončiť onboarding.");
+        return;
+      }
+      setCompanyAdminOnboardingError("");
+      setCompanyAdminOnboardingStep(1);
+      return;
+    }
+
+    if (companyAdminOnboardingStep === 1) {
+      if (selectedCompanyAdminModules.length === 0) {
+        setCompanyAdminOnboardingError("Vyber aspoň jeden modul, ktorý chce firma používať.");
+        return;
+      }
+      setCompanyAdminOnboardingError("");
+      setCompanyAdminOnboardingStep(2);
+      return;
+    }
+
+    setCompanyAdminOnboardingSubmitting(true);
+    setCompanyAdminOnboardingError("");
+
+    try {
+      await persistCompanyAdminOnboardingProfile();
+
+      const savedDraft = saveStoredCompanyAdminSetup(activeCompanyId, {
+        ...companyAdminSetupDraft,
+        companyId: activeCompanyId,
+        companyName: String(companyProfileNameInput || activeCompany?.name || currentCompanyLabel).trim(),
+        completedAt: new Date().toISOString()
+      });
+
+      if (!savedDraft) {
+        throw new Error("Setup sa nepodarilo uložiť.");
+      }
+
+      setCompanyAdminSetupDraft(savedDraft);
+      setIsCompanyAdminOnboardingActive(false);
+      setCompanyAdminOnboardingStep(0);
+      clearPendingCompanyAdminSetup();
+      setSelectedTable(
+        savedDraft.moduleSelections?.wms
+          ? "stock"
+          : savedDraft.moduleSelections?.attendance
+            ? ATTENDANCE_MODULE
+            : savedDraft.moduleSelections?.mes
+              ? PRODUCTION_MODULE
+              : INVOICES_MODULE
+      );
+    } catch (onboardingError) {
+      setCompanyAdminOnboardingError(onboardingError?.message || "Onboarding sa nepodarilo dokončiť.");
+    } finally {
+      setCompanyAdminOnboardingSubmitting(false);
+    }
+  };
+
+  const handleRetreatCompanyAdminOnboarding = () => {
+    setCompanyAdminOnboardingError("");
+    setCompanyAdminOnboardingStep((current) => Math.max(0, current - 1));
   };
 
   const postBillingRequest = async (path, payload = {}) => {
@@ -9283,6 +9552,7 @@ function App() {
 
   useEffect(() => {
     if (!authReady || !isLoggedIn || !isCompanyAdmin || !authUser?.id || !userCompanyId) {
+      setIsCompanyAdminOnboardingActive(false);
       return;
     }
 
@@ -9300,10 +9570,9 @@ function App() {
       return;
     }
 
-    setSelectedTable("stock");
-    setIsCompanySettingsOpen(true);
-    setIsCompanyAdminSetupOpen(true);
-    clearPendingCompanyAdminSetup();
+    setIsCompanyAdminOnboardingActive(true);
+    setCompanyAdminOnboardingStep(0);
+    setCompanyAdminOnboardingError("");
   }, [authReady, isLoggedIn, isCompanyAdmin, authUser?.id, userCompanyId]);
 
   useEffect(() => {
@@ -11462,6 +11731,10 @@ function App() {
       ].filter((item) => visibleTableNames.includes(item.table)),
     [visibleTableNames]
   );
+  const selectedCompanyAdminModules = useMemo(
+    () => COMPANY_ADMIN_MODULE_OPTIONS.filter((option) => companyAdminSetupDraft.moduleSelections?.[option.key]),
+    [companyAdminSetupDraft]
+  );
   const companyHardwareCatalogRows = useMemo(
     () =>
       COMPANY_ADMIN_HARDWARE_OPTIONS.map((option) => ({
@@ -11469,6 +11742,14 @@ function App() {
         configuredPriceExVat: normalizePriceInput(companyHardwarePriceCatalog?.[option.key])
       })),
     [companyHardwarePriceCatalog]
+  );
+  const companyAdminHardwareGroups = useMemo(
+    () =>
+      COMPANY_ADMIN_MODULE_OPTIONS.filter((module) => companyAdminSetupDraft.moduleSelections?.[module.key]).map((module) => ({
+        ...module,
+        hardwareOptions: companyHardwareCatalogRows.filter((option) => (option.moduleKeys || []).includes(module.key))
+      })),
+    [companyAdminSetupDraft, companyHardwareCatalogRows]
   );
   const companyAdminHardwarePricingSummary = useMemo(() => {
     const selectedItems = COMPANY_ADMIN_HARDWARE_OPTIONS.filter((option) => companyAdminSetupDraft.hardwareSelections?.[option.key]).map((option) => {
@@ -11489,6 +11770,32 @@ function App() {
       unpricedCount: selectedItems.filter((item) => typeof item.lineTotal !== "number").length
     };
   }, [companyAdminSetupDraft, companyHardwarePriceCatalog]);
+  const companyAdminPlannedInvites = useMemo(
+    () =>
+      (Array.isArray(companyAdminSetupDraft.inviteDrafts) ? companyAdminSetupDraft.inviteDrafts : []).filter(
+        (draft) => String(draft.email || "").trim() || String(draft.position || "").trim()
+      ),
+    [companyAdminSetupDraft]
+  );
+  const companyAdminWmsPlan = useMemo(() => {
+    const rackCount = Math.min(26, Math.max(1, Number.parseInt(String(companyAdminSetupDraft.wmsRackCount || "1"), 10) || 1));
+    const positionsPerRack = Math.min(200, Math.max(1, Number.parseInt(String(companyAdminSetupDraft.wmsPositionsPerRack || "1"), 10) || 1));
+    const rackCards = Array.from({ length: rackCount }, (_, index) => {
+      const rackCode = columnLabelFromIndex(index);
+      return {
+        rackCode,
+        positionCount: positionsPerRack,
+        previewPositions: buildRackPositionPreview(rackCode, positionsPerRack).slice(0, 6)
+      };
+    });
+
+    return {
+      rackCount,
+      positionsPerRack,
+      totalPositions: rackCount * positionsPerRack,
+      rackCards
+    };
+  }, [companyAdminSetupDraft.wmsRackCount, companyAdminSetupDraft.wmsPositionsPerRack]);
 
   useEffect(() => {
     if (!activeCompanyId || (!isMaster && !canManageOrders)) {
@@ -11991,6 +12298,9 @@ function App() {
     setAuthUsername("");
     setAuthPassword("");
     clearPendingCompanyAdminSetup();
+    setIsCompanyAdminOnboardingActive(false);
+    setCompanyAdminOnboardingStep(0);
+    setCompanyAdminOnboardingError("");
 
     try {
       try {
@@ -12258,6 +12568,472 @@ function App() {
               ))}
             </div>
           </article>
+        </section>
+      </main>
+    );
+  }
+
+  if (isCompanyAdminOnboardingActive && activeCompanyId) {
+    const onboardingSteps = [
+      { title: "Firemné údaje", description: "Profil firmy a kontaktné údaje pre prvotné nastavenie." },
+      { title: "Moduly a hardware", description: "Vyber moduly, ktoré chce firma používať, a hardware pre každý z nich." },
+      { title: "Pozvánky a pozície", description: "Priprav kolegov, ich pracovné pozície a prístupové rozsahy." }
+    ];
+
+    return (
+      <main className="container company-onboarding-shell">
+        <section className="company-onboarding-layout">
+          <article className="company-onboarding-main">
+            <div className="company-onboarding-hero">
+              <p className="company-admin-setup-kicker">Firemný onboarding</p>
+              <h1>{currentCompanyLabel}</h1>
+              <p className="subtitle">
+                Najprv dokončíš úvodný setup firmy. Až potom sa otvorí dashboard, aby boli moduly, hardware a tím zladené od začiatku.
+              </p>
+            </div>
+
+            <div className="company-onboarding-stepbar" role="tablist" aria-label="Kroky firemného onboardingu">
+              {onboardingSteps.map((step, index) => (
+                <button
+                  key={step.title}
+                  type="button"
+                  className={`company-onboarding-step ${companyAdminOnboardingStep === index ? "is-active" : index < companyAdminOnboardingStep ? "is-complete" : ""}`}
+                  onClick={() => {
+                    if (index <= companyAdminOnboardingStep) {
+                      setCompanyAdminOnboardingStep(index);
+                      setCompanyAdminOnboardingError("");
+                    }
+                  }}
+                >
+                  <span>{`0${index + 1}`}</span>
+                  <strong>{step.title}</strong>
+                  <small>{step.description}</small>
+                </button>
+              ))}
+            </div>
+
+            <section className="company-onboarding-card">
+              {companyAdminOnboardingStep === 0 && (
+                <div className="company-onboarding-section">
+                  <div className="panel-head">
+                    <div>
+                      <h2>Firemné údaje</h2>
+                      <p className="panel-meta">Toto sú základné údaje, s ktorými potom pôjde fakturácia aj firemný profil.</p>
+                    </div>
+                  </div>
+                  <div className="workflow-field-grid">
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Názov firmy</span>
+                      <input type="text" className="search-input" value={companyProfileNameInput} onChange={(event) => setCompanyProfileNameInput(event.target.value)} />
+                    </label>
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">IČO</span>
+                      <input type="text" className="search-input" value={companyProfileIcoInput} onChange={(event) => setCompanyProfileIcoInput(event.target.value)} />
+                    </label>
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">DIČ</span>
+                      <input type="text" className="search-input" value={companyProfileDicInput} onChange={(event) => setCompanyProfileDicInput(event.target.value)} />
+                    </label>
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">IČ DPH</span>
+                      <input type="text" className="search-input" value={companyProfileIcDphInput} onChange={(event) => setCompanyProfileIcDphInput(event.target.value)} />
+                    </label>
+                  </div>
+                  <label className="workflow-field">
+                    <span className="workflow-field-label">Adresa</span>
+                    <input type="text" className="search-input" value={companyProfileAddressInput} onChange={(event) => setCompanyProfileAddressInput(event.target.value)} />
+                  </label>
+                  <label className="workflow-field">
+                    <span className="workflow-field-label">IBAN / bankový účet</span>
+                    <input
+                      type="text"
+                      className="search-input"
+                      placeholder="SK12 3456 7890 1234 5678 9012"
+                      maxLength={IBAN_FORMATTED_MAX_LENGTH}
+                      value={companyProfileBankAccountInput}
+                      onChange={(event) => setCompanyProfileBankAccountInput(formatIbanInput(event.target.value))}
+                    />
+                  </label>
+                  <div className="workflow-field-grid">
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Sklady / prevádzky</span>
+                      <input
+                        type="number"
+                        min={1}
+                        className="search-input"
+                        value={companyAdminSetupDraft.warehouseCount}
+                        onChange={(event) => handleCompanyAdminSetupDraftChange("warehouseCount", event.target.value)}
+                      />
+                    </label>
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Zamestnanci</span>
+                      <input
+                        type="number"
+                        min={1}
+                        className="search-input"
+                        value={companyAdminSetupDraft.employeeCount}
+                        onChange={(event) => handleCompanyAdminSetupDraftChange("employeeCount", event.target.value)}
+                      />
+                    </label>
+                  </div>
+                  <label className="workflow-field">
+                    <span className="workflow-field-label">Používatelia kancelária / manažment</span>
+                    <input
+                      type="number"
+                      min={1}
+                      className="search-input"
+                      value={companyAdminSetupDraft.officeUserCount}
+                      onChange={(event) => handleCompanyAdminSetupDraftChange("officeUserCount", event.target.value)}
+                    />
+                  </label>
+                </div>
+              )}
+
+              {companyAdminOnboardingStep === 1 && (
+                <div className="company-onboarding-section">
+                  <div className="panel-head">
+                    <div>
+                      <h2>Moduly a hardware</h2>
+                      <p className="panel-meta">Vyber modul a pod ním sa zobrazí hardware, ktorý k nemu dáva zmysel.</p>
+                    </div>
+                  </div>
+
+                  <div className="company-onboarding-module-grid">
+                    {COMPANY_ADMIN_MODULE_OPTIONS.map((module) => {
+                      const isSelected = Boolean(companyAdminSetupDraft.moduleSelections?.[module.key]);
+                      return (
+                        <button
+                          key={module.key}
+                          type="button"
+                          className={`company-onboarding-module-card ${isSelected ? "is-selected" : ""}`}
+                          onClick={() => handleCompanyAdminModuleToggle(module.key)}
+                        >
+                          <strong>{module.label}</strong>
+                          <span>{module.description}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {companyAdminHardwareGroups.length > 0 ? (
+                    <div className="company-onboarding-module-sections">
+                      {companyAdminHardwareGroups.map((module) => (
+                        <section key={`onboarding-module-${module.key}`} className="company-onboarding-module-section">
+                          <div className="company-onboarding-module-section-head">
+                            <strong>{module.label}</strong>
+                            <span>{module.description}</span>
+                          </div>
+                          {module.key === "wms" && (
+                            <div className="company-onboarding-wms-builder">
+                              <div className="company-onboarding-wms-builder-head">
+                                <div>
+                                  <strong>Návrh skladu</strong>
+                                  <span>Vieš si hneď orientačne navrhnúť počet regálov a pozícií na regál. Ak nechceš, preskočíš to a doplníš neskôr.</span>
+                                </div>
+                                <button type="button" className="clear-btn" onClick={handleToggleCompanyAdminWmsPlanningSkip}>
+                                  {companyAdminSetupDraft.skipWmsRackPlanning ? "Zapnúť návrh skladu" : "Preskočiť zatiaľ"}
+                                </button>
+                              </div>
+
+                              {companyAdminSetupDraft.skipWmsRackPlanning ? (
+                                <p className="panel-meta">Detail rozloženia skladu teraz preskakuješ. Regály a pozície nastavíš neskôr v sklade alebo v twin layoute.</p>
+                              ) : (
+                                <>
+                                  <div className="company-onboarding-wms-preset-list">
+                                    <button type="button" className="clear-btn" onClick={() => applyCompanyAdminWmsPreset(4, 12)}>
+                                      Menší sklad
+                                    </button>
+                                    <button type="button" className="clear-btn" onClick={() => applyCompanyAdminWmsPreset(8, 18)}>
+                                      Stredný sklad
+                                    </button>
+                                    <button type="button" className="clear-btn" onClick={() => applyCompanyAdminWmsPreset(12, 24)}>
+                                      Väčší sklad
+                                    </button>
+                                  </div>
+                                  <div className="workflow-field-grid">
+                                    <label className="workflow-field">
+                                      <span className="workflow-field-label">Počet regálov</span>
+                                      <input
+                                        type="number"
+                                        min={1}
+                                        max={26}
+                                        className="search-input"
+                                        value={companyAdminSetupDraft.wmsRackCount}
+                                        onChange={(event) => handleCompanyAdminSetupDraftChange("wmsRackCount", event.target.value)}
+                                      />
+                                    </label>
+                                    <label className="workflow-field">
+                                      <span className="workflow-field-label">Pozícií na regál</span>
+                                      <input
+                                        type="number"
+                                        min={1}
+                                        max={200}
+                                        className="search-input"
+                                        value={companyAdminSetupDraft.wmsPositionsPerRack}
+                                        onChange={(event) => handleCompanyAdminSetupDraftChange("wmsPositionsPerRack", event.target.value)}
+                                      />
+                                    </label>
+                                  </div>
+                                  <div className="company-onboarding-wms-summary">
+                                    <span className="table-badge">{`${companyAdminWmsPlan.rackCount} regálov`}</span>
+                                    <span className="table-badge">{`${companyAdminWmsPlan.positionsPerRack} pozícií / regál`}</span>
+                                    <span className="table-badge">{`${companyAdminWmsPlan.totalPositions} pozícií spolu`}</span>
+                                  </div>
+                                  <div className="company-onboarding-wms-rack-grid">
+                                    {companyAdminWmsPlan.rackCards.map((rack) => (
+                                      <article key={`rack-preview-${rack.rackCode}`} className="company-onboarding-wms-rack-card">
+                                        <div className="company-onboarding-wms-rack-head">
+                                          <strong>{`Regál ${rack.rackCode}`}</strong>
+                                          <span>{`${rack.positionCount} pozícií`}</span>
+                                        </div>
+                                        <div className="company-onboarding-wms-position-list">
+                                          {rack.previewPositions.map((position) => (
+                                            <span key={position} className="company-onboarding-wms-position-pill">
+                                              {position}
+                                            </span>
+                                          ))}
+                                          {rack.positionCount > rack.previewPositions.length && (
+                                            <span className="company-onboarding-wms-position-pill company-onboarding-wms-position-pill-muted">
+                                              {`+${rack.positionCount - rack.previewPositions.length} ďalších`}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </article>
+                                    ))}
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          )}
+                          <div className="company-admin-hardware-grid">
+                            {module.hardwareOptions.map((option) => {
+                              const isSelected = Boolean(companyAdminSetupDraft.hardwareSelections?.[option.key]);
+                              return (
+                                <button
+                                  key={option.key}
+                                  type="button"
+                                  className={`company-admin-hardware-option ${isSelected ? "is-selected" : ""}`}
+                                  onClick={() => handleCompanyAdminSetupHardwareToggle(option.key)}
+                                >
+                                  <strong>{option.label}</strong>
+                                  <span>{option.description}</span>
+                                  <small>
+                                    {typeof option.configuredPriceExVat === "number"
+                                      ? `${formatCurrencyValue(option.configuredPriceExVat)} bez DPH / ks`
+                                      : "Cena sa doplní individuálne"}
+                                  </small>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </section>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="panel-meta">Najprv vyber aspoň jeden modul. Potom sa zobrazí odporúčaný hardware pre konkrétny celok.</p>
+                  )}
+
+                  {companyAdminHardwarePricingSummary.selectedItems.length > 0 && (
+                    <div className="company-admin-hardware-quote">
+                      {companyAdminHardwarePricingSummary.selectedItems.map((item) => (
+                        <div key={`onboarding-hardware-${item.key}`} className="company-admin-hardware-quote-row">
+                          <div>
+                            <strong>{item.label}</strong>
+                            <span>
+                              {typeof item.configuredPriceExVat === "number"
+                                ? `${formatCurrencyValue(item.configuredPriceExVat)} bez DPH / ks`
+                                : "individuálne nacenenie"}
+                            </span>
+                          </div>
+                          <label className="workflow-field company-admin-qty-field">
+                            <span className="workflow-field-label">Ks</span>
+                            <input
+                              type="number"
+                              min={1}
+                              className="search-input"
+                              value={companyAdminSetupDraft.hardwareQuantities?.[item.key] || "1"}
+                              onChange={(event) => handleCompanyAdminSetupHardwareQuantityChange(item.key, event.target.value)}
+                            />
+                          </label>
+                          <strong className="company-admin-hardware-quote-value">
+                            {typeof item.lineTotal === "number" ? formatCurrencyValue(item.lineTotal) : "naceniť"}
+                          </strong>
+                        </div>
+                      ))}
+                      <div className="company-admin-hardware-quote-total">
+                        <strong>Orientačný HW subtotal</strong>
+                        <span>{formatCurrencyValue(companyAdminHardwarePricingSummary.pricedSubtotal)} bez DPH</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {companyAdminOnboardingStep === 2 && (
+                <div className="company-onboarding-section">
+                  <div className="panel-head">
+                    <div>
+                      <h2>Pozvánky a pracovné pozície</h2>
+                      <p className="panel-meta">Tu si pripravíš kolegov, ktorých budeš potom pozývať do systému, a ich pracovné pozície.</p>
+                    </div>
+                  </div>
+
+                  <div className="company-onboarding-invite-list">
+                    {(Array.isArray(companyAdminSetupDraft.inviteDrafts) ? companyAdminSetupDraft.inviteDrafts : []).map((draft, index) => (
+                      <article key={draft.draftId} className="company-onboarding-invite-row">
+                        <div className="company-onboarding-invite-head">
+                          <strong>{`Kolega ${index + 1}`}</strong>
+                          <button type="button" className="clear-btn" onClick={() => handleRemoveCompanyAdminInviteDraft(draft.draftId)}>
+                            Odobrať
+                          </button>
+                        </div>
+                        <div className="workflow-field-grid">
+                          <label className="workflow-field">
+                            <span className="workflow-field-label">Email</span>
+                            <input
+                              type="email"
+                              className="search-input"
+                              value={draft.email}
+                              onChange={(event) => handleCompanyAdminInviteDraftChange(draft.draftId, "email", event.target.value)}
+                            />
+                          </label>
+                          <label className="workflow-field">
+                            <span className="workflow-field-label">Pracovná pozícia</span>
+                            <input
+                              type="text"
+                              className="search-input"
+                              placeholder="napr. skladník, obchodník, majster výroby"
+                              value={draft.position}
+                              onChange={(event) => handleCompanyAdminInviteDraftChange(draft.draftId, "position", event.target.value)}
+                            />
+                          </label>
+                        </div>
+                        <div className="workflow-field-grid">
+                          <label className="workflow-field">
+                            <span className="workflow-field-label">Workflow</span>
+                            <label className="pricing-options">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(draft.canManageOrders)}
+                                onChange={(event) => handleCompanyAdminInviteDraftChange(draft.draftId, "canManageOrders", event.target.checked)}
+                              />
+                              <span>Povoliť workflow / objednávky</span>
+                            </label>
+                          </label>
+                          <label className="workflow-field">
+                            <span className="workflow-field-label">MES</span>
+                            <label className="pricing-options">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(draft.canAccessMes)}
+                                onChange={(event) => handleCompanyAdminInviteDraftChange(draft.draftId, "canAccessMes", event.target.checked)}
+                              />
+                              <span>Povoliť Manufacturing / MES</span>
+                            </label>
+                          </label>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+
+                  <div className="orders-form-actions">
+                    <button type="button" className="clear-btn" onClick={handleAddCompanyAdminInviteDraft}>
+                      Pridať kolegu
+                    </button>
+                  </div>
+
+                  <p className="settings-hint">
+                    Pracovná pozícia je zatiaľ súčasť onboarding plánu. Reálne pozvánky potom vygeneruješ v Nastaveniach firmy cez existujúci invite flow.
+                  </p>
+                </div>
+              )}
+
+              {companyAdminOnboardingError && <p className="error">{companyAdminOnboardingError}</p>}
+
+              <div className="orders-form-actions">
+                <button type="button" className="clear-btn" onClick={handleRetreatCompanyAdminOnboarding} disabled={companyAdminOnboardingStep === 0 || companyAdminOnboardingSubmitting}>
+                  Späť
+                </button>
+                <button type="button" className="settings-btn" onClick={handleAdvanceCompanyAdminOnboarding} disabled={companyAdminOnboardingSubmitting}>
+                  {companyAdminOnboardingSubmitting
+                    ? "Dokončujem setup..."
+                    : companyAdminOnboardingStep === onboardingSteps.length - 1
+                      ? "Dokončiť setup a vstúpiť do dashboardu"
+                      : "Pokračovať"}
+                </button>
+              </div>
+            </section>
+          </article>
+
+          <aside className="company-onboarding-summary">
+            <article className="company-admin-setup-card company-admin-setup-card-highlight">
+              <span className="company-admin-setup-kicker">Sumár firmy</span>
+              <strong>{String(companyProfileNameInput || currentCompanyLabel).trim() || "Nová firma"}</strong>
+              <p>{`${companyAdminSetupDraft.warehouseCount || "1"} sklady, ${companyAdminSetupDraft.employeeCount || "0"} zamestnancov, ${companyAdminSetupDraft.officeUserCount || "0"} office používateľov.`}</p>
+            </article>
+
+            <article className="company-admin-setup-card">
+              <span className="company-admin-setup-kicker">Vybrané moduly</span>
+              <div className="company-admin-hardware-pill-list">
+                {selectedCompanyAdminModules.length > 0 ? (
+                  selectedCompanyAdminModules.map((module) => (
+                    <span key={module.key} className="company-admin-hardware-pill">
+                      {module.label}
+                    </span>
+                  ))
+                ) : (
+                  <span className="panel-meta">Zatiaľ nie je vybraný žiadny modul.</span>
+                )}
+              </div>
+            </article>
+
+            <article className="company-admin-setup-card">
+              <span className="company-admin-setup-kicker">Hardware</span>
+              <div className="company-admin-hardware-pill-list">
+                {companyAdminHardwarePricingSummary.selectedItems.length > 0 ? (
+                  companyAdminHardwarePricingSummary.selectedItems.map((item) => (
+                    <span key={item.key} className="company-admin-hardware-pill">
+                      {`${item.label} x${item.quantity}`}
+                    </span>
+                  ))
+                ) : (
+                  <span className="panel-meta">Zatiaľ nie je vybraný hardware.</span>
+                )}
+              </div>
+              <p className="panel-meta">{`${formatCurrencyValue(companyAdminHardwarePricingSummary.pricedSubtotal)} bez DPH orientačný subtotal`}</p>
+            </article>
+
+            {selectedCompanyAdminModules.some((module) => module.key === "wms") && (
+              <article className="company-admin-setup-card">
+                <span className="company-admin-setup-kicker">WMS layout</span>
+                {companyAdminSetupDraft.skipWmsRackPlanning ? (
+                  <p>Detail regálov a pozícií je zatiaľ preskočený. Dopolníš ho neskôr po vstupe do skladu.</p>
+                ) : (
+                  <p>{`${companyAdminWmsPlan.rackCount} regálov a ${companyAdminWmsPlan.positionsPerRack} pozícií na regál, spolu ${companyAdminWmsPlan.totalPositions} pozícií.`}</p>
+                )}
+              </article>
+            )}
+
+            <article className="company-admin-setup-card">
+              <span className="company-admin-setup-kicker">Plánované pozvánky</span>
+              <div className="company-onboarding-summary-list">
+                {companyAdminPlannedInvites.length > 0 ? (
+                  companyAdminPlannedInvites.map((draft) => (
+                    <div key={`invite-summary-${draft.draftId}`} className="company-onboarding-summary-item">
+                      <strong>{draft.position || draft.email || "Nový kolega"}</strong>
+                      <span>{draft.email || "email doplníš neskôr"}</span>
+                    </div>
+                  ))
+                ) : (
+                  <span className="panel-meta">Kolegov môžeš doplniť hneď alebo po vstupe do dashboardu.</span>
+                )}
+              </div>
+            </article>
+
+            <button type="button" className="logout-btn" onClick={handleSignOut} disabled={signOutSubmitting}>
+              Odhlásiť sa
+            </button>
+          </aside>
         </section>
       </main>
     );
@@ -12981,7 +13757,7 @@ function App() {
                 <p>
                   {isMaster
                     ? "Tu nastavuješ firemný profil, pozvánky, billing a systémové capability pre konkrétnu firmu."
-                    : "Po registrácii si automaticky dostal firemné admin oprávnenia: môžeš pozývať kolegov, nastaviť im prístupy a dokončiť profil firmy."}
+                    : "Po registrácii si automaticky dostal firemné admin oprávnenia. Úvodný setup už prebieha pred dashboardom, tu potom riešiš profil firmy, billing a pozvánky."}
                 </p>
               </article>
               <article className="company-admin-setup-card">
@@ -13048,7 +13824,7 @@ function App() {
             </section>
           )}
 
-          {(isCompanyAdmin || isMaster) && (
+          {isMaster && (
             <section className="company-admin-wizard">
               <div className="company-admin-wizard-head">
                 <div>

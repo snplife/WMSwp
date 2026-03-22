@@ -16,6 +16,7 @@ const INVOICES_MODULE = "__invoices__";
 const ORDERS_MODULE = "__orders__";
 const PRODUCTION_MODULE = "__production__";
 const ATTENDANCE_MODULE = "__attendance__";
+const ATTENDANCE_GROUPS_MODULE = "__attendance_groups__";
 const ATTENDANCE_SETTINGS_MODULE = "__attendance_settings__";
 const PRICE_LIST_TABLE = "price_list";
 const BILLING_API_BASE = "/api/v1/billing";
@@ -170,6 +171,18 @@ const TABLE_CONFIG = {
     orderBy: "created_at",
     orderAsc: false,
     metricLabel: "Eventy",
+    metricValue: (rows) => rows.length
+  },
+  [ATTENDANCE_GROUPS_MODULE]: {
+    title: "Skupiny",
+    subtitle: "Dochádzkové skupiny, zmenovosť a pracovná doba",
+    columns: [],
+    searchKeys: [],
+    statusKeys: [],
+    timeKeys: [],
+    orderBy: "created_at",
+    orderAsc: false,
+    metricLabel: "Skupiny",
     metricValue: (rows) => rows.length
   },
   [ATTENDANCE_SETTINGS_MODULE]: {
@@ -395,6 +408,10 @@ function isAttendanceModule(table) {
   return String(table || "").trim() === ATTENDANCE_MODULE;
 }
 
+function isAttendanceGroupsModule(table) {
+  return String(table || "").trim() === ATTENDANCE_GROUPS_MODULE;
+}
+
 function isAttendanceSettingsModule(table) {
   return String(table || "").trim() === ATTENDANCE_SETTINGS_MODULE;
 }
@@ -409,7 +426,7 @@ function isEmployeesModule(table) {
 
 function isHrTable(table) {
   const normalized = String(table || "").trim();
-  return isEmployeesModule(normalized) || isAttendanceModule(normalized) || isAttendanceSettingsModule(normalized);
+  return isEmployeesModule(normalized) || isAttendanceModule(normalized) || isAttendanceGroupsModule(normalized) || isAttendanceSettingsModule(normalized);
 }
 
 function isWorkflowModule(table) {
@@ -420,6 +437,7 @@ function isWorkflowModule(table) {
     isInvoiceModule(table) ||
     isOrdersModule(table) ||
     isAttendanceModule(table) ||
+    isAttendanceGroupsModule(table) ||
     isAttendanceSettingsModule(table) ||
     isProductionModule(table)
   );
@@ -453,6 +471,9 @@ function getTableLabel(table) {
   }
   if (isAttendanceModule(table)) {
     return "Dochádzka";
+  }
+  if (isAttendanceGroupsModule(table)) {
+    return "Skupiny";
   }
   if (isAttendanceSettingsModule(table)) {
     return "Nastavenia dochádzky";
@@ -4103,6 +4124,7 @@ function App() {
           INVOICES_MODULE,
           ORDERS_MODULE,
           ATTENDANCE_MODULE,
+          ATTENDANCE_GROUPS_MODULE,
           ATTENDANCE_SETTINGS_MODULE,
           PRODUCTION_MODULE
         ])
@@ -4125,6 +4147,7 @@ function App() {
         ...(canAccessOrdersModule ? [ROLE_TABLE] : []),
         ...(canAccessOrdersModule ? [ORDERS_MODULE] : []),
         ...(canAccessOrdersModule ? [ATTENDANCE_MODULE] : []),
+        ...(canAccessOrdersModule ? [ATTENDANCE_GROUPS_MODULE] : []),
         ...(canAccessOrdersModule ? [ATTENDANCE_SETTINGS_MODULE] : []),
         ...(canAccessMesModule ? [PRODUCTION_MODULE] : [])
       ])
@@ -6544,6 +6567,7 @@ function App() {
       setAttendanceGroupSchedules((schedulesData || []).map((row) => normalizeAttendanceGroupScheduleRow(row)));
       markViewDataFresh(ROLE_TABLE);
       markViewDataFresh(ATTENDANCE_MODULE);
+      markViewDataFresh(ATTENDANCE_GROUPS_MODULE);
       markViewDataFresh(ATTENDANCE_SETTINGS_MODULE);
     } catch (loadAttendanceError) {
       setAttendanceProfiles([]);
@@ -9095,7 +9119,7 @@ function App() {
       return undefined;
     }
 
-    if (isEmployeesModule(selectedTable) || isAttendanceModule(selectedTable) || isAttendanceSettingsModule(selectedTable)) {
+    if (isEmployeesModule(selectedTable) || isAttendanceModule(selectedTable) || isAttendanceGroupsModule(selectedTable) || isAttendanceSettingsModule(selectedTable)) {
       setRows([]);
       setStockSnapshotRows([]);
       setDeadStockByKey({});
@@ -9372,7 +9396,7 @@ function App() {
         loadCustomersModuleData();
         return;
       }
-      if (isEmployeesModule(selectedTable) || isAttendanceModule(selectedTable) || isAttendanceSettingsModule(selectedTable)) {
+      if (isEmployeesModule(selectedTable) || isAttendanceModule(selectedTable) || isAttendanceGroupsModule(selectedTable) || isAttendanceSettingsModule(selectedTable)) {
         loadAttendanceModuleData();
         return;
       }
@@ -11131,7 +11155,9 @@ function App() {
   }, [machineDashboardRows]);
   const sidebarSections = useMemo(() => {
     const manufacturingItems = [PRODUCTION_MODULE].filter((table) => visibleTableNames.includes(table));
-    const hrItems = [ROLE_TABLE, ATTENDANCE_MODULE, ATTENDANCE_SETTINGS_MODULE].filter((table) => visibleTableNames.includes(table));
+    const hrItems = [ROLE_TABLE, ATTENDANCE_MODULE, ATTENDANCE_GROUPS_MODULE, ATTENDANCE_SETTINGS_MODULE].filter((table) =>
+      visibleTableNames.includes(table)
+    );
     const workflowItems = [PRICE_LIST_TABLE, CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE].filter((table) =>
       visibleTableNames.includes(table)
     );
@@ -12578,7 +12604,7 @@ function App() {
                   loadCustomersModuleData();
                   return;
                 }
-                if (isEmployeesModule(selectedTable) || isAttendanceModule(selectedTable) || isAttendanceSettingsModule(selectedTable)) {
+                if (isEmployeesModule(selectedTable) || isAttendanceModule(selectedTable) || isAttendanceGroupsModule(selectedTable) || isAttendanceSettingsModule(selectedTable)) {
                   loadAttendanceModuleData();
                   return;
                 }
@@ -14671,10 +14697,10 @@ function App() {
                                 className="clear-btn"
                                 onClick={() => {
                                   handleEditAttendanceProfile(profile);
-                                  setSelectedTable(ATTENDANCE_SETTINGS_MODULE);
+                                  setSelectedTable(ROLE_TABLE);
                                 }}
                               >
-                                Otvoriť v nastaveniach
+                                Otvoriť v zamestnancoch
                               </button>
                             </div>
                             {attendanceManagingProfileId === profile.id && (
@@ -14834,6 +14860,368 @@ function App() {
                             <span>{formatCell(event.happened_at, "date_time")}</span>
                             <span>{event.source || "-"}</span>
                             {event.note && <span>{event.note}</span>}
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </article>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {isAttendanceGroupsModule(selectedTable) && canAccessOrdersModule && (
+        <section className="panel workflow-shell workflow-shell-attendance workflow-shell-attendance-settings">
+          <div className="panel-head workflow-header">
+            <div>
+              <p className="workflow-eyebrow">HR</p>
+              <h2>Skupiny</h2>
+              <p className="panel-meta">
+                {activeCompanyId
+                  ? `Samostatná správa skupín, zmien a pracovnej doby pre firmu ${currentCompanyLabel}`
+                  : "Vyber konkrétnu firmu, aby sa dali nastavovať dochádzkové skupiny a pracovné rozpisy."}
+              </p>
+            </div>
+          </div>
+
+          {attendanceError && <p className="error">{attendanceError}</p>}
+
+          <div className="orders-summary-grid workflow-summary-grid">
+            <article className="card workflow-stat-card">
+              <p>Skupiny</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(attendanceGroups.length)}</strong>
+              <span>{`${Object.values(attendanceGroupMemberCountById).reduce((sum, value) => sum + Number(value || 0), 0)} priradení`}</span>
+            </article>
+            <article className="card workflow-stat-card">
+              <p>Bez skupiny</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(attendanceEmployeesWithoutGroupCount)}</strong>
+              <span>zamestnanci bez rozpisu</span>
+            </article>
+            <article className="card workflow-stat-card">
+              <p>Aktívne skupiny</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(attendanceGroups.filter((group) => group.is_active).length)}</strong>
+              <span>použiteľné v profiloch</span>
+            </article>
+            <article className="card workflow-stat-card">
+              <p>Dnešok</p>
+              <strong>{getAttendanceWeekdayMeta(attendanceTodayWeekday)?.label || "-"}</strong>
+              <span>pracovné rozpisy podľa dňa</span>
+            </article>
+          </div>
+
+          <div className="attendance-settings-hero">
+            <article className="attendance-settings-hero-card">
+              <span className="attendance-settings-hero-kicker">Zmenovosť</span>
+              <strong>{`${attendanceGroups.length} skupín`}</strong>
+              <p>Každá skupina má vlastný typ smeny, cyklus a denný rozpis.</p>
+            </article>
+            <article className="attendance-settings-hero-card">
+              <span className="attendance-settings-hero-kicker">Prestávky</span>
+              <strong>Flexibilné okná</strong>
+              <p>Prestávky pridávaš a odoberáš dynamicky podľa reality konkrétnej skupiny.</p>
+            </article>
+            <article className="attendance-settings-hero-card">
+              <span className="attendance-settings-hero-kicker">Napojenie</span>
+              <strong>{`${attendanceSummary.profiles} profilov`}</strong>
+              <p>Zamestnanci sa na skupinu viažu v module Zamestnanci a dochádzka rozpis hneď zobrazuje.</p>
+            </article>
+          </div>
+
+          <div className="orders-layout workflow-grid attendance-layout">
+            <div className="orders-column workflow-editor-column">
+              <article className="orders-panel-card workflow-card workflow-card-strong">
+                <div className="panel-head workflow-section-head">
+                  <div>
+                    <p className="workflow-section-kicker">{editingAttendanceGroupId ? "Úprava skupiny" : "Nová skupina"}</p>
+                    <h2>{editingAttendanceGroupId ? "Upraviť skupinu" : "Pridať skupinu"}</h2>
+                    <p className="panel-meta">Skupina určuje pracovnú dobu, zmenovosť aj prestávky, ktoré potom priradíš zamestnancom.</p>
+                  </div>
+                </div>
+
+                <form className="orders-form" onSubmit={handleSaveAttendanceGroup}>
+                  <div className="workflow-field-grid">
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Názov skupiny</span>
+                      <input
+                        type="text"
+                        className="search-input"
+                        value={attendanceGroupNameInput}
+                        onChange={(event) => setAttendanceGroupNameInput(event.target.value)}
+                        disabled={!activeCompanyId || attendanceGroupSubmitting}
+                        required
+                      />
+                    </label>
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Kód skupiny</span>
+                      <input
+                        type="text"
+                        className="search-input"
+                        placeholder="napr. office-rano"
+                        value={attendanceGroupCodeInput}
+                        onChange={(event) => setAttendanceGroupCodeInput(event.target.value)}
+                        disabled={!activeCompanyId || attendanceGroupSubmitting}
+                        required
+                      />
+                    </label>
+                  </div>
+                  <label className="workflow-field">
+                    <span className="workflow-field-label">Poznámka</span>
+                    <textarea
+                      className="order-note-input"
+                      placeholder="Interná poznámka ku skupine"
+                      value={attendanceGroupNoteInput}
+                      onChange={(event) => setAttendanceGroupNoteInput(event.target.value)}
+                      disabled={!activeCompanyId || attendanceGroupSubmitting}
+                    />
+                  </label>
+                  <div className="workflow-field-grid">
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Zmenovosť</span>
+                      <select
+                        value={attendanceGroupShiftModeInput}
+                        onChange={(event) => setAttendanceGroupShiftModeInput(event.target.value)}
+                        disabled={!activeCompanyId || attendanceGroupSubmitting}
+                      >
+                        {ATTENDANCE_SHIFT_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Cyklus / poznámka</span>
+                      <input
+                        type="text"
+                        className="search-input"
+                        placeholder="napr. ranná/poobedná, krátky-dlhý týždeň"
+                        value={attendanceGroupShiftPatternNoteInput}
+                        onChange={(event) => setAttendanceGroupShiftPatternNoteInput(event.target.value)}
+                        disabled={!activeCompanyId || attendanceGroupSubmitting}
+                      />
+                    </label>
+                  </div>
+                  <div className="attendance-break-grid">
+                    {attendanceGroupBreakDrafts.map((breakRow, index) => (
+                      <article key={breakRow.draftId} className="attendance-break-card">
+                        <div className="attendance-break-card-head">
+                          <span className="draft-field-label">{breakRow.label || `Prestávka ${index + 1}`}</span>
+                          <button
+                            type="button"
+                            className="clear-btn"
+                            onClick={() => handleRemoveAttendanceGroupBreakDraft(breakRow.draftId)}
+                            disabled={!activeCompanyId || attendanceGroupSubmitting}
+                          >
+                            Odobrať
+                          </button>
+                        </div>
+                        <input
+                          type="text"
+                          className="search-input"
+                          placeholder="Názov prestávky, napr. obed"
+                          value={breakRow.label}
+                          onChange={(event) => handleAttendanceGroupBreakDraftChange(breakRow.draftId, "label", event.target.value)}
+                          disabled={!activeCompanyId || attendanceGroupSubmitting}
+                        />
+                        <div className="attendance-break-row">
+                          <input
+                            type="time"
+                            className="search-input"
+                            value={breakRow.start_time}
+                            onChange={(event) => handleAttendanceGroupBreakDraftChange(breakRow.draftId, "start_time", event.target.value)}
+                            disabled={!activeCompanyId || attendanceGroupSubmitting}
+                          />
+                          <input
+                            type="time"
+                            className="search-input"
+                            value={breakRow.end_time}
+                            onChange={(event) => handleAttendanceGroupBreakDraftChange(breakRow.draftId, "end_time", event.target.value)}
+                            disabled={!activeCompanyId || attendanceGroupSubmitting}
+                          />
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                  <div className="orders-form-actions">
+                    <button type="button" className="clear-btn" onClick={handleAddAttendanceGroupBreakDraft} disabled={!activeCompanyId || attendanceGroupSubmitting}>
+                      Pridať prestávku
+                    </button>
+                  </div>
+                  <div className="attendance-schedule-header">
+                    <span>Deň</span>
+                    <span>Od</span>
+                    <span>Do</span>
+                    <span>Pauza min</span>
+                  </div>
+                  <div className="attendance-schedule-grid">
+                    {attendanceGroupScheduleDrafts.map((row) => {
+                      const weekday = getAttendanceWeekdayMeta(row.weekday);
+                      return (
+                        <div key={`attendance-groups-schedule-${row.weekday}`} className="attendance-schedule-row">
+                          <label className="pricing-options attendance-schedule-active">
+                            <input
+                              type="checkbox"
+                              checked={row.is_working_day}
+                              onChange={(event) => handleAttendanceGroupScheduleDraftChange(row.weekday, "is_working_day", event.target.checked)}
+                              disabled={!activeCompanyId || attendanceGroupSubmitting}
+                            />
+                            <span className="attendance-schedule-day">
+                              <strong>{weekday?.shortLabel || row.weekday}</strong>
+                              <small>{weekday?.label || `Deň ${row.weekday}`}</small>
+                            </span>
+                          </label>
+                          <input
+                            type="time"
+                            className="search-input"
+                            value={row.start_time}
+                            onChange={(event) => handleAttendanceGroupScheduleDraftChange(row.weekday, "start_time", event.target.value)}
+                            disabled={!activeCompanyId || attendanceGroupSubmitting || !row.is_working_day}
+                          />
+                          <input
+                            type="time"
+                            className="search-input"
+                            value={row.end_time}
+                            onChange={(event) => handleAttendanceGroupScheduleDraftChange(row.weekday, "end_time", event.target.value)}
+                            disabled={!activeCompanyId || attendanceGroupSubmitting || !row.is_working_day}
+                          />
+                          <input
+                            type="number"
+                            min={0}
+                            step={5}
+                            className="search-input"
+                            value={row.break_minutes}
+                            onChange={(event) => handleAttendanceGroupScheduleDraftChange(row.weekday, "break_minutes", event.target.value)}
+                            disabled={!activeCompanyId || attendanceGroupSubmitting || !row.is_working_day}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="settings-hint">Nepracovný deň iba odškrtni. Časy aj pauza sa uložia spolu s celou skupinou.</p>
+                  <label className="pricing-options">
+                    <input
+                      type="checkbox"
+                      checked={attendanceGroupActiveInput}
+                      onChange={(event) => setAttendanceGroupActiveInput(event.target.checked)}
+                      disabled={!activeCompanyId || attendanceGroupSubmitting}
+                    />
+                    <span>Skupina je aktívna</span>
+                  </label>
+                  <div className="orders-form-actions">
+                    <button type="submit" className="settings-btn" disabled={!activeCompanyId || attendanceGroupSubmitting}>
+                      {attendanceGroupSubmitting ? "Ukladám..." : editingAttendanceGroupId ? "Uložiť skupinu" : "Pridať skupinu"}
+                    </button>
+                    {editingAttendanceGroupId && (
+                      <button type="button" className="clear-btn" onClick={resetAttendanceGroupForm} disabled={attendanceGroupSubmitting}>
+                        Zrušiť úpravu
+                      </button>
+                    )}
+                  </div>
+                </form>
+              </article>
+            </div>
+
+            <div className="orders-column workflow-feed-column attendance-feed-column">
+              <article className="orders-panel-card workflow-card workflow-card-list">
+                <div className="panel-head workflow-section-head">
+                  <div>
+                    <h2>Skupiny a pracovná doba</h2>
+                    <p className="panel-meta">{`${attendanceGroups.length} skupín | dnes ${getAttendanceWeekdayMeta(attendanceTodayWeekday)?.label || "-"}`}</p>
+                  </div>
+                </div>
+
+                {attendanceLoading ? (
+                  <p className="hint">Načítavam skupiny...</p>
+                ) : attendanceGroups.length === 0 ? (
+                  <p className="hint">Zatiaľ tu nie sú žiadne dochádzkové skupiny.</p>
+                ) : (
+                  <div className="orders-list attendance-list">
+                    {attendanceGroups.map((group) => {
+                      const scheduleRows = attendanceGroupSchedulesByGroupId[group.id] || [];
+                      const todaySchedule = scheduleRows.find((row) => Number(row.weekday || 0) === attendanceTodayWeekday) || null;
+                      const workingDays = scheduleRows.filter((row) => row.is_working_day).length;
+                      const members = attendanceGroupMembersById[group.id] || [];
+                      return (
+                        <article key={group.id} className="order-card attendance-card">
+                          <div className="order-card-head attendance-card-head">
+                            <div>
+                              <strong>{group.name}</strong>
+                              <p>{group.code}</p>
+                            </div>
+                            <div className="attendance-card-pills">
+                              <StatusPill status={group.is_active ? "active" : "inactive"} />
+                              <span className="table-badge">{`${attendanceGroupMemberCountById[group.id] || 0} zam.`}</span>
+                              <span className="table-badge">{`${workingDays} dní`}</span>
+                              <span className="table-badge">{getAttendanceShiftLabel(group.shift_mode)}</span>
+                            </div>
+                          </div>
+                          <div className="order-detail attendance-card-body">
+                            <div className="attendance-meta-grid">
+                              <div>
+                                <span className="draft-field-label">Dnes</span>
+                                <p>{formatAttendanceScheduleRow(todaySchedule)}</p>
+                              </div>
+                              <div>
+                                <span className="draft-field-label">Zmenovosť</span>
+                                <p>{getAttendanceShiftLabel(group.shift_mode)}</p>
+                              </div>
+                              <div className="attendance-meta-grid-wide">
+                                <span className="draft-field-label">Cyklus</span>
+                                <p>{group.shift_pattern_note || "-"}</p>
+                              </div>
+                              <div className="attendance-meta-grid-wide">
+                                <span className="draft-field-label">Prestávky</span>
+                                <p>{formatAttendanceBreakSummary(group)}</p>
+                              </div>
+                              <div className="attendance-meta-grid-wide">
+                                <span className="draft-field-label">Týždeň</span>
+                                {scheduleRows.length > 0 ? (
+                                  <div className="attendance-schedule-pill-list">
+                                    {scheduleRows.map((row) => (
+                                      <span key={`${group.id}-${row.weekday}`} className={`attendance-schedule-pill${row.is_working_day ? "" : " is-off"}`}>
+                                        <strong>{getAttendanceWeekdayMeta(row.weekday)?.shortLabel || row.weekday}</strong>
+                                        <small>{formatAttendanceScheduleRow(row)}</small>
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <p>-</p>
+                                )}
+                              </div>
+                              <div className="attendance-meta-grid-wide">
+                                <span className="draft-field-label">Poznámka</span>
+                                <p>{group.note || "-"}</p>
+                              </div>
+                              <div className="attendance-meta-grid-wide">
+                                <span className="draft-field-label">Zamestnanci</span>
+                                {members.length > 0 ? (
+                                  <div className="attendance-member-pill-list">
+                                    {members.map((member) => (
+                                      <span key={`${group.id}-${member.id}`} className="attendance-member-pill">
+                                        {member.full_name || member.employee_code}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <p>-</p>
+                                )}
+                              </div>
+                            </div>
+                            <div className="order-card-actions">
+                              <button type="button" className="clear-btn" onClick={() => handleEditAttendanceGroup(group)}>
+                                Upraviť
+                              </button>
+                              <button
+                                type="button"
+                                className="clear-btn"
+                                onClick={() => handleDeleteAttendanceGroup(group)}
+                                disabled={attendanceGroupDeletingId === group.id}
+                              >
+                                {attendanceGroupDeletingId === group.id ? "Mažem..." : "Zmazať"}
+                              </button>
+                            </div>
                           </div>
                         </article>
                       );
@@ -15096,111 +15484,6 @@ function App() {
                 </form>
               </article>
 
-              <article className="orders-panel-card workflow-card workflow-card-strong">
-                <div className="panel-head workflow-section-head">
-                  <div>
-                    <p className="workflow-section-kicker">{editingAttendanceProfileId ? "Úprava profilu" : "Nový profil"}</p>
-                    <h2>{editingAttendanceProfileId ? "Upraviť zamestnanca" : "Pridať zamestnanca"}</h2>
-                    <p className="panel-meta">Profil sa páruje podľa interného kódu, PIN-u alebo badge kódu z Android terminálu.</p>
-                  </div>
-                </div>
-
-                <form className="orders-form" onSubmit={handleSaveAttendanceProfile}>
-                  <div className="workflow-field-grid">
-                    <label className="workflow-field">
-                      <span className="workflow-field-label">Meno a priezvisko</span>
-                      <input
-                        type="text"
-                        className="search-input"
-                        value={attendanceProfileNameInput}
-                        onChange={(event) => setAttendanceProfileNameInput(event.target.value)}
-                        disabled={!activeCompanyId || attendanceProfileSubmitting}
-                        required
-                      />
-                    </label>
-                    <label className="workflow-field">
-                      <span className="workflow-field-label">Interný kód</span>
-                      <input
-                        type="text"
-                        className="search-input"
-                        value={attendanceProfileCodeInput}
-                        onChange={(event) => setAttendanceProfileCodeInput(event.target.value)}
-                        disabled={!activeCompanyId || attendanceProfileSubmitting}
-                        required
-                      />
-                    </label>
-                  </div>
-                  <div className="workflow-field-grid">
-                    <label className="workflow-field">
-                      <span className="workflow-field-label">Skupina</span>
-                      <select
-                        value={attendanceProfileGroupIdInput}
-                        onChange={(event) => setAttendanceProfileGroupIdInput(event.target.value)}
-                        disabled={!activeCompanyId || attendanceProfileSubmitting}
-                      >
-                        <option value="">Bez skupiny</option>
-                        {attendanceGroups.map((group) => (
-                          <option key={group.id} value={group.id}>
-                            {group.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="workflow-field">
-                      <span className="workflow-field-label">PIN</span>
-                      <input
-                        type="text"
-                        className="search-input"
-                        placeholder="napr. 1234"
-                        value={attendanceProfilePinInput}
-                        onChange={(event) => setAttendanceProfilePinInput(event.target.value)}
-                        disabled={!activeCompanyId || attendanceProfileSubmitting}
-                      />
-                    </label>
-                  </div>
-                  <label className="workflow-field">
-                    <span className="workflow-field-label">Badge / QR</span>
-                    <input
-                      type="text"
-                      className="search-input"
-                      placeholder="scan kód"
-                      value={attendanceProfileBadgeInput}
-                      onChange={(event) => setAttendanceProfileBadgeInput(event.target.value)}
-                      disabled={!activeCompanyId || attendanceProfileSubmitting}
-                    />
-                  </label>
-                  <label className="workflow-field">
-                    <span className="workflow-field-label">Poznámka</span>
-                    <textarea
-                      className="order-note-input"
-                      placeholder="Voliteľná interná poznámka"
-                      value={attendanceProfileNoteInput}
-                      onChange={(event) => setAttendanceProfileNoteInput(event.target.value)}
-                      disabled={!activeCompanyId || attendanceProfileSubmitting}
-                    />
-                  </label>
-                  <label className="pricing-options">
-                    <input
-                      type="checkbox"
-                      checked={attendanceProfileActiveInput}
-                      onChange={(event) => setAttendanceProfileActiveInput(event.target.checked)}
-                      disabled={!activeCompanyId || attendanceProfileSubmitting}
-                    />
-                    <span>Profil je aktívny na termináloch</span>
-                  </label>
-                  <div className="orders-form-actions">
-                    <button type="submit" className="settings-btn" disabled={!activeCompanyId || attendanceProfileSubmitting}>
-                      {attendanceProfileSubmitting ? "Ukladám..." : editingAttendanceProfileId ? "Uložiť profil" : "Pridať profil"}
-                    </button>
-                    {editingAttendanceProfileId && (
-                      <button type="button" className="clear-btn" onClick={resetAttendanceProfileForm} disabled={attendanceProfileSubmitting}>
-                        Zrušiť úpravu
-                      </button>
-                    )}
-                  </div>
-                </form>
-              </article>
-
               <article className="orders-panel-card workflow-card workflow-card-soft">
                 <div className="panel-head workflow-section-head">
                   <div>
@@ -15388,7 +15671,7 @@ function App() {
                 <div className="panel-head workflow-section-head">
                   <div>
                     <h2>Správa zamestnancov</h2>
-                    <p className="panel-meta">{`${filteredAttendanceProfiles.length} / ${attendanceProfiles.length} profilov`}</p>
+                    <p className="panel-meta">{`${filteredAttendanceProfiles.length} / ${attendanceProfiles.length} profilov | pridávanie a editácia je v module Zamestnanci`}</p>
                   </div>
                   <input
                     type="search"
@@ -15452,16 +15735,15 @@ function App() {
                               </div>
                             </div>
                             <div className="order-card-actions">
-                              <button type="button" className="clear-btn" onClick={() => handleEditAttendanceProfile(profile)}>
-                                Upraviť
-                              </button>
                               <button
                                 type="button"
-                                className="clear-btn"
-                                onClick={() => handleDeleteAttendanceProfile(profile)}
-                                disabled={attendanceProfileDeletingId === profile.id}
+                                className="settings-btn"
+                                onClick={() => {
+                                  handleEditAttendanceProfile(profile);
+                                  setSelectedTable(ROLE_TABLE);
+                                }}
                               >
-                                {attendanceProfileDeletingId === profile.id ? "Mažem..." : "Zmazať"}
+                                Otvoriť v zamestnancoch
                               </button>
                             </div>
                           </div>

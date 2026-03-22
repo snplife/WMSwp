@@ -4814,6 +4814,58 @@ function App() {
     }
     return grouped;
   }, [productionOrderOutputs]);
+  const productionOrderInsights = useMemo(() => {
+    const nowMs = Date.now();
+    const rows = productionOrders.map((order) => {
+      const orderId = String(order.id || "");
+      const inputs = productionInputsByOrderId[orderId] || [];
+      const outputs = productionOutputsByOrderId[orderId] || [];
+      const createdAtMs = Date.parse(order.created_at || "");
+      const completedAtMs = Date.parse(order.completed_at || "");
+      const isCompleted = String(order.status || "").trim().toLowerCase() === "completed";
+      const durationMs =
+        Number.isFinite(createdAtMs) && (Number.isFinite(completedAtMs) || !isCompleted)
+          ? Math.max(0, (isCompleted ? completedAtMs : nowMs) - createdAtMs)
+          : null;
+      const inputQuantity = inputs.reduce((sum, item) => sum + Number(item.required_quantity || 0), 0);
+      const outputQuantity = outputs.reduce((sum, item) => sum + Number(item.output_quantity || 0), 0);
+      const outputMaterials = Array.from(
+        new Set(outputs.map((item) => String(item.material_code || "").trim()).filter(Boolean))
+      );
+
+      return {
+        ...order,
+        inputs,
+        outputs,
+        isCompleted,
+        durationMs,
+        inputQuantity,
+        outputQuantity,
+        outputMaterials,
+        outputMaterialLabel:
+          outputMaterials.length > 0 ? outputMaterials.join(", ") : "-",
+        activeDurationLabel: isCompleted ? formatDurationShort(durationMs) : `beží ${formatDurationShort(durationMs)}`
+      };
+    });
+
+    const openRows = rows.filter((row) => !row.isCompleted);
+    const completedRows = rows.filter((row) => row.isCompleted);
+    const returnedQuantity = completedRows.reduce((sum, row) => sum + Number(row.outputQuantity || 0), 0);
+    const averageCompletedDurationMs =
+      completedRows.length > 0
+        ? completedRows.reduce((sum, row) => sum + Number(row.durationMs || 0), 0) / completedRows.length
+        : null;
+
+    return {
+      rows,
+      openRows,
+      completedRows,
+      openCount: openRows.length,
+      completedCount: completedRows.length,
+      returnedQuantity,
+      averageCompletedDurationMs
+    };
+  }, [productionOrders, productionInputsByOrderId, productionOutputsByOrderId]);
   const ordersStockOptions = useMemo(
     () =>
       ordersStockRows
@@ -19992,6 +20044,78 @@ function App() {
           {productionError && <p className="error">{productionError}</p>}
 
           {renderMesDashboard()}
+
+          <div className="orders-summary-grid workflow-summary-grid">
+            <article className="card workflow-stat-card">
+              <p>Vo výrobe</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(productionOrderInsights.openCount)}</strong>
+            </article>
+            <article className="card workflow-stat-card">
+              <p>Dokončené zákazky</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(productionOrderInsights.completedCount)}</strong>
+            </article>
+            <article className="card workflow-stat-card">
+              <p>Vrátené do skladu</p>
+              <strong>{`${new Intl.NumberFormat("sk-SK").format(productionOrderInsights.returnedQuantity)} ks`}</strong>
+            </article>
+            <article className="card workflow-stat-card">
+              <p>Priemerný čas vo výrobe</p>
+              <strong>{formatDurationShort(productionOrderInsights.averageCompletedDurationMs)}</strong>
+            </article>
+          </div>
+
+          <article className="orders-panel-card workflow-card workflow-card-list">
+            <div className="panel-head workflow-section-head">
+              <div>
+                <p className="workflow-section-kicker">Výrobné objednávky</p>
+                <h2>Evidencia výroby</h2>
+                <p className="panel-meta">Prehľad toho, čo je aktuálne vo výrobe, ako dlho zákazka beží a koľko kusov sa po dokončení vrátilo do skladu.</p>
+              </div>
+            </div>
+            {!activeCompanyId && isMaster ? (
+              <p className="hint">Vyber konkrétnu firmu v hornom filtri, aby sa zobrazila evidencia výrobných objednávok.</p>
+            ) : productionLoading ? (
+              <p className="hint">Načítavam výrobné objednávky...</p>
+            ) : productionOrderInsights.rows.length === 0 ? (
+              <p className="hint">Pre túto firmu zatiaľ nie sú založené výrobné objednávky.</p>
+            ) : (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Výrobná objednávka</th>
+                      <th>Stav</th>
+                      <th>Vo výrobe</th>
+                      <th>Vstupy</th>
+                      <th>Vrátené do skladu</th>
+                      <th>Výstupné materiály</th>
+                      <th>Vytvorené</th>
+                      <th>Dokončené</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {productionOrderInsights.rows.map((productionOrder) => (
+                      <tr key={productionOrder.id}>
+                        <td>
+                          <strong>{productionOrder.production_number || "-"}</strong>
+                          <div className="master-user-email">{productionOrder.title || "-"}</div>
+                        </td>
+                        <td>
+                          <StatusPill status={productionOrder.status || "draft"} />
+                        </td>
+                        <td>{productionOrder.activeDurationLabel}</td>
+                        <td>{`${new Intl.NumberFormat("sk-SK").format(productionOrder.inputQuantity)} ks`}</td>
+                        <td>{`${new Intl.NumberFormat("sk-SK").format(productionOrder.outputQuantity)} ks`}</td>
+                        <td>{productionOrder.outputMaterialLabel}</td>
+                        <td>{formatDate(productionOrder.created_at)}</td>
+                        <td>{productionOrder.completed_at ? formatDate(productionOrder.completed_at) : "stále vo výrobe"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </article>
 
           {false && canAccessMesModule && (
             <>

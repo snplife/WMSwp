@@ -376,7 +376,7 @@ const PENDING_COMPANY_INVITE_STORAGE_KEY = "wms_pending_company_invite";
 const PENDING_COMPANY_ADMIN_SETUP_STORAGE_KEY = "wms_pending_company_admin_setup";
 const COMPANY_ADMIN_SETUP_STORAGE_KEY = "wms_company_admin_setup";
 const COMPANY_HARDWARE_PRICE_CATALOG_STORAGE_KEY = "wms_company_hardware_price_catalog";
-const COMPANY_WAREHOUSES_STORAGE_KEY = "wms_company_warehouses";
+const COMPANY_WAREHOUSES_TABLE = "company_warehouses";
 const INVOICE_STYLE_OPTIONS = [
   { value: "clean", label: "Čistá" },
   { value: "classic", label: "Klasická" },
@@ -1135,32 +1135,6 @@ function normalizeCompanyWarehouses(warehouses = []) {
   }
 
   return next;
-}
-
-function getStoredCompanyWarehousesMap() {
-  const payload = readStoredJson(COMPANY_WAREHOUSES_STORAGE_KEY);
-  return payload && typeof payload === "object" ? payload : {};
-}
-
-function getStoredCompanyWarehouses(companyId) {
-  const normalizedCompanyId = String(companyId || "").trim();
-  if (!normalizedCompanyId) {
-    return [];
-  }
-  const payload = getStoredCompanyWarehousesMap();
-  return normalizeCompanyWarehouses(payload?.[normalizedCompanyId] || []);
-}
-
-function saveStoredCompanyWarehouses(companyId, warehouses) {
-  const normalizedCompanyId = String(companyId || "").trim();
-  if (!normalizedCompanyId) {
-    return [];
-  }
-  const payload = getStoredCompanyWarehousesMap();
-  const normalizedWarehouses = normalizeCompanyWarehouses(warehouses);
-  payload[normalizedCompanyId] = normalizedWarehouses;
-  writeStoredJson(COMPANY_WAREHOUSES_STORAGE_KEY, payload);
-  return normalizedWarehouses;
 }
 
 function getStoredCompanyHardwarePriceCatalog() {
@@ -4475,6 +4449,10 @@ function App() {
   const [companyHardwarePriceCatalog, setCompanyHardwarePriceCatalog] = useState(() => getStoredCompanyHardwarePriceCatalog());
   const [companyHardwarePriceCatalogMessage, setCompanyHardwarePriceCatalogMessage] = useState("");
   const [companyWarehouseDrafts, setCompanyWarehouseDrafts] = useState(() => normalizeCompanyWarehouses([]));
+  const [companyWarehouseRows, setCompanyWarehouseRows] = useState([]);
+  const [companyWarehousesLoading, setCompanyWarehousesLoading] = useState(false);
+  const [companyWarehousesSubmitting, setCompanyWarehousesSubmitting] = useState(false);
+  const [companyWarehousesError, setCompanyWarehousesError] = useState("");
   const [companyWarehousesMessage, setCompanyWarehousesMessage] = useState("");
   const [isCompanyAdminOnboardingActive, setIsCompanyAdminOnboardingActive] = useState(false);
   const [companyAdminOnboardingStep, setCompanyAdminOnboardingStep] = useState(0);
@@ -5499,6 +5477,7 @@ function App() {
   const handleAddCompanyWarehouseDraft = () => {
     setCompanyWarehouseDrafts((prev) => [...prev, createCompanyWarehouseDraft({}, prev.length)]);
     setCompanyWarehousesMessage("");
+    setCompanyWarehousesError("");
   };
 
   const handleCompanyWarehouseDraftChange = (draftId, field, value) => {
@@ -5541,22 +5520,66 @@ function App() {
       )
     );
     setCompanyWarehousesMessage("");
+    setCompanyWarehousesError("");
   };
 
   const handleRemoveCompanyWarehouseDraft = (draftId) => {
     setCompanyWarehouseDrafts((prev) => normalizeCompanyWarehouses(prev.filter((warehouse) => warehouse.draftId !== draftId)));
     setCompanyWarehousesMessage("");
+    setCompanyWarehousesError("");
   };
 
-  const handleSaveCompanyWarehouses = () => {
+  const handleSaveCompanyWarehouses = async () => {
     if (!activeCompanyId) {
       setCompanySettingsError("Najprv vyber konkrétnu firmu, pre ktorú chceš založiť sklady.");
       return;
     }
 
-    const savedWarehouses = saveStoredCompanyWarehouses(activeCompanyId, companyWarehouseDrafts);
-    setCompanyWarehouseDrafts(savedWarehouses);
-    setCompanyWarehousesMessage(`Sklady pre firmu ${activeCompany?.name || ""} sú uložené lokálne v tomto prehliadači.`);
+    const normalizedCompanyId = String(activeCompanyId || "").trim();
+    const normalizedWarehouses = normalizeCompanyWarehouses(companyWarehouseDrafts);
+    const warehouseIdsToKeep = normalizedWarehouses.map((warehouse) => String(warehouse.id || "").trim()).filter(Boolean);
+    const warehousesToDelete = companyWarehouseRows
+      .map((warehouse) => String(warehouse.id || "").trim())
+      .filter((warehouseId) => warehouseId && !warehouseIdsToKeep.includes(warehouseId));
+
+    setCompanyWarehousesSubmitting(true);
+    setCompanyWarehousesError("");
+    setCompanyWarehousesMessage("");
+
+    if (warehousesToDelete.length > 0) {
+      const { error: deleteError } = await supabase.from(COMPANY_WAREHOUSES_TABLE).delete().in("id", warehousesToDelete);
+      if (deleteError) {
+        setCompanyWarehousesSubmitting(false);
+        setCompanyWarehousesError(deleteError.message || "Nepodarilo sa odstrániť zmazané sklady.");
+        return;
+      }
+    }
+
+    const payload = normalizedWarehouses.map((warehouse, index) => ({
+      ...(warehouse.id ? { id: warehouse.id } : {}),
+      company_id: normalizedCompanyId,
+      code: String(warehouse.code || "").trim().toUpperCase(),
+      name: String(warehouse.name || "").trim(),
+      address: String(warehouse.address || "").trim(),
+      location_prefix: String(warehouse.locationPrefix || "").trim().toUpperCase(),
+      note: String(warehouse.note || "").trim(),
+      is_primary: Boolean(warehouse.isPrimary),
+      sort_order: index,
+      created_by: warehouse.id ? undefined : authUser?.id || null,
+      updated_by: authUser?.id || null
+    }));
+
+    const { error: saveError } = await supabase.from(COMPANY_WAREHOUSES_TABLE).upsert(payload, { onConflict: "id" });
+
+    if (saveError) {
+      setCompanyWarehousesSubmitting(false);
+      setCompanyWarehousesError(saveError.message || "Nepodarilo sa uložiť sklady.");
+      return;
+    }
+
+    await loadCompanyWarehouses(normalizedCompanyId);
+    setCompanyWarehousesSubmitting(false);
+    setCompanyWarehousesMessage(`Sklady pre firmu ${activeCompany?.name || ""} sú uložené globálne v databáze.`);
   };
 
   const handleAddCompanyAdminInviteDraft = () => {
@@ -7083,6 +7106,56 @@ function App() {
       return;
     }
     setSelectedCompanyId(nextCompanyId || "all");
+  };
+
+  const loadCompanyWarehouses = async (targetCompanyId = activeCompanyId) => {
+    const normalizedCompanyId = String(targetCompanyId || "").trim();
+    if (!normalizedCompanyId || (!isMaster && !canManageOrders)) {
+      setCompanyWarehouseRows([]);
+      setCompanyWarehouseDrafts(normalizeCompanyWarehouses([]));
+      setCompanyWarehousesLoading(false);
+      setCompanyWarehousesError("");
+      return;
+    }
+
+    setCompanyWarehousesLoading(true);
+    setCompanyWarehousesError("");
+
+    const { data, error } = await supabase
+      .from(COMPANY_WAREHOUSES_TABLE)
+      .select("id,company_id,code,name,address,location_prefix,note,is_primary,sort_order")
+      .eq("company_id", normalizedCompanyId)
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      setCompanyWarehouseRows([]);
+      setCompanyWarehouseDrafts(normalizeCompanyWarehouses([]));
+      setCompanyWarehousesLoading(false);
+      if (String(error.message || "").toLowerCase().includes("company_warehouses")) {
+        setCompanyWarehousesError("DB ešte nemá tabuľku skladov. Spusti SQL bundle pre sklady a potom stránku obnov.");
+      } else {
+        setCompanyWarehousesError(error.message || "Nepodarilo sa načítať firemné sklady.");
+      }
+      return;
+    }
+
+    const normalizedRows = normalizeCompanyWarehouses(
+      (data || []).map((row) => ({
+        id: row.id,
+        draftId: row.id,
+        code: row.code,
+        name: row.name,
+        address: row.address,
+        locationPrefix: row.location_prefix,
+        note: row.note,
+        isPrimary: row.is_primary
+      }))
+    );
+
+    setCompanyWarehouseRows(normalizedRows);
+    setCompanyWarehouseDrafts(normalizedRows);
+    setCompanyWarehousesLoading(false);
   };
 
   const handleAddStockTwinRackDraft = () => {
@@ -11078,6 +11151,7 @@ function App() {
   useEffect(() => {
     setCompanySettingsError("");
     setCompanyWarehousesMessage("");
+    setCompanyWarehousesError("");
     setCompanyMaxPositionsInput(String(normalizeMaxPositions(activeCompany?.max_positions ?? ENV_DEFAULT_MAX_POSITIONS)));
     setCompanyTracksExpiryDateInput(Boolean(activeCompany?.tracks_expiry_date));
     setCompanyMesEnabledInput(Boolean(activeCompany?.mes_enabled));
@@ -11091,7 +11165,8 @@ function App() {
     setCompanyInvoiceStyleInput(normalizeInvoiceStyle(activeCompanyProfile?.invoice_style));
     setCompanyInvoiceIntroTextInput(String(activeCompanyProfile?.invoice_intro_text || ""));
     setCompanyInvoiceOutroTextInput(String(activeCompanyProfile?.invoice_outro_text || ""));
-    setCompanyWarehouseDrafts(getStoredCompanyWarehouses(activeCompany?.id));
+    setCompanyWarehouseRows([]);
+    setCompanyWarehouseDrafts(normalizeCompanyWarehouses([]));
     setCompanyProfileLookupResults([]);
     setCompanyProfileLookupLoading(false);
     setCompanyProfileLookupError("");
@@ -11113,6 +11188,18 @@ function App() {
     activeCompanyProfile?.invoice_intro_text,
     activeCompanyProfile?.invoice_outro_text
   ]);
+
+  useEffect(() => {
+    if (!isLoggedIn || !activeCompanyId || (!isMaster && !canManageOrders)) {
+      setCompanyWarehouseRows([]);
+      setCompanyWarehouseDrafts(normalizeCompanyWarehouses([]));
+      setCompanyWarehousesLoading(false);
+      setCompanyWarehousesError("");
+      return;
+    }
+
+    loadCompanyWarehouses(activeCompanyId);
+  }, [isLoggedIn, activeCompanyId, isMaster, canManageOrders]);
 
   useEffect(() => {
     setBillingError("");
@@ -15610,111 +15697,116 @@ function App() {
                 <div className="workflow-form-section">
                   <div className="workflow-subsection-head">
                     <h3>Sklady</h3>
-                    <p className="panel-meta">Založ jednotlivé sklady, nastav im kód, adresu a predvolený prefix pozícií.</p>
+                    <p className="panel-meta">Globálny register skladov pre túto firmu. Každý admin firmy uvidí rovnaký zoznam skladov.</p>
                   </div>
                   <div className="orders-form-actions">
-                    <button type="button" className="clear-btn" onClick={handleAddCompanyWarehouseDraft} disabled={!activeCompanyId || companySettingsSubmitting}>
+                    <button type="button" className="clear-btn" onClick={handleAddCompanyWarehouseDraft} disabled={!activeCompanyId || companyWarehousesSubmitting}>
                       Pridať sklad
                     </button>
-                    <button type="button" className="settings-btn" onClick={handleSaveCompanyWarehouses} disabled={!activeCompanyId || companySettingsSubmitting}>
-                      Uložiť sklady
+                    <button type="button" className="settings-btn" onClick={handleSaveCompanyWarehouses} disabled={!activeCompanyId || companyWarehousesSubmitting || companyWarehousesLoading}>
+                      {companyWarehousesSubmitting ? "Ukladám sklady..." : "Uložiť sklady"}
                     </button>
                   </div>
-                  <div className="company-warehouse-list">
-                    {companyWarehouseDrafts.map((warehouse, index) => (
-                      <article key={warehouse.draftId} className="company-warehouse-card">
-                        <div className="company-warehouse-card-head">
-                          <div>
-                            <strong>{warehouse.name || `Sklad ${index + 1}`}</strong>
-                            <p>{warehouse.code || "-"}</p>
+                  {companyWarehousesLoading ? (
+                    <p className="panel-meta">Načítavam sklady firmy...</p>
+                  ) : (
+                    <div className="company-warehouse-list">
+                      {companyWarehouseDrafts.map((warehouse, index) => (
+                        <article key={warehouse.draftId} className="company-warehouse-card">
+                          <div className="company-warehouse-card-head">
+                            <div>
+                              <strong>{warehouse.name || `Sklad ${index + 1}`}</strong>
+                              <p>{warehouse.code || "-"}</p>
+                            </div>
+                            <div className="orders-draft-actions">
+                              <label className="pricing-options company-warehouse-primary-toggle">
+                                <input
+                                  type="checkbox"
+                                  checked={warehouse.isPrimary}
+                                  onChange={(event) => {
+                                    if (event.target.checked) {
+                                      handleCompanyWarehouseDraftChange(warehouse.draftId, "isPrimary", true);
+                                    }
+                                  }}
+                                  disabled={!activeCompanyId || companyWarehousesSubmitting}
+                                />
+                                <span>Primárny sklad</span>
+                              </label>
+                              {companyWarehouseDrafts.length > 1 && (
+                                <button
+                                  type="button"
+                                  className="clear-btn"
+                                  onClick={() => handleRemoveCompanyWarehouseDraft(warehouse.draftId)}
+                                  disabled={!activeCompanyId || companyWarehousesSubmitting}
+                                >
+                                  Odobrať
+                                </button>
+                              )}
+                            </div>
                           </div>
-                          <div className="orders-draft-actions">
-                            <label className="pricing-options company-warehouse-primary-toggle">
+                          <div className="workflow-field-grid workflow-field-grid-tight">
+                            <label className="workflow-field workflow-field-compact">
+                              <span className="workflow-field-label">Kód skladu</span>
                               <input
-                                type="checkbox"
-                                checked={warehouse.isPrimary}
-                                onChange={(event) => {
-                                  if (event.target.checked) {
-                                    handleCompanyWarehouseDraftChange(warehouse.draftId, "isPrimary", true);
-                                  }
-                                }}
-                                disabled={!activeCompanyId || companySettingsSubmitting}
+                                type="text"
+                                className="search-input"
+                                placeholder="SKLAD-1"
+                                value={warehouse.code}
+                                onChange={(event) => handleCompanyWarehouseDraftChange(warehouse.draftId, "code", event.target.value)}
+                                disabled={!activeCompanyId || companyWarehousesSubmitting}
                               />
-                              <span>Primárny sklad</span>
                             </label>
-                            {companyWarehouseDrafts.length > 1 && (
-                              <button
-                                type="button"
-                                className="clear-btn"
-                                onClick={() => handleRemoveCompanyWarehouseDraft(warehouse.draftId)}
-                                disabled={!activeCompanyId || companySettingsSubmitting}
-                              >
-                                Odobrať
-                              </button>
-                            )}
+                            <label className="workflow-field">
+                              <span className="workflow-field-label">Názov skladu</span>
+                              <input
+                                type="text"
+                                className="search-input"
+                                placeholder="Hlavný sklad"
+                                value={warehouse.name}
+                                onChange={(event) => handleCompanyWarehouseDraftChange(warehouse.draftId, "name", event.target.value)}
+                                disabled={!activeCompanyId || companyWarehousesSubmitting}
+                              />
+                            </label>
                           </div>
-                        </div>
-                        <div className="workflow-field-grid workflow-field-grid-tight">
-                          <label className="workflow-field workflow-field-compact">
-                            <span className="workflow-field-label">Kód skladu</span>
-                            <input
-                              type="text"
-                              className="search-input"
-                              placeholder="SKLAD-1"
-                              value={warehouse.code}
-                              onChange={(event) => handleCompanyWarehouseDraftChange(warehouse.draftId, "code", event.target.value)}
-                              disabled={!activeCompanyId || companySettingsSubmitting}
-                            />
-                          </label>
+                          <div className="workflow-field-grid workflow-field-grid-tight">
+                            <label className="workflow-field workflow-field-compact">
+                              <span className="workflow-field-label">Prefix pozícií</span>
+                              <input
+                                type="text"
+                                className="search-input"
+                                placeholder="W1"
+                                value={warehouse.locationPrefix}
+                                onChange={(event) => handleCompanyWarehouseDraftChange(warehouse.draftId, "locationPrefix", event.target.value)}
+                                disabled={!activeCompanyId || companyWarehousesSubmitting}
+                              />
+                            </label>
+                            <label className="workflow-field">
+                              <span className="workflow-field-label">Adresa / lokalita</span>
+                              <input
+                                type="text"
+                                className="search-input"
+                                placeholder="Mesto, hala, prevádzka"
+                                value={warehouse.address}
+                                onChange={(event) => handleCompanyWarehouseDraftChange(warehouse.draftId, "address", event.target.value)}
+                                disabled={!activeCompanyId || companyWarehousesSubmitting}
+                              />
+                            </label>
+                          </div>
                           <label className="workflow-field">
-                            <span className="workflow-field-label">Názov skladu</span>
-                            <input
-                              type="text"
-                              className="search-input"
-                              placeholder="Hlavný sklad"
-                              value={warehouse.name}
-                              onChange={(event) => handleCompanyWarehouseDraftChange(warehouse.draftId, "name", event.target.value)}
-                              disabled={!activeCompanyId || companySettingsSubmitting}
+                            <span className="workflow-field-label">Poznámka</span>
+                            <textarea
+                              className="order-note-input"
+                              placeholder="Čo sa v tomto sklade drží, kto ho používa alebo aký je jeho účel"
+                              value={warehouse.note}
+                              onChange={(event) => handleCompanyWarehouseDraftChange(warehouse.draftId, "note", event.target.value)}
+                              disabled={!activeCompanyId || companyWarehousesSubmitting}
                             />
                           </label>
-                        </div>
-                        <div className="workflow-field-grid workflow-field-grid-tight">
-                          <label className="workflow-field workflow-field-compact">
-                            <span className="workflow-field-label">Prefix pozícií</span>
-                            <input
-                              type="text"
-                              className="search-input"
-                              placeholder="W1"
-                              value={warehouse.locationPrefix}
-                              onChange={(event) => handleCompanyWarehouseDraftChange(warehouse.draftId, "locationPrefix", event.target.value)}
-                              disabled={!activeCompanyId || companySettingsSubmitting}
-                            />
-                          </label>
-                          <label className="workflow-field">
-                            <span className="workflow-field-label">Adresa / lokalita</span>
-                            <input
-                              type="text"
-                              className="search-input"
-                              placeholder="Mesto, hala, prevádzka"
-                              value={warehouse.address}
-                              onChange={(event) => handleCompanyWarehouseDraftChange(warehouse.draftId, "address", event.target.value)}
-                              disabled={!activeCompanyId || companySettingsSubmitting}
-                            />
-                          </label>
-                        </div>
-                        <label className="workflow-field">
-                          <span className="workflow-field-label">Poznámka</span>
-                          <textarea
-                            className="order-note-input"
-                            placeholder="Čo sa v tomto sklade drží, kto ho používa alebo aký je jeho účel"
-                            value={warehouse.note}
-                            onChange={(event) => handleCompanyWarehouseDraftChange(warehouse.draftId, "note", event.target.value)}
-                            disabled={!activeCompanyId || companySettingsSubmitting}
-                          />
-                        </label>
-                      </article>
-                    ))}
-                  </div>
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                  {companyWarehousesError && <p className="error">{companyWarehousesError}</p>}
                   {companyWarehousesMessage && <p className="settings-hint">{companyWarehousesMessage}</p>}
                 </div>
                 <div className="workflow-form-section">

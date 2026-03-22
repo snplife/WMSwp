@@ -2,7 +2,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { useRef } from "react";
 import { CurrencyCode, encode as encodePayBySquare, PaymentOptions } from "bysquare/pay";
-import { ArrowRight, Boxes, Building2, ClipboardList, Clock3, Factory, LogIn, MonitorSmartphone, ReceiptText, Settings2, ShieldCheck, Users, X } from "lucide-react";
+import { ArrowRight, Boxes, Building2, ClipboardList, Clock3, Factory, FileText, LogIn, MonitorSmartphone, ReceiptText, Settings2, ShieldCheck, Users, X } from "lucide-react";
 import * as XLSX from "xlsx";
 import { installHotjar, uninstallHotjar } from "./hotjar";
 import StatusPill from "./components/StatusPill";
@@ -40,10 +40,10 @@ const ATTENDANCE_SHIFT_OPTIONS = [
   { value: "custom", label: "Vlastný režim" }
 ];
 const COMPANY_ADMIN_MODULE_OPTIONS = [
-  { key: "wms", label: "WMS", description: "Sklad, pohyby materiálu, lokácie a mobilný picking", iconKey: "wms" },
-  { key: "mes", label: "MES", description: "Výroba, pracoviská a výrobné terminály pri linke", iconKey: "mes" },
-  { key: "attendance", label: "Dochádzka", description: "Príchody, odchody, skupiny a Android terminály", iconKey: "attendance" },
-  { key: "invoicing", label: "Fakturácia", description: "Zákazníci, cenové ponuky a faktúry", iconKey: "invoicing" }
+  { key: "wms", label: "WMS", description: "Sklad, pohyby materiálu, lokácie a mobilný picking", iconKey: "wms", pricingLabel: "Platené" },
+  { key: "mes", label: "MES", description: "Výroba, pracoviská a výrobné terminály pri linke", iconKey: "mes", pricingLabel: "Platené" },
+  { key: "attendance", label: "Dochádzka", description: "Príchody, odchody, skupiny a Android terminály", iconKey: "attendance", pricingLabel: "Platené" },
+  { key: "invoicing", label: "Fakturácia", description: "Zákazníci, cenové ponuky a faktúry", iconKey: "invoicing", pricingLabel: "Zdarma" }
 ];
 const COMPANY_ADMIN_CONFIGURATION_HELP_NOTE = "Firma žiada pomoc s konfiguráciou systému a návrhom nasadenia.";
 const COMPANY_ADMIN_HARDWARE_OPTIONS = [
@@ -90,6 +90,80 @@ const COMPANY_ADMIN_HARDWARE_OPTIONS = [
     moduleKeys: ["wms", "mes", "attendance", "invoicing"]
   }
 ];
+const LANDING_LEGAL_DOCUMENTS = {
+  vop: {
+    label: "VOP",
+    title: "Všeobecné obchodné podmienky",
+    intro: "Tieto podmienky upravujú základný rámec používania platformy Factory OS, onboardingu, dodávky modulov a súvisiacich služieb.",
+    icon: FileText,
+    sections: [
+      {
+        title: "1. Predmet služby",
+        paragraphs: [
+          "Factory OS poskytuje firmám webovú platformu a súvisiace digitálne nástroje pre sklad, výrobu, dochádzku, dokumenty, reporting a onboarding nových prevádzok.",
+          "Rozsah aktivovaných modulov, hardware, konzultácií a onboarding služieb sa riadi podľa výberu zákazníka, potvrdeného setupu a následnej objednávky alebo checkoutu."
+        ]
+      },
+      {
+        title: "2. Objednávka a aktivácia",
+        paragraphs: [
+          "Zákazník si v onboarding flow alebo v nastaveniach firmy vyberá moduly, počty používateľov, hardware a prípadné požiadavky na pomoc s konfiguráciou systému.",
+          "Platené služby a hardware sa aktivujú po potvrdení objednávky alebo po úspešnom checkout procese. Bezplatná vrstva sa môže aktivovať samostatne podľa aktuálneho cenníka."
+        ]
+      },
+      {
+        title: "3. Fakturácia a platby",
+        paragraphs: [
+          "Predplatné, jednorazové setup poplatky a hardware sa účtujú podľa aktuálneho cenníka alebo individuálne dohodnutej ponuky.",
+          "Ak zákazník uhradí predfaktúru, uhradená suma sa pri vystavení finálnej faktúry zohľadní a odpočíta od výslednej sumy na úhradu."
+        ]
+      },
+      {
+        title: "4. Práva a zodpovednosť",
+        paragraphs: [
+          "Zákazník zodpovedá za správnosť údajov, ktoré do systému vkladá, a za správu interných prístupov svojich používateľov.",
+          "Poskytovateľ zodpovedá za prevádzku platformy v primeranom rozsahu, pričom plánované rozšírenia, integrácie a špecifické úpravy sa riešia samostatným dojednaním."
+        ]
+      }
+    ]
+  },
+  gdpr: {
+    label: "GDPR",
+    title: "Ochrana osobných údajov",
+    intro: "Factory OS spracúva osobné údaje len v rozsahu potrebnom na prevádzku služby, onboarding firmy, billing a správu používateľských prístupov.",
+    icon: ShieldCheck,
+    sections: [
+      {
+        title: "1. Aké údaje spracúvame",
+        paragraphs: [
+          "Môžu sa spracúvať identifikačné a kontaktné údaje firmy, administrátora a používateľov, najmä meno, email, telefón, pracovná pozícia a prístupové oprávnenia.",
+          "Pri používaní dochádzky alebo prevádzkových modulov sa môžu ukladať aj prevádzkové eventy, terminálové záznamy, logy a auditné údaje."
+        ]
+      },
+      {
+        title: "2. Účel spracúvania",
+        paragraphs: [
+          "Údaje sa používajú na registráciu účtu, vytvorenie firmy, onboarding, billing, správu pozvánok, nastavenie prístupov a bezpečnú prevádzku jednotlivých modulov systému.",
+          "Prevádzkové logy a auditné záznamy slúžia aj na riešenie incidentov, obnovu histórie a ochranu pred duplicitnými alebo chybnými transakciami."
+        ]
+      },
+      {
+        title: "3. Zdieľanie a ochrana",
+        paragraphs: [
+          "Údaje sa nezdieľajú s tretími stranami mimo nevyhnutných technologických a platobných partnerov potrebných na prevádzku služby.",
+          "Prístup k dátam je obmedzený podľa rolí, firmy a oprávnení. Zákazník má mať vlastné interné pravidlá pre správu používateľov a zariadení."
+        ]
+      },
+      {
+        title: "4. Práva dotknutých osôb",
+        paragraphs: [
+          "Používatelia a zákazníci môžu žiadať opravu nepresných údajov, obmedzenie spracúvania alebo výmaz údajov, pokiaľ to nie je v rozpore s účtovnými, zmluvnými alebo zákonnými povinnosťami.",
+          "Konkrétne žiadosti o prístup k údajom alebo výmaz sa riešia cez kontaktný kanál poskytovateľa alebo cez zodpovedného firemného administrátora."
+        ]
+      }
+    ]
+  }
+};
 
 const TABLE_CONFIG = {
   stock: {
@@ -4263,6 +4337,7 @@ function App() {
   const [isLandingAuthOpen, setIsLandingAuthOpen] = useState(() => Boolean(getPendingCompanyInviteToken()));
   const [publicRegisteredCompaniesCount, setPublicRegisteredCompaniesCount] = useState(null);
   const [landingFlowActiveStep, setLandingFlowActiveStep] = useState(0);
+  const [landingLegalDocument, setLandingLegalDocument] = useState("");
   const [authError, setAuthError] = useState("");
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [signOutSubmitting, setSignOutSubmitting] = useState(false);
@@ -5462,16 +5537,25 @@ function App() {
     setBillingMessage("");
 
     try {
+      const checkoutSetup = buildCompanyAdminCheckoutSetup(targetCompanyId);
+      const checkoutPricingEstimate = estimateWmsPricing({
+        employees: checkoutSetup.employeeCount,
+        users: checkoutSetup.officeUserCount,
+        warehouses: checkoutSetup.warehouseCount,
+        needsCustomSupport: String(checkoutSetup.setupNote || "").trim() === COMPANY_ADMIN_CONFIGURATION_HELP_NOTE,
+        selectedModules: checkoutSetup.selectedModules.map((module) => module.key)
+      });
       const result = await postBillingRequest("/checkout", {
         companyId: targetCompanyId,
         billingCycle: normalizedCycle,
         pricing: {
-          employees: pricingEstimate.employees,
-          users: pricingEstimate.users,
-          warehouses: pricingEstimate.warehouses,
-          needsCustomSupport: pricingNeedsCustomSupport
+          employees: checkoutPricingEstimate.employees,
+          users: checkoutPricingEstimate.users,
+          warehouses: checkoutPricingEstimate.warehouses,
+          needsCustomSupport: checkoutPricingEstimate.needsCustomSupport,
+          selectedModules: checkoutPricingEstimate.selectedModules
         },
-        onboardingSetup: buildCompanyAdminCheckoutSetup(targetCompanyId)
+        onboardingSetup: checkoutSetup
       });
 
       if (!result?.url) {
@@ -12217,6 +12301,17 @@ function App() {
     () => COMPANY_ADMIN_MODULE_OPTIONS.filter((option) => companyAdminSetupDraft.moduleSelections?.[option.key]),
     [companyAdminSetupDraft]
   );
+  const companyAdminBillingEstimate = useMemo(
+    () =>
+      estimateWmsPricing({
+        employees: companyAdminSetupDraft.employeeCount,
+        users: companyAdminSetupDraft.officeUserCount,
+        warehouses: companyAdminSetupDraft.warehouseCount,
+        needsCustomSupport: String(companyAdminSetupDraft.setupNote || "").trim() === COMPANY_ADMIN_CONFIGURATION_HELP_NOTE,
+        selectedModules: selectedCompanyAdminModules.map((module) => module.key)
+      }),
+    [companyAdminSetupDraft, selectedCompanyAdminModules]
+  );
   const companyHardwareCatalogRows = useMemo(
     () =>
       COMPANY_ADMIN_HARDWARE_OPTIONS.map((option) => ({
@@ -12252,6 +12347,67 @@ function App() {
       unpricedCount: selectedItems.filter((item) => typeof item.lineTotal !== "number").length
     };
   }, [companyAdminSetupDraft, companyHardwarePriceCatalog]);
+  const landingPricingPlans = useMemo(
+    () => [
+      {
+        key: "basic",
+        eyebrow: "Bezplatný štart",
+        title: "Basic",
+        price: "Zdarma",
+        detail: "Fakturácia a cenové ponuky pre menšie firmy alebo prvý štart.",
+        estimate: estimateWmsPricing({
+          employees: 5,
+          users: 1,
+          warehouses: 1,
+          selectedModules: ["invoicing"]
+        }),
+        features: ["Cenové ponuky", "Faktúry", "Zákazníci", "Bez mesačného poplatku"],
+        accentClass: "is-free"
+      },
+      {
+        key: "operations",
+        eyebrow: "Prevádzkový základ",
+        title: "Factory OS Start",
+        price: `${new Intl.NumberFormat("sk-SK").format(
+          estimateWmsPricing({ employees: 15, users: 5, warehouses: 1, selectedModules: ["wms"] }).monthly
+        )} EUR / mes.`,
+        detail: "Pre firmy, ktoré chcú rozbehnúť sklad a digitálne pohyby materiálu.",
+        estimate: estimateWmsPricing({
+          employees: 15,
+          users: 5,
+          warehouses: 1,
+          selectedModules: ["wms"]
+        }),
+        features: ["WMS / sklad", "1 sklad v cene", "5 používateľov v cene", "Setup podľa prevádzky"],
+        accentClass: "is-paid"
+      },
+      {
+        key: "growth",
+        eyebrow: "Rastúca firma",
+        title: "Factory OS Growth",
+        price: `${new Intl.NumberFormat("sk-SK").format(
+          estimateWmsPricing({ employees: 50, users: 8, warehouses: 2, selectedModules: ["wms", "attendance", "invoicing"] }).monthly
+        )} EUR / mes.`,
+        detail: "Pre sklad, dochádzku a viac prevádzkových rolí v jednej firme.",
+        estimate: estimateWmsPricing({
+          employees: 50,
+          users: 8,
+          warehouses: 2,
+          selectedModules: ["wms", "attendance", "invoicing"]
+        }),
+        features: ["Viac používateľov", "Viac skladov", "Dochádzka", "Silnejší onboarding"],
+        accentClass: "is-paid"
+      }
+    ],
+    []
+  );
+  const landingHardwareHighlights = useMemo(
+    () =>
+      companyHardwareCatalogRows
+        .filter((option) => typeof option.configuredPriceExVat === "number")
+        .slice(0, 4),
+    [companyHardwareCatalogRows]
+  );
   const companyAdminPlannedInvites = useMemo(
     () =>
       (Array.isArray(companyAdminSetupDraft.inviteDrafts) ? companyAdminSetupDraft.inviteDrafts : []).filter(
@@ -12893,6 +13049,8 @@ function App() {
 
   const landingAuthVisible = isLandingAuthOpen || Boolean(normalizeInviteToken(authRegisterInviteTokenInput));
   const activeLandingFlowScenario = LANDING_FLOW_SCENARIOS[landingFlowActiveStep] || LANDING_FLOW_SCENARIOS[0];
+  const activeLandingLegalDocument = landingLegalDocument ? LANDING_LEGAL_DOCUMENTS[landingLegalDocument] || null : null;
+  const ActiveLandingLegalIcon = activeLandingLegalDocument?.icon || null;
 
   if (!authReady && !authInitTimedOut) {
     return (
@@ -13043,6 +13201,33 @@ function App() {
                     <span>dochádzka a prevádzka vedia pokračovať aj mimo kancelárskeho webu</span>
                   </div>
                 </div>
+
+                <section className="landing-custom-offer" aria-label="Individuálna ponuka">
+                  <div className="landing-custom-offer-copy">
+                    <span className="landing-custom-offer-icon" aria-hidden="true">
+                      <FileText size={17} strokeWidth={2.05} />
+                    </span>
+                    <div>
+                      <strong>Mám záujem o individuálnu ponuku</strong>
+                      <p>Ak potrebuješ rollout na mieru, viac prevádzok, hardware alebo pomoc s konfiguráciou, pripravíme setup individuálne.</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="settings-btn landing-custom-offer-btn"
+                    onClick={() => {
+                      setCompanyAdminSetupDraft((current) => ({
+                        ...current,
+                        setupNote: COMPANY_ADMIN_CONFIGURATION_HELP_NOTE
+                      }));
+                      setAuthMode("signup");
+                      setIsLandingAuthOpen(true);
+                    }}
+                  >
+                    <ArrowRight size={16} strokeWidth={2.1} />
+                    Chcem individuálnu ponuku
+                  </button>
+                </section>
               </>
             ) : (
               <>
@@ -13318,6 +13503,84 @@ function App() {
             </div>
           </article>
 
+          <article className="landing-card landing-pricing-section">
+            <div className="landing-pricing-head">
+              <div>
+                <p className="auth-kicker">Cenník</p>
+                <h2>Jasný štart zdarma, sklad a prevádzka už ako platené moduly</h2>
+                <p className="panel-meta">
+                  Basic vrstva je určená pre fakturáciu a cenové ponuky. Ak firma chce sklad, dochádzku, výrobu alebo
+                  širšiu prevádzku, onboarding už pripraví platený setup aj hardware podľa reálnej potreby.
+                </p>
+              </div>
+            </div>
+
+            <div className="landing-pricing-grid">
+              {landingPricingPlans.map((plan) => (
+                <article key={plan.key} className={`landing-pricing-card ${plan.accentClass}`}>
+                  <span className="landing-pricing-eyebrow">{plan.eyebrow}</span>
+                  <h3>{plan.title}</h3>
+                  <strong className="landing-pricing-price">{plan.price}</strong>
+                  <p>{plan.detail}</p>
+                  <div className="landing-pricing-meta">
+                    <span>{`Setup ${formatCurrencyValue(plan.estimate.setup)} bez DPH`}</span>
+                    {!plan.estimate.isFreeBasic && <span>{`${plan.estimate.users} používateľov / ${plan.estimate.warehouses} sklad`}</span>}
+                  </div>
+                  <ul className="landing-pricing-features">
+                    {plan.features.map((feature) => (
+                      <li key={feature}>{feature}</li>
+                    ))}
+                  </ul>
+                </article>
+              ))}
+            </div>
+
+            <div className="landing-pricing-module-grid" aria-label="Cenník modulov">
+              {COMPANY_ADMIN_MODULE_OPTIONS.map((moduleOption) => {
+                const Icon = getModuleIcon(moduleOption.iconKey);
+                return (
+                  <article key={moduleOption.key} className="landing-pricing-module-card">
+                    <div className="landing-pricing-module-head">
+                      <span className="landing-pricing-module-icon" aria-hidden="true">
+                        <Icon size={18} strokeWidth={2.05} />
+                      </span>
+                      <div>
+                        <strong>{moduleOption.label}</strong>
+                        <span>{moduleOption.pricingLabel}</span>
+                      </div>
+                    </div>
+                    <p>{moduleOption.description}</p>
+                  </article>
+                );
+              })}
+            </div>
+
+            <div className="landing-hardware-section">
+              <div className="landing-hardware-head">
+                <strong>Orientačný hardware</strong>
+                <span>Ceny bez DPH, finálne nacenenie sa môže upraviť podľa rollout-u a montáže.</span>
+              </div>
+              <div className="landing-hardware-grid">
+                {landingHardwareHighlights.map((item) => (
+                  <article key={item.key} className="landing-hardware-card">
+                    <strong>{item.label}</strong>
+                    <p>{item.description}</p>
+                    <span>{`${formatCurrencyValue(item.configuredPriceExVat)} / ks`}</span>
+                  </article>
+                ))}
+                {COMPANY_ADMIN_HARDWARE_OPTIONS.filter((item) => typeof normalizePriceInput(companyHardwarePriceCatalog?.[item.key]) !== "number")
+                  .slice(0, 2)
+                  .map((item) => (
+                    <article key={item.key} className="landing-hardware-card is-custom">
+                      <strong>{item.label}</strong>
+                      <p>{item.description}</p>
+                      <span>Individuálne naceniť</span>
+                    </article>
+                  ))}
+              </div>
+            </div>
+          </article>
+
           <article className="landing-card seo-section">
             <h2>Čo pre firmy dodávame</h2>
             <ul className="landing-list seo-list">
@@ -13354,6 +13617,66 @@ function App() {
             </div>
           </article>
         </section>
+        <footer className="landing-footer" aria-label="Právne informácie">
+          <div className="landing-footer-copy">
+            <strong>Factory OS</strong>
+            <span>Jedna platforma pre sklad, výrobu, dochádzku, dokumenty a denné riadenie firmy.</span>
+          </div>
+          <div className="landing-footer-links" aria-label="Právne odkazy">
+            <button type="button" className="landing-footer-link" onClick={() => setLandingLegalDocument("vop")}>
+              <FileText size={15} strokeWidth={2.05} />
+              VOP
+            </button>
+            <button type="button" className="landing-footer-link" onClick={() => setLandingLegalDocument("gdpr")}>
+              <ShieldCheck size={15} strokeWidth={2.05} />
+              GDPR
+            </button>
+          </div>
+        </footer>
+        {activeLandingLegalDocument && (
+          <div
+            className="landing-legal-overlay"
+            role="presentation"
+            onClick={(event) => {
+              if (event.target === event.currentTarget) {
+                setLandingLegalDocument("");
+              }
+            }}
+          >
+            <section className="landing-legal-modal" role="dialog" aria-modal="true" aria-labelledby="landing-legal-title">
+              <div className="landing-legal-head">
+                <div className="landing-legal-title-wrap">
+                  <span className="landing-legal-icon" aria-hidden="true">
+                    {ActiveLandingLegalIcon ? <ActiveLandingLegalIcon size={18} strokeWidth={2.05} /> : null}
+                  </span>
+                  <div>
+                    <p className="auth-kicker">Právne informácie</p>
+                    <h2 id="landing-legal-title">{activeLandingLegalDocument.title}</h2>
+                    <p>{activeLandingLegalDocument.intro}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="clear-btn landing-legal-close"
+                  onClick={() => setLandingLegalDocument("")}
+                  aria-label="Zavrieť právne informácie"
+                >
+                  <X size={16} strokeWidth={2.1} />
+                </button>
+              </div>
+              <div className="landing-legal-body">
+                {activeLandingLegalDocument.sections.map((section) => (
+                  <article key={section.title} className="landing-legal-section">
+                    <h3>{section.title}</h3>
+                    {section.paragraphs.map((paragraph) => (
+                      <p key={paragraph}>{paragraph}</p>
+                    ))}
+                  </article>
+                ))}
+              </div>
+            </section>
+          </div>
+        )}
       </main>
     );
   }
@@ -13512,8 +13835,24 @@ function App() {
                   <div className="panel-head">
                     <div>
                       <h2>Moduly a hardware</h2>
-                      <p className="panel-meta">Vyber modul a pod ním sa zobrazí hardware, ktorý k nemu dáva zmysel.</p>
+                      <p className="panel-meta">
+                        Vyber modul a pod ním sa zobrazí hardware, ktorý k nemu dáva zmysel. Basic vrstva s fakturáciou
+                        a cenovými ponukami je zdarma, sklad a ostatné prevádzkové moduly sú platené.
+                      </p>
                     </div>
+                  </div>
+
+                  <div className="company-onboarding-pricing-note">
+                    <strong>
+                      {companyAdminBillingEstimate.isFreeBasic
+                        ? "Basic fakturácia a cenové ponuky: zdarma"
+                        : `Platené moduly od ${formatCurrencyValue(companyAdminBillingEstimate.monthly)} / mesiac + setup ${formatCurrencyValue(companyAdminBillingEstimate.setup)}`}
+                    </strong>
+                    <span>
+                      {companyAdminBillingEstimate.isFreeBasic
+                        ? "Ak vyberieš len fakturáciu, onboarding a bežné doklady ostanú bez mesačného poplatku."
+                        : "Hneď ako pridáš sklad, MES alebo dochádzku, aktivuje sa platený Factory OS plán podľa veľkosti firmy."}
+                    </span>
                   </div>
 
                   <div className="company-onboarding-module-grid">
@@ -13526,6 +13865,9 @@ function App() {
                           className={`company-onboarding-module-card ${isSelected ? "is-selected" : ""}`}
                           onClick={() => handleCompanyAdminModuleToggle(module.key)}
                         >
+                          <span className={`company-onboarding-module-badge ${module.pricingLabel === "Zdarma" ? "is-free" : "is-paid"}`}>
+                            {module.pricingLabel}
+                          </span>
                           <strong>{module.label}</strong>
                           <span>{module.description}</span>
                         </button>
@@ -15041,11 +15383,16 @@ function App() {
                       {activeCompany?.billing_cancel_at_period_end && (
                         <p className="settings-hint">Predplatné je nastavené na ukončenie na konci aktuálneho obdobia.</p>
                       )}
-                      {!activeCompanyHasManagedBilling && (
+                      {!activeCompanyHasManagedBilling && !activeCompanyBillingPricing.isFreeBasic && (
                         <p className="settings-hint">
                           {`Prvý checkout zahrnie setup ${new Intl.NumberFormat("sk-SK").format(activeCompanyBillingPricing.setup)} EUR a potom ${
                             new Intl.NumberFormat("sk-SK").format(activeCompanyBillingPricing.monthly)
                           } EUR / mes. alebo ${new Intl.NumberFormat("sk-SK").format(activeCompanyBillingPricing.annualDiscounted)} EUR / rok.`}
+                        </p>
+                      )}
+                      {activeCompanyBillingPricing.isFreeBasic && (
+                        <p className="settings-hint">
+                          Basic vrstva s fakturáciou a cenovými ponukami je zdarma. Sklad, dochádzka a MES sa aktivujú ako platené moduly.
                         </p>
                       )}
                       {activeCompanyBillingPricing.billingNote && <p className="settings-hint">{activeCompanyBillingPricing.billingNote}</p>}
@@ -15061,24 +15408,35 @@ function App() {
                           {billingSubmittingAction === `portal-${activeCompanyId}` ? "Otváram portal..." : "Spravovať billing"}
                         </button>
                       ) : (
-                        <>
+                        activeCompanyBillingPricing.isFreeBasic ? (
                           <button
                             type="button"
                             className="settings-btn"
                             onClick={() => handleStartBillingCheckout("monthly")}
                             disabled={!activeCompanyId || Boolean(billingSubmittingAction)}
                           >
-                            {billingSubmittingAction === `checkout-monthly-${activeCompanyId}` ? "Presmerovávam..." : "Aktivovať mesačne"}
+                            {billingSubmittingAction === `checkout-monthly-${activeCompanyId}` ? "Aktivujem..." : "Aktivovať basic zdarma"}
                           </button>
-                          <button
-                            type="button"
-                            className="settings-btn"
-                            onClick={() => handleStartBillingCheckout("annual")}
-                            disabled={!activeCompanyId || Boolean(billingSubmittingAction)}
-                          >
-                            {billingSubmittingAction === `checkout-annual-${activeCompanyId}` ? "Presmerovávam..." : "Aktivovať ročne"}
-                          </button>
-                        </>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              className="settings-btn"
+                              onClick={() => handleStartBillingCheckout("monthly")}
+                              disabled={!activeCompanyId || Boolean(billingSubmittingAction)}
+                            >
+                              {billingSubmittingAction === `checkout-monthly-${activeCompanyId}` ? "Presmerovávam..." : "Aktivovať mesačne"}
+                            </button>
+                            <button
+                              type="button"
+                              className="settings-btn"
+                              onClick={() => handleStartBillingCheckout("annual")}
+                              disabled={!activeCompanyId || Boolean(billingSubmittingAction)}
+                            >
+                              {billingSubmittingAction === `checkout-annual-${activeCompanyId}` ? "Presmerovávam..." : "Aktivovať ročne"}
+                            </button>
+                          </>
+                        )
                       )}
                       <button
                         type="button"
@@ -15984,7 +16342,9 @@ function App() {
                                   : "bez predplatného"}
                             </div>
                             <div className="master-user-email">
-                              {`cenník ${new Intl.NumberFormat("sk-SK").format(companyBillingPricing.monthly)} EUR / mes. | ${new Intl.NumberFormat("sk-SK").format(companyBillingPricing.annualDiscounted)} EUR / rok`}
+                              {companyBillingPricing.isFreeBasic
+                                ? "basic fakturácia zdarma"
+                                : `cenník ${new Intl.NumberFormat("sk-SK").format(companyBillingPricing.monthly)} EUR / mes. | ${new Intl.NumberFormat("sk-SK").format(companyBillingPricing.annualDiscounted)} EUR / rok`}
                             </div>
                             <div className="master-user-email">
                               {`setup ${new Intl.NumberFormat("sk-SK").format(companyBillingPricing.setup)} EUR${
@@ -16006,24 +16366,35 @@ function App() {
                                   {billingSubmittingAction === `portal-${company.id}` ? "Portal..." : "Portal"}
                                 </button>
                               ) : (
-                                <>
+                                companyBillingPricing.isFreeBasic ? (
                                   <button
                                     type="button"
                                     className="clear-btn"
                                     onClick={() => handleStartBillingCheckout("monthly", company.id)}
                                     disabled={Boolean(billingSubmittingAction)}
                                   >
-                                    {billingSubmittingAction === `checkout-monthly-${company.id}` ? "Mesačne..." : "Mesačne"}
+                                    {billingSubmittingAction === `checkout-monthly-${company.id}` ? "Basic..." : "Basic zdarma"}
                                   </button>
-                                  <button
-                                    type="button"
-                                    className="clear-btn"
-                                    onClick={() => handleStartBillingCheckout("annual", company.id)}
-                                    disabled={Boolean(billingSubmittingAction)}
-                                  >
-                                    {billingSubmittingAction === `checkout-annual-${company.id}` ? "Ročne..." : "Ročne"}
-                                  </button>
-                                </>
+                                ) : (
+                                  <>
+                                    <button
+                                      type="button"
+                                      className="clear-btn"
+                                      onClick={() => handleStartBillingCheckout("monthly", company.id)}
+                                      disabled={Boolean(billingSubmittingAction)}
+                                    >
+                                      {billingSubmittingAction === `checkout-monthly-${company.id}` ? "Mesačne..." : "Mesačne"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="clear-btn"
+                                      onClick={() => handleStartBillingCheckout("annual", company.id)}
+                                      disabled={Boolean(billingSubmittingAction)}
+                                    >
+                                      {billingSubmittingAction === `checkout-annual-${company.id}` ? "Ročne..." : "Ročne"}
+                                    </button>
+                                  </>
+                                )
                               )}
                             </div>
                           </>

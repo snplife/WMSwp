@@ -639,22 +639,23 @@ export async function createCheckoutSession({ company, user, appUser, billingCyc
     throw new Error("Firma uz ma aktivne predplatne. Pouzi billing portal.");
   }
 
-  const estimate = estimateWmsPricing(pricingInput);
+  const normalizedSetup = normalizeCheckoutSetup(onboardingSetup);
+  const estimate = estimateWmsPricing({
+    ...pricingInput,
+    selectedModules: normalizedSetup.selectedModules.map((item) => item.key)
+  });
   const effectivePricing = resolveCompanyBillingPricing(company, estimate);
   const cycleConfig = resolveBillingCycleConfig(effectivePricing, billingCycle);
-  const normalizedSetup = normalizeCheckoutSetup(onboardingSetup);
   const selectedModuleSummary = normalizedSetup.selectedModules.map((item) => item.label).join(", ");
-  const stripeCustomerId = await ensureStripeCustomer(company, {
-    email: String(appUser?.email || user?.email || company?.billing_email || "").trim().toLowerCase(),
-    name: String(company?.name || appUser?.username || user?.email || "").trim()
-  });
   const setupAmountCents = Number.isFinite(effectivePricing.setup) ? Math.max(0, Math.round(effectivePricing.setup * 100)) : 0;
   const includeSetupFee = !String(company?.billing_subscription_id || "").trim() && setupAmountCents > 0;
   const siteUrl = resolveSiteUrl(req);
   const successUrl = `${siteUrl}/?billing=success`;
   const cancelUrl = `${siteUrl}/?billing=cancel`;
-  const lineItems = [
-    {
+  const lineItems = [];
+
+  if (cycleConfig.amountCents > 0) {
+    lineItems.push({
       price_data: {
         currency: "eur",
         product_data: {
@@ -669,8 +670,8 @@ export async function createCheckoutSession({ company, user, appUser, billingCyc
         }
       },
       quantity: 1
-    }
-  ];
+    });
+  }
 
   if (includeSetupFee) {
     lineItems.push({
@@ -709,6 +710,7 @@ export async function createCheckoutSession({ company, user, appUser, billingCyc
     users: String(estimate.users),
     warehouses: String(estimate.warehouses),
     custom_support: estimate.needsCustomSupport ? "true" : "false",
+    free_basic: effectivePricing.isFreeBasic ? "true" : "false",
     custom_pricing: effectivePricing.usesCustomPricing ? "true" : "false",
     setup_company_name: sanitizeText(normalizedSetup.companyName || company?.name, 120),
     setup_contact_phone: sanitizeText(normalizedSetup.contactPhone, 40),
@@ -718,10 +720,40 @@ export async function createCheckoutSession({ company, user, appUser, billingCyc
     setup_summary: buildSetupSummary(normalizedSetup)
   };
 
+  if (lineItems.length === 0 && effectivePricing.isFreeBasic) {
+    await updateCompanyBilling(company?.id, {
+      billing_email: String(appUser?.email || user?.email || company?.billing_email || "").trim().toLowerCase() || null,
+      billing_status: "active",
+      billing_plan_key: "basic_free",
+      billing_interval: null,
+      billing_currency: "eur",
+      billing_subscription_id: null,
+      billing_price_id: null,
+      billing_checkout_session_id: null,
+      billing_cancel_at_period_end: false,
+      billing_current_period_end: null
+    });
+
+    return {
+      url: successUrl,
+      sessionId: null,
+      estimate: effectivePricing,
+      cycle: cycleConfig.cycle,
+      includesSetupFee: false,
+      activatedDirectly: true
+    };
+  }
+
+  const stripeCustomerId = await ensureStripeCustomer(company, {
+    email: String(appUser?.email || user?.email || company?.billing_email || "").trim().toLowerCase(),
+    name: String(company?.name || appUser?.username || user?.email || "").trim()
+  });
+  const checkoutMode = cycleConfig.amountCents > 0 ? "subscription" : "payment";
+
   const session = await stripeRequest("/checkout/sessions", {
     method: "POST",
     data: {
-      mode: "subscription",
+      mode: checkoutMode,
       customer: stripeCustomerId,
       client_reference_id: String(company?.id || "").trim(),
       success_url: successUrl,
@@ -734,9 +766,13 @@ export async function createCheckoutSession({ company, user, appUser, billingCyc
       },
       metadata,
       line_items: lineItems,
-      subscription_data: {
-        metadata
-      }
+      ...(checkoutMode === "subscription"
+        ? {
+            subscription_data: {
+              metadata
+            }
+          }
+        : {})
     }
   });
 
@@ -744,7 +780,7 @@ export async function createCheckoutSession({ company, user, appUser, billingCyc
     stripe_customer_id: stripeCustomerId,
     billing_email: String(appUser?.email || user?.email || company?.billing_email || "").trim().toLowerCase() || null,
     billing_plan_key: cycleConfig.planKey,
-    billing_interval: cycleConfig.interval,
+    billing_interval: checkoutMode === "subscription" ? cycleConfig.interval : null,
     billing_currency: "eur",
     billing_checkout_session_id: session.id
   });
@@ -810,6 +846,18 @@ export async function processStripeWebhookEvent(event) {
       await syncCompanyFromStripeSubscription(company.id, subscription, {
         checkoutSessionId: object?.id || null,
         billingEmail: object?.customer_details?.email || company.billing_email || null
+      });
+    } else if (String(object?.metadata?.free_basic || "").trim() === "true") {
+      await updateCompanyBilling(company.id, {
+        billing_status: "active",
+        billing_plan_key: "basic_free",
+        billing_interval: null,
+        billing_currency: "eur",
+        billing_subscription_id: null,
+        billing_price_id: null,
+        billing_cancel_at_period_end: false,
+        billing_current_period_end: null,
+        billing_checkout_session_id: object?.id || null
       });
     }
 

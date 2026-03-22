@@ -4867,14 +4867,20 @@ function App() {
   };
 
   const loadPublicRegisteredCompaniesCount = async () => {
-    const { count, error } = await supabase.from("companies").select("id", { count: "exact", head: true });
+    try {
+      const response = await noStoreFetch("/api/v1/public/platform-stats");
+      const payload = await response.json().catch(() => null);
 
-    if (error) {
+      if (!response.ok || !payload?.ok) {
+        setPublicRegisteredCompaniesCount(null);
+        return;
+      }
+
+      const nextCount = Number.parseInt(String(payload.registered_companies_count ?? ""), 10);
+      setPublicRegisteredCompaniesCount(Number.isFinite(nextCount) ? nextCount : null);
+    } catch {
       setPublicRegisteredCompaniesCount(null);
-      return;
     }
-
-    setPublicRegisteredCompaniesCount(Number.isFinite(count) ? count : null);
   };
 
   const loadCompanyProfiles = async () => {
@@ -12815,10 +12821,25 @@ function App() {
                   <p className="auth-kicker">Prístup do systému</p>
                   <h2>Prvotný vstup nechaj bokom, najprv si pozri produkt</h2>
                   <p className="auth-subtitle">
-                    Prihlásenie môže zostať schované, kým ho fakt netreba. Nová firma sa zakladá onboardingom, existujúci
-                    účet sa otvorí cez jedno tlačidlo.
+                    Nová firma sa zakladá onboardingom a existujúci účet otvoríš priamo cez prihlásenie. Vstup do systému
+                    je pripravený pre firemný setup aj pre bežnú dennú prevádzku.
                   </p>
                 </div>
+
+                {publicRegisteredCompaniesCount !== null && publicRegisteredCompaniesCount > 0 && (
+                  <div className="landing-access-counter" aria-label="Počet aktívnych zákazníkov">
+                    <div className="landing-access-counter-icon" aria-hidden="true">
+                      <Users size={18} strokeWidth={2.1} />
+                    </div>
+                    <span className="landing-access-counter-value">
+                      {new Intl.NumberFormat("sk-SK").format(publicRegisteredCompaniesCount)}+
+                    </span>
+                    <div className="landing-access-counter-copy">
+                      <strong>aktívnych zákazníkov</strong>
+                      <span>ktorí už používajú Factory OS pre onboarding, operatívu, dochádzku, výrobu a KPI</span>
+                    </div>
+                  </div>
+                )}
 
                 <div className="landing-access-actions">
                   <button
@@ -12845,28 +12866,25 @@ function App() {
                   </button>
                 </div>
 
-                {publicRegisteredCompaniesCount !== null && publicRegisteredCompaniesCount > 0 && (
-                  <div className="landing-access-counter" aria-label="Počet registrovaných firiem">
-                    <span className="landing-access-counter-value">
-                      {new Intl.NumberFormat("sk-SK").format(publicRegisteredCompaniesCount)}+
-                    </span>
-                    <div className="landing-access-counter-copy">
-                      <strong>registrovaných firiem</strong>
-                      <span>ktoré si už pripravili onboarding a firemné moduly vo Factory OS</span>
-                    </div>
-                  </div>
-                )}
-
                 <div className="landing-access-points">
                   <div className="landing-access-point">
+                    <span className="landing-access-point-icon" aria-hidden="true">
+                      <Settings2 size={16} strokeWidth={2.1} />
+                    </span>
                     <strong>Setup pred dashboardom</strong>
                     <span>firma, moduly, hardware a kolegovia sa pripravia ešte pred vstupom do systému</span>
                   </div>
                   <div className="landing-access-point">
+                    <span className="landing-access-point-icon" aria-hidden="true">
+                      <ShieldCheck size={16} strokeWidth={2.1} />
+                    </span>
                     <strong>Firemné admin práva</strong>
                     <span>zakladateľ firmy dostane onboarding, pozvánky a správu prístupov hneď po registrácii</span>
                   </div>
                   <div className="landing-access-point">
+                    <span className="landing-access-point-icon" aria-hidden="true">
+                      <MonitorSmartphone size={16} strokeWidth={2.1} />
+                    </span>
                     <strong>Android terminály</strong>
                     <span>dochádzka a prevádzka vedia pokračovať aj mimo kancelárskeho webu</span>
                   </div>
@@ -13057,6 +13075,180 @@ function App() {
           </section>
         </section>
         <section className="landing-supporting" aria-label="Informácie o riešení Factory OS">
+          <article className="landing-card landing-flow-section">
+            <div className="landing-flow-head">
+              <div>
+                <p className="auth-kicker">Ako sa dáta prepájajú</p>
+                <h2>Od skladu cez výrobu a dochádzku až po KPI a obrat</h2>
+                <p className="panel-meta">
+                  Factory OS neukladá len izolované tabuľky. Materiál v sklade sa premietne do výroby, dochádzka
+                  ukáže reálnu kapacitu tímu, dokumenty vzniknú bez prepisovania a vedenie vidí dopad na KPI aj denné
+                  obraty v jednom toku.
+                </p>
+              </div>
+            </div>
+
+            <div className="landing-flow-layout">
+              <div className="landing-flow-chain" aria-label="Ukážkový tok dát">
+                {[
+                  {
+                    key: "stock",
+                    icon: Boxes,
+                    eyebrow: "Sklad",
+                    title: "Príjem materiálu a lokácie",
+                    detail: "Materiál sa naskladní na pozície, systém drží množstvá, expirácie a dostupnosť pre picking aj výrobu.",
+                    metric: "128 ks dostupných"
+                  },
+                  {
+                    key: "production",
+                    icon: Factory,
+                    eyebrow: "Výroba",
+                    title: "Spotreba vstupov a výstupy",
+                    detail: "Výrobný terminál odpíše vstupy, zaeviduje výstup a vedúci vidí prestoje aj rozpracovanosť.",
+                    metric: "24 ks hotových"
+                  },
+                  {
+                    key: "attendance",
+                    icon: Clock3,
+                    eyebrow: "Dochádzka",
+                    title: "Zmeny, prítomnosť a kapacita tímu",
+                    detail: "Terminály a HR modul ukážu, kto je na zmene, koľko ľudí je na linke a kde hrozí výpadok kapacity.",
+                    metric: "92% obsadenie zmeny"
+                  },
+                  {
+                    key: "documents",
+                    icon: ClipboardList,
+                    eyebrow: "Dokumenty",
+                    title: "Objednávky, ponuky a faktúry",
+                    detail: "Z hotových alebo pripravených položiek vznikajú doklady bez prepisu dát medzi oddeleniami.",
+                    metric: "18 expedovaných objednávok"
+                  },
+                  {
+                    key: "kpi",
+                    icon: MonitorSmartphone,
+                    eyebrow: "KPI",
+                    title: "Výkon, OEE a manažérsky prehľad",
+                    detail: "Vedúci vidí priepustnosť toku, čakania, efektivitu zmien a čo priamo tlačí maržu alebo mešká.",
+                    metric: "OEE 78.4%"
+                  },
+                  {
+                    key: "revenue",
+                    icon: ReceiptText,
+                    eyebrow: "Obraty",
+                    title: "Denný prehľad obratu a marže",
+                    detail: "Majiteľ alebo obchod vidí obrat, rozfakturované zákazky a čo ešte čaká na billing.",
+                    metric: "14 820 € dnes"
+                  }
+                ].map((step, index) => {
+                  const Icon = step.icon;
+                  return (
+                    <div key={step.key} className="landing-flow-step">
+                      <div className="landing-flow-step-icon" aria-hidden="true">
+                        <Icon size={18} strokeWidth={2.05} />
+                      </div>
+                      <div className="landing-flow-step-copy">
+                        <span>{step.eyebrow}</span>
+                        <strong>{step.title}</strong>
+                        <p>{step.detail}</p>
+                        <em>{step.metric}</em>
+                      </div>
+                      {index < 5 && <ArrowRight className="landing-flow-step-arrow" size={18} strokeWidth={2.1} aria-hidden="true" />}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="landing-flow-visual" aria-label="Ukážkový dashboard">
+                <div className="landing-flow-visual-card">
+                  <div className="landing-flow-visual-head">
+                    <strong>Dnešný tok prevádzky</strong>
+                    <span>živý sample</span>
+                  </div>
+                  <div className="landing-flow-kpi-grid">
+                    <article>
+                      <span>Sklad</span>
+                      <strong>94.6%</strong>
+                      <small>presnosť lokácií</small>
+                    </article>
+                    <article>
+                      <span>Výroba</span>
+                      <strong>3 linky</strong>
+                      <small>2 bežia, 1 prestavba</small>
+                    </article>
+                    <article>
+                      <span>Dochádzka</span>
+                      <strong>27 ľudí</strong>
+                      <small>25 prítomných, 2 absencie</small>
+                    </article>
+                    <article>
+                      <span>KPI</span>
+                      <strong>78.4%</strong>
+                      <small>výkon zmeny vs plán</small>
+                    </article>
+                    <article>
+                      <span>Fakturácia</span>
+                      <strong>6</strong>
+                      <small>dokladov čaká na odoslanie</small>
+                    </article>
+                    <article>
+                      <span>Obrat</span>
+                      <strong>14 820 €</strong>
+                      <small>aktuálny denný súčet</small>
+                    </article>
+                  </div>
+                  <div className="landing-flow-bars">
+                    {[
+                      { label: "Skladové pohyby", value: "142", width: "84%" },
+                      { label: "Výrobné výstupy", value: "24 ks", width: "61%" },
+                      { label: "Dochádzka vs plán", value: "92%", width: "78%" },
+                      { label: "KPI výkonu", value: "78.4%", width: "68%" },
+                      { label: "Denný obrat", value: "14 820 €", width: "72%" }
+                    ].map((item) => (
+                      <div key={item.label} className="landing-flow-bar-row">
+                        <div className="landing-flow-bar-copy">
+                          <span>{item.label}</span>
+                          <strong>{item.value}</strong>
+                        </div>
+                        <div className="landing-flow-bar-track">
+                          <div className="landing-flow-bar-fill" style={{ width: item.width }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="landing-flow-activity-card">
+                  <div className="landing-flow-activity-head">
+                    <Clock3 size={16} strokeWidth={2.05} />
+                    <strong>Ukážka naviazaných udalostí</strong>
+                  </div>
+                  <div className="landing-flow-activity-list">
+                    <div>
+                      <span>08:12</span>
+                      <p>Príjem materiálu `PLECH-02` na pozíciu `A-01-04`</p>
+                    </div>
+                    <div>
+                      <span>09:05</span>
+                      <p>Výroba odpísala 32 ks vstupu a naskladnila 24 ks hotového dielu</p>
+                    </div>
+                    <div>
+                      <span>09:12</span>
+                      <p>Dochádzka potvrdila plný nábeh rannej zmeny a KPI prepočítali dostupnú kapacitu pracoviska</p>
+                    </div>
+                    <div>
+                      <span>10:30</span>
+                      <p>Dashboard vyhodnotil pokles výkonu na jednej linke a vedúci vidí dopad na plán aj maržu</p>
+                    </div>
+                    <div>
+                      <span>11:40</span>
+                      <p>Objednávka zákazníka sa preklopila do fakturácie a pribudla do obratu</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </article>
+
           <article className="landing-card seo-section">
             <h2>Čo pre firmy dodávame</h2>
             <ul className="landing-list seo-list">

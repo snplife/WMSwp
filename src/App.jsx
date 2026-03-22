@@ -12444,141 +12444,26 @@ function App() {
     return (
       <main className="container landing-screen">
         <section className="landing-layout">
-          <article className="landing-card landing-hero">
-            <div className="landing-hero-top">
-              <div className="landing-brand-wrap">
-                <img src={logo} alt="WMS Online" className="landing-logo" />
-                <p className="landing-tag">WMS Online SaaS</p>
-              </div>
-              <div className="landing-hero-badges" aria-label="Pokryté moduly">
-                {COMPANY_ADMIN_MODULE_OPTIONS.map((moduleOption) => {
-                  const Icon = getModuleIcon(moduleOption.iconKey);
-                  return (
-                    <span key={moduleOption.key} className="landing-badge">
-                      <Icon size={14} strokeWidth={2.1} />
-                      {moduleOption.label}
-                    </span>
-                  );
-                })}
-              </div>
-            </div>
+          <article className="landing-card">
+            <img src={logo} alt="WMS Online" className="landing-logo" />
+            <h1>Vyvíjame firemný systém pre sklad, objednávky, fakturáciu a procesy okolo nich</h1>
+            <p className="subtitle">
+              WMS Online pomáha firmám dostať sklad, dokumenty a operatívu do jedného prostredia. Namiesto rozbitých
+              Excelov, izolovaných evidencií a ručných prepisov dostaneš systém, ktorý sa dá prispôsobiť konkrétnej
+              prevádzke.
+            </p>
 
-            <div className="landing-hero-grid">
-              <div className="landing-hero-copy">
-                <p className="landing-kicker">Sklad, výroba, dochádzka a fakturácia v jednom systéme</p>
-                <h1>Jedna platforma pre firmu, ktorá už nechce fungovať cez Excel a ručné prepisy</h1>
-                <p className="subtitle">
-                  WMS Online spája skladové pohyby, objednávky, cenové ponuky, fakturáciu, HR dochádzku a MES operatívu
-                  do jedného prostredia. Výsledok je čistejšia prevádzka, rýchlejší onboarding a jasný denný prehľad.
-                </p>
-
-                <div className="landing-actions">
-                  <button type="button" className="refresh-btn" onClick={() => setAuthMode("signup")}>
-                    Začať registráciou
-                  </button>
-                  <button type="button" className="settings-btn" onClick={() => setAuthMode("login")}>
-                    Prihlásenie do firmy
-                  </button>
-                </div>
-
-                <div className="landing-proof-strip" aria-label="Kľúčové benefity">
-                  <div className="landing-proof-item">
-                    <strong>1 systém</strong>
-                    <span>pre sklad, výrobu, HR aj billing</span>
-                  </div>
-                  <div className="landing-proof-item">
-                    <strong>Web + Android</strong>
-                    <span>terminály, kiosk aj operatíva v teréne</span>
-                  </div>
-                  <div className="landing-proof-item">
-                    <strong>Setup na firmu</strong>
-                    <span>moduly, hardware a prístupy od prvého dňa</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="landing-visual" aria-hidden="true">
-                <div className="landing-dashboard-shell">
-                  <div className="landing-dashboard-main">
-                    <div className="landing-dashboard-main-head">
-                      <span>Denný prehľad</span>
-                      <strong>Operatíva firmy v reálnom čase</strong>
-                    </div>
-                    <div className="landing-dashboard-metric-grid">
-                      <div className="landing-dashboard-metric">
-                        <span>Sklad</span>
-                        <strong>98.4%</strong>
-                        <small>presnosť pohybov</small>
-                      </div>
-                      <div className="landing-dashboard-metric">
-                        <span>Dochádzka</span>
-                        <strong>24</strong>
-                        <small>ľudí v práci</small>
-                      </div>
-                      <div className="landing-dashboard-metric">
-                        <span>MES</span>
-                        <strong>3 linky</strong>
-                        <small>online terminály</small>
-                      </div>
-                    </div>
-                    <div className="landing-dashboard-chart">
-                      <div className="landing-dashboard-chart-bars">
-                        {[52, 70, 61, 88, 74, 94, 82].map((value, index) => (
-                          <span key={`landing-bar-${index}`} style={{ height: `${value}%` }} />
-                        ))}
-                      </div>
-                      <div className="landing-dashboard-chart-labels">
-                        <span>Po</span>
-                        <span>St</span>
-                        <span>Pi</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="landing-dashboard-float landing-dashboard-float-top">
-                    <small>Workflow</small>
-                    <strong>Objednávka → picking → faktúra</strong>
-                  </div>
-
-                  <div className="landing-dashboard-float landing-dashboard-float-middle">
-                    <small>Android terminál</small>
-                    <strong>príchod / odchod / pauza</strong>
-                  </div>
-
-                  <div className="landing-dashboard-side">
-                    {COMPANY_ADMIN_MODULE_OPTIONS.map((moduleOption) => {
-                      const Icon = getModuleIcon(moduleOption.iconKey);
-                      return (
-                        <div key={`landing-module-${moduleOption.key}`} className="landing-module-card">
-                          <div className="landing-module-card-head">
-                            <span className="landing-module-icon" aria-hidden="true">
-                              <Icon size={18} strokeWidth={2.05} />
-                            </span>
-                            <strong>{moduleOption.label}</strong>
-                          </div>
-                          <span>{moduleOption.description}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="landing-feature-grid">
+            <ul className="landing-list">
               {LANDING_FEATURES.map((item) => (
-                <div key={item} className="landing-feature-card">
-                  <strong>{item}</strong>
-                  <span>Prispôsobené firemnej prevádzke, nie generický softvér bez kontextu.</span>
-                </div>
+                <li key={item}>{item}</li>
               ))}
-            </div>
+            </ul>
 
             <div className="landing-note">
               <h2>Čo robíme</h2>
               <p>
                 Navrhujeme a nasadzujeme WMS riešenie pre firmy, ktoré chcú mať sklad, pohyby materiálu, objednávky,
-                cenové ponuky, faktúry, dochádzku a výrobnú operatívu v jednom systéme na webe aj v Android termináloch.
+                cenové ponuky, faktúry a budúci order processing v jednom systéme na webe aj v appke.
               </p>
             </div>
           </article>
@@ -12739,7 +12624,7 @@ function App() {
           </section>
         </section>
         <section className="landing-supporting" aria-label="Informácie o riešení WMS Online">
-          <article className="landing-card seo-section landing-support-card">
+          <article className="landing-card seo-section">
             <h2>Čo pre firmy dodávame</h2>
             <ul className="landing-list seo-list">
               {LANDING_SERVICE_AREAS.map((item) => (
@@ -12747,7 +12632,7 @@ function App() {
               ))}
             </ul>
           </article>
-          <article className="landing-card seo-section landing-support-card">
+          <article className="landing-card seo-section">
             <h2>Komu systém najviac pomáha</h2>
             <ul className="landing-list seo-list">
               {LANDING_USE_CASES.map((item) => (
@@ -12755,7 +12640,7 @@ function App() {
               ))}
             </ul>
           </article>
-          <article className="landing-card seo-section landing-support-card">
+          <article className="landing-card seo-section">
             <h2>Čo tým firma získa</h2>
             <ul className="landing-list seo-list">
               {LANDING_OUTCOMES.map((item) => (
@@ -12763,7 +12648,7 @@ function App() {
               ))}
             </ul>
           </article>
-          <article className="landing-card seo-section landing-support-card">
+          <article className="landing-card seo-section">
             <h2>Časté otázky</h2>
             <div className="faq-list">
               {LANDING_FAQ.map((item) => (

@@ -3985,6 +3985,7 @@ function App() {
   const [selectedTwinPositionKey, setSelectedTwinPositionKey] = useState("");
   const [stockTwinPresentationMode, setStockTwinPresentationMode] = useState("top");
   const [expandedPositions, setExpandedPositions] = useState({});
+  const [collapsedSidebarSections, setCollapsedSidebarSections] = useState({});
   const [deadStockByKey, setDeadStockByKey] = useState({});
   const [stockAgeStats, setStockAgeStats] = useState({ avgDays: null, sampleCount: 0 });
   const [stockSnapshotRows, setStockSnapshotRows] = useState([]);
@@ -11943,8 +11944,10 @@ function App() {
 
   useEffect(() => {
     const query = String(companyProfileNameInput || "").trim();
+    const companyProfileLookupEnabled =
+      ((selectedTable === "stock" && isCompanySettingsOpen) || isCompanyAdminOnboardingActive) && Boolean(activeCompanyId);
 
-    if (selectedTable !== "stock" || !isCompanySettingsOpen || !activeCompanyId || isLoggedIn === false) {
+    if (!companyProfileLookupEnabled || isLoggedIn === false) {
       setCompanyProfileLookupResults([]);
       setCompanyProfileLookupLoading(false);
       setCompanyProfileLookupError("");
@@ -11997,7 +12000,7 @@ function App() {
     }, COMPANY_LOOKUP_DEBOUNCE_MS);
 
     return () => window.clearTimeout(timerId);
-  }, [companyProfileNameInput, selectedCompanyProfileRegistryId, selectedTable, isCompanySettingsOpen, activeCompanyId, isLoggedIn]);
+  }, [companyProfileNameInput, selectedCompanyProfileRegistryId, selectedTable, isCompanySettingsOpen, isCompanyAdminOnboardingActive, activeCompanyId, isLoggedIn]);
 
   useEffect(() => {
     if (hotjarAllowed) {
@@ -12037,6 +12040,13 @@ function App() {
 
   const togglePositionExpanded = (position) => {
     setExpandedPositions((prev) => ({ ...prev, [position]: !prev[position] }));
+  };
+
+  const toggleSidebarSection = (sectionKey) => {
+    setCollapsedSidebarSections((current) => ({
+      ...current,
+      [sectionKey]: !current[sectionKey]
+    }));
   };
 
   const exportToExcel = () => {
@@ -12672,14 +12682,47 @@ function App() {
                   <div className="panel-head">
                     <div>
                       <h2>Firemné údaje</h2>
-                      <p className="panel-meta">Toto sú základné údaje, s ktorými potom pôjde fakturácia aj firemný profil.</p>
+                      <p className="panel-meta">Toto sú základné údaje, s ktorými potom pôjde fakturácia aj firemný profil. Názov firmy vieš vyhľadať a údaje sa doplnia automaticky.</p>
                     </div>
                   </div>
-                  <div className="workflow-field-grid">
+                  <div className="company-lookup-field">
                     <label className="workflow-field">
                       <span className="workflow-field-label">Názov firmy</span>
-                      <input type="text" className="search-input" value={companyProfileNameInput} onChange={(event) => setCompanyProfileNameInput(event.target.value)} />
+                      <input
+                        type="text"
+                        className="search-input"
+                        placeholder="Začni písať názov firmy"
+                        value={companyProfileNameInput}
+                        onChange={(event) => {
+                          setCompanyProfileNameInput(event.target.value);
+                          setSelectedCompanyProfileRegistryId("");
+                        }}
+                      />
                     </label>
+                    <p className="settings-hint">Ak firmu nájdeme v registri, jedným klikom doplníme názov, IČO, DIČ, IČ DPH a adresu.</p>
+                    {companyProfileLookupLoading && <p className="orders-draft-meta">Vyhľadávam firmu...</p>}
+                    {companyProfileLookupError && <p className="error">{companyProfileLookupError}</p>}
+                    {companyProfileLookupResults.length > 0 && (
+                      <div className="company-lookup-results">
+                        {companyProfileLookupResults.map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            className="company-lookup-option"
+                            onClick={() => handleSelectCompanyProfileRegistry(item)}
+                          >
+                            <strong>{item.name}</strong>
+                            <span>
+                              {[item.ico ? `IČO: ${item.ico}` : "", item.dic ? `DIČ: ${item.dic}` : "", item.ic_dph ? `IČ DPH: ${item.ic_dph}` : ""]
+                                .filter(Boolean)
+                                .join(" | ")}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="workflow-field-grid">
                     <label className="workflow-field">
                       <span className="workflow-field-label">IČO</span>
                       <input type="text" className="search-input" value={companyProfileIcoInput} onChange={(event) => setCompanyProfileIcoInput(event.target.value)} />
@@ -13663,47 +13706,67 @@ function App() {
         <nav className="sidebar-nav" aria-label="Hlavná navigácia">
           {sidebarSections.map((section) => (
             <section key={section.title} className="sidebar-section">
-              <p className="sidebar-section-title">{section.title}</p>
-              <div className="sidebar-tree">
-                {section.items.map((table) => (
-                  <button
-                    key={table}
-                    type="button"
-                    className={`sidebar-link ${selectedTable === table ? "sidebar-link-active" : ""}`}
-                    onClick={() => setSelectedTable(table)}
-                  >
-                    <span className="sidebar-link-bullet" />
-                    <span>{getTableLabel(table)}</span>
-                  </button>
-                ))}
-              </div>
+              <button
+                type="button"
+                className={`sidebar-section-toggle ${collapsedSidebarSections[section.title] ? "is-collapsed" : ""}`}
+                onClick={() => toggleSidebarSection(section.title)}
+                aria-expanded={!collapsedSidebarSections[section.title]}
+              >
+                <span className="sidebar-section-title">{section.title}</span>
+                <span className="sidebar-section-chevron">{collapsedSidebarSections[section.title] ? "+" : "−"}</span>
+              </button>
+              {!collapsedSidebarSections[section.title] && (
+                <div className="sidebar-tree">
+                  {section.items.map((table) => (
+                    <button
+                      key={table}
+                      type="button"
+                      className={`sidebar-link ${selectedTable === table ? "sidebar-link-active" : ""}`}
+                      onClick={() => setSelectedTable(table)}
+                    >
+                      <span className="sidebar-link-bullet" />
+                      <span>{getTableLabel(table)}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </section>
           ))}
         </nav>
 
         {selectedTable === "stock" && (
           <section className="sidebar-section">
-            <p className="sidebar-section-title">Nástroje</p>
-            <div className="sidebar-tree">
-              <button
-                type="button"
-                className={`sidebar-link ${isCompanySettingsOpen ? "sidebar-link-active" : ""}`}
-                onClick={() => setIsCompanySettingsOpen((current) => !current)}
-              >
-                <span className="sidebar-link-bullet" />
-                <span>Nastavenia firmy</span>
-              </button>
-              {isMaster && (
+            <button
+              type="button"
+              className={`sidebar-section-toggle ${collapsedSidebarSections.tools ? "is-collapsed" : ""}`}
+              onClick={() => toggleSidebarSection("tools")}
+              aria-expanded={!collapsedSidebarSections.tools}
+            >
+              <span className="sidebar-section-title">Nástroje</span>
+              <span className="sidebar-section-chevron">{collapsedSidebarSections.tools ? "+" : "−"}</span>
+            </button>
+            {!collapsedSidebarSections.tools && (
+              <div className="sidebar-tree">
                 <button
                   type="button"
-                  className={`sidebar-link ${isStockTwinSettingsOpen ? "sidebar-link-active" : ""}`}
-                  onClick={() => setIsStockTwinSettingsOpen((current) => !current)}
+                  className={`sidebar-link ${isCompanySettingsOpen ? "sidebar-link-active" : ""}`}
+                  onClick={() => setIsCompanySettingsOpen((current) => !current)}
                 >
                   <span className="sidebar-link-bullet" />
-                  <span>Twin layout</span>
+                  <span>Nastavenia firmy</span>
                 </button>
-              )}
-            </div>
+                {isMaster && (
+                  <button
+                    type="button"
+                    className={`sidebar-link ${isStockTwinSettingsOpen ? "sidebar-link-active" : ""}`}
+                    onClick={() => setIsStockTwinSettingsOpen((current) => !current)}
+                  >
+                    <span className="sidebar-link-bullet" />
+                    <span>Twin layout</span>
+                  </button>
+                )}
+              </div>
+            )}
           </section>
         )}
       </aside>

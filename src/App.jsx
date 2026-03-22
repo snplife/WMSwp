@@ -5112,6 +5112,44 @@ function App() {
     setCompanyAdminOnboardingStep((current) => Math.max(0, current - 1));
   };
 
+  const buildCompanyAdminCheckoutSetup = (targetCompanyId) => {
+    const normalizedCompanyId = String(targetCompanyId || "").trim();
+    const activeScopedCompanyId = String(activeCompanyId || "").trim();
+    const sourceDraft =
+      normalizedCompanyId && normalizedCompanyId === activeScopedCompanyId
+        ? companyAdminSetupDraft
+        : getStoredCompanyAdminSetup(normalizedCompanyId);
+    const normalizedDraft = createDefaultCompanyAdminSetupDraft({
+      companyId: normalizedCompanyId,
+      companyName: companyNameById[normalizedCompanyId] || activeCompany?.name || "",
+      ...(sourceDraft || {})
+    });
+
+    return {
+      companyName: String(normalizedDraft.companyName || companyNameById[normalizedCompanyId] || "").trim(),
+      contactPhone: String(normalizedDraft.contactPhone || "").trim(),
+      warehouseCount: Math.max(1, Number.parseInt(String(normalizedDraft.warehouseCount || "1"), 10) || 1),
+      employeeCount: Math.max(0, Number.parseInt(String(normalizedDraft.employeeCount || "0"), 10) || 0),
+      officeUserCount: Math.max(0, Number.parseInt(String(normalizedDraft.officeUserCount || "0"), 10) || 0),
+      wmsRackCount: Math.max(1, Number.parseInt(String(normalizedDraft.wmsRackCount || "1"), 10) || 1),
+      wmsPositionsPerRack: Math.max(1, Number.parseInt(String(normalizedDraft.wmsPositionsPerRack || "1"), 10) || 1),
+      skipWmsRackPlanning: Boolean(normalizedDraft.skipWmsRackPlanning),
+      selectedModules: COMPANY_ADMIN_MODULE_OPTIONS.filter((option) => normalizedDraft.moduleSelections?.[option.key]).map((option) => ({
+        key: option.key,
+        label: option.label,
+        description: option.description
+      })),
+      hardwareItems: COMPANY_ADMIN_HARDWARE_OPTIONS.filter((option) => normalizedDraft.hardwareSelections?.[option.key]).map((option) => ({
+        key: option.key,
+        label: option.label,
+        description: option.description,
+        moduleKeys: Array.isArray(option.moduleKeys) ? option.moduleKeys : [],
+        quantity: Math.max(1, Number.parseInt(String(normalizedDraft.hardwareQuantities?.[option.key] || "1"), 10) || 1),
+        unitPrice: normalizePriceInput(companyHardwarePriceCatalog?.[option.key])
+      }))
+    };
+  };
+
   const postBillingRequest = async (path, payload = {}) => {
     const {
       data: { session }
@@ -5185,7 +5223,8 @@ function App() {
           users: pricingEstimate.users,
           warehouses: pricingEstimate.warehouses,
           needsCustomSupport: pricingNeedsCustomSupport
-        }
+        },
+        onboardingSetup: buildCompanyAdminCheckoutSetup(targetCompanyId)
       });
 
       if (!result?.url) {
@@ -9595,10 +9634,18 @@ function App() {
       return;
     }
 
+    setCompanyAdminSetupDraft((current) =>
+      createDefaultCompanyAdminSetupDraft({
+        ...current,
+        companyId: pendingCompanyId || current.companyId,
+        companyName: String(current.companyName || pendingSetup.companyName || activeCompany?.name || "").trim(),
+        contactPhone: String(current.contactPhone || pendingSetup.contactPhone || "").trim()
+      })
+    );
     setIsCompanyAdminOnboardingActive(true);
     setCompanyAdminOnboardingStep(0);
     setCompanyAdminOnboardingError("");
-  }, [authReady, isLoggedIn, isCompanyAdmin, authUser?.id, userCompanyId]);
+  }, [authReady, isLoggedIn, isCompanyAdmin, authUser?.id, userCompanyId, activeCompany?.name]);
 
   useEffect(() => {
     if (!authReady) {

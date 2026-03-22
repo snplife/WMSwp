@@ -23,6 +23,7 @@ export default async function handler(req, res) {
       appUser: auth.appUser,
       billingCycle: payload.billingCycle,
       pricingInput: payload.pricing || {},
+      onboardingSetup: payload.onboardingSetup || {},
       req
     });
 

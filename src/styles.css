@@ -3471,6 +3471,56 @@ tbody tr:nth-child(even) {
   gap: 0.95rem;
 }
 
+.company-onboarding-help-cta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.05rem;
+  border: 1px solid rgba(214, 158, 46, 0.24);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at top right, rgba(245, 158, 11, 0.12), transparent 48%),
+    linear-gradient(180deg, rgba(255, 251, 235, 0.96), rgba(255, 255, 255, 0.98));
+  box-shadow: 0 16px 30px rgba(23, 38, 56, 0.05);
+}
+
+.company-onboarding-help-cta strong {
+  display: block;
+  color: #17324a;
+  font-size: 0.96rem;
+}
+
+.company-onboarding-help-cta span {
+  display: block;
+  margin-top: 0.3rem;
+  max-width: 700px;
+  color: #66798d;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.company-onboarding-help-button {
+  min-width: 280px;
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease;
+}
+
+.company-onboarding-help-button:hover {
+  transform: translateY(-1px);
+}
+
+.company-onboarding-help-button.is-active {
+  border-color: rgba(180, 83, 9, 0.28);
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: #ffffff;
+  box-shadow: 0 16px 28px rgba(217, 119, 6, 0.25);
+}
+
 .company-onboarding-wms-builder {
   display: grid;
   gap: 0.8rem;

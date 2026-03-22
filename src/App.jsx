@@ -45,6 +45,7 @@ const COMPANY_ADMIN_MODULE_OPTIONS = [
   { key: "attendance", label: "Dochádzka", description: "Príchody, odchody, skupiny a Android terminály", iconKey: "attendance" },
   { key: "invoicing", label: "Fakturácia", description: "Zákazníci, cenové ponuky a faktúry", iconKey: "invoicing" }
 ];
+const COMPANY_ADMIN_CONFIGURATION_HELP_NOTE = "Firma žiada pomoc s konfiguráciou systému a návrhom nasadenia.";
 const COMPANY_ADMIN_HARDWARE_OPTIONS = [
   {
     key: "mobile_scanners",
@@ -4875,6 +4876,18 @@ function App() {
     setCompanyAdminSetupMessage("");
   };
 
+  const handleToggleCompanyAdminConfigurationHelp = () => {
+    setCompanyAdminSetupDraft((current) => ({
+      ...current,
+      setupNote:
+        String(current.setupNote || "").trim() === COMPANY_ADMIN_CONFIGURATION_HELP_NOTE
+          ? ""
+          : COMPANY_ADMIN_CONFIGURATION_HELP_NOTE
+    }));
+    setCompanyAdminSetupMessage("");
+    setCompanyAdminOnboardingError("");
+  };
+
   const handleSaveCompanyAdminSetup = () => {
     if (!activeCompanyId) {
       setCompanyAdminSetupMessage("Najprv vyber konkrétnu firmu pre setup.");
@@ -5128,6 +5141,7 @@ function App() {
     return {
       companyName: String(normalizedDraft.companyName || companyNameById[normalizedCompanyId] || "").trim(),
       contactPhone: String(normalizedDraft.contactPhone || "").trim(),
+      setupNote: String(normalizedDraft.setupNote || "").trim(),
       warehouseCount: Math.max(1, Number.parseInt(String(normalizedDraft.warehouseCount || "1"), 10) || 1),
       employeeCount: Math.max(0, Number.parseInt(String(normalizedDraft.employeeCount || "0"), 10) || 0),
       officeUserCount: Math.max(0, Number.parseInt(String(normalizedDraft.officeUserCount || "0"), 10) || 0),
@@ -13003,6 +13017,20 @@ function App() {
                         </button>
                       );
                     })}
+                  </div>
+
+                  <div className="company-onboarding-help-cta">
+                    <div>
+                      <strong>Pomôžte mi s konfiguráciou systému</strong>
+                      <span>Označíš, že chceš asistovaný návrh modulov, hardware a rollout plánu. Prenesie sa to aj do checkoutu a master objednávky.</span>
+                    </div>
+                    <button
+                      type="button"
+                      className={`settings-btn company-onboarding-help-button ${String(companyAdminSetupDraft.setupNote || "").trim() === COMPANY_ADMIN_CONFIGURATION_HELP_NOTE ? "is-active" : ""}`}
+                      onClick={handleToggleCompanyAdminConfigurationHelp}
+                    >
+                      {String(companyAdminSetupDraft.setupNote || "").trim() === COMPANY_ADMIN_CONFIGURATION_HELP_NOTE ? "Pomoc vyžiadaná" : "Pomôžte mi s konfiguráciou systému"}
+                    </button>
                   </div>
 
                   {companyAdminHardwareGroups.length > 0 ? (

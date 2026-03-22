@@ -103,6 +103,7 @@ function normalizeCheckoutSetup(setup = {}) {
   return {
     companyName: sanitizeText(setup?.companyName, 120),
     contactPhone: sanitizeText(setup?.contactPhone, 40),
+    setupNote: sanitizeText(setup?.setupNote, 240),
     warehouseCount: normalizePositiveInteger(setup?.warehouseCount, 1, 1, 1000),
     employeeCount: normalizePositiveInteger(setup?.employeeCount, 0, 0, 100000),
     officeUserCount: normalizePositiveInteger(setup?.officeUserCount, 0, 0, 100000),
@@ -566,6 +567,7 @@ async function createMasterOrderFromCheckoutSession({ company, checkoutSession }
   const setup = {
     companyName: sanitizeText(metadata.setup_company_name || company?.name, 120),
     contactPhone: sanitizeText(metadata.setup_contact_phone || "", 40),
+    setupNote: sanitizeText(metadata.setup_note || "", 240),
     selectedModules: decodeSetupModulesMetadata(metadata.setup_modules),
     hardwareItems: decodeSetupHardwareMetadata(metadata.setup_hardware)
   };
@@ -592,6 +594,7 @@ async function createMasterOrderFromCheckoutSession({ company, checkoutSession }
     `Stripe checkout ${sanitizeText(checkoutSession?.id, 120)}`,
     `firma ${sanitizeText(company?.name, 120)}`,
     metadata?.billing_cycle ? `cyklus ${sanitizeText(metadata.billing_cycle, 20)}` : "",
+    setup?.setupNote ? sanitizeText(setup.setupNote, 240) : "",
     metadata?.setup_summary ? sanitizeText(metadata.setup_summary, 220) : ""
   ].filter(Boolean);
 
@@ -709,6 +712,7 @@ export async function createCheckoutSession({ company, user, appUser, billingCyc
     custom_pricing: effectivePricing.usesCustomPricing ? "true" : "false",
     setup_company_name: sanitizeText(normalizedSetup.companyName || company?.name, 120),
     setup_contact_phone: sanitizeText(normalizedSetup.contactPhone, 40),
+    setup_note: sanitizeText(normalizedSetup.setupNote, 240),
     setup_modules: encodeSetupModulesMetadata(normalizedSetup.selectedModules),
     setup_hardware: encodeSetupHardwareMetadata(normalizedSetup.hardwareItems),
     setup_summary: buildSetupSummary(normalizedSetup)

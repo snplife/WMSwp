@@ -13126,112 +13126,113 @@ function App() {
             </div>
           </article>
 
-          <section className={`login-card auth-card landing-access-card${landingAuthVisible ? " is-open" : ""}`}>
-            {!landingAuthVisible ? (
-              <>
-                <div className="auth-card-top landing-access-top">
-                  <p className="auth-kicker">Prístup do systému</p>
-                  <h2>Prvotný vstup nechaj bokom, najprv si pozri produkt</h2>
-                  <p className="auth-subtitle">
-                    Nová firma sa zakladá onboardingom a existujúci účet otvoríš priamo cez prihlásenie. Vstup do systému
-                    je pripravený pre firemný setup aj pre bežnú dennú prevádzku.
-                  </p>
-                </div>
+          <div className="landing-side-column">
+            <section className={`login-card auth-card landing-access-card${landingAuthVisible ? " is-open" : ""}`}>
+              {!landingAuthVisible ? (
+                <>
+                  <div className="auth-card-top landing-access-top">
+                    <p className="auth-kicker">Prístup do systému</p>
+                    <h2>Prvotný vstup nechaj bokom, najprv si pozri produkt</h2>
+                    <p className="auth-subtitle">
+                      Nová firma sa zakladá onboardingom a existujúci účet otvoríš priamo cez prihlásenie. Vstup do systému
+                      je pripravený pre firemný setup aj pre bežnú dennú prevádzku.
+                    </p>
+                  </div>
 
-                {publicRegisteredCompaniesCount !== null && publicRegisteredCompaniesCount > 0 && (
-                  <div className="landing-access-counter" aria-label="Počet aktívnych zákazníkov">
-                    <div className="landing-access-counter-icon" aria-hidden="true">
-                      <Users size={18} strokeWidth={2.1} />
+                  {publicRegisteredCompaniesCount !== null && publicRegisteredCompaniesCount > 0 && (
+                    <div className="landing-access-counter" aria-label="Počet aktívnych zákazníkov">
+                      <div className="landing-access-counter-icon" aria-hidden="true">
+                        <Users size={18} strokeWidth={2.1} />
+                      </div>
+                      <span className="landing-access-counter-value">
+                        {new Intl.NumberFormat("sk-SK").format(publicRegisteredCompaniesCount)}+
+                      </span>
+                      <div className="landing-access-counter-copy">
+                        <strong>aktívnych zákazníkov</strong>
+                        <span>ktorí už používajú Factory OS pre onboarding, operatívu, dochádzku, výrobu a KPI</span>
+                      </div>
                     </div>
-                    <span className="landing-access-counter-value">
-                      {new Intl.NumberFormat("sk-SK").format(publicRegisteredCompaniesCount)}+
-                    </span>
-                    <div className="landing-access-counter-copy">
-                      <strong>aktívnych zákazníkov</strong>
-                      <span>ktorí už používajú Factory OS pre onboarding, operatívu, dochádzku, výrobu a KPI</span>
+                  )}
+
+                  <div className="landing-access-actions">
+                    <button
+                      type="button"
+                      className="refresh-btn landing-access-primary"
+                      onClick={() => {
+                        setAuthMode("login");
+                        setIsLandingAuthOpen(true);
+                      }}
+                    >
+                      <LogIn size={16} strokeWidth={2.1} />
+                      Prihlásiť sa
+                    </button>
+                    <button
+                      type="button"
+                      className="settings-btn landing-access-secondary"
+                      onClick={() => {
+                        setAuthMode("signup");
+                        setIsLandingAuthOpen(true);
+                      }}
+                    >
+                      <ArrowRight size={16} strokeWidth={2.1} />
+                      Založiť firmu
+                    </button>
+                  </div>
+
+                  <div className="landing-access-points">
+                    <div className="landing-access-point">
+                      <span className="landing-access-point-icon" aria-hidden="true">
+                        <Settings2 size={16} strokeWidth={2.1} />
+                      </span>
+                      <strong>Setup pred dashboardom</strong>
+                      <span>firma, moduly, hardware a kolegovia sa pripravia ešte pred vstupom do systému</span>
                     </div>
-                  </div>
-                )}
-
-                <div className="landing-access-actions">
-                  <button
-                    type="button"
-                    className="refresh-btn landing-access-primary"
-                    onClick={() => {
-                      setAuthMode("login");
-                      setIsLandingAuthOpen(true);
-                    }}
-                  >
-                    <LogIn size={16} strokeWidth={2.1} />
-                    Prihlásiť sa
-                  </button>
-                  <button
-                    type="button"
-                    className="settings-btn landing-access-secondary"
-                    onClick={() => {
-                      setAuthMode("signup");
-                      setIsLandingAuthOpen(true);
-                    }}
-                  >
-                    <ArrowRight size={16} strokeWidth={2.1} />
-                    Založiť firmu
-                  </button>
-                </div>
-
-                <div className="landing-access-points">
-                  <div className="landing-access-point">
-                    <span className="landing-access-point-icon" aria-hidden="true">
-                      <Settings2 size={16} strokeWidth={2.1} />
-                    </span>
-                    <strong>Setup pred dashboardom</strong>
-                    <span>firma, moduly, hardware a kolegovia sa pripravia ešte pred vstupom do systému</span>
-                  </div>
-                  <div className="landing-access-point">
-                    <span className="landing-access-point-icon" aria-hidden="true">
-                      <ShieldCheck size={16} strokeWidth={2.1} />
-                    </span>
-                    <strong>Firemné admin práva</strong>
-                    <span>zakladateľ firmy dostane onboarding, pozvánky a správu prístupov hneď po registrácii</span>
-                  </div>
-                  <div className="landing-access-point">
-                    <span className="landing-access-point-icon" aria-hidden="true">
-                      <MonitorSmartphone size={16} strokeWidth={2.1} />
-                    </span>
-                    <strong>Android terminály</strong>
-                    <span>dochádzka a prevádzka vedia pokračovať aj mimo kancelárskeho webu</span>
-                  </div>
-                </div>
-
-                <section className="landing-custom-offer" aria-label="Individuálna ponuka">
-                  <div className="landing-custom-offer-copy">
-                    <span className="landing-custom-offer-icon" aria-hidden="true">
-                      <FileText size={17} strokeWidth={2.05} />
-                    </span>
-                    <div>
-                      <strong>Mám záujem o individuálnu ponuku</strong>
-                      <p>Ak potrebuješ rollout na mieru, viac prevádzok, hardware alebo pomoc s konfiguráciou, pripravíme setup individuálne.</p>
+                    <div className="landing-access-point">
+                      <span className="landing-access-point-icon" aria-hidden="true">
+                        <ShieldCheck size={16} strokeWidth={2.1} />
+                      </span>
+                      <strong>Firemné admin práva</strong>
+                      <span>zakladateľ firmy dostane onboarding, pozvánky a správu prístupov hneď po registrácii</span>
+                    </div>
+                    <div className="landing-access-point">
+                      <span className="landing-access-point-icon" aria-hidden="true">
+                        <MonitorSmartphone size={16} strokeWidth={2.1} />
+                      </span>
+                      <strong>Android terminály</strong>
+                      <span>dochádzka a prevádzka vedia pokračovať aj mimo kancelárskeho webu</span>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    className="settings-btn landing-custom-offer-btn"
-                    onClick={() => {
-                      setCompanyAdminSetupDraft((current) => ({
-                        ...current,
-                        setupNote: COMPANY_ADMIN_CONFIGURATION_HELP_NOTE
-                      }));
-                      setAuthMode("signup");
-                      setIsLandingAuthOpen(true);
-                    }}
-                  >
-                    <ArrowRight size={16} strokeWidth={2.1} />
-                    Chcem individuálnu ponuku
-                  </button>
-                </section>
-              </>
-            ) : (
-              <>
-                <div className="landing-auth-toolbar">
+
+                  <section className="landing-custom-offer" aria-label="Individuálna ponuka">
+                    <div className="landing-custom-offer-copy">
+                      <span className="landing-custom-offer-icon" aria-hidden="true">
+                        <FileText size={17} strokeWidth={2.05} />
+                      </span>
+                      <div>
+                        <strong>Mám záujem o individuálnu ponuku</strong>
+                        <p>Ak potrebuješ rollout na mieru, viac prevádzok, hardware alebo pomoc s konfiguráciou, pripravíme setup individuálne.</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="settings-btn landing-custom-offer-btn"
+                      onClick={() => {
+                        setCompanyAdminSetupDraft((current) => ({
+                          ...current,
+                          setupNote: COMPANY_ADMIN_CONFIGURATION_HELP_NOTE
+                        }));
+                        setAuthMode("signup");
+                        setIsLandingAuthOpen(true);
+                      }}
+                    >
+                      <ArrowRight size={16} strokeWidth={2.1} />
+                      Chcem individuálnu ponuku
+                    </button>
+                  </section>
+                </>
+              ) : (
+                <>
+                  <div className="landing-auth-toolbar">
                   <div className="login-mode-switch" role="tablist" aria-label="Výber režimu prístupu">
                     <button
                       type="button"
@@ -13409,9 +13410,52 @@ function App() {
                   </form>
                 )}
                 {authError && <p className="error">{authError}</p>}
-              </>
-            )}
-          </section>
+                </>
+              )}
+            </section>
+
+            <article className="landing-card landing-scale-card" aria-label="Škálovanie systému">
+              <div className="landing-scale-head">
+                <p className="auth-kicker">Bez umelých limitov</p>
+                <h2>Neobmedzujeme počet používateľov ani objem prevádzky podľa skenov alebo transakcií</h2>
+                <p className="panel-meta">
+                  Factory OS naceníme podľa toho, ktoré moduly a rollout firma reálne potrebuje. Nie podľa počtu skenov,
+                  terminálových eventov alebo iných umelých stropov, ktoré ti neskôr brzdia rast.
+                </p>
+              </div>
+
+              <div className="landing-scale-grid">
+                <article className="landing-scale-item">
+                  <span className="landing-scale-item-icon" aria-hidden="true">
+                    <Users size={17} strokeWidth={2.05} />
+                  </span>
+                  <strong>Bez limitu používateľov</strong>
+                  <p>Nezamkneme firmu na nízky počet účtov len preto, že rastie tím alebo pribúdajú prevádzky.</p>
+                </article>
+                <article className="landing-scale-item">
+                  <span className="landing-scale-item-icon" aria-hidden="true">
+                    <Boxes size={17} strokeWidth={2.05} />
+                  </span>
+                  <strong>Bez stropu transakcií</strong>
+                  <p>Skladové pohyby, výroba aj dochádzkové eventy môžu rásť bez poplatku za každú ďalšiu operáciu.</p>
+                </article>
+                <article className="landing-scale-item">
+                  <span className="landing-scale-item-icon" aria-hidden="true">
+                    <ReceiptText size={17} strokeWidth={2.05} />
+                  </span>
+                  <strong>Žiadne poplatky za skeny</strong>
+                  <p>Neúčtujeme systém podľa počtu skenov, terminálových pípnutí alebo dokumentových akcií v prevádzke.</p>
+                </article>
+                <article className="landing-scale-item">
+                  <span className="landing-scale-item-icon" aria-hidden="true">
+                    <Settings2 size={17} strokeWidth={2.05} />
+                  </span>
+                  <strong>Cena podľa reality firmy</strong>
+                  <p>Rozhoduje výber modulov, hardware, onboarding a reálny rollout, nie umelo nafúknutá usage metriku.</p>
+                </article>
+              </div>
+            </article>
+          </div>
         </section>
         <section className="landing-supporting" aria-label="Informácie o riešení Factory OS">
           <article className="landing-card landing-flow-section">

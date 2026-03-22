@@ -324,8 +324,8 @@ const TABLE_CONFIG = {
     metricValue: (rows) => rows.length
   },
   [PRODUCTION_MODULE]: {
-    title: "MES",
-    subtitle: "Dashboard výroby, strojov, efektivity, kvality a prestojov",
+    title: "Výrobné objednávky",
+    subtitle: "Plánovanie výroby, výrobné zákazky, výkon a rozpracovanosť",
     columns: [],
     searchKeys: [],
     statusKeys: [],
@@ -768,7 +768,7 @@ function getTableLabel(table) {
     return "Zamestnanci";
   }
   if (isProductionModule(table)) {
-    return "MES";
+    return "Výrobné objednávky";
   }
   if (isDailyOverviewTable(table)) {
     return "Denný prehľad";
@@ -12462,11 +12462,11 @@ function App() {
       .sort((a, b) => String(a.area).localeCompare(String(b.area), "sk-SK", { sensitivity: "base" }));
   }, [machineDashboardRows]);
   const sidebarSections = useMemo(() => {
-    const manufacturingItems = [PRODUCTION_MODULE].filter((table) => visibleTableNames.includes(table));
+    const manufacturingItems = [];
     const hrItems = [ROLE_TABLE, ATTENDANCE_MODULE, ATTENDANCE_GROUPS_MODULE, ATTENDANCE_SETTINGS_MODULE].filter((table) =>
       visibleTableNames.includes(table)
     );
-    const workflowItems = [PRICE_LIST_TABLE, CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE].filter((table) =>
+    const workflowItems = [PRICE_LIST_TABLE, CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE, PRODUCTION_MODULE].filter((table) =>
       visibleTableNames.includes(table)
     );
     const monitoringItems = visibleTableNames.filter(

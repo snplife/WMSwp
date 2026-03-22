@@ -4096,6 +4096,7 @@ function App() {
       return Array.from(
         new Set([
           ...tableNames,
+          ROLE_TABLE,
           PRICE_LIST_TABLE,
           CUSTOMERS_MODULE,
           QUOTES_MODULE,
@@ -4121,6 +4122,7 @@ function App() {
         CUSTOMERS_MODULE,
         QUOTES_MODULE,
         INVOICES_MODULE,
+        ...(canAccessOrdersModule ? [ROLE_TABLE] : []),
         ...(canAccessOrdersModule ? [ORDERS_MODULE] : []),
         ...(canAccessOrdersModule ? [ATTENDANCE_MODULE] : []),
         ...(canAccessOrdersModule ? [ATTENDANCE_SETTINGS_MODULE] : []),

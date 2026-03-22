@@ -983,6 +983,7 @@ select {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.7rem;
+  align-items: start;
 }
 
 .invoice-form-grid {
@@ -1050,6 +1051,17 @@ select {
   font-size: 0.77rem;
   color: #66788b;
   line-height: 1.35;
+}
+
+.workflow-field .search-input,
+.workflow-field select,
+.workflow-field textarea,
+.workflow-field input[type="time"],
+.workflow-field input[type="number"],
+.workflow-field input[type="email"],
+.workflow-field input[type="text"] {
+  width: 100%;
+  min-width: 0;
 }
 
 .orders-form {
@@ -3044,6 +3056,113 @@ tbody tr:nth-child(even) {
   font-weight: 800;
 }
 
+.workflow-shell-attendance-settings .workflow-field {
+  gap: 0.42rem;
+}
+
+.workflow-shell-attendance-settings .workflow-field-label {
+  color: #4e647b;
+  letter-spacing: 0.06em;
+}
+
+.workflow-shell-attendance-settings .search-input,
+.workflow-shell-attendance-settings select,
+.workflow-shell-attendance-settings input[type="time"],
+.workflow-shell-attendance-settings input[type="number"],
+.workflow-shell-attendance-settings .order-note-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 46px;
+  border: 1px solid #cfdae6;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #ffffff, #f6faff);
+  color: #1b3147;
+  font: inherit;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 1px 2px rgba(19, 39, 58, 0.04);
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    background 140ms ease,
+    transform 140ms ease;
+}
+
+.workflow-shell-attendance-settings .search-input,
+.workflow-shell-attendance-settings select,
+.workflow-shell-attendance-settings input[type="time"],
+.workflow-shell-attendance-settings input[type="number"] {
+  padding: 0.72rem 0.9rem;
+}
+
+.workflow-shell-attendance-settings .order-note-input {
+  min-height: 112px;
+  padding: 0.82rem 0.95rem;
+  line-height: 1.45;
+}
+
+.workflow-shell-attendance-settings select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 2.5rem;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #54708c 50%),
+    linear-gradient(135deg, #54708c 50%, transparent 50%),
+    linear-gradient(180deg, #ffffff, #f6faff);
+  background-position:
+    calc(100% - 18px) calc(50% - 3px),
+    calc(100% - 12px) calc(50% - 3px),
+    0 0;
+  background-size:
+    6px 6px,
+    6px 6px,
+    100% 100%;
+  background-repeat: no-repeat;
+}
+
+.workflow-shell-attendance-settings input[type="time"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.72;
+}
+
+.workflow-shell-attendance-settings .search-input::placeholder,
+.workflow-shell-attendance-settings .order-note-input::placeholder {
+  color: #8ea1b4;
+}
+
+.workflow-shell-attendance-settings .search-input:hover,
+.workflow-shell-attendance-settings select:hover,
+.workflow-shell-attendance-settings input[type="time"]:hover,
+.workflow-shell-attendance-settings input[type="number"]:hover,
+.workflow-shell-attendance-settings .order-note-input:hover {
+  border-color: #b8cada;
+}
+
+.workflow-shell-attendance-settings .search-input:focus-visible,
+.workflow-shell-attendance-settings select:focus-visible,
+.workflow-shell-attendance-settings input[type="time"]:focus-visible,
+.workflow-shell-attendance-settings input[type="number"]:focus-visible,
+.workflow-shell-attendance-settings .order-note-input:focus-visible {
+  outline: none;
+  border-color: #5d89b6;
+  background: #ffffff;
+  box-shadow:
+    0 0 0 4px rgba(93, 137, 182, 0.14),
+    0 10px 24px rgba(38, 73, 108, 0.08);
+}
+
+.workflow-shell-attendance-settings .search-input:disabled,
+.workflow-shell-attendance-settings select:disabled,
+.workflow-shell-attendance-settings input[type="time"]:disabled,
+.workflow-shell-attendance-settings input[type="number"]:disabled,
+.workflow-shell-attendance-settings .order-note-input:disabled {
+  cursor: not-allowed;
+  color: #7e8fa1;
+  background: linear-gradient(180deg, #f5f7fa, #eef3f8);
+  border-color: #d7e0ea;
+  box-shadow: none;
+}
+
 .attendance-schedule-header {
   display: grid;
   grid-template-columns: minmax(180px, 1.2fr) repeat(3, minmax(0, 0.72fr));
@@ -3054,6 +3173,34 @@ tbody tr:nth-child(even) {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   font-weight: 700;
+}
+
+.attendance-break-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.attendance-break-card {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid #dbe6f1;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(246, 250, 255, 0.92));
+}
+
+.attendance-break-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.attendance-break-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
 }
 
 .attendance-schedule-grid {
@@ -3067,9 +3214,11 @@ tbody tr:nth-child(even) {
   gap: 0.6rem;
   align-items: center;
   padding: 0.75rem 0.8rem;
-  border: 1px solid #e1eaf4;
+  border: 1px solid #dbe6f1;
   border-radius: 16px;
-  background: rgba(248, 251, 255, 0.92);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 250, 255, 0.94));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
 .attendance-schedule-active {
@@ -3089,6 +3238,11 @@ tbody tr:nth-child(even) {
 .attendance-schedule-day small {
   color: #68798a;
   font-size: 0.75rem;
+}
+
+.attendance-schedule-row input[type="time"],
+.attendance-schedule-row input[type="number"] {
+  text-align: center;
 }
 
 .attendance-list {
@@ -3159,6 +3313,25 @@ tbody tr:nth-child(even) {
 .attendance-schedule-pill.is-off {
   background: #fbf5ea;
   border-color: #eed6ab;
+}
+
+.attendance-member-pill-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.3rem;
+}
+
+.attendance-member-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.34rem 0.62rem;
+  border-radius: 999px;
+  border: 1px solid #d8e3ef;
+  background: linear-gradient(180deg, #ffffff, #f4f8fc);
+  color: #2d4963;
+  font-size: 0.76rem;
+  font-weight: 600;
 }
 
 .attendance-event-list {
@@ -3620,6 +3793,8 @@ tbody tr:nth-child(even) {
   }
 
   .attendance-settings-hero,
+  .attendance-break-grid,
+  .attendance-break-row,
   .attendance-schedule-header,
   .attendance-schedule-row,
   .attendance-management-grid {

@@ -38,6 +38,14 @@ const ATTENDANCE_SHIFT_OPTIONS = [
   { value: "continuous", label: "Nepretržitá" },
   { value: "custom", label: "Vlastný režim" }
 ];
+const COMPANY_ADMIN_HARDWARE_OPTIONS = [
+  { key: "mobile_scanners", label: "PDA Skladník", description: "príjem, výdaj, inventúra v sklade", priceExVat: 509 },
+  { key: "label_printer", label: "Tlač etikiet", description: "pozície, materiál, interné štítky", priceExVat: null },
+  { key: "attendance_terminal", label: "Dochádzkový terminál", description: "Android kiosk pre príchody a odchody", priceExVat: 419 },
+  { key: "mes_terminal", label: "MES terminál", description: "výrobný terminál pri pracovisku s montážou", priceExVat: 519 },
+  { key: "tablets_dashboard", label: "Tablety / dashboardy", description: "vedúci, skladníci alebo majstri", priceExVat: null },
+  { key: "network_upgrade", label: "Sieť a Wi‑Fi", description: "pokrytie haly, kiosk zóna, stabilita terminálov", priceExVat: null }
+];
 
 const TABLE_CONFIG = {
   stock: {
@@ -187,7 +195,7 @@ const TABLE_CONFIG = {
   },
   [ATTENDANCE_SETTINGS_MODULE]: {
     title: "Nastavenia dochádzky",
-    subtitle: "Skupiny, pracovná doba, profily zamestnancov, terminály a Android credentials",
+    subtitle: "Terminály, credentials a prepojenie HR modulov",
     columns: [],
     searchKeys: [],
     statusKeys: [],
@@ -243,6 +251,9 @@ const IBAN_FORMATTED_MAX_LENGTH = 29;
 const INVOICE_DOCUMENT_META_PREFIX = "[[WMS_INVOICE_META]]";
 const PENDING_AUTH_BOOTSTRAP_STORAGE_KEY = "wms_pending_auth_bootstrap";
 const PENDING_COMPANY_INVITE_STORAGE_KEY = "wms_pending_company_invite";
+const PENDING_COMPANY_ADMIN_SETUP_STORAGE_KEY = "wms_pending_company_admin_setup";
+const COMPANY_ADMIN_SETUP_STORAGE_KEY = "wms_company_admin_setup";
+const COMPANY_HARDWARE_PRICE_CATALOG_STORAGE_KEY = "wms_company_hardware_price_catalog";
 const INVOICE_STYLE_OPTIONS = [
   { value: "clean", label: "Čistá" },
   { value: "classic", label: "Klasická" },
@@ -499,6 +510,30 @@ function getTableLabel(table) {
   return table;
 }
 
+function HrModuleNavigation({ items, activeTable, onSelect }) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="attendance-module-nav" role="tablist" aria-label="HR moduly">
+      {items.map((item) => (
+        <button
+          key={item.table}
+          type="button"
+          className={`attendance-module-nav-button ${activeTable === item.table ? "is-active" : ""}`}
+          onClick={() => onSelect(item.table)}
+          role="tab"
+          aria-selected={activeTable === item.table}
+        >
+          <strong>{item.label}</strong>
+          <span>{item.description}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function isCompanyScopedTable(table) {
   const normalized = String(table || "").trim();
   return normalized === "stock" || normalized === PRICE_LIST_TABLE || isTransactionsTable(normalized);
@@ -648,6 +683,99 @@ function setPendingAuthBootstrap(payload) {
 
 function clearPendingAuthBootstrap() {
   removeStoredJson(PENDING_AUTH_BOOTSTRAP_STORAGE_KEY);
+}
+
+function getPendingCompanyAdminSetup() {
+  return readStoredJson(PENDING_COMPANY_ADMIN_SETUP_STORAGE_KEY);
+}
+
+function setPendingCompanyAdminSetup(payload) {
+  writeStoredJson(PENDING_COMPANY_ADMIN_SETUP_STORAGE_KEY, payload);
+}
+
+function clearPendingCompanyAdminSetup() {
+  removeStoredJson(PENDING_COMPANY_ADMIN_SETUP_STORAGE_KEY);
+}
+
+function createDefaultCompanyAdminSetupDraft(overrides = {}) {
+  const defaultHardwareSelections = Object.fromEntries(COMPANY_ADMIN_HARDWARE_OPTIONS.map((option) => [option.key, false]));
+  const defaultHardwareQuantities = Object.fromEntries(COMPANY_ADMIN_HARDWARE_OPTIONS.map((option) => [option.key, "1"]));
+  const rawSelections =
+    overrides?.hardwareSelections && typeof overrides.hardwareSelections === "object" ? overrides.hardwareSelections : defaultHardwareSelections;
+  const rawQuantities =
+    overrides?.hardwareQuantities && typeof overrides.hardwareQuantities === "object" ? overrides.hardwareQuantities : defaultHardwareQuantities;
+
+  return {
+    companyId: String(overrides?.companyId || "").trim(),
+    companyName: String(overrides?.companyName || "").trim(),
+    warehouseCount: String(overrides?.warehouseCount || "1").trim() || "1",
+    employeeCount: String(overrides?.employeeCount || "10").trim() || "10",
+    officeUserCount: String(overrides?.officeUserCount || "3").trim() || "3",
+    setupNote: String(overrides?.setupNote || "").trim(),
+    completedAt: String(overrides?.completedAt || "").trim(),
+    hardwareSelections: {
+      ...defaultHardwareSelections,
+      ...Object.fromEntries(
+        COMPANY_ADMIN_HARDWARE_OPTIONS.map((option) => [option.key, Boolean(rawSelections?.[option.key])])
+      )
+    },
+    hardwareQuantities: {
+      ...defaultHardwareQuantities,
+      ...Object.fromEntries(
+        COMPANY_ADMIN_HARDWARE_OPTIONS.map((option) => [option.key, String(rawQuantities?.[option.key] || "1").trim() || "1"])
+      )
+    }
+  };
+}
+
+function getStoredCompanyAdminSetupMap() {
+  const payload = readStoredJson(COMPANY_ADMIN_SETUP_STORAGE_KEY);
+  return payload && typeof payload === "object" ? payload : {};
+}
+
+function getStoredCompanyAdminSetup(companyId) {
+  const normalizedCompanyId = String(companyId || "").trim();
+  if (!normalizedCompanyId) {
+    return null;
+  }
+  const payload = getStoredCompanyAdminSetupMap();
+  return payload?.[normalizedCompanyId] ? createDefaultCompanyAdminSetupDraft(payload[normalizedCompanyId]) : null;
+}
+
+function saveStoredCompanyAdminSetup(companyId, draft) {
+  const normalizedCompanyId = String(companyId || "").trim();
+  if (!normalizedCompanyId) {
+    return null;
+  }
+  const payload = getStoredCompanyAdminSetupMap();
+  const normalizedDraft = createDefaultCompanyAdminSetupDraft({
+    ...draft,
+    companyId: normalizedCompanyId
+  });
+  payload[normalizedCompanyId] = normalizedDraft;
+  writeStoredJson(COMPANY_ADMIN_SETUP_STORAGE_KEY, payload);
+  return normalizedDraft;
+}
+
+function createDefaultCompanyHardwarePriceCatalog(overrides = {}) {
+  return Object.fromEntries(
+    COMPANY_ADMIN_HARDWARE_OPTIONS.map((option) => {
+      const fallbackPrice = typeof option.priceExVat === "number" ? option.priceExVat : null;
+      const normalizedOverride = normalizePriceInput(overrides?.[option.key]);
+      return [option.key, normalizedOverride ?? fallbackPrice];
+    })
+  );
+}
+
+function getStoredCompanyHardwarePriceCatalog() {
+  const payload = readStoredJson(COMPANY_HARDWARE_PRICE_CATALOG_STORAGE_KEY);
+  return createDefaultCompanyHardwarePriceCatalog(payload && typeof payload === "object" ? payload : {});
+}
+
+function saveStoredCompanyHardwarePriceCatalog(catalog) {
+  const normalizedCatalog = createDefaultCompanyHardwarePriceCatalog(catalog);
+  writeStoredJson(COMPANY_HARDWARE_PRICE_CATALOG_STORAGE_KEY, normalizedCatalog);
+  return normalizedCatalog;
 }
 
 function getDefaultInvoiceDueDate(days = 14) {
@@ -3872,6 +4000,11 @@ function App() {
   const [companyInvites, setCompanyInvites] = useState([]);
   const [companyInvitesLoading, setCompanyInvitesLoading] = useState(false);
   const [companyInvitesError, setCompanyInvitesError] = useState("");
+  const [companyAdminSetupDraft, setCompanyAdminSetupDraft] = useState(() => createDefaultCompanyAdminSetupDraft());
+  const [companyAdminSetupMessage, setCompanyAdminSetupMessage] = useState("");
+  const [isCompanyAdminSetupOpen, setIsCompanyAdminSetupOpen] = useState(false);
+  const [companyHardwarePriceCatalog, setCompanyHardwarePriceCatalog] = useState(() => getStoredCompanyHardwarePriceCatalog());
+  const [companyHardwarePriceCatalogMessage, setCompanyHardwarePriceCatalogMessage] = useState("");
   const [inviteEmailInput, setInviteEmailInput] = useState("");
   const [inviteCanManageOrdersInput, setInviteCanManageOrdersInput] = useState(false);
   const [inviteCanAccessMesInput, setInviteCanAccessMesInput] = useState(false);
@@ -4041,9 +4174,11 @@ function App() {
   const companyLookupRequestRef = useRef(0);
   const companyProfileLookupRequestRef = useRef(0);
   const priceListImportInputRef = useRef(null);
+  const companyInvitesSectionRef = useRef(null);
 
   const tableConfig = getTableConfig(selectedTable);
   const isMaster = userRole === "master";
+  const isCompanyAdmin = !isMaster && canManageOrders && Boolean(userCompanyId);
   const canAccessOrdersModule = isMaster || canManageOrders;
   const hotjarAllowed = (authReady || authInitTimedOut) && (!isLoggedIn || !isMaster);
   const companyNameById = useMemo(
@@ -4594,6 +4729,96 @@ function App() {
     setCompanyInvitesLoading(false);
   };
 
+  const handleCompanyAdminSetupDraftChange = (field, value) => {
+    setCompanyAdminSetupDraft((current) => ({
+      ...current,
+      [field]: String(value || "")
+    }));
+    setCompanyAdminSetupMessage("");
+  };
+
+  const handleCompanyAdminSetupHardwareToggle = (hardwareKey) => {
+    setCompanyAdminSetupDraft((current) => ({
+      ...current,
+      hardwareSelections: {
+        ...current.hardwareSelections,
+        [hardwareKey]: !current.hardwareSelections?.[hardwareKey]
+      },
+      hardwareQuantities: {
+        ...current.hardwareQuantities,
+        [hardwareKey]: String(current.hardwareQuantities?.[hardwareKey] || "1").trim() || "1"
+      }
+    }));
+    setCompanyAdminSetupMessage("");
+  };
+
+  const handleCompanyAdminSetupHardwareQuantityChange = (hardwareKey, value) => {
+    setCompanyAdminSetupDraft((current) => ({
+      ...current,
+      hardwareQuantities: {
+        ...current.hardwareQuantities,
+        [hardwareKey]: String(value || "").replace(/[^\d]/g, "") || "1"
+      }
+    }));
+    setCompanyAdminSetupMessage("");
+  };
+
+  const handleSaveCompanyAdminSetup = () => {
+    if (!activeCompanyId) {
+      setCompanyAdminSetupMessage("Najprv vyber konkrétnu firmu pre setup.");
+      return;
+    }
+
+    const savedDraft = saveStoredCompanyAdminSetup(activeCompanyId, {
+      ...companyAdminSetupDraft,
+      companyId: activeCompanyId,
+      companyName: activeCompany?.name || currentCompanyLabel,
+      completedAt: new Date().toISOString()
+    });
+
+    if (!savedDraft) {
+      setCompanyAdminSetupMessage("Setup sa nepodarilo uložiť.");
+      return;
+    }
+
+    setCompanyAdminSetupDraft(savedDraft);
+    setCompanyAdminSetupMessage("Jednorázový setup je uložený lokálne v tomto prehliadači. Môžeš pokračovať do pozvánok a firemného profilu.");
+    setIsCompanyAdminSetupOpen(false);
+  };
+
+  const handleOpenCompanyAdminSetup = () => {
+    setIsCompanyAdminSetupOpen(true);
+    setCompanyAdminSetupMessage("");
+  };
+
+  const handleCompanyHardwarePriceCatalogChange = (hardwareKey, value) => {
+    const sanitizedValue = String(value || "")
+      .replace(",", ".")
+      .replace(/[^\d.]/g, "");
+
+    setCompanyHardwarePriceCatalog((current) => ({
+      ...current,
+      [hardwareKey]: sanitizedValue === "" ? null : normalizePriceInput(sanitizedValue)
+    }));
+    setCompanyHardwarePriceCatalogMessage("");
+  };
+
+  const handleSaveCompanyHardwarePriceCatalog = () => {
+    const savedCatalog = saveStoredCompanyHardwarePriceCatalog(companyHardwarePriceCatalog);
+    setCompanyHardwarePriceCatalog(savedCatalog);
+    setCompanyHardwarePriceCatalogMessage("Master hardware cenník je uložený lokálne v tomto prehliadači a onboarding ho používa okamžite.");
+  };
+
+  const handleResetCompanyHardwarePriceCatalog = () => {
+    const defaultCatalog = createDefaultCompanyHardwarePriceCatalog();
+    setCompanyHardwarePriceCatalog(defaultCatalog);
+    setCompanyHardwarePriceCatalogMessage("Cenník je vrátený na predvolené orientačné ceny.");
+  };
+
+  const handleScrollToCompanyInvites = () => {
+    companyInvitesSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   const postBillingRequest = async (path, payload = {}) => {
     const {
       data: { session }
@@ -4777,7 +5002,7 @@ function App() {
       String(pendingBootstrap?.email || "").trim().toLowerCase() === email &&
       String(pendingBootstrap?.companyName || "").trim()
     ) {
-      const { error: signupBootstrapError } = await supabase.rpc("bootstrap_self_signup", {
+      const { data: signupBootstrapData, error: signupBootstrapError } = await supabase.rpc("bootstrap_self_signup", {
         p_company_name: String(pendingBootstrap.companyName || "").trim(),
         p_username: normalizedUsername || null
       });
@@ -4786,6 +5011,14 @@ function App() {
         if (!String(signupBootstrapError.message || "").toLowerCase().includes("already")) {
           throw signupBootstrapError;
         }
+      } else {
+        setPendingCompanyAdminSetup({
+          mode: "company_admin_setup",
+          userId: user.id,
+          email,
+          companyId: String(signupBootstrapData?.company_id || "").trim() || null,
+          companyName: String(signupBootstrapData?.company_name || pendingBootstrap.companyName || "").trim()
+        });
       }
 
       clearPendingAuthBootstrap();
@@ -9049,6 +9282,31 @@ function App() {
   }, [authReady, isLoggedIn, isMaster, authUser?.id, userCompanyId]);
 
   useEffect(() => {
+    if (!authReady || !isLoggedIn || !isCompanyAdmin || !authUser?.id || !userCompanyId) {
+      return;
+    }
+
+    const pendingSetup = getPendingCompanyAdminSetup();
+    if (!pendingSetup) {
+      return;
+    }
+
+    const pendingUserId = String(pendingSetup.userId || "").trim();
+    const pendingCompanyId = String(pendingSetup.companyId || "").trim();
+    if (pendingUserId && pendingUserId !== authUser.id) {
+      return;
+    }
+    if (pendingCompanyId && pendingCompanyId !== String(userCompanyId || "").trim()) {
+      return;
+    }
+
+    setSelectedTable("stock");
+    setIsCompanySettingsOpen(true);
+    setIsCompanyAdminSetupOpen(true);
+    clearPendingCompanyAdminSetup();
+  }, [authReady, isLoggedIn, isCompanyAdmin, authUser?.id, userCompanyId]);
+
+  useEffect(() => {
     if (!authReady) {
       return undefined;
     }
@@ -11194,6 +11452,63 @@ function App() {
 
     return sections;
   }, [visibleTableNames, isMaster]);
+  const hrModuleNavigationItems = useMemo(
+    () =>
+      [
+        { table: ROLE_TABLE, label: "Zamestnanci", description: "Profily, identifikácia a personálne karty" },
+        { table: ATTENDANCE_MODULE, label: "Dochádzka", description: "Operatíva, eventy a aktuálna prítomnosť" },
+        { table: ATTENDANCE_GROUPS_MODULE, label: "Skupiny", description: "Zmeny, rozpisy a prestávky" },
+        { table: ATTENDANCE_SETTINGS_MODULE, label: "Nastavenia", description: "Terminály, tokeny a prepojenie HR modulov" }
+      ].filter((item) => visibleTableNames.includes(item.table)),
+    [visibleTableNames]
+  );
+  const companyHardwareCatalogRows = useMemo(
+    () =>
+      COMPANY_ADMIN_HARDWARE_OPTIONS.map((option) => ({
+        ...option,
+        configuredPriceExVat: normalizePriceInput(companyHardwarePriceCatalog?.[option.key])
+      })),
+    [companyHardwarePriceCatalog]
+  );
+  const companyAdminHardwarePricingSummary = useMemo(() => {
+    const selectedItems = COMPANY_ADMIN_HARDWARE_OPTIONS.filter((option) => companyAdminSetupDraft.hardwareSelections?.[option.key]).map((option) => {
+      const quantity = Math.max(1, Number.parseInt(String(companyAdminSetupDraft.hardwareQuantities?.[option.key] || "1"), 10) || 1);
+      const configuredPriceExVat = normalizePriceInput(companyHardwarePriceCatalog?.[option.key]);
+      const lineTotal = typeof configuredPriceExVat === "number" ? configuredPriceExVat * quantity : null;
+      return {
+        ...option,
+        configuredPriceExVat,
+        quantity,
+        lineTotal
+      };
+    });
+
+    return {
+      selectedItems,
+      pricedSubtotal: selectedItems.reduce((sum, item) => sum + (typeof item.lineTotal === "number" ? item.lineTotal : 0), 0),
+      unpricedCount: selectedItems.filter((item) => typeof item.lineTotal !== "number").length
+    };
+  }, [companyAdminSetupDraft, companyHardwarePriceCatalog]);
+
+  useEffect(() => {
+    if (!activeCompanyId || (!isMaster && !canManageOrders)) {
+      setCompanyAdminSetupDraft(createDefaultCompanyAdminSetupDraft());
+      setCompanyAdminSetupMessage("");
+      setIsCompanyAdminSetupOpen(false);
+      return;
+    }
+
+    const storedSetup = getStoredCompanyAdminSetup(activeCompanyId);
+    setCompanyAdminSetupDraft(
+      createDefaultCompanyAdminSetupDraft({
+        companyId: activeCompanyId,
+        companyName: activeCompany?.name || "",
+        ...(storedSetup || {})
+      })
+    );
+    setCompanyAdminSetupMessage("");
+    setIsCompanyAdminSetupOpen(Boolean(!storedSetup?.completedAt));
+  }, [activeCompanyId, activeCompany?.name, isMaster, canManageOrders]);
 
   useEffect(() => {
     const query = String(customerNameInput || "").trim();
@@ -11675,6 +11990,7 @@ function App() {
     setLastCreatedDemoCredentials(null);
     setAuthUsername("");
     setAuthPassword("");
+    clearPendingCompanyAdminSetup();
 
     try {
       try {
@@ -11762,7 +12078,7 @@ function App() {
                     : "Prihlás sa do svojho firemného účtu cez login alebo email a heslo."
                   : normalizeInviteToken(authRegisterInviteTokenInput)
                     ? "Vytvor účet a pripoj sa do existujúcej firmy cez pozvánku."
-                    : "Založ novú firmu, nastav prvý admin účet a pokračuj priamo do aplikácie."}
+                    : "Založ novú firmu, získaj firemné admin práva a pokračuj priamo do setupu firmy."}
               </p>
             </div>
 
@@ -11812,7 +12128,11 @@ function App() {
                   </label>
                 </div>
                 <div className="auth-form-footer">
-                  <p className="auth-footnote">Prístup je viazaný na tvoju firmu a oprávnenia v systéme.</p>
+                  <p className="auth-footnote">
+                    {normalizeInviteToken(authRegisterInviteTokenInput)
+                      ? "Pozvánka prevezme firmu a prístupy podľa linku od admina."
+                      : "Zakladateľ novej firmy dostane automaticky firemné admin práva vrátane pozvánok a setupu."}
+                  </p>
                   <button type="submit" className="refresh-btn auth-submit-btn" disabled={authSubmitting}>
                     {authSubmitting ? "Prihlasujem..." : "Prihlásiť sa"}
                   </button>
@@ -12493,6 +12813,7 @@ function App() {
           <span className="table-badge">{authUsername || "user"}</span>
           <span className="table-badge">{currentCompanyLabel}</span>
           {isMaster && <span className="table-badge table-badge-master">master</span>}
+          {isCompanyAdmin && <span className="table-badge">firemný admin</span>}
         </div>
 
         {isMaster && (
@@ -12569,6 +12890,7 @@ function App() {
             <span className="table-badge">{getTableLabel(selectedTable)}</span>
             {canAccessOrdersModule && <span className="table-badge">objednávky + výroba</span>}
             {canAccessMesModule && <span className="table-badge">MES + HMI</span>}
+            {isCompanyAdmin && <span className="table-badge">admin firmy</span>}
             {selectedTable === "stock" && <span className="table-badge">sklad</span>}
           </div>
         </div>
@@ -12650,6 +12972,255 @@ function App() {
               </p>
             </div>
           </div>
+
+          {(isCompanyAdmin || isMaster) && (
+            <div className="company-admin-setup-grid">
+              <article className="company-admin-setup-card company-admin-setup-card-highlight">
+                <span className="company-admin-setup-kicker">{isMaster ? "Master pohľad" : "Firemný admin setup"}</span>
+                <strong>{isMaster ? "Správa firmy" : "Máš admin práva pre svoju firmu"}</strong>
+                <p>
+                  {isMaster
+                    ? "Tu nastavuješ firemný profil, pozvánky, billing a systémové capability pre konkrétnu firmu."
+                    : "Po registrácii si automaticky dostal firemné admin oprávnenia: môžeš pozývať kolegov, nastaviť im prístupy a dokončiť profil firmy."}
+                </p>
+              </article>
+              <article className="company-admin-setup-card">
+                <span className="company-admin-setup-kicker">Checklist</span>
+                <div className="company-admin-setup-list">
+                  <div className="company-admin-setup-item">
+                    <strong>1. Firemný profil</strong>
+                    <span>Doplň názov, IČO, adresu, bankový účet a predvolené údaje pre faktúry.</span>
+                  </div>
+                  <div className="company-admin-setup-item">
+                    <strong>2. Kolegovia a prístupy</strong>
+                    <span>Vytvor pozvánky a pri každej nastav, či má mať prístup k objednávkam a Manufacturing / MES.</span>
+                  </div>
+                  <div className="company-admin-setup-item">
+                    <strong>3. Billing a HR</strong>
+                    <span>Aktivuj billing a potom pokračuj do HR modulov na zamestnancov, skupiny a dochádzku.</span>
+                  </div>
+                </div>
+              </article>
+            </div>
+          )}
+
+          {isMaster && (
+            <section className="company-admin-catalog">
+              <div className="company-admin-wizard-head">
+                <div>
+                  <p className="company-admin-setup-kicker">Master hardware cenník</p>
+                  <h3>Orientačné ceny pre onboarding setup</h3>
+                  <p className="panel-meta">
+                    Tento cenník je globálny pre wizard a v tejto verzii sa ukladá lokálne v prehliadači. Firemný admin ho len číta.
+                  </p>
+                </div>
+                <div className="orders-form-actions">
+                  <button type="button" className="settings-btn" onClick={handleSaveCompanyHardwarePriceCatalog}>
+                    Uložiť cenník
+                  </button>
+                  <button type="button" className="clear-btn" onClick={handleResetCompanyHardwarePriceCatalog}>
+                    Reset cien
+                  </button>
+                </div>
+              </div>
+              <div className="company-admin-catalog-grid">
+                {companyHardwareCatalogRows.map((option) => (
+                  <article key={`hardware-catalog-${option.key}`} className="company-admin-catalog-item">
+                    <div className="company-admin-catalog-copy">
+                      <strong>{option.label}</strong>
+                      <span>{option.description}</span>
+                    </div>
+                    <label className="workflow-field company-admin-catalog-price-field">
+                      <span className="workflow-field-label">Cena bez DPH / ks</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        className="search-input"
+                        placeholder="individuálne naceniť"
+                        value={formatPriceInputValue(option.configuredPriceExVat)}
+                        onChange={(event) => handleCompanyHardwarePriceCatalogChange(option.key, event.target.value)}
+                      />
+                    </label>
+                  </article>
+                ))}
+              </div>
+              {companyHardwarePriceCatalogMessage && <p className="settings-hint">{companyHardwarePriceCatalogMessage}</p>}
+            </section>
+          )}
+
+          {(isCompanyAdmin || isMaster) && (
+            <section className="company-admin-wizard">
+              <div className="company-admin-wizard-head">
+                <div>
+                  <p className="company-admin-setup-kicker">Jednorázový setup</p>
+                  <h3>{isCompanyAdminSetupOpen ? "Vyklikaj firmu, tím a hardware" : "Setup firmy pre hardware a onboarding"}</h3>
+                  <p className="panel-meta">
+                    Tento brief je zatiaľ uložený lokálne v prehliadači ako podklad pre rollout. Orientačné ceny berie z master hardware cenníka.
+                  </p>
+                </div>
+                <div className="orders-form-actions">
+                  {!isCompanyAdminSetupOpen && (
+                    <button type="button" className="settings-btn" onClick={handleOpenCompanyAdminSetup} disabled={!activeCompanyId}>
+                      Upraviť setup
+                    </button>
+                  )}
+                  <button type="button" className="clear-btn" onClick={handleScrollToCompanyInvites} disabled={!activeCompanyId || (!isMaster && !canManageOrders)}>
+                    Pozvať kolegov
+                  </button>
+                </div>
+              </div>
+
+              {isCompanyAdminSetupOpen ? (
+                <div className="company-admin-wizard-grid">
+                  <article className="company-admin-wizard-card">
+                    <h4>Základ firmy</h4>
+                    <div className="workflow-field-grid">
+                      <label className="workflow-field">
+                        <span className="workflow-field-label">Sklady / prevádzky</span>
+                        <input
+                          type="number"
+                          min={1}
+                          className="search-input"
+                          value={companyAdminSetupDraft.warehouseCount}
+                          onChange={(event) => handleCompanyAdminSetupDraftChange("warehouseCount", event.target.value)}
+                          disabled={!activeCompanyId}
+                        />
+                      </label>
+                      <label className="workflow-field">
+                        <span className="workflow-field-label">Zamestnanci</span>
+                        <input
+                          type="number"
+                          min={1}
+                          className="search-input"
+                          value={companyAdminSetupDraft.employeeCount}
+                          onChange={(event) => handleCompanyAdminSetupDraftChange("employeeCount", event.target.value)}
+                          disabled={!activeCompanyId}
+                        />
+                      </label>
+                    </div>
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Používatelia kancelária / manažment</span>
+                      <input
+                        type="number"
+                        min={1}
+                        className="search-input"
+                        value={companyAdminSetupDraft.officeUserCount}
+                        onChange={(event) => handleCompanyAdminSetupDraftChange("officeUserCount", event.target.value)}
+                        disabled={!activeCompanyId}
+                      />
+                    </label>
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Poznámka k setupu</span>
+                      <textarea
+                        className="order-note-input"
+                        placeholder="napr. dve haly, príjem cez rampu, výroba na dvoch linkách"
+                        value={companyAdminSetupDraft.setupNote}
+                        onChange={(event) => handleCompanyAdminSetupDraftChange("setupNote", event.target.value)}
+                        disabled={!activeCompanyId}
+                      />
+                    </label>
+                  </article>
+
+                  <article className="company-admin-wizard-card">
+                    <h4>Potrebný hardware</h4>
+                    <div className="company-admin-hardware-grid">
+                      {companyHardwareCatalogRows.map((option) => {
+                        const isSelected = Boolean(companyAdminSetupDraft.hardwareSelections?.[option.key]);
+                        return (
+                          <button
+                            key={option.key}
+                            type="button"
+                            className={`company-admin-hardware-option ${isSelected ? "is-selected" : ""}`}
+                            onClick={() => handleCompanyAdminSetupHardwareToggle(option.key)}
+                            disabled={!activeCompanyId}
+                          >
+                            <strong>{option.label}</strong>
+                            <span>{option.description}</span>
+                            <small>
+                              {typeof option.configuredPriceExVat === "number"
+                                ? `${formatCurrencyValue(option.configuredPriceExVat)} bez DPH / ks`
+                                : "Cena sa doplní individuálne"}
+                            </small>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {companyAdminHardwarePricingSummary.selectedItems.length > 0 && (
+                      <div className="company-admin-hardware-quote">
+                        {companyAdminHardwarePricingSummary.selectedItems.map((item) => (
+                          <div key={`setup-quote-${item.key}`} className="company-admin-hardware-quote-row">
+                            <div>
+                              <strong>{item.label}</strong>
+                              <span>
+                                {typeof item.configuredPriceExVat === "number"
+                                  ? `${formatCurrencyValue(item.configuredPriceExVat)} bez DPH / ks`
+                                  : "individuálne nacenenie"}
+                              </span>
+                            </div>
+                            <label className="workflow-field company-admin-qty-field">
+                              <span className="workflow-field-label">Ks</span>
+                              <input
+                                type="number"
+                                min={1}
+                                className="search-input"
+                                value={companyAdminSetupDraft.hardwareQuantities?.[item.key] || "1"}
+                                onChange={(event) => handleCompanyAdminSetupHardwareQuantityChange(item.key, event.target.value)}
+                                disabled={!activeCompanyId}
+                              />
+                            </label>
+                            <strong className="company-admin-hardware-quote-value">
+                              {typeof item.lineTotal === "number" ? formatCurrencyValue(item.lineTotal) : "naceniť"}
+                            </strong>
+                          </div>
+                        ))}
+                        <div className="company-admin-hardware-quote-total">
+                          <strong>Orientačný HW subtotal</strong>
+                          <span>{formatCurrencyValue(companyAdminHardwarePricingSummary.pricedSubtotal)} bez DPH</span>
+                        </div>
+                        {companyAdminHardwarePricingSummary.unpricedCount > 0 && (
+                          <p className="settings-hint">{`${companyAdminHardwarePricingSummary.unpricedCount} položky zatiaľ nemajú fixnú cenu a treba ich naceniť ručne.`}</p>
+                        )}
+                      </div>
+                    )}
+                    <div className="orders-form-actions">
+                      <button type="button" className="settings-btn" onClick={handleSaveCompanyAdminSetup} disabled={!activeCompanyId}>
+                        Uložiť setup brief
+                      </button>
+                      <button type="button" className="clear-btn" onClick={() => setIsCompanyAdminSetupOpen(false)} disabled={!activeCompanyId}>
+                        Zavrieť
+                      </button>
+                    </div>
+                  </article>
+                </div>
+              ) : (
+                <div className="company-admin-setup-summary">
+                  <div className="company-admin-setup-summary-stats">
+                    <span className="table-badge">{`${companyAdminSetupDraft.warehouseCount || "1"} sklady`}</span>
+                    <span className="table-badge">{`${companyAdminSetupDraft.employeeCount || "0"} zam.`}</span>
+                    <span className="table-badge">{`${companyAdminSetupDraft.officeUserCount || "0"} office useri`}</span>
+                    <span className="table-badge">{`${formatCurrencyValue(companyAdminHardwarePricingSummary.pricedSubtotal)} HW subtotal`}</span>
+                    {companyAdminSetupDraft.completedAt && <span className="table-badge">uložené</span>}
+                  </div>
+                  <div className="company-admin-hardware-pill-list">
+                    {companyAdminHardwarePricingSummary.selectedItems.length > 0 ? (
+                      companyAdminHardwarePricingSummary.selectedItems.map((option) => (
+                        <span key={option.key} className="company-admin-hardware-pill">
+                          {`${option.label} x${option.quantity}`}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="panel-meta">Zatiaľ nie je vybraný žiadny hardware.</span>
+                    )}
+                  </div>
+                  {companyAdminHardwarePricingSummary.unpricedCount > 0 && (
+                    <p className="panel-meta">{`${companyAdminHardwarePricingSummary.unpricedCount} vybrané položky sú zatiaľ bez fixného cenníka.`}</p>
+                  )}
+                  {companyAdminSetupDraft.setupNote && <p className="panel-meta">{companyAdminSetupDraft.setupNote}</p>}
+                </div>
+              )}
+              {companyAdminSetupMessage && <p className="settings-hint">{companyAdminSetupMessage}</p>}
+            </section>
+          )}
 
           <form className="company-settings-form" onSubmit={handleSaveCompanyMaxPositions}>
             <div className="company-settings-column">
@@ -12824,7 +13395,7 @@ function App() {
                   </label>
                 </div>
                 {(isMaster || canManageOrders) && (
-                  <div className="workflow-form-section">
+                  <div className="workflow-form-section" ref={companyInvitesSectionRef}>
                     <div className="workflow-subsection-head">
                       <h3>Pozvánky do firmy</h3>
                       <p className="panel-meta">Noví používatelia si môžu vytvoriť účet sami a pripojiť sa cez invite link.</p>
@@ -14168,6 +14739,8 @@ function App() {
 
           {attendanceError && <p className="error">{attendanceError}</p>}
 
+          <HrModuleNavigation items={hrModuleNavigationItems} activeTable={selectedTable} onSelect={setSelectedTable} />
+
           <div className="orders-summary-grid workflow-summary-grid">
             <article className="card workflow-stat-card">
               <p>Zamestnanci</p>
@@ -14188,6 +14761,24 @@ function App() {
               <p>Mimo práce</p>
               <strong>{new Intl.NumberFormat("sk-SK").format(attendanceEmployeesClockedOutCount)}</strong>
               <span>posledný stav odchod</span>
+            </article>
+          </div>
+
+          <div className="attendance-settings-hero attendance-settings-hero-compact">
+            <article className="attendance-settings-hero-card">
+              <span className="attendance-settings-hero-kicker">Identifikácia</span>
+              <strong>PIN, badge, interný kód</strong>
+              <p>Každý zamestnanec má jedno miesto pre terminálové identity aj pracovnú skupinu.</p>
+            </article>
+            <article className="attendance-settings-hero-card">
+              <span className="attendance-settings-hero-kicker">Pracovný režim</span>
+              <strong>{`${attendanceGroups.length} skupín`}</strong>
+              <p>Rozpisy, zmenovosť a prestávky sa dedia zo skupín bez ručného prepisovania pri každom človeku.</p>
+            </article>
+            <article className="attendance-settings-hero-card">
+              <span className="attendance-settings-hero-kicker">Korekcie</span>
+              <strong>{`${attendanceSummary.todayEvents} eventov dnes`}</strong>
+              <p>Manuálny zásah do dochádzky spravíš priamo pri konkrétnom zamestnancovi s auditnou stopou.</p>
             </article>
           </div>
 
@@ -14219,6 +14810,16 @@ function App() {
                     <p>{activeCompanyId ? currentCompanyLabel : "-"}</p>
                   </div>
                 </div>
+                <div className="attendance-guidance-list">
+                  <div className="attendance-guidance-item">
+                    <strong>Čo patrí sem</strong>
+                    <span>vytvorenie profilu, priradenie skupiny, PIN, badge a personálne poznámky</span>
+                  </div>
+                  <div className="attendance-guidance-item">
+                    <strong>Dochádzka zostáva pri profile</strong>
+                    <span>manuálny príchod, odchod alebo pauzu upravíš hneď v zozname zamestnancov</span>
+                  </div>
+                </div>
                 <div className="orders-form-actions">
                   <button
                     type="button"
@@ -14242,6 +14843,9 @@ function App() {
                       : isEmployeeProfileFormOpen
                         ? "Skryť formulár"
                         : "Pridať zamestnanca"}
+                  </button>
+                  <button type="button" className="clear-btn" onClick={() => setSelectedTable(ATTENDANCE_GROUPS_MODULE)} disabled={!activeCompanyId}>
+                    Správa skupín
                   </button>
                   <button type="button" className="clear-btn" onClick={() => setSelectedTable(ATTENDANCE_SETTINGS_MODULE)} disabled={!activeCompanyId}>
                     Nastavenia dochádzky
@@ -14529,6 +15133,8 @@ function App() {
 
           {attendanceError && <p className="error">{attendanceError}</p>}
 
+          <HrModuleNavigation items={hrModuleNavigationItems} activeTable={selectedTable} onSelect={setSelectedTable} />
+
           <div className="orders-summary-grid workflow-summary-grid">
             <article className="card workflow-stat-card">
               <p>Profily</p>
@@ -14549,6 +15155,24 @@ function App() {
               <p>Terminály online</p>
               <strong>{`${new Intl.NumberFormat("sk-SK").format(attendanceSummary.onlineTerminals)} / ${new Intl.NumberFormat("sk-SK").format(attendanceSummary.terminals)}`}</strong>
               <span>heartbeat do 5 minút</span>
+            </article>
+          </div>
+
+          <div className="attendance-settings-hero attendance-settings-hero-compact">
+            <article className="attendance-settings-hero-card">
+              <span className="attendance-settings-hero-kicker">Operatíva</span>
+              <strong>{`${attendanceSummary.clockedInCount} v práci`}</strong>
+              <p>Na tejto obrazovke riešiš výhradne živú prevádzku, posledné eventy a rýchle korekcie.</p>
+            </article>
+            <article className="attendance-settings-hero-card">
+              <span className="attendance-settings-hero-kicker">Terminály</span>
+              <strong>{`${attendanceSummary.onlineTerminals} online`}</strong>
+              <p>Heartbeat hneď ukáže, či Android kiosk komunikuje a odkiaľ prišiel posledný event.</p>
+            </article>
+            <article className="attendance-settings-hero-card">
+              <span className="attendance-settings-hero-kicker">Audit</span>
+              <strong>{`${attendanceSummary.todayEvents} udalostí dnes`}</strong>
+              <p>Prehľad eventov drží append-only históriu, takže vidíš aj ručné zásahy z webu aj terminálu.</p>
             </article>
           </div>
 
@@ -14580,7 +15204,33 @@ function App() {
                     <p>{attendanceSummary.todayEvents}</p>
                   </div>
                 </div>
+                <div className="attendance-guidance-list">
+                  <div className="attendance-guidance-item">
+                    <strong>Primárny cieľ</strong>
+                    <span>sledovať, kto je práve v práci, kto je na pauze a ktoré terminály sú online</span>
+                  </div>
+                  <div className="attendance-guidance-item">
+                    <strong>Konfigurácia je oddelená</strong>
+                    <span>profily patria do Zamestnancov, skupiny do Skupín a terminálové nastavenia do Nastavení</span>
+                  </div>
+                </div>
                 <div className="orders-form-actions">
+                  <button
+                    type="button"
+                    className="clear-btn"
+                    onClick={() => setSelectedTable(ROLE_TABLE)}
+                    disabled={!activeCompanyId}
+                  >
+                    Otvoriť zamestnancov
+                  </button>
+                  <button
+                    type="button"
+                    className="clear-btn"
+                    onClick={() => setSelectedTable(ATTENDANCE_GROUPS_MODULE)}
+                    disabled={!activeCompanyId}
+                  >
+                    Otvoriť skupiny
+                  </button>
                   <button
                     type="button"
                     className="settings-btn"
@@ -14888,6 +15538,8 @@ function App() {
 
           {attendanceError && <p className="error">{attendanceError}</p>}
 
+          <HrModuleNavigation items={hrModuleNavigationItems} activeTable={selectedTable} onSelect={setSelectedTable} />
+
           <div className="orders-summary-grid workflow-summary-grid">
             <article className="card workflow-stat-card">
               <p>Skupiny</p>
@@ -15109,9 +15761,22 @@ function App() {
                     />
                     <span>Skupina je aktívna</span>
                   </label>
+                  <div className="attendance-guidance-list">
+                    <div className="attendance-guidance-item">
+                      <strong>Rozpis patrí skupine</strong>
+                      <span>zamestnancom sa pracovná doba prenesie po priradení skupiny v module Zamestnanci</span>
+                    </div>
+                    <div className="attendance-guidance-item">
+                      <strong>Prestávky sú flexibilné</strong>
+                      <span>môžeš pridať ľubovoľný počet okien podľa prevádzky, nie iba pevné dve prestávky</span>
+                    </div>
+                  </div>
                   <div className="orders-form-actions">
                     <button type="submit" className="settings-btn" disabled={!activeCompanyId || attendanceGroupSubmitting}>
                       {attendanceGroupSubmitting ? "Ukladám..." : editingAttendanceGroupId ? "Uložiť skupinu" : "Pridať skupinu"}
+                    </button>
+                    <button type="button" className="clear-btn" onClick={() => setSelectedTable(ROLE_TABLE)} disabled={!activeCompanyId || attendanceGroupSubmitting}>
+                      Zamestnanci
                     </button>
                     {editingAttendanceGroupId && (
                       <button type="button" className="clear-btn" onClick={resetAttendanceGroupForm} disabled={attendanceGroupSubmitting}>
@@ -15127,107 +15792,32 @@ function App() {
               <article className="orders-panel-card workflow-card workflow-card-list">
                 <div className="panel-head workflow-section-head">
                   <div>
-                    <h2>Skupiny a pracovná doba</h2>
-                    <p className="panel-meta">{`${attendanceGroups.length} skupín | dnes ${getAttendanceWeekdayMeta(attendanceTodayWeekday)?.label || "-"}`}</p>
+                    <h2>Prepojenie HR modulov</h2>
+                    <p className="panel-meta">Nastavenia už neobsahujú editor skupín. Slúžia ako rozcestník a integračný prehľad nad HR.</p>
                   </div>
                 </div>
-
-                {attendanceLoading ? (
-                  <p className="hint">Načítavam skupiny...</p>
-                ) : attendanceGroups.length === 0 ? (
-                  <p className="hint">Zatiaľ tu nie sú žiadne dochádzkové skupiny.</p>
-                ) : (
-                  <div className="orders-list attendance-list">
-                    {attendanceGroups.map((group) => {
-                      const scheduleRows = attendanceGroupSchedulesByGroupId[group.id] || [];
-                      const todaySchedule = scheduleRows.find((row) => Number(row.weekday || 0) === attendanceTodayWeekday) || null;
-                      const workingDays = scheduleRows.filter((row) => row.is_working_day).length;
-                      const members = attendanceGroupMembersById[group.id] || [];
-                      return (
-                        <article key={group.id} className="order-card attendance-card">
-                          <div className="order-card-head attendance-card-head">
-                            <div>
-                              <strong>{group.name}</strong>
-                              <p>{group.code}</p>
-                            </div>
-                            <div className="attendance-card-pills">
-                              <StatusPill status={group.is_active ? "active" : "inactive"} />
-                              <span className="table-badge">{`${attendanceGroupMemberCountById[group.id] || 0} zam.`}</span>
-                              <span className="table-badge">{`${workingDays} dní`}</span>
-                              <span className="table-badge">{getAttendanceShiftLabel(group.shift_mode)}</span>
-                            </div>
-                          </div>
-                          <div className="order-detail attendance-card-body">
-                            <div className="attendance-meta-grid">
-                              <div>
-                                <span className="draft-field-label">Dnes</span>
-                                <p>{formatAttendanceScheduleRow(todaySchedule)}</p>
-                              </div>
-                              <div>
-                                <span className="draft-field-label">Zmenovosť</span>
-                                <p>{getAttendanceShiftLabel(group.shift_mode)}</p>
-                              </div>
-                              <div className="attendance-meta-grid-wide">
-                                <span className="draft-field-label">Cyklus</span>
-                                <p>{group.shift_pattern_note || "-"}</p>
-                              </div>
-                              <div className="attendance-meta-grid-wide">
-                                <span className="draft-field-label">Prestávky</span>
-                                <p>{formatAttendanceBreakSummary(group)}</p>
-                              </div>
-                              <div className="attendance-meta-grid-wide">
-                                <span className="draft-field-label">Týždeň</span>
-                                {scheduleRows.length > 0 ? (
-                                  <div className="attendance-schedule-pill-list">
-                                    {scheduleRows.map((row) => (
-                                      <span key={`${group.id}-${row.weekday}`} className={`attendance-schedule-pill${row.is_working_day ? "" : " is-off"}`}>
-                                        <strong>{getAttendanceWeekdayMeta(row.weekday)?.shortLabel || row.weekday}</strong>
-                                        <small>{formatAttendanceScheduleRow(row)}</small>
-                                      </span>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <p>-</p>
-                                )}
-                              </div>
-                              <div className="attendance-meta-grid-wide">
-                                <span className="draft-field-label">Poznámka</span>
-                                <p>{group.note || "-"}</p>
-                              </div>
-                              <div className="attendance-meta-grid-wide">
-                                <span className="draft-field-label">Zamestnanci</span>
-                                {members.length > 0 ? (
-                                  <div className="attendance-member-pill-list">
-                                    {members.map((member) => (
-                                      <span key={`${group.id}-${member.id}`} className="attendance-member-pill">
-                                        {member.full_name || member.employee_code}
-                                      </span>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <p>-</p>
-                                )}
-                              </div>
-                            </div>
-                            <div className="order-card-actions">
-                              <button type="button" className="clear-btn" onClick={() => handleEditAttendanceGroup(group)}>
-                                Upraviť
-                              </button>
-                              <button
-                                type="button"
-                                className="clear-btn"
-                                onClick={() => handleDeleteAttendanceGroup(group)}
-                                disabled={attendanceGroupDeletingId === group.id}
-                              >
-                                {attendanceGroupDeletingId === group.id ? "Mažem..." : "Zmazať"}
-                              </button>
-                            </div>
-                          </div>
-                        </article>
-                      );
-                    })}
+                <div className="attendance-guidance-list">
+                  <div className="attendance-guidance-item">
+                    <strong>Skupiny</strong>
+                    <span>{`${attendanceGroups.length} konfigurácií smien a pracovnej doby má vlastnú HR obrazovku`}</span>
                   </div>
-                )}
+                  <div className="attendance-guidance-item">
+                    <strong>Zamestnanci</strong>
+                    <span>{`${attendanceSummary.profiles} profilov používa identitu z modulu Zamestnanci a rozpis zo skupín`}</span>
+                  </div>
+                  <div className="attendance-guidance-item">
+                    <strong>Terminály</strong>
+                    <span>{`${attendanceSummary.terminals} zariadení používa tokeny a heartbeat spravované priamo tu`}</span>
+                  </div>
+                </div>
+                <div className="orders-form-actions">
+                  <button type="button" className="settings-btn" onClick={() => setSelectedTable(ATTENDANCE_GROUPS_MODULE)} disabled={!activeCompanyId}>
+                    Ísť na skupiny
+                  </button>
+                  <button type="button" className="clear-btn" onClick={() => setSelectedTable(ROLE_TABLE)} disabled={!activeCompanyId}>
+                    Ísť na zamestnancov
+                  </button>
+                </div>
               </article>
             </div>
           </div>
@@ -15242,13 +15832,15 @@ function App() {
               <h2>Nastavenia dochádzky</h2>
               <p className="panel-meta">
                 {activeCompanyId
-                  ? `Správa skupín, pracovnej doby, profilov, PINov, badge kódov a Android terminálov pre firmu ${currentCompanyLabel}`
-                  : "Vyber konkrétnu firmu, aby sa dali spravovať attendance skupiny, profily a Android terminály."}
+                  ? `Správa terminálov, identifikácie a prepojení HR modulu pre firmu ${currentCompanyLabel}`
+                  : "Vyber konkrétnu firmu, aby sa dali spravovať terminály, credentials a HR integračné nastavenia."}
               </p>
             </div>
           </div>
 
           {attendanceError && <p className="error">{attendanceError}</p>}
+
+          <HrModuleNavigation items={hrModuleNavigationItems} activeTable={selectedTable} onSelect={setSelectedTable} />
 
           <div className="orders-summary-grid workflow-summary-grid">
             <article className="card workflow-stat-card">
@@ -15275,9 +15867,9 @@ function App() {
 
           <div className="attendance-settings-hero">
             <article className="attendance-settings-hero-card">
-              <span className="attendance-settings-hero-kicker">Skupiny a smeny</span>
-              <strong>{`${attendanceGroups.length} skupín`}</strong>
-              <p>Každá skupina má vlastný týždenný rozpis a zamestnanci sa naň viažu cez profil.</p>
+              <span className="attendance-settings-hero-kicker">Terminály</span>
+              <strong>{`${attendanceSummary.onlineTerminals} online / ${attendanceSummary.terminals}`}</strong>
+              <p>Credential pár sa generuje po vytvorení terminálu a heartbeat ukazuje, či je kiosk reálne dostupný.</p>
             </article>
             <article className="attendance-settings-hero-card">
               <span className="attendance-settings-hero-kicker">Identifikácia</span>
@@ -15285,9 +15877,9 @@ function App() {
               <p>PIN, badge a interný kód zostávajú v jednom profile, aby Android terminál vedel prihlásiť človeka viacerými spôsobmi.</p>
             </article>
             <article className="attendance-settings-hero-card">
-              <span className="attendance-settings-hero-kicker">Terminály</span>
-              <strong>{`${attendanceSummary.onlineTerminals} online / ${attendanceSummary.terminals}`}</strong>
-              <p>Credential pár sa generuje po vytvorení terminálu a heartbeat ukazuje, či je kiosk reálne dostupný.</p>
+              <span className="attendance-settings-hero-kicker">Prepojenie</span>
+              <strong>{`${attendanceGroups.length} skupín | ${attendanceSummary.profiles} profilov`}</strong>
+              <p>Skupiny, Zamestnanci a Dochádzka sú oddelené moduly, ale zdieľajú rovnaké attendance dáta a audit.</p>
             </article>
           </div>
 
@@ -15296,192 +15888,36 @@ function App() {
               <article className="orders-panel-card workflow-card workflow-card-strong">
                 <div className="panel-head workflow-section-head">
                   <div>
-                    <p className="workflow-section-kicker">{editingAttendanceGroupId ? "Úprava skupiny" : "Nová skupina"}</p>
-                    <h2>{editingAttendanceGroupId ? "Upraviť skupinu" : "Pridať skupinu"}</h2>
-                    <p className="panel-meta">Skupina určuje pracovnú dobu, ktorú potom priradíš zamestnancom v profile.</p>
+                    <p className="workflow-section-kicker">Control tower</p>
+                    <h2>Čo patrí do nastavení</h2>
+                    <p className="panel-meta">Toto je centrálne miesto pre terminály, credentialy a prepojenie HR modulov. Skupiny a pracovné rozpisy sú oddelené v module Skupiny.</p>
                   </div>
                 </div>
-
-                <form className="orders-form" onSubmit={handleSaveAttendanceGroup}>
-                  <div className="workflow-field-grid">
-                    <label className="workflow-field">
-                      <span className="workflow-field-label">Názov skupiny</span>
-                      <input
-                        type="text"
-                        className="search-input"
-                        value={attendanceGroupNameInput}
-                        onChange={(event) => setAttendanceGroupNameInput(event.target.value)}
-                        disabled={!activeCompanyId || attendanceGroupSubmitting}
-                        required
-                      />
-                    </label>
-                    <label className="workflow-field">
-                      <span className="workflow-field-label">Kód skupiny</span>
-                      <input
-                        type="text"
-                        className="search-input"
-                        placeholder="napr. office-rano"
-                        value={attendanceGroupCodeInput}
-                        onChange={(event) => setAttendanceGroupCodeInput(event.target.value)}
-                        disabled={!activeCompanyId || attendanceGroupSubmitting}
-                        required
-                      />
-                    </label>
+                <div className="attendance-guidance-list">
+                  <div className="attendance-guidance-item">
+                    <strong>Skupiny sú samostatne</strong>
+                    <span>zmenovosť, prestávky a pracovné rozpisy spravuješ už len v module Skupiny</span>
                   </div>
-                  <label className="workflow-field">
-                    <span className="workflow-field-label">Poznámka</span>
-                    <textarea
-                      className="order-note-input"
-                      placeholder="Interná poznámka ku skupine"
-                      value={attendanceGroupNoteInput}
-                      onChange={(event) => setAttendanceGroupNoteInput(event.target.value)}
-                      disabled={!activeCompanyId || attendanceGroupSubmitting}
-                    />
-                  </label>
-                  <div className="workflow-field-grid">
-                    <label className="workflow-field">
-                      <span className="workflow-field-label">Zmenovosť</span>
-                      <select
-                        value={attendanceGroupShiftModeInput}
-                        onChange={(event) => setAttendanceGroupShiftModeInput(event.target.value)}
-                        disabled={!activeCompanyId || attendanceGroupSubmitting}
-                      >
-                        {ATTENDANCE_SHIFT_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="workflow-field">
-                      <span className="workflow-field-label">Cyklus / poznámka</span>
-                      <input
-                        type="text"
-                        className="search-input"
-                        placeholder="napr. ranná/poobedná, krátky-dlhý týždeň"
-                        value={attendanceGroupShiftPatternNoteInput}
-                        onChange={(event) => setAttendanceGroupShiftPatternNoteInput(event.target.value)}
-                        disabled={!activeCompanyId || attendanceGroupSubmitting}
-                      />
-                    </label>
+                  <div className="attendance-guidance-item">
+                    <strong>Zamestnanci sú samostatne</strong>
+                    <span>profily, PINy, badge kódy a priradenie skupiny patria do modulu Zamestnanci</span>
                   </div>
-                  <div className="attendance-break-grid">
-                    {attendanceGroupBreakDrafts.map((breakRow, index) => (
-                      <article key={breakRow.draftId} className="attendance-break-card">
-                        <div className="attendance-break-card-head">
-                          <span className="draft-field-label">{breakRow.label || `Prestávka ${index + 1}`}</span>
-                          <button
-                            type="button"
-                            className="clear-btn"
-                            onClick={() => handleRemoveAttendanceGroupBreakDraft(breakRow.draftId)}
-                            disabled={!activeCompanyId || attendanceGroupSubmitting}
-                          >
-                            Odobrať
-                          </button>
-                        </div>
-                        <input
-                          type="text"
-                          className="search-input"
-                          placeholder="Názov prestávky, napr. obed"
-                          value={breakRow.label}
-                          onChange={(event) => handleAttendanceGroupBreakDraftChange(breakRow.draftId, "label", event.target.value)}
-                          disabled={!activeCompanyId || attendanceGroupSubmitting}
-                        />
-                        <div className="attendance-break-row">
-                          <input
-                            type="time"
-                            className="search-input"
-                            value={breakRow.start_time}
-                            onChange={(event) => handleAttendanceGroupBreakDraftChange(breakRow.draftId, "start_time", event.target.value)}
-                            disabled={!activeCompanyId || attendanceGroupSubmitting}
-                          />
-                          <input
-                            type="time"
-                            className="search-input"
-                            value={breakRow.end_time}
-                            onChange={(event) => handleAttendanceGroupBreakDraftChange(breakRow.draftId, "end_time", event.target.value)}
-                            disabled={!activeCompanyId || attendanceGroupSubmitting}
-                          />
-                        </div>
-                      </article>
-                    ))}
+                  <div className="attendance-guidance-item">
+                    <strong>Dochádzka ostáva operatívna</strong>
+                    <span>na obrazovke Dochádzka riešiš živé eventy, prítomnosť a rýchle manuálne korekcie</span>
                   </div>
-                  <div className="orders-form-actions">
-                    <button type="button" className="clear-btn" onClick={handleAddAttendanceGroupBreakDraft} disabled={!activeCompanyId || attendanceGroupSubmitting}>
-                      Pridať prestávku
-                    </button>
-                  </div>
-                  <div className="attendance-schedule-header">
-                    <span>Deň</span>
-                    <span>Od</span>
-                    <span>Do</span>
-                    <span>Pauza min</span>
-                  </div>
-                  <div className="attendance-schedule-grid">
-                    {attendanceGroupScheduleDrafts.map((row) => {
-                      const weekday = getAttendanceWeekdayMeta(row.weekday);
-                      return (
-                        <div key={`attendance-schedule-${row.weekday}`} className="attendance-schedule-row">
-                          <label className="pricing-options attendance-schedule-active">
-                            <input
-                              type="checkbox"
-                              checked={row.is_working_day}
-                              onChange={(event) => handleAttendanceGroupScheduleDraftChange(row.weekday, "is_working_day", event.target.checked)}
-                              disabled={!activeCompanyId || attendanceGroupSubmitting}
-                            />
-                            <span className="attendance-schedule-day">
-                              <strong>{weekday?.shortLabel || row.weekday}</strong>
-                              <small>{weekday?.label || `Deň ${row.weekday}`}</small>
-                            </span>
-                          </label>
-                          <input
-                            type="time"
-                            className="search-input"
-                            value={row.start_time}
-                            onChange={(event) => handleAttendanceGroupScheduleDraftChange(row.weekday, "start_time", event.target.value)}
-                            disabled={!activeCompanyId || attendanceGroupSubmitting || !row.is_working_day}
-                          />
-                          <input
-                            type="time"
-                            className="search-input"
-                            value={row.end_time}
-                            onChange={(event) => handleAttendanceGroupScheduleDraftChange(row.weekday, "end_time", event.target.value)}
-                            disabled={!activeCompanyId || attendanceGroupSubmitting || !row.is_working_day}
-                          />
-                          <input
-                            type="number"
-                            min={0}
-                            step={5}
-                            className="search-input"
-                            value={row.break_minutes}
-                            onChange={(event) => handleAttendanceGroupScheduleDraftChange(row.weekday, "break_minutes", event.target.value)}
-                            disabled={!activeCompanyId || attendanceGroupSubmitting || !row.is_working_day}
-                          />
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <p className="settings-hint">Nepracovný deň iba odškrtni. Časy aj pauza sa uložia spolu s celou skupinou.</p>
-                  <label className="pricing-options">
-                    <input
-                      type="checkbox"
-                      checked={attendanceGroupActiveInput}
-                      onChange={(event) => setAttendanceGroupActiveInput(event.target.checked)}
-                      disabled={!activeCompanyId || attendanceGroupSubmitting}
-                    />
-                    <span>Skupina je aktívna</span>
-                  </label>
-                  <div className="orders-form-actions">
-                    <button type="submit" className="settings-btn" disabled={!activeCompanyId || attendanceGroupSubmitting}>
-                      {attendanceGroupSubmitting ? "Ukladám..." : editingAttendanceGroupId ? "Uložiť skupinu" : "Pridať skupinu"}
-                    </button>
-                    {editingAttendanceGroupId && (
-                      <button type="button" className="clear-btn" onClick={resetAttendanceGroupForm} disabled={attendanceGroupSubmitting}>
-                        Zrušiť úpravu
-                      </button>
-                    )}
-                  </div>
-                </form>
+                </div>
+                <div className="orders-form-actions">
+                  <button type="button" className="settings-btn" onClick={() => setSelectedTable(ATTENDANCE_GROUPS_MODULE)} disabled={!activeCompanyId}>
+                    Otvoriť skupiny
+                  </button>
+                  <button type="button" className="clear-btn" onClick={() => setSelectedTable(ROLE_TABLE)} disabled={!activeCompanyId}>
+                    Otvoriť zamestnancov
+                  </button>
+                  <button type="button" className="clear-btn" onClick={() => setSelectedTable(ATTENDANCE_MODULE)} disabled={!activeCompanyId}>
+                    Otvoriť dochádzku
+                  </button>
+                </div>
               </article>
 
               <article className="orders-panel-card workflow-card workflow-card-soft">

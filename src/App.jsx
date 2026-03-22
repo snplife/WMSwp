@@ -3979,7 +3979,7 @@ function normalizePositiveInt(value, fallback = 0) {
 }
 
 function App() {
-  const [selectedTable, setSelectedTable] = useState(() => (tableNames.includes("stock") ? "stock" : tableNames[0] || DAILY_OVERVIEW_TABLE));
+  const [selectedTable, setSelectedTable] = useState(() => DAILY_OVERVIEW_TABLE);
   const [rows, setRows] = useState([]);
   const [stockViewMode, setStockViewMode] = useState("table");
   const [selectedTwinPositionKey, setSelectedTwinPositionKey] = useState("");
@@ -5067,15 +5067,7 @@ function App() {
       setIsCompanyAdminOnboardingActive(false);
       setCompanyAdminOnboardingStep(0);
       clearPendingCompanyAdminSetup();
-      setSelectedTable(
-        savedDraft.moduleSelections?.wms
-          ? "stock"
-          : savedDraft.moduleSelections?.attendance
-            ? ATTENDANCE_MODULE
-            : savedDraft.moduleSelections?.mes
-              ? PRODUCTION_MODULE
-              : INVOICES_MODULE
-      );
+      setSelectedTable(DAILY_OVERVIEW_TABLE);
     } catch (onboardingError) {
       setCompanyAdminOnboardingError(onboardingError?.message || "Onboarding sa nepodarilo dokončiť.");
     } finally {
@@ -10020,7 +10012,7 @@ function App() {
 
   useEffect(() => {
     if (!visibleTableNames.includes(selectedTable)) {
-      setSelectedTable(visibleTableNames[0] || "stock");
+      setSelectedTable(visibleTableNames.includes(DAILY_OVERVIEW_TABLE) ? DAILY_OVERVIEW_TABLE : visibleTableNames[0] || "stock");
     }
   }, [visibleTableNames, selectedTable]);
 
@@ -11796,6 +11788,68 @@ function App() {
       rackCards
     };
   }, [companyAdminSetupDraft.wmsRackCount, companyAdminSetupDraft.wmsPositionsPerRack]);
+  const companyAdminPendingTasks = useMemo(() => {
+    const tasks = [];
+    const hasCompanyProfileCore =
+      Boolean(String(companyProfileNameInput || activeCompanyProfile?.name || activeCompany?.name || "").trim()) &&
+      Boolean(String(companyProfileAddressInput || activeCompanyProfile?.address || "").trim());
+
+    if (!hasCompanyProfileCore) {
+      tasks.push({
+        key: "company_profile",
+        title: "Doplniť firemný profil",
+        detail: "Chýba názov alebo adresa firmy, ktoré sa používajú vo fakturácii a nastaveniach."
+      });
+    }
+
+    if (selectedCompanyAdminModules.length === 0) {
+      tasks.push({
+        key: "modules",
+        title: "Vybrať moduly pre firmu",
+        detail: "Firma zatiaľ nemá v setup podklade vybrané WMS, MES, dochádzku ani fakturáciu."
+      });
+    }
+
+    if (selectedCompanyAdminModules.some((module) => module.key === "wms") && companyAdminSetupDraft.skipWmsRackPlanning) {
+      tasks.push({
+        key: "wms_layout",
+        title: "Doplniť layout skladu",
+        detail: "WMS je vybraté, ale detail regálov a pozícií bol zatiaľ preskočený."
+      });
+    }
+
+    if (companyInvites.length === 0) {
+      tasks.push({
+        key: "invites",
+        title: "Pozvať kolegov",
+        detail:
+          companyAdminPlannedInvites.length > 0
+            ? `Máš pripravených ${companyAdminPlannedInvites.length} kolegov v onboarding pláne, ale ešte nie sú vygenerované invite linky.`
+            : "Zatiaľ nie sú vytvorené žiadne firemné pozvánky."
+      });
+    }
+
+    if (!activeCompanyHasManagedBilling) {
+      tasks.push({
+        key: "billing",
+        title: "Dokončiť billing",
+        detail: "Firma ešte nemá aktívne spravované predplatné alebo billing setup."
+      });
+    }
+
+    return tasks;
+  }, [
+    companyProfileNameInput,
+    companyProfileAddressInput,
+    activeCompanyProfile?.name,
+    activeCompanyProfile?.address,
+    activeCompany?.name,
+    selectedCompanyAdminModules,
+    companyAdminSetupDraft.skipWmsRackPlanning,
+    companyInvites.length,
+    companyAdminPlannedInvites.length,
+    activeCompanyHasManagedBilling
+  ]);
 
   useEffect(() => {
     if (!activeCompanyId || (!isMaster && !canManageOrders)) {
@@ -13824,177 +13878,43 @@ function App() {
             </section>
           )}
 
-          {isMaster && (
+          {(isCompanyAdmin || isMaster) && (
             <section className="company-admin-wizard">
               <div className="company-admin-wizard-head">
                 <div>
-                  <p className="company-admin-setup-kicker">Jednorázový setup</p>
-                  <h3>{isCompanyAdminSetupOpen ? "Vyklikaj firmu, tím a hardware" : "Setup firmy pre hardware a onboarding"}</h3>
+                  <p className="company-admin-setup-kicker">Nedokončené tasky</p>
+                  <h3>Čo ešte chýba dotiahnuť</h3>
                   <p className="panel-meta">
-                    Tento brief je zatiaľ uložený lokálne v prehliadači ako podklad pre rollout. Orientačné ceny berie z master hardware cenníka.
+                    Onboarding už neostáva v dashboarde. Tu vidíš len otvorené follow-upy, ktoré treba dokončiť po úvodnom setup-e.
                   </p>
                 </div>
-                <div className="orders-form-actions">
-                  {!isCompanyAdminSetupOpen && (
-                    <button type="button" className="settings-btn" onClick={handleOpenCompanyAdminSetup} disabled={!activeCompanyId}>
-                      Upraviť setup
+                {companyAdminPendingTasks.some((task) => task.key === "invites") && (
+                  <div className="orders-form-actions">
+                    <button type="button" className="clear-btn" onClick={handleScrollToCompanyInvites} disabled={!activeCompanyId || (!isMaster && !canManageOrders)}>
+                      Otvoriť pozvánky
                     </button>
-                  )}
-                  <button type="button" className="clear-btn" onClick={handleScrollToCompanyInvites} disabled={!activeCompanyId || (!isMaster && !canManageOrders)}>
-                    Pozvať kolegov
-                  </button>
-                </div>
+                  </div>
+                )}
               </div>
-
-              {isCompanyAdminSetupOpen ? (
-                <div className="company-admin-wizard-grid">
-                  <article className="company-admin-wizard-card">
-                    <h4>Základ firmy</h4>
-                    <div className="workflow-field-grid">
-                      <label className="workflow-field">
-                        <span className="workflow-field-label">Sklady / prevádzky</span>
-                        <input
-                          type="number"
-                          min={1}
-                          className="search-input"
-                          value={companyAdminSetupDraft.warehouseCount}
-                          onChange={(event) => handleCompanyAdminSetupDraftChange("warehouseCount", event.target.value)}
-                          disabled={!activeCompanyId}
-                        />
-                      </label>
-                      <label className="workflow-field">
-                        <span className="workflow-field-label">Zamestnanci</span>
-                        <input
-                          type="number"
-                          min={1}
-                          className="search-input"
-                          value={companyAdminSetupDraft.employeeCount}
-                          onChange={(event) => handleCompanyAdminSetupDraftChange("employeeCount", event.target.value)}
-                          disabled={!activeCompanyId}
-                        />
-                      </label>
-                    </div>
-                    <label className="workflow-field">
-                      <span className="workflow-field-label">Používatelia kancelária / manažment</span>
-                      <input
-                        type="number"
-                        min={1}
-                        className="search-input"
-                        value={companyAdminSetupDraft.officeUserCount}
-                        onChange={(event) => handleCompanyAdminSetupDraftChange("officeUserCount", event.target.value)}
-                        disabled={!activeCompanyId}
-                      />
-                    </label>
-                    <label className="workflow-field">
-                      <span className="workflow-field-label">Poznámka k setupu</span>
-                      <textarea
-                        className="order-note-input"
-                        placeholder="napr. dve haly, príjem cez rampu, výroba na dvoch linkách"
-                        value={companyAdminSetupDraft.setupNote}
-                        onChange={(event) => handleCompanyAdminSetupDraftChange("setupNote", event.target.value)}
-                        disabled={!activeCompanyId}
-                      />
-                    </label>
-                  </article>
-
-                  <article className="company-admin-wizard-card">
-                    <h4>Potrebný hardware</h4>
-                    <div className="company-admin-hardware-grid">
-                      {companyHardwareCatalogRows.map((option) => {
-                        const isSelected = Boolean(companyAdminSetupDraft.hardwareSelections?.[option.key]);
-                        return (
-                          <button
-                            key={option.key}
-                            type="button"
-                            className={`company-admin-hardware-option ${isSelected ? "is-selected" : ""}`}
-                            onClick={() => handleCompanyAdminSetupHardwareToggle(option.key)}
-                            disabled={!activeCompanyId}
-                          >
-                            <strong>{option.label}</strong>
-                            <span>{option.description}</span>
-                            <small>
-                              {typeof option.configuredPriceExVat === "number"
-                                ? `${formatCurrencyValue(option.configuredPriceExVat)} bez DPH / ks`
-                                : "Cena sa doplní individuálne"}
-                            </small>
-                          </button>
-                        );
-                      })}
-                    </div>
-                    {companyAdminHardwarePricingSummary.selectedItems.length > 0 && (
-                      <div className="company-admin-hardware-quote">
-                        {companyAdminHardwarePricingSummary.selectedItems.map((item) => (
-                          <div key={`setup-quote-${item.key}`} className="company-admin-hardware-quote-row">
-                            <div>
-                              <strong>{item.label}</strong>
-                              <span>
-                                {typeof item.configuredPriceExVat === "number"
-                                  ? `${formatCurrencyValue(item.configuredPriceExVat)} bez DPH / ks`
-                                  : "individuálne nacenenie"}
-                              </span>
-                            </div>
-                            <label className="workflow-field company-admin-qty-field">
-                              <span className="workflow-field-label">Ks</span>
-                              <input
-                                type="number"
-                                min={1}
-                                className="search-input"
-                                value={companyAdminSetupDraft.hardwareQuantities?.[item.key] || "1"}
-                                onChange={(event) => handleCompanyAdminSetupHardwareQuantityChange(item.key, event.target.value)}
-                                disabled={!activeCompanyId}
-                              />
-                            </label>
-                            <strong className="company-admin-hardware-quote-value">
-                              {typeof item.lineTotal === "number" ? formatCurrencyValue(item.lineTotal) : "naceniť"}
-                            </strong>
-                          </div>
-                        ))}
-                        <div className="company-admin-hardware-quote-total">
-                          <strong>Orientačný HW subtotal</strong>
-                          <span>{formatCurrencyValue(companyAdminHardwarePricingSummary.pricedSubtotal)} bez DPH</span>
-                        </div>
-                        {companyAdminHardwarePricingSummary.unpricedCount > 0 && (
-                          <p className="settings-hint">{`${companyAdminHardwarePricingSummary.unpricedCount} položky zatiaľ nemajú fixnú cenu a treba ich naceniť ručne.`}</p>
-                        )}
-                      </div>
-                    )}
-                    <div className="orders-form-actions">
-                      <button type="button" className="settings-btn" onClick={handleSaveCompanyAdminSetup} disabled={!activeCompanyId}>
-                        Uložiť setup brief
-                      </button>
-                      <button type="button" className="clear-btn" onClick={() => setIsCompanyAdminSetupOpen(false)} disabled={!activeCompanyId}>
-                        Zavrieť
-                      </button>
-                    </div>
-                  </article>
+              {companyAdminPendingTasks.length > 0 ? (
+                <div className="company-admin-task-list">
+                  {companyAdminPendingTasks.map((task) => (
+                    <article key={task.key} className="company-admin-task-card">
+                      <strong>{task.title}</strong>
+                      <p>{task.detail}</p>
+                    </article>
+                  ))}
                 </div>
               ) : (
                 <div className="company-admin-setup-summary">
                   <div className="company-admin-setup-summary-stats">
-                    <span className="table-badge">{`${companyAdminSetupDraft.warehouseCount || "1"} sklady`}</span>
-                    <span className="table-badge">{`${companyAdminSetupDraft.employeeCount || "0"} zam.`}</span>
-                    <span className="table-badge">{`${companyAdminSetupDraft.officeUserCount || "0"} office useri`}</span>
-                    <span className="table-badge">{`${formatCurrencyValue(companyAdminHardwarePricingSummary.pricedSubtotal)} HW subtotal`}</span>
-                    {companyAdminSetupDraft.completedAt && <span className="table-badge">uložené</span>}
+                    <span className="table-badge">profil hotový</span>
+                    <span className="table-badge">moduly vybraté</span>
+                    <span className="table-badge">billing nastavený</span>
                   </div>
-                  <div className="company-admin-hardware-pill-list">
-                    {companyAdminHardwarePricingSummary.selectedItems.length > 0 ? (
-                      companyAdminHardwarePricingSummary.selectedItems.map((option) => (
-                        <span key={option.key} className="company-admin-hardware-pill">
-                          {`${option.label} x${option.quantity}`}
-                        </span>
-                      ))
-                    ) : (
-                      <span className="panel-meta">Zatiaľ nie je vybraný žiadny hardware.</span>
-                    )}
-                  </div>
-                  {companyAdminHardwarePricingSummary.unpricedCount > 0 && (
-                    <p className="panel-meta">{`${companyAdminHardwarePricingSummary.unpricedCount} vybrané položky sú zatiaľ bez fixného cenníka.`}</p>
-                  )}
-                  {companyAdminSetupDraft.setupNote && <p className="panel-meta">{companyAdminSetupDraft.setupNote}</p>}
+                  <p className="panel-meta">Momentálne tu nie sú žiadne otvorené onboarding tasky.</p>
                 </div>
               )}
-              {companyAdminSetupMessage && <p className="settings-hint">{companyAdminSetupMessage}</p>}
             </section>
           )}
 

@@ -293,6 +293,10 @@ const AUTH_INIT_TIMEOUT_MS = 15000;
 const IBAN_MAX_LENGTH = 24;
 const IBAN_FORMATTED_MAX_LENGTH = 29;
 const INVOICE_DOCUMENT_META_PREFIX = "[[WMS_INVOICE_META]]";
+const INVOICE_DOCUMENT_KIND_OPTIONS = [
+  { value: "invoice", label: "Faktúra" },
+  { value: "proforma", label: "Predfaktúra" }
+];
 const PENDING_AUTH_BOOTSTRAP_STORAGE_KEY = "wms_pending_auth_bootstrap";
 const PENDING_COMPANY_INVITE_STORAGE_KEY = "wms_pending_company_invite";
 const PENDING_COMPANY_ADMIN_SETUP_STORAGE_KEY = "wms_pending_company_admin_setup";
@@ -989,39 +993,51 @@ function buildCustomerNotePayload(note, registryMeta) {
   return noteLines.join("\n");
 }
 
+function normalizeInvoiceDocumentKind(value) {
+  return String(value || "").trim().toLowerCase() === "proforma" ? "proforma" : "invoice";
+}
+
+function createDefaultInvoiceDocumentMeta(overrides = {}) {
+  const normalizedAdvanceAppliedGross = normalizePriceInput(overrides?.advanceAppliedGross);
+  return {
+    documentKind: normalizeInvoiceDocumentKind(overrides?.documentKind),
+    noteText: String(overrides?.noteText || "").trim(),
+    introText: String(overrides?.introText || "").trim(),
+    outroText: String(overrides?.outroText || "").trim(),
+    orderNumber: String(overrides?.orderNumber || "").trim(),
+    sourceProformaId: String(overrides?.sourceProformaId || "").trim(),
+    sourceProformaNumber: String(overrides?.sourceProformaNumber || "").trim(),
+    linkedInvoiceId: String(overrides?.linkedInvoiceId || "").trim(),
+    linkedInvoiceNumber: String(overrides?.linkedInvoiceNumber || "").trim(),
+    advanceAppliedGross: normalizedAdvanceAppliedGross !== null && normalizedAdvanceAppliedGross > 0 ? normalizedAdvanceAppliedGross : 0
+  };
+}
+
+function buildInvoiceDocumentNote(document) {
+  return `${INVOICE_DOCUMENT_META_PREFIX}${JSON.stringify(createDefaultInvoiceDocumentMeta(document))}`;
+}
+
 function parseInvoiceDocumentNote(note) {
   const source = String(note || "");
-  const emptyDocument = {
-    noteText: "",
-    introText: "",
-    outroText: "",
-    orderNumber: ""
-  };
+  const emptyDocument = createDefaultInvoiceDocumentMeta();
 
   if (!source) {
     return emptyDocument;
   }
 
   if (!source.startsWith(INVOICE_DOCUMENT_META_PREFIX)) {
-    return {
-      ...emptyDocument,
+    return createDefaultInvoiceDocumentMeta({
       noteText: source.trim()
-    };
+    });
   }
 
   try {
     const parsed = JSON.parse(source.slice(INVOICE_DOCUMENT_META_PREFIX.length));
-    return {
-      noteText: String(parsed?.noteText || "").trim(),
-      introText: String(parsed?.introText || "").trim(),
-      outroText: String(parsed?.outroText || "").trim(),
-      orderNumber: String(parsed?.orderNumber || "").trim()
-    };
+    return createDefaultInvoiceDocumentMeta(parsed);
   } catch {
-    return {
-      ...emptyDocument,
+    return createDefaultInvoiceDocumentMeta({
       noteText: source.trim()
-    };
+    });
   }
 }
 
@@ -1033,7 +1049,13 @@ function resolveInvoiceDocumentFields(invoice) {
       : String(invoice?.note || "").trim() || fallback.noteText,
     introText: String(invoice?.intro_text || "").trim() || fallback.introText,
     outroText: String(invoice?.outro_text || "").trim() || fallback.outroText,
-    orderNumber: String(invoice?.order_number || "").trim() || fallback.orderNumber
+    orderNumber: String(invoice?.order_number || "").trim() || fallback.orderNumber,
+    documentKind: normalizeInvoiceDocumentKind(fallback.documentKind),
+    sourceProformaId: String(fallback.sourceProformaId || "").trim(),
+    sourceProformaNumber: String(fallback.sourceProformaNumber || "").trim(),
+    linkedInvoiceId: String(fallback.linkedInvoiceId || "").trim(),
+    linkedInvoiceNumber: String(fallback.linkedInvoiceNumber || "").trim(),
+    advanceAppliedGross: normalizePriceInput(fallback.advanceAppliedGross) ?? 0
   };
 }
 
@@ -1246,6 +1268,20 @@ function computeDocumentTotals(items) {
     },
     { total: 0, vat: 0, totalWithVat: 0 }
   );
+}
+
+function computeInvoiceFinancials(invoice, items) {
+  const totals = computeDocumentTotals(items);
+  const document = resolveInvoiceDocumentFields(invoice);
+  const advanceAppliedGross =
+    document.documentKind === "invoice" ? Math.max(0, normalizePriceInput(document.advanceAppliedGross) ?? 0) : 0;
+
+  return {
+    ...totals,
+    advanceAppliedGross,
+    amountDue: Math.max(0, totals.totalWithVat - advanceAppliedGross),
+    documentKind: document.documentKind
+  };
 }
 
 function resolvePrintableAssetUrl(assetUrl) {
@@ -1780,7 +1816,10 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
           <td>${escapeHtml(String(item.material_code || "-"))}</td>
           <td class="cell-right cell-qty">${escapeHtml(formatCell(item.quantity, "number"))}</td>
           <td class="cell-unit">${escapeHtml(String(item.unit || "ks"))}</td>
+          <td>${escapeHtml(formatCurrencyValue(item.unit_price || 0))}</td>
+          <td>${escapeHtml(formatPercentValue(item.discount_percent || 0, 2))}</td>
           <td>${escapeHtml(formatPercentValue(item.vat_percent || 0, 2))}</td>
+          <td>${escapeHtml(formatCurrencyValue(item.final_unit_price || 0))}</td>
           <td>${escapeHtml(formatCurrencyValue(computed.lineTotal))}</td>
           <td>${escapeHtml(formatCurrencyValue(computed.lineTotalWithVat))}</td>
           <td>${escapeHtml(String(item.line_note || "-"))}</td>
@@ -1917,7 +1956,7 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
         <header class="hero">
           <div class="hero-copy">
             <span class="eyebrow">Obchodná ponuka</span>
-            <h1>Cenová ponuka</h1>
+            <h1>${escapeHtml(`Cenová ponuka č. ${String(quote?.quote_number || "-")}`)}</h1>
             <div class="hero-subtitle">${escapeHtml(String(companyName || "-"))}</div>
           </div>
           <div class="hero-meta">
@@ -1962,13 +2001,16 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
                 <th>Názov</th>
                 <th style="width:18mm;text-align:right;">Množstvo</th>
                 <th style="width:12mm;">MJ</th>
+                <th style="width:24mm;">Cena / MJ</th>
+                <th style="width:16mm;">Zľava</th>
                 <th style="width:14mm;">DPH</th>
-                <th style="width:26mm;">Spolu bez DPH</th>
-                <th style="width:26mm;">Spolu s DPH</th>
+                <th style="width:24mm;">Po zľave / MJ</th>
+                <th style="width:24mm;">Spolu bez DPH</th>
+                <th style="width:24mm;">Spolu s DPH</th>
                 <th>Poznámka</th>
               </tr>
             </thead>
-            <tbody>${rowsHtml || '<tr><td colspan="8">Ponuka nemá položky.</td></tr>'}</tbody>
+            <tbody>${rowsHtml || '<tr><td colspan="11">Ponuka nemá položky.</td></tr>'}</tbody>
           </table>
         </section>
         <section class="summary">
@@ -1985,7 +2027,7 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
         </section>
         ${noteHtml}
         ${afterSummarySectionsHtml}
-        <div class="foot">Cenová ponuka ${escapeHtml(String(quote?.quote_number || "-"))}</div>
+        <div class="foot">Cenová ponuka č. ${escapeHtml(String(quote?.quote_number || "-"))}</div>
       </section>
     </body>
   </html>`;
@@ -2007,8 +2049,9 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
   const issuedAtLabel = invoice?.created_at ? formatDocumentDate(invoice.created_at) : "-";
   const bankingDetails = buildInvoiceBankingDetails(invoice, items, companyProfile);
   const payBySquareData = buildInvoicePayBySquareData(invoice, items, companyProfile);
-  const totals = computeDocumentTotals(items);
   const invoiceDocument = resolveInvoiceDocumentFields(invoice);
+  const financials = computeInvoiceFinancials(invoice, items);
+  const documentTitle = invoiceDocument.documentKind === "proforma" ? "Predfaktúra" : "Faktúra";
   const invoiceNote = invoiceDocument.noteText;
   const invoiceIntroText = invoiceDocument.introText;
   const invoiceOutroText = invoiceDocument.outroText;
@@ -2096,7 +2139,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
   const noteHtml = invoiceNote
     ? `
         <section class="note-section">
-          <h3>Poznámka k faktúre</h3>
+          <h3>${escapeHtml(invoiceDocument.documentKind === "proforma" ? "Poznámka k predfaktúre" : "Poznámka k faktúre")}</h3>
           <p>${escapeHtml(invoiceNote)}</p>
         </section>
       `
@@ -2124,16 +2167,22 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         </aside>
       `;
   const totalsRowsHtml = `
-    <div class="total-row"><span>Bez DPH</span><strong>${escapeHtml(formatCurrencyValue(totals.total))}</strong></div>
-    <div class="total-row"><span>DPH</span><strong>${escapeHtml(formatCurrencyValue(totals.vat))}</strong></div>
-    <div class="total-row total-row--grand"><span>Na úhradu</span><strong>${escapeHtml(formatCurrencyValue(totals.totalWithVat))}</strong></div>
+    <div class="total-row"><span>Bez DPH</span><strong>${escapeHtml(formatCurrencyValue(financials.total))}</strong></div>
+    <div class="total-row"><span>DPH</span><strong>${escapeHtml(formatCurrencyValue(financials.vat))}</strong></div>
+    <div class="total-row"><span>Spolu s DPH</span><strong>${escapeHtml(formatCurrencyValue(financials.totalWithVat))}</strong></div>
+    ${
+      financials.advanceAppliedGross > 0
+        ? `<div class="total-row"><span>Uhradená predfaktúra</span><strong>- ${escapeHtml(formatCurrencyValue(financials.advanceAppliedGross))}</strong></div>`
+        : ""
+    }
+    <div class="total-row total-row--grand"><span>Na úhradu</span><strong>${escapeHtml(formatCurrencyValue(financials.amountDue))}</strong></div>
   `;
 
   return `<!doctype html>
   <html lang="sk">
     <head>
       <meta charset="UTF-8" />
-      <title>${escapeHtml(invoiceNumber || "Faktura")}</title>
+      <title>${escapeHtml(invoiceNumber || documentTitle)}</title>
       <style>
         @page { size: A4 portrait; margin: 10mm 10mm 12mm; }
         :root {
@@ -2526,14 +2575,19 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
       <section class="page">
         <header class="hero">
           <div>
-            <h1>${escapeHtml(`Faktúra č. ${invoiceNumber}`)}</h1>
+            <h1>${escapeHtml(`${documentTitle} č. ${invoiceNumber}`)}</h1>
           </div>
           <div class="hero-right">
             ${
-              invoiceOrderNumber
+              invoiceOrderNumber || invoiceDocument.sourceProformaNumber
                 ? `
             <div class="header-meta">
-              <div class="header-meta-row"><span>Objednávka</span><strong>${escapeHtml(invoiceOrderNumber)}</strong></div>
+              ${invoiceOrderNumber ? `<div class="header-meta-row"><span>Objednávka</span><strong>${escapeHtml(invoiceOrderNumber)}</strong></div>` : ""}
+              ${
+                invoiceDocument.sourceProformaNumber
+                  ? `<div class="header-meta-row"><span>Predfaktúra</span><strong>${escapeHtml(invoiceDocument.sourceProformaNumber)}</strong></div>`
+                  : ""
+              }
             </div>
             `
                 : ""
@@ -2563,7 +2617,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         </section>
 
         <section class="items-section">
-          <h2>${escapeHtml(invoiceIntroText || "Položky faktúry")}</h2>
+          <h2>${escapeHtml(invoiceIntroText || (invoiceDocument.documentKind === "proforma" ? "Položky predfaktúry" : "Položky faktúry"))}</h2>
           <table>
             <thead>
               <tr>
@@ -2587,7 +2641,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
 
         ${noteHtml}
         ${outroHtml}
-        <div class="foot">${escapeHtml(`Faktúra č. ${invoiceNumber}`)}</div>
+        <div class="foot">${escapeHtml(`${documentTitle} č. ${invoiceNumber}`)}</div>
       </section>
     </body>
   </html>`;
@@ -2777,8 +2831,9 @@ function buildInvoicePayBySquareData(invoice, items, companyProfile) {
   const dueDate = String(invoice?.due_date || "")
     .trim()
     .replace(/-/g, "");
-  const totals = computeDocumentTotals(items);
-  if (totals.totalWithVat <= 0) {
+  const financials = computeInvoiceFinancials(invoice, items);
+  const document = resolveInvoiceDocumentFields(invoice);
+  if (financials.amountDue <= 0) {
     return { isAvailable: false, reason: "PayBySquare sa vytvorí až pri faktúre so sumou väčšou ako 0 €." };
   }
   if (!beneficiaryName) {
@@ -2797,12 +2852,15 @@ function buildInvoicePayBySquareData(invoice, items, companyProfile) {
       payments: [
         {
           type: PaymentOptions.PaymentOrder,
-          amount: Number(totals.totalWithVat.toFixed(2)),
+          amount: Number(financials.amountDue.toFixed(2)),
           currencyCode: CurrencyCode.EUR,
           paymentDueDate: /^\d{8}$/.test(dueDate) ? dueDate : undefined,
           variableSymbol:
             variableSymbolCandidate && variableSymbolCandidate.length <= 10 ? variableSymbolCandidate : undefined,
-          paymentNote: String(invoice?.invoice_number || "").trim() ? `Faktura ${String(invoice.invoice_number).trim()}` : undefined,
+          paymentNote:
+            String(invoice?.invoice_number || "").trim()
+              ? `${document.documentKind === "proforma" ? "Predfaktura" : "Faktura"} ${String(invoice.invoice_number).trim()}`
+              : undefined,
           beneficiary: { name: beneficiaryName },
           bankAccounts: [{ iban }]
         }
@@ -2811,8 +2869,8 @@ function buildInvoicePayBySquareData(invoice, items, companyProfile) {
 
     return {
       isAvailable: true,
-      amount: totals.totalWithVat,
-      amountLabel: formatCurrencyValue(totals.totalWithVat),
+      amount: financials.amountDue,
+      amountLabel: formatCurrencyValue(financials.amountDue),
       beneficiaryName,
       variableSymbol:
         variableSymbolCandidate && variableSymbolCandidate.length <= 10 ? variableSymbolCandidate : "-",
@@ -2832,7 +2890,7 @@ function buildInvoiceBankingDetails(invoice, items, companyProfile) {
     .replace(/\D/g, "")
     .trim();
   const invoiceSymbol = invoiceDigits ? invoiceDigits.slice(-10) : "-";
-  const totals = computeDocumentTotals(items);
+  const financials = computeInvoiceFinancials(invoice, items);
   const bankAccount = formatIbanInput(companyProfile?.bank_account) || "-";
   const swiftCode = resolveSwiftCodeFromIban(companyProfile?.bank_account) || "-";
 
@@ -2843,7 +2901,7 @@ function buildInvoiceBankingDetails(invoice, items, companyProfile) {
     variableSymbol: invoiceSymbol,
     specificSymbol: "-",
     constantSymbol: "-",
-    amount: totals.totalWithVat > 0 ? formatCurrencyValue(totals.totalWithVat) : "-",
+    amount: financials.amountDue > 0 ? formatCurrencyValue(financials.amountDue) : "-",
     dueDate: invoice?.due_date ? formatDate(invoice.due_date) : "-"
   };
 }
@@ -4208,6 +4266,8 @@ function App() {
   const [quotesError, setQuotesError] = useState("");
   const [editingQuoteId, setEditingQuoteId] = useState("");
   const [selectedQuoteCustomerId, setSelectedQuoteCustomerId] = useState("");
+  const [quoteNumberInput, setQuoteNumberInput] = useState(buildQuoteNumber());
+  const [quoteStoredNoteText, setQuoteStoredNoteText] = useState("");
   const [quoteSearchTerm, setQuoteSearchTerm] = useState("");
   const [quoteDraftItems, setQuoteDraftItems] = useState([createEmptyQuoteDraftItem()]);
   const [quoteSubmitting, setQuoteSubmitting] = useState(false);
@@ -4222,6 +4282,8 @@ function App() {
   const [selectedInvoiceCustomerId, setSelectedInvoiceCustomerId] = useState("");
   const [invoiceNumberInput, setInvoiceNumberInput] = useState(buildInvoiceNumber());
   const [invoiceDueDate, setInvoiceDueDate] = useState(getDefaultInvoiceDueDate(14));
+  const [invoiceDocumentKindInput, setInvoiceDocumentKindInput] = useState("invoice");
+  const [invoiceLinkedProformaMeta, setInvoiceLinkedProformaMeta] = useState(() => createDefaultInvoiceDocumentMeta());
   const [invoiceOrderNumberInput, setInvoiceOrderNumberInput] = useState("");
   const [invoiceIntroTextInput, setInvoiceIntroTextInput] = useState("");
   const [invoiceOutroTextInput, setInvoiceOutroTextInput] = useState("");
@@ -6607,6 +6669,8 @@ function App() {
 
   const resetQuoteDraft = () => {
     setEditingQuoteId("");
+    setQuoteNumberInput(buildQuoteNumber());
+    setQuoteStoredNoteText("");
     setQuoteDraftItems([createEmptyQuoteDraftItem()]);
   };
 
@@ -6614,6 +6678,8 @@ function App() {
     setEditingInvoiceId("");
     setInvoiceNumberInput(buildInvoiceNumber());
     setInvoiceDueDate(getDefaultInvoiceDueDate(activeCompanyProfile?.invoice_due_days ?? 14));
+    setInvoiceDocumentKindInput("invoice");
+    setInvoiceLinkedProformaMeta(createDefaultInvoiceDocumentMeta());
     setInvoiceIntroTextInput(String(activeCompanyProfile?.invoice_intro_text || ""));
     setInvoiceOutroTextInput(String(activeCompanyProfile?.invoice_outro_text || ""));
     setInvoiceOrderNumberInput("");
@@ -8464,6 +8530,8 @@ function App() {
     const items = quoteItemsByQuoteId[quoteId] || [];
     setEditingQuoteId(quoteId);
     setSelectedQuoteCustomerId(String(quote?.customer_id || ""));
+    setQuoteNumberInput(String(quote?.quote_number || ""));
+    setQuoteStoredNoteText(String(quote?.note || ""));
     setQuoteDraftItems(items.length > 0 ? items.map((item) => createQuoteDraftItemFromRow(item)) : [createEmptyQuoteDraftItem()]);
     setExpandedQuotes((prev) => ({ ...prev, [quoteId]: true }));
     setQuotesError("");
@@ -8485,6 +8553,13 @@ function App() {
     }
     if (!customer) {
       setQuotesError("Vyber zákazníka.");
+      return;
+    }
+
+    const normalizedQuoteNumber = String(quoteNumberInput || "").trim();
+    const normalizedQuoteNote = String(quoteStoredNoteText || "").trim();
+    if (!normalizedQuoteNumber) {
+      setQuotesError("Zadaj číslo cenovej ponuky.");
       return;
     }
 
@@ -8552,7 +8627,9 @@ function App() {
       const existingItemIds = new Set(existingItems.map((item) => String(item.id || "")).filter(Boolean));
       const payloadBase = {
         customer_id: customer.id,
-        customer_name: customer.name
+        customer_name: customer.name,
+        quote_number: normalizedQuoteNumber,
+        note: normalizedQuoteNote
       };
 
       const { data: updatedQuoteRow, error: quoteUpdateError } = await supabase
@@ -8649,9 +8726,9 @@ function App() {
           company_id: companyId,
           customer_id: customer.id,
           customer_name: customer.name,
-          quote_number: buildQuoteNumber(),
+          quote_number: normalizedQuoteNumber,
           status: "draft",
-          note: "",
+          note: normalizedQuoteNote,
           created_by: authUser?.id || null
         }
       ])
@@ -8713,6 +8790,8 @@ function App() {
     setSelectedInvoiceCustomerId(String(invoice?.customer_id || ""));
     setInvoiceNumberInput(String(invoice?.invoice_number || ""));
     setInvoiceDueDate(formatDateInputValue(invoice?.due_date) || getDefaultInvoiceDueDate(activeCompanyProfile?.invoice_due_days ?? 14));
+    setInvoiceDocumentKindInput(invoiceDocument.documentKind);
+    setInvoiceLinkedProformaMeta(createDefaultInvoiceDocumentMeta(invoiceDocument));
     setInvoiceOrderNumberInput(invoiceDocument.orderNumber);
     setInvoiceIntroTextInput(invoiceDocument.introText);
     setInvoiceOutroTextInput(invoiceDocument.outroText);
@@ -8754,6 +8833,16 @@ function App() {
     const normalizedInvoiceIntroText = String(invoiceIntroTextInput || "").trim();
     const normalizedInvoiceOutroText = String(invoiceOutroTextInput || "").trim();
     const normalizedInvoiceNote = String(invoiceStoredNoteText || "").trim();
+    const normalizedInvoiceDocumentKind = normalizeInvoiceDocumentKind(invoiceDocumentKindInput);
+    const normalizedInvoiceDocumentMeta = createDefaultInvoiceDocumentMeta({
+      ...invoiceLinkedProformaMeta,
+      documentKind: normalizedInvoiceDocumentKind,
+      noteText: normalizedInvoiceNote,
+      introText: normalizedInvoiceIntroText,
+      outroText: normalizedInvoiceOutroText,
+      orderNumber: normalizedInvoiceOrderNumber
+    });
+    const invoiceNotePayload = buildInvoiceDocumentNote(normalizedInvoiceDocumentMeta);
 
     const normalizedItems = [];
     for (let index = 0; index < invoiceDraftItems.length; index += 1) {
@@ -8822,7 +8911,7 @@ function App() {
         customer_name: customer.name,
         invoice_number: normalizedInvoiceNumber,
         due_date: normalizedDueDate,
-        note: normalizedInvoiceNote,
+        note: invoiceNotePayload,
         order_number: normalizedInvoiceOrderNumber,
         intro_text: normalizedInvoiceIntroText,
         outro_text: normalizedInvoiceOutroText
@@ -8925,7 +9014,7 @@ function App() {
           invoice_number: normalizedInvoiceNumber,
           due_date: normalizedDueDate,
           status: "draft",
-          note: normalizedInvoiceNote,
+          note: invoiceNotePayload,
           order_number: normalizedInvoiceOrderNumber,
           intro_text: normalizedInvoiceIntroText,
           outro_text: normalizedInvoiceOutroText,
@@ -8976,6 +9065,121 @@ function App() {
 
     setInvoices((prev) => prev.map((row) => (row.id === invoice.id ? { ...row, status: nextStatus } : row)));
     setInvoiceStatusSavingId("");
+  };
+
+  const handleConvertProformaToInvoice = async (proforma) => {
+    const proformaId = String(proforma?.id || "").trim();
+    if (!proformaId) {
+      return;
+    }
+
+    const document = resolveInvoiceDocumentFields(proforma);
+    if (document.documentKind !== "proforma") {
+      setInvoicesError("Konverzia je dostupná len pre predfaktúry.");
+      return;
+    }
+    if (document.linkedInvoiceId || document.linkedInvoiceNumber) {
+      setInvoicesError("Táto predfaktúra už má vytvorenú nadväznú faktúru.");
+      return;
+    }
+    if (String(proforma.status || "").trim().toLowerCase() !== "paid") {
+      setInvoicesError("Predfaktúra musí byť najprv označená ako uhradená.");
+      return;
+    }
+
+    const items = invoiceItemsByInvoiceId[proformaId] || [];
+    if (items.length === 0) {
+      setInvoicesError("Predfaktúra nemá položky, preto z nej nejde vytvoriť faktúra.");
+      return;
+    }
+
+    const proformaFinancials = computeInvoiceFinancials(proforma, items);
+    const finalInvoiceMeta = createDefaultInvoiceDocumentMeta({
+      documentKind: "invoice",
+      noteText: document.noteText,
+      introText: document.introText,
+      outroText: document.outroText,
+      orderNumber: document.orderNumber,
+      sourceProformaId: proformaId,
+      sourceProformaNumber: String(proforma.invoice_number || "").trim(),
+      advanceAppliedGross: proformaFinancials.totalWithVat
+    });
+
+    setInvoiceSubmitting(true);
+    setInvoicesError("");
+
+    const { data: invoiceRow, error: invoiceInsertError } = await supabase
+      .from("invoices")
+      .insert([
+        {
+          company_id: proforma.company_id,
+          customer_id: proforma.customer_id,
+          customer_name: proforma.customer_name,
+          invoice_number: buildInvoiceNumber(),
+          due_date: getDefaultInvoiceDueDate(activeCompanyProfile?.invoice_due_days ?? 14),
+          status: "issued",
+          note: buildInvoiceDocumentNote(finalInvoiceMeta),
+          order_number: document.orderNumber,
+          intro_text: document.introText,
+          outro_text: document.outroText,
+          created_by: authUser?.id || null
+        }
+      ])
+      .select("id,company_id,customer_id,customer_name,invoice_number,order_number,due_date,status,note,intro_text,outro_text,created_at,created_by")
+      .single();
+
+    if (invoiceInsertError) {
+      setInvoicesError(invoiceInsertError.message || "Nepodarilo sa vytvoriť faktúru z predfaktúry.");
+      setInvoiceSubmitting(false);
+      return;
+    }
+
+    const duplicatedItems = items.map((item) => ({
+      invoice_id: invoiceRow.id,
+      material_code: item.material_code,
+      unit: item.unit,
+      quantity: item.quantity,
+      unit_price: item.unit_price,
+      purchase_price: item.purchase_price,
+      discount_percent: item.discount_percent,
+      vat_percent: item.vat_percent,
+      final_unit_price: item.final_unit_price,
+      line_total: item.line_total,
+      line_margin_total: item.line_margin_total,
+      line_note: item.line_note || ""
+    }));
+
+    const { data: insertedItems, error: itemInsertError } = await supabase.from("invoice_items").insert(duplicatedItems).select("*");
+    if (itemInsertError) {
+      setInvoicesError(itemInsertError.message || "Faktúra vznikla, ale položky sa nepodarilo skopírovať.");
+      setInvoiceSubmitting(false);
+      await loadInvoicesModuleData();
+      return;
+    }
+
+    const updatedProformaMeta = createDefaultInvoiceDocumentMeta({
+      ...document,
+      linkedInvoiceId: invoiceRow.id,
+      linkedInvoiceNumber: invoiceRow.invoice_number
+    });
+    const { data: updatedProformaRow, error: proformaUpdateError } = await supabase
+      .from("invoices")
+      .update({ note: buildInvoiceDocumentNote(updatedProformaMeta) })
+      .eq("id", proformaId)
+      .select("id,company_id,customer_id,customer_name,invoice_number,order_number,due_date,status,note,intro_text,outro_text,created_at,created_by")
+      .single();
+
+    if (proformaUpdateError) {
+      setInvoicesError(proformaUpdateError.message || "Faktúra vznikla, ale nepodarilo sa naviazať predfaktúru.");
+      setInvoiceSubmitting(false);
+      await loadInvoicesModuleData();
+      return;
+    }
+
+    setInvoices((prev) => [invoiceRow, ...prev.map((row) => (row.id === updatedProformaRow.id ? updatedProformaRow : row))]);
+    setInvoiceItems((prev) => [...prev, ...(insertedItems || [])]);
+    setExpandedInvoices((prev) => ({ ...prev, [invoiceRow.id]: true, [updatedProformaRow.id]: true }));
+    setInvoiceSubmitting(false);
   };
 
   const handleCreateOrder = async (event) => {
@@ -9681,6 +9885,15 @@ function App() {
       setQuotePriceListRows([]);
       setQuotesError("");
       setQuotesLoading(false);
+      setEditingQuoteId("");
+      setSelectedQuoteCustomerId("");
+      setQuoteNumberInput(buildQuoteNumber());
+      setQuoteStoredNoteText("");
+      setQuoteSearchTerm("");
+      setQuoteDraftItems([createEmptyQuoteDraftItem()]);
+      setQuoteSubmitting(false);
+      setQuoteStatusSavingId("");
+      setExpandedQuotes({});
       setInvoices([]);
       setInvoiceItems([]);
       setInvoicePriceListRows([]);
@@ -9690,6 +9903,8 @@ function App() {
       setSelectedInvoiceCustomerId("");
       setInvoiceNumberInput(buildInvoiceNumber());
       setInvoiceDueDate(getDefaultInvoiceDueDate(14));
+      setInvoiceDocumentKindInput("invoice");
+      setInvoiceLinkedProformaMeta(createDefaultInvoiceDocumentMeta());
       setInvoiceOrderNumberInput("");
       setInvoiceIntroTextInput("");
       setInvoiceOutroTextInput("");
@@ -10946,6 +11161,9 @@ function App() {
         invoiceDocument.introText,
         invoiceDocument.outroText,
         invoiceDocument.orderNumber,
+        invoiceDocument.documentKind === "proforma" ? "predfaktura" : "faktura",
+        invoiceDocument.sourceProformaNumber,
+        invoiceDocument.linkedInvoiceNumber,
         invoice.status,
         formatDate(invoice.due_date)
       ].some((value) => String(value || "").toLowerCase().includes(normalized));
@@ -10962,36 +11180,30 @@ function App() {
         const createdAt = invoice?.created_at ? new Date(invoice.created_at) : null;
         const dueDate = invoice?.due_date ? new Date(invoice.due_date) : null;
         const items = invoiceItemsByInvoiceId[invoice.id] || [];
-        const totals = items.reduce(
-          (sum, item) => {
-            const computed = computeQuoteLineTotals({
-              quantity: item.quantity,
-              unitPrice: item.unit_price,
-              purchasePrice: item.purchase_price,
-              discountPercent: item.discount_percent,
-              vatPercent: item.vat_percent
-            });
-            sum.net += computed.lineTotal;
-            sum.vat += computed.lineVatTotal;
-            return sum;
-          },
-          { net: 0, vat: 0 }
-        );
+        const invoiceDocument = resolveInvoiceDocumentFields(invoice);
+        const financials = computeInvoiceFinancials(invoice, items);
 
         const isMonthlyInvoice =
           createdAt instanceof Date &&
           !Number.isNaN(createdAt.getTime()) &&
           createdAt >= monthStart &&
           createdAt < nextMonthStart;
-        const isIssuedInvoice = invoice.status === "issued" || invoice.status === "paid";
+        const isIssuedInvoice =
+          invoiceDocument.documentKind === "invoice" && (invoice.status === "issued" || invoice.status === "paid");
         if (isMonthlyInvoice && isIssuedInvoice) {
-          acc.monthNet += totals.net;
-          acc.monthVat += totals.vat;
+          acc.monthNet += financials.total;
+          acc.monthVat += financials.vat;
         }
 
         const normalizedDueDate =
           dueDate instanceof Date && !Number.isNaN(dueDate.getTime()) ? new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate()) : null;
-        const isOverdue = normalizedDueDate && normalizedDueDate < today && invoice.status !== "paid" && invoice.status !== "cancelled";
+        const isOverdue =
+          invoiceDocument.documentKind === "invoice" &&
+          normalizedDueDate &&
+          normalizedDueDate < today &&
+          invoice.status !== "paid" &&
+          invoice.status !== "cancelled" &&
+          financials.amountDue > 0;
         if (isOverdue) {
           acc.overdueCount += 1;
         }
@@ -12388,6 +12600,8 @@ function App() {
     setSelectedInvoiceCustomerId("");
     setInvoiceNumberInput(buildInvoiceNumber());
     setInvoiceDueDate(getDefaultInvoiceDueDate(14));
+    setInvoiceDocumentKindInput("invoice");
+    setInvoiceLinkedProformaMeta(createDefaultInvoiceDocumentMeta());
     setInvoiceOrderNumberInput("");
     setInvoiceIntroTextInput("");
     setInvoiceOutroTextInput("");
@@ -12398,6 +12612,8 @@ function App() {
     setInvoiceStatusSavingId("");
     setExpandedInvoices({});
     setSelectedQuoteCustomerId("");
+    setQuoteNumberInput(buildQuoteNumber());
+    setQuoteStoredNoteText("");
     setQuoteSearchTerm("");
     setQuoteDraftItems([createEmptyQuoteDraftItem()]);
     setQuoteSubmitting(false);
@@ -17575,20 +17791,44 @@ function App() {
                 </div>
 
                 <form className="orders-form" onSubmit={handleCreateQuote}>
+                  <div className="workflow-field-grid invoice-form-grid">
+                    <label className="workflow-field workflow-field-compact invoice-date-field">
+                      <span className="workflow-field-label">Číslo ponuky</span>
+                      <input
+                        type="text"
+                        className="search-input"
+                        placeholder="YYMMDDXXXX"
+                        value={quoteNumberInput}
+                        onChange={(event) => setQuoteNumberInput(event.target.value)}
+                        disabled={!activeCompanyId || quoteSubmitting}
+                      />
+                    </label>
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Zákazník</span>
+                      <select
+                        value={selectedQuoteCustomerId}
+                        onChange={(event) => setSelectedQuoteCustomerId(event.target.value)}
+                        disabled={!activeCompanyId || quoteSubmitting}
+                      >
+                        <option value="">Vyber zákazníka</option>
+                        {customers.map((customer) => (
+                          <option key={customer.id} value={customer.id}>
+                            {customer.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+
                   <label className="workflow-field">
-                    <span className="workflow-field-label">Zákazník</span>
-                    <select
-                      value={selectedQuoteCustomerId}
-                      onChange={(event) => setSelectedQuoteCustomerId(event.target.value)}
+                    <span className="workflow-field-label">Poznámka k ponuke</span>
+                    <textarea
+                      className="order-note-input invoice-copy-input"
+                      placeholder="Doplň podmienky, termín dodania alebo krátke vysvetlenie k ponuke"
+                      value={quoteStoredNoteText}
+                      onChange={(event) => setQuoteStoredNoteText(event.target.value)}
                       disabled={!activeCompanyId || quoteSubmitting}
-                    >
-                      <option value="">Vyber zákazníka</option>
-                      {customers.map((customer) => (
-                        <option key={customer.id} value={customer.id}>
-                          {customer.name}
-                        </option>
-                      ))}
-                    </select>
+                    />
                   </label>
 
                   <div className="orders-draft-list">
@@ -17749,7 +17989,7 @@ function App() {
               <article className="orders-panel-card workflow-card workflow-card-list">
                 <div className="panel-head workflow-section-head">
                   <div>
-                    <h2>Zoznam cenových ponúk</h2>
+                    <h2>Zoznam ponúk</h2>
                     <p className="panel-meta">{`${filteredQuotes.length} / ${quotes.length} ponúk`}</p>
                   </div>
                 </div>
@@ -17802,7 +18042,9 @@ function App() {
                             <div className="order-card-meta">
                               <span className="order-card-badge">{formatDate(quote.created_at)}</span>
                               <span className="order-card-badge">{`${items.length} položiek`}</span>
+                              <span className="order-card-badge">{`Bez DPH ${formatCurrencyValue(totals.total)}`}</span>
                               <span className="order-card-badge">{`S DPH ${formatCurrencyValue(totals.totalWithVat)}`}</span>
+                              <span className="order-card-badge">{`Marža ${formatCurrencyValue(totals.margin)}`}</span>
                             </div>
                           </button>
                           {isOpen && (
@@ -17914,7 +18156,7 @@ function App() {
               <p className="panel-meta">
                 {activeCompanyId
                   ? `Fakturácia pre firmu ${currentCompanyLabel}`
-                  : "Vyber konkrétnu firmu, aby sa dali vytvárať faktúry."}
+                  : "Vyber konkrétnu firmu, aby sa dali vytvárať faktúry a predfaktúry."}
               </p>
             </div>
           </div>
@@ -17931,7 +18173,7 @@ function App() {
               <strong>{formatCurrencyValue(invoiceDashboardStats.monthNet)}</strong>
             </article>
             <article className="card workflow-stat-card">
-              <p>Faktúry po splatnosti</p>
+              <p>Doklady po splatnosti</p>
               <strong>{new Intl.NumberFormat("sk-SK").format(invoiceDashboardStats.overdueCount)}</strong>
             </article>
           </div>
@@ -17941,12 +18183,28 @@ function App() {
               <article className="orders-panel-card workflow-card workflow-card-strong">
                 <div className="panel-head workflow-section-head">
                   <div>
-                    <p className="workflow-section-kicker">{editingInvoiceId ? "Úprava faktúry" : "Nová faktúra"}</p>
-                    <h2>{editingInvoiceId ? "Upraviť faktúru" : "Vytvoriť faktúru"}</h2>
+                    <p className="workflow-section-kicker">
+                      {editingInvoiceId
+                        ? invoiceDocumentKindInput === "proforma"
+                          ? "Úprava predfaktúry"
+                          : "Úprava faktúry"
+                        : invoiceDocumentKindInput === "proforma"
+                          ? "Nová predfaktúra"
+                          : "Nová faktúra"}
+                    </p>
+                    <h2>
+                      {editingInvoiceId
+                        ? invoiceDocumentKindInput === "proforma"
+                          ? "Upraviť predfaktúru"
+                          : "Upraviť faktúru"
+                        : invoiceDocumentKindInput === "proforma"
+                          ? "Vytvoriť predfaktúru"
+                          : "Vytvoriť faktúru"}
+                    </h2>
                     <p className="panel-meta">
                       {editingInvoiceId
-                        ? "Uprav zákazníka a položky, potom ulož zmeny do existujúcej faktúry."
-                        : "Položky sa dopĺňajú z cenníka, ceny vieš ešte manuálne upraviť."}
+                        ? "Uprav zákazníka a položky, potom ulož zmeny do existujúceho dokladu."
+                        : "Položky sa dopĺňajú z cenníka, ceny vieš ešte manuálne upraviť. Predfaktúru potom vieš premeniť na ostrú faktúru."}
                     </p>
                   </div>
                 </div>
@@ -17954,7 +18212,42 @@ function App() {
                 <form className="orders-form" onSubmit={handleCreateInvoice}>
                   <div className="workflow-field-grid invoice-form-grid">
                     <label className="workflow-field workflow-field-compact invoice-date-field">
-                      <span className="workflow-field-label">Číslo faktúry</span>
+                      <span className="workflow-field-label">Typ dokladu</span>
+                      <select
+                        value={invoiceDocumentKindInput}
+                        onChange={(event) => {
+                          const nextKind = normalizeInvoiceDocumentKind(event.target.value);
+                          setInvoiceDocumentKindInput(nextKind);
+                          if (nextKind !== "invoice") {
+                            setInvoiceLinkedProformaMeta((current) =>
+                              createDefaultInvoiceDocumentMeta({
+                                ...current,
+                                documentKind: nextKind,
+                                sourceProformaId: "",
+                                sourceProformaNumber: "",
+                                advanceAppliedGross: 0
+                              })
+                            );
+                          }
+                        }}
+                        disabled={
+                          !activeCompanyId ||
+                          invoiceSubmitting ||
+                          Boolean(invoiceLinkedProformaMeta.sourceProformaId) ||
+                          Boolean(invoiceLinkedProformaMeta.linkedInvoiceId)
+                        }
+                      >
+                        {INVOICE_DOCUMENT_KIND_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="workflow-field workflow-field-compact invoice-date-field">
+                      <span className="workflow-field-label">
+                        {invoiceDocumentKindInput === "proforma" ? "Číslo predfaktúry" : "Číslo faktúry"}
+                      </span>
                       <input
                         type="text"
                         className="search-input"
@@ -17980,7 +18273,9 @@ function App() {
                       </select>
                     </label>
                     <label className="workflow-field workflow-field-compact invoice-date-field">
-                      <span className="workflow-field-label">Splatnosť faktúry</span>
+                      <span className="workflow-field-label">
+                        {invoiceDocumentKindInput === "proforma" ? "Splatnosť predfaktúry" : "Splatnosť faktúry"}
+                      </span>
                       <input
                         type="date"
                         className="invoice-date-input"
@@ -17990,6 +18285,12 @@ function App() {
                       />
                     </label>
                   </div>
+
+                  {invoiceLinkedProformaMeta.sourceProformaNumber && (
+                    <div className="workflow-helper-text">
+                      {`Táto faktúra je naviazaná na predfaktúru ${invoiceLinkedProformaMeta.sourceProformaNumber}. Odpočet predfaktúry sa uplatní v sume ${formatCurrencyValue(invoiceLinkedProformaMeta.advanceAppliedGross || 0)}.`}
+                    </div>
+                  )}
 
                   <label className="workflow-field invoice-order-reference-field">
                     <span className="workflow-field-label">Číslo objednávky</span>
@@ -18173,7 +18474,15 @@ function App() {
                       </button>
                     )}
                     <button type="submit" className="settings-btn" disabled={!activeCompanyId || invoiceSubmitting}>
-                      {invoiceSubmitting ? (editingInvoiceId ? "Ukladám..." : "Vytváram...") : editingInvoiceId ? "Uložiť zmeny" : "Vytvoriť faktúru"}
+                      {invoiceSubmitting
+                        ? editingInvoiceId
+                          ? "Ukladám..."
+                          : "Vytváram..."
+                        : editingInvoiceId
+                          ? "Uložiť zmeny"
+                          : invoiceDocumentKindInput === "proforma"
+                            ? "Vytvoriť predfaktúru"
+                            : "Vytvoriť faktúru"}
                     </button>
                   </div>
                 </form>
@@ -18184,15 +18493,15 @@ function App() {
               <article className="orders-panel-card workflow-card workflow-card-list">
                 <div className="panel-head workflow-section-head">
                   <div>
-                    <h2>Zoznam faktúr</h2>
-                    <p className="panel-meta">{`${filteredInvoices.length} / ${invoices.length} faktúr`}</p>
+                    <h2>Zoznam dokladov</h2>
+                    <p className="panel-meta">{`${filteredInvoices.length} / ${invoices.length} faktúr a predfaktúr`}</p>
                   </div>
                 </div>
                 <div className="panel-controls">
                   <input
                     type="search"
                     className="search-input"
-                    placeholder="Hľadaj zákazníka, číslo alebo stav faktúry"
+                    placeholder="Hľadaj zákazníka, číslo alebo stav dokladu"
                     value={invoiceSearchTerm}
                     onChange={(event) => setInvoiceSearchTerm(event.target.value)}
                   />
@@ -18208,6 +18517,7 @@ function App() {
                       const isOpen = Boolean(expandedInvoices[invoice.id]);
                       const items = invoiceItemsByInvoiceId[invoice.id] || [];
                       const invoiceDocument = resolveInvoiceDocumentFields(invoice);
+                      const financials = computeInvoiceFinancials(invoice, items);
                       const totals = items.reduce(
                         (acc, item) => {
                           const computed = computeQuoteLineTotals({
@@ -18217,12 +18527,10 @@ function App() {
                             discountPercent: item.discount_percent,
                             vatPercent: item.vat_percent
                           });
-                          acc.total += computed.lineTotal;
-                          acc.totalWithVat += computed.lineTotalWithVat;
                           acc.margin += computed.lineMarginTotal;
                           return acc;
                         },
-                        { total: 0, totalWithVat: 0, margin: 0 }
+                        { margin: 0 }
                       );
                       return (
                         <article key={invoice.id} className="order-card">
@@ -18236,16 +18544,29 @@ function App() {
                               <p>{invoice.invoice_number}</p>
                             </div>
                             <div className="order-card-meta">
+                              <span className="order-card-badge">
+                                {invoiceDocument.documentKind === "proforma" ? "Predfaktúra" : "Faktúra"}
+                              </span>
                               <span className="order-card-badge">{formatDate(invoice.created_at)}</span>
                               <span className="order-card-badge">{`Splatnosť ${formatDate(invoice.due_date)}`}</span>
                               {invoiceDocument.orderNumber && <span className="order-card-badge">{`Obj. ${invoiceDocument.orderNumber}`}</span>}
+                              {invoiceDocument.sourceProformaNumber && (
+                                <span className="order-card-badge">{`Predf. ${invoiceDocument.sourceProformaNumber}`}</span>
+                              )}
+                              {invoiceDocument.linkedInvoiceNumber && (
+                                <span className="order-card-badge">{`Faktúra ${invoiceDocument.linkedInvoiceNumber}`}</span>
+                              )}
                               <span className="order-card-badge">{`${items.length} položiek`}</span>
-                              <span className="order-card-badge">{`S DPH ${formatCurrencyValue(totals.totalWithVat)}`}</span>
+                              <span className="order-card-badge">{`S DPH ${formatCurrencyValue(financials.totalWithVat)}`}</span>
+                              <span className="order-card-badge">{`Na úhradu ${formatCurrencyValue(financials.amountDue)}`}</span>
                             </div>
                           </button>
                           {isOpen && (
                             <div className="order-card-body">
                               {invoiceDocument.noteText && <p className="order-card-note">{invoiceDocument.noteText}</p>}
+                              {invoiceDocument.sourceProformaNumber && (
+                                <p className="order-card-note">{`Odpočet uhradenej predfaktúry ${invoiceDocument.sourceProformaNumber}: ${formatCurrencyValue(financials.advanceAppliedGross)}`}</p>
+                              )}
                               <div className="order-card-actions">
                                 <button type="button" className="clear-btn" onClick={() => handleEditInvoice(invoice)}>
                                   Upraviť
@@ -18253,6 +18574,16 @@ function App() {
                                 <button type="button" className="clear-btn" onClick={() => handlePrintInvoice(invoice)}>
                                   PDF
                                 </button>
+                                {invoiceDocument.documentKind === "proforma" && !invoiceDocument.linkedInvoiceNumber && (
+                                  <button
+                                    type="button"
+                                    className="clear-btn"
+                                    onClick={() => handleConvertProformaToInvoice(invoice)}
+                                    disabled={invoiceSubmitting}
+                                  >
+                                    Vytvoriť faktúru
+                                  </button>
+                                )}
                                 <StatusPill status={String(invoice.status || "draft")} />
                                 {invoice.status !== "issued" && (
                                   <button

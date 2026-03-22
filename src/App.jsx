@@ -421,6 +421,158 @@ const LANDING_FAQ = [
       "Áno. Riešenie sa dá prispôsobiť konkrétnej firme, rolám, dokumentom, QR štítkom, lokátorom aj budúcim e-shop integráciám."
   }
 ];
+const LANDING_FLOW_SCENARIOS = [
+  {
+    key: "stock",
+    icon: Boxes,
+    eyebrow: "Sklad",
+    title: "Príjem materiálu a lokácie",
+    detail: "Materiál sa naskladní na pozície, systém drží množstvá, expirácie a dostupnosť pre picking aj výrobu.",
+    metric: "128 ks dostupných",
+    panelTitle: "Skladová vrstva",
+    panelLabel: "Živý sample skladu",
+    kpis: [
+      { label: "Presnosť", value: "94.6%", note: "lokácie vs realita" },
+      { label: "Pohyby", value: "142", note: "dnes spracovaných" },
+      { label: "Rezervácie", value: "31", note: "čaká na picking" }
+    ],
+    bars: [
+      { label: "Obsadenie regálov", value: "84%", width: "84%" },
+      { label: "Príjmy materiálu", value: "57 ks", width: "62%" },
+      { label: "Výdaj do výroby", value: "32 ks", width: "54%" }
+    ],
+    events: [
+      { time: "08:12", text: "Príjem materiálu PLECH-02 na pozíciu A-01-04" },
+      { time: "08:26", text: "Sklad rezervoval 32 ks pre výrobný príkaz VP-240322-01" },
+      { time: "08:45", text: "Picker potvrdil výdaj vstupu na pracovisko Laser 2" }
+    ]
+  },
+  {
+    key: "production",
+    icon: Factory,
+    eyebrow: "Výroba",
+    title: "Spotreba vstupov a výstupy",
+    detail: "Výrobný terminál odpíše vstupy, zaeviduje výstup a vedúci vidí prestoje aj rozpracovanosť.",
+    metric: "24 ks hotových",
+    panelTitle: "Výrobná vrstva",
+    panelLabel: "Živý sample výroby",
+    kpis: [
+      { label: "Linky", value: "3", note: "2 bežia, 1 prestavba" },
+      { label: "Výstupy", value: "24 ks", note: "hotové dnes" },
+      { label: "Prestoj", value: "18 min", note: "najväčší výpadok" }
+    ],
+    bars: [
+      { label: "Plnenie plánu", value: "76%", width: "76%" },
+      { label: "Spotreba vstupov", value: "32 ks", width: "58%" },
+      { label: "Hotové výrobky", value: "24 ks", width: "61%" }
+    ],
+    events: [
+      { time: "09:05", text: "Výroba odpísala 32 ks vstupu a naskladnila 24 ks hotového dielu" },
+      { time: "09:18", text: "Majster označil prestavbu linky Lis 1 a systém prepočítal kapacitu" },
+      { time: "09:44", text: "MES ukázal oneskorenie zákazky o 12 min oproti plánu" }
+    ]
+  },
+  {
+    key: "attendance",
+    icon: Clock3,
+    eyebrow: "Dochádzka",
+    title: "Zmeny, prítomnosť a kapacita tímu",
+    detail: "Terminály a HR modul ukážu, kto je na zmene, koľko ľudí je na linke a kde hrozí výpadok kapacity.",
+    metric: "92% obsadenie zmeny",
+    panelTitle: "Dochádzková vrstva",
+    panelLabel: "Živý sample zmeny",
+    kpis: [
+      { label: "Prítomní", value: "25", note: "z 27 plánovaných" },
+      { label: "Absencie", value: "2", note: "1 PN, 1 dovolenka" },
+      { label: "Kapacita", value: "92%", note: "obsadenie zmeny" }
+    ],
+    bars: [
+      { label: "Ranná zmena", value: "92%", width: "92%" },
+      { label: "Výrobný tím", value: "88%", width: "88%" },
+      { label: "Skladový tím", value: "96%", width: "96%" }
+    ],
+    events: [
+      { time: "09:12", text: "Dochádzka potvrdila plný nábeh rannej zmeny na 3 pracoviskách" },
+      { time: "09:20", text: "Vedúci vidí absenciu operátora a presun na náhradné pracovisko" },
+      { time: "09:33", text: "Kapacitný prehľad znížil výkon plánu na pracovisku Montáž 1" }
+    ]
+  },
+  {
+    key: "documents",
+    icon: ClipboardList,
+    eyebrow: "Dokumenty",
+    title: "Objednávky, ponuky a faktúry",
+    detail: "Z hotových alebo pripravených položiek vznikajú doklady bez prepisu dát medzi oddeleniami.",
+    metric: "18 expedovaných objednávok",
+    panelTitle: "Dokladová vrstva",
+    panelLabel: "Živý sample obchodného toku",
+    kpis: [
+      { label: "Ponuky", value: "12", note: "otvorené dnes" },
+      { label: "Objednávky", value: "18", note: "pripravené na expedíciu" },
+      { label: "Faktúry", value: "6", note: "čaká na odoslanie" }
+    ],
+    bars: [
+      { label: "Schválené ponuky", value: "67%", width: "67%" },
+      { label: "Expedičná pripravenosť", value: "81%", width: "81%" },
+      { label: "Rozfakturované zákazky", value: "72%", width: "72%" }
+    ],
+    events: [
+      { time: "10:02", text: "Cenová ponuka CP-240322-04 sa preklopila na objednávku" },
+      { time: "10:40", text: "Objednávka zákazníka sa uvoľnila do expedície podľa skladu" },
+      { time: "11:40", text: "Objednávka sa preklopila do fakturácie a pribudla do obratu" }
+    ]
+  },
+  {
+    key: "kpi",
+    icon: MonitorSmartphone,
+    eyebrow: "KPI",
+    title: "Výkon, OEE a manažérsky prehľad",
+    detail: "Vedúci vidí priepustnosť toku, čakania, efektivitu zmien a čo priamo tlačí maržu alebo mešká.",
+    metric: "OEE 78.4%",
+    panelTitle: "KPI vrstva",
+    panelLabel: "Živý sample výkonnosti",
+    kpis: [
+      { label: "OEE", value: "78.4%", note: "dnešný priemer" },
+      { label: "Lead time", value: "2.8 h", note: "od príjmu po doklad" },
+      { label: "Marža", value: "23.1%", note: "na dnešných zákazkách" }
+    ],
+    bars: [
+      { label: "Výkon zmeny", value: "78.4%", width: "78%" },
+      { label: "Plnenie termínov", value: "86%", width: "86%" },
+      { label: "Maržová disciplína", value: "73%", width: "73%" }
+    ],
+    events: [
+      { time: "10:30", text: "Dashboard vyhodnotil pokles výkonu na jednej linke a dopad na maržu" },
+      { time: "10:52", text: "KPI tabuľa upozornila na rast čakacej doby medzi skladom a montážou" },
+      { time: "11:06", text: "Vedúci výroby porovnal aktuálny výkon zmeny s plánom a minulým týždňom" }
+    ]
+  },
+  {
+    key: "revenue",
+    icon: ReceiptText,
+    eyebrow: "Obraty",
+    title: "Denný prehľad obratu a marže",
+    detail: "Majiteľ alebo obchod vidí obrat, rozfakturované zákazky a čo ešte čaká na billing.",
+    metric: "14 820 € dnes",
+    panelTitle: "Obratová vrstva",
+    panelLabel: "Živý sample obratu",
+    kpis: [
+      { label: "Denný obrat", value: "14 820 €", note: "aktuálny súčet" },
+      { label: "Marža", value: "3 424 €", note: "dnešný hrubý príspevok" },
+      { label: "Billing čaká", value: "6", note: "dokladov bez odoslania" }
+    ],
+    bars: [
+      { label: "Obrat dnes", value: "72%", width: "72%" },
+      { label: "Inkaso vs plán", value: "64%", width: "64%" },
+      { label: "Hrubá marža", value: "23.1%", width: "58%" }
+    ],
+    events: [
+      { time: "11:40", text: "Faktúra FA-240322-06 pribudla do denného obratu" },
+      { time: "12:05", text: "Majiteľ vidí rozpad obratu podľa zákazníkov a stredísk" },
+      { time: "12:18", text: "Billing panel ukázal, ktoré zákazky ešte čakajú na uzavretie" }
+    ]
+  }
+];
 
 function getTableConfig(table) {
   if (isCustomerModule(table)) {
@@ -4110,6 +4262,7 @@ function App() {
   const [authRegisterInviteTokenInput, setAuthRegisterInviteTokenInput] = useState(() => getPendingCompanyInviteToken());
   const [isLandingAuthOpen, setIsLandingAuthOpen] = useState(() => Boolean(getPendingCompanyInviteToken()));
   const [publicRegisteredCompaniesCount, setPublicRegisteredCompaniesCount] = useState(null);
+  const [landingFlowActiveStep, setLandingFlowActiveStep] = useState(0);
   const [authError, setAuthError] = useState("");
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [signOutSubmitting, setSignOutSubmitting] = useState(false);
@@ -9633,6 +9786,18 @@ function App() {
   }, [authReady, isLoggedIn]);
 
   useEffect(() => {
+    if (isLoggedIn || typeof window === "undefined") {
+      return undefined;
+    }
+
+    const rotate = window.setInterval(() => {
+      setLandingFlowActiveStep((current) => (current + 1) % LANDING_FLOW_SCENARIOS.length);
+    }, 4200);
+
+    return () => window.clearInterval(rotate);
+  }, [isLoggedIn]);
+
+  useEffect(() => {
     let mounted = true;
     let hydrationSequence = 0;
     const clearInitTimeout = () => {
@@ -12739,6 +12904,7 @@ function App() {
   };
 
   const landingAuthVisible = isLandingAuthOpen || Boolean(normalizeInviteToken(authRegisterInviteTokenInput));
+  const activeLandingFlowScenario = LANDING_FLOW_SCENARIOS[landingFlowActiveStep] || LANDING_FLOW_SCENARIOS[0];
 
   if (!authReady && !authInitTimedOut) {
     return (
@@ -13090,59 +13256,15 @@ function App() {
 
             <div className="landing-flow-layout">
               <div className="landing-flow-chain" aria-label="Ukážkový tok dát">
-                {[
-                  {
-                    key: "stock",
-                    icon: Boxes,
-                    eyebrow: "Sklad",
-                    title: "Príjem materiálu a lokácie",
-                    detail: "Materiál sa naskladní na pozície, systém drží množstvá, expirácie a dostupnosť pre picking aj výrobu.",
-                    metric: "128 ks dostupných"
-                  },
-                  {
-                    key: "production",
-                    icon: Factory,
-                    eyebrow: "Výroba",
-                    title: "Spotreba vstupov a výstupy",
-                    detail: "Výrobný terminál odpíše vstupy, zaeviduje výstup a vedúci vidí prestoje aj rozpracovanosť.",
-                    metric: "24 ks hotových"
-                  },
-                  {
-                    key: "attendance",
-                    icon: Clock3,
-                    eyebrow: "Dochádzka",
-                    title: "Zmeny, prítomnosť a kapacita tímu",
-                    detail: "Terminály a HR modul ukážu, kto je na zmene, koľko ľudí je na linke a kde hrozí výpadok kapacity.",
-                    metric: "92% obsadenie zmeny"
-                  },
-                  {
-                    key: "documents",
-                    icon: ClipboardList,
-                    eyebrow: "Dokumenty",
-                    title: "Objednávky, ponuky a faktúry",
-                    detail: "Z hotových alebo pripravených položiek vznikajú doklady bez prepisu dát medzi oddeleniami.",
-                    metric: "18 expedovaných objednávok"
-                  },
-                  {
-                    key: "kpi",
-                    icon: MonitorSmartphone,
-                    eyebrow: "KPI",
-                    title: "Výkon, OEE a manažérsky prehľad",
-                    detail: "Vedúci vidí priepustnosť toku, čakania, efektivitu zmien a čo priamo tlačí maržu alebo mešká.",
-                    metric: "OEE 78.4%"
-                  },
-                  {
-                    key: "revenue",
-                    icon: ReceiptText,
-                    eyebrow: "Obraty",
-                    title: "Denný prehľad obratu a marže",
-                    detail: "Majiteľ alebo obchod vidí obrat, rozfakturované zákazky a čo ešte čaká na billing.",
-                    metric: "14 820 € dnes"
-                  }
-                ].map((step, index) => {
+                {LANDING_FLOW_SCENARIOS.map((step, index) => {
                   const Icon = step.icon;
                   return (
-                    <div key={step.key} className="landing-flow-step">
+                    <button
+                      key={step.key}
+                      type="button"
+                      className={`landing-flow-step ${landingFlowActiveStep === index ? "is-active" : ""}`}
+                      onClick={() => setLandingFlowActiveStep(index)}
+                    >
                       <div className="landing-flow-step-icon" aria-hidden="true">
                         <Icon size={18} strokeWidth={2.05} />
                       </div>
@@ -13152,8 +13274,10 @@ function App() {
                         <p>{step.detail}</p>
                         <em>{step.metric}</em>
                       </div>
-                      {index < 5 && <ArrowRight className="landing-flow-step-arrow" size={18} strokeWidth={2.1} aria-hidden="true" />}
-                    </div>
+                      {index < LANDING_FLOW_SCENARIOS.length - 1 && (
+                        <ArrowRight className="landing-flow-step-arrow" size={18} strokeWidth={2.1} aria-hidden="true" />
+                      )}
+                    </button>
                   );
                 })}
               </div>
@@ -13161,49 +13285,20 @@ function App() {
               <div className="landing-flow-visual" aria-label="Ukážkový dashboard">
                 <div className="landing-flow-visual-card">
                   <div className="landing-flow-visual-head">
-                    <strong>Dnešný tok prevádzky</strong>
-                    <span>živý sample</span>
+                    <strong>{activeLandingFlowScenario.panelTitle}</strong>
+                    <span>{activeLandingFlowScenario.panelLabel}</span>
                   </div>
                   <div className="landing-flow-kpi-grid">
-                    <article>
-                      <span>Sklad</span>
-                      <strong>94.6%</strong>
-                      <small>presnosť lokácií</small>
-                    </article>
-                    <article>
-                      <span>Výroba</span>
-                      <strong>3 linky</strong>
-                      <small>2 bežia, 1 prestavba</small>
-                    </article>
-                    <article>
-                      <span>Dochádzka</span>
-                      <strong>27 ľudí</strong>
-                      <small>25 prítomných, 2 absencie</small>
-                    </article>
-                    <article>
-                      <span>KPI</span>
-                      <strong>78.4%</strong>
-                      <small>výkon zmeny vs plán</small>
-                    </article>
-                    <article>
-                      <span>Fakturácia</span>
-                      <strong>6</strong>
-                      <small>dokladov čaká na odoslanie</small>
-                    </article>
-                    <article>
-                      <span>Obrat</span>
-                      <strong>14 820 €</strong>
-                      <small>aktuálny denný súčet</small>
-                    </article>
+                    {activeLandingFlowScenario.kpis.map((item) => (
+                      <article key={item.label}>
+                        <span>{item.label}</span>
+                        <strong>{item.value}</strong>
+                        <small>{item.note}</small>
+                      </article>
+                    ))}
                   </div>
                   <div className="landing-flow-bars">
-                    {[
-                      { label: "Skladové pohyby", value: "142", width: "84%" },
-                      { label: "Výrobné výstupy", value: "24 ks", width: "61%" },
-                      { label: "Dochádzka vs plán", value: "92%", width: "78%" },
-                      { label: "KPI výkonu", value: "78.4%", width: "68%" },
-                      { label: "Denný obrat", value: "14 820 €", width: "72%" }
-                    ].map((item) => (
+                    {activeLandingFlowScenario.bars.map((item) => (
                       <div key={item.label} className="landing-flow-bar-row">
                         <div className="landing-flow-bar-copy">
                           <span>{item.label}</span>
@@ -13223,26 +13318,12 @@ function App() {
                     <strong>Ukážka naviazaných udalostí</strong>
                   </div>
                   <div className="landing-flow-activity-list">
-                    <div>
-                      <span>08:12</span>
-                      <p>Príjem materiálu `PLECH-02` na pozíciu `A-01-04`</p>
-                    </div>
-                    <div>
-                      <span>09:05</span>
-                      <p>Výroba odpísala 32 ks vstupu a naskladnila 24 ks hotového dielu</p>
-                    </div>
-                    <div>
-                      <span>09:12</span>
-                      <p>Dochádzka potvrdila plný nábeh rannej zmeny a KPI prepočítali dostupnú kapacitu pracoviska</p>
-                    </div>
-                    <div>
-                      <span>10:30</span>
-                      <p>Dashboard vyhodnotil pokles výkonu na jednej linke a vedúci vidí dopad na plán aj maržu</p>
-                    </div>
-                    <div>
-                      <span>11:40</span>
-                      <p>Objednávka zákazníka sa preklopila do fakturácie a pribudla do obratu</p>
-                    </div>
+                    {activeLandingFlowScenario.events.map((item) => (
+                      <div key={`${activeLandingFlowScenario.key}-${item.time}`}>
+                        <span>{item.time}</span>
+                        <p>{item.text}</p>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>

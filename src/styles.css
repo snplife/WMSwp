@@ -4964,6 +4964,55 @@ tbody tr:nth-child(even) {
   width: 100%;
 }
 
+.landing-access-counter {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.9rem;
+  align-items: center;
+  padding: 0.95rem 1rem;
+  border-radius: 22px;
+  border: 1px solid #d9e5f1;
+  background:
+    radial-gradient(circle at top right, rgba(36, 89, 135, 0.12), transparent 36%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(242, 247, 252, 0.96));
+  box-shadow:
+    0 16px 34px rgba(19, 40, 60, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+.landing-access-counter-value {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 96px;
+  padding: 0.85rem 0.95rem;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #163f63, #2d7a6b);
+  color: #ffffff;
+  font-size: 1.5rem;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  box-shadow: 0 16px 28px rgba(22, 63, 99, 0.24);
+}
+
+.landing-access-counter-copy {
+  display: grid;
+  gap: 0.16rem;
+  min-width: 0;
+}
+
+.landing-access-counter-copy strong {
+  color: #17324a;
+  font-size: 0.95rem;
+}
+
+.landing-access-counter-copy span {
+  color: #66798d;
+  font-size: 0.79rem;
+  line-height: 1.45;
+}
+
 .landing-access-points {
   display: grid;
   gap: 0.7rem;
@@ -5235,6 +5284,15 @@ tbody tr:nth-child(even) {
   .landing-auth-toolbar {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .landing-access-counter {
+    grid-template-columns: 1fr;
+  }
+
+  .landing-access-counter-value {
+    min-width: 0;
+    width: 100%;
   }
 
   .landing-hero-chip-row {

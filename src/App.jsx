@@ -4109,6 +4109,7 @@ function App() {
   const [authRegisterPasswordInput, setAuthRegisterPasswordInput] = useState("");
   const [authRegisterInviteTokenInput, setAuthRegisterInviteTokenInput] = useState(() => getPendingCompanyInviteToken());
   const [isLandingAuthOpen, setIsLandingAuthOpen] = useState(() => Boolean(getPendingCompanyInviteToken()));
+  const [publicRegisteredCompaniesCount, setPublicRegisteredCompaniesCount] = useState(null);
   const [authError, setAuthError] = useState("");
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [signOutSubmitting, setSignOutSubmitting] = useState(false);
@@ -4863,6 +4864,17 @@ function App() {
     }
 
     setCompanies((data || []).map((row) => normalizeCompanyRecord(row)));
+  };
+
+  const loadPublicRegisteredCompaniesCount = async () => {
+    const { count, error } = await supabase.from("companies").select("id", { count: "exact", head: true });
+
+    if (error) {
+      setPublicRegisteredCompaniesCount(null);
+      return;
+    }
+
+    setPublicRegisteredCompaniesCount(Number.isFinite(count) ? count : null);
   };
 
   const loadCompanyProfiles = async () => {
@@ -9602,6 +9614,19 @@ function App() {
   }, [authReady, isLoggedIn]);
 
   useEffect(() => {
+    if (!authReady) {
+      return;
+    }
+
+    if (isLoggedIn) {
+      setPublicRegisteredCompaniesCount(null);
+      return;
+    }
+
+    void loadPublicRegisteredCompaniesCount();
+  }, [authReady, isLoggedIn]);
+
+  useEffect(() => {
     let mounted = true;
     let hydrationSequence = 0;
     const clearInitTimeout = () => {
@@ -12819,6 +12844,18 @@ function App() {
                     Založiť firmu
                   </button>
                 </div>
+
+                {publicRegisteredCompaniesCount !== null && publicRegisteredCompaniesCount > 0 && (
+                  <div className="landing-access-counter" aria-label="Počet registrovaných firiem">
+                    <span className="landing-access-counter-value">
+                      {new Intl.NumberFormat("sk-SK").format(publicRegisteredCompaniesCount)}+
+                    </span>
+                    <div className="landing-access-counter-copy">
+                      <strong>registrovaných firiem</strong>
+                      <span>ktoré si už pripravili onboarding a firemné moduly vo Factory OS</span>
+                    </div>
+                  </div>
+                )}
 
                 <div className="landing-access-points">
                   <div className="landing-access-point">

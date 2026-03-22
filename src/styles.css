@@ -783,6 +783,44 @@ select {
   width: 100%;
 }
 
+.company-warehouse-list {
+  display: grid;
+  gap: 0.8rem;
+  margin-top: 0.9rem;
+}
+
+.company-warehouse-card {
+  display: grid;
+  gap: 0.8rem;
+  padding: 1rem;
+  border-radius: 18px;
+  border: 1px solid #dbe4ee;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(246, 250, 255, 0.96) 100%);
+  box-shadow: 0 14px 30px rgba(18, 38, 63, 0.05);
+}
+
+.company-warehouse-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.company-warehouse-card-head strong {
+  color: #17324b;
+}
+
+.company-warehouse-card-head p {
+  margin: 0.2rem 0 0;
+  color: #698093;
+  font-size: 0.82rem;
+}
+
+.company-warehouse-primary-toggle {
+  margin: 0;
+}
+
 .daily-overview-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));

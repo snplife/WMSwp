@@ -380,7 +380,7 @@ const LANDING_FEATURES = [
   "QR štítky, lokácie, pohyby materiálu a auditovateľná história skladových operácií",
   "Pripravenosť na e-shopy, order processing, mobilnú appku a viac firiem v jednom prostredí"
 ];
-const SITE_NAME = "WMS Online";
+const SITE_NAME = "Factory OS";
 const DEFAULT_SITE_URL = String(import.meta.env.VITE_SITE_URL || "")
   .trim()
   .replace(/\/+$/, "");
@@ -394,7 +394,7 @@ const LANDING_USE_CASES = [
 ];
 const LANDING_SERVICE_AREAS = [
   "Návrh a digitalizácia skladových procesov podľa konkrétnej prevádzky",
-  "Nasadenie WMS, objednávok, fakturácie a firemných workflow modulov",
+  "Nasadenie Factory OS, objednávok, fakturácie a firemných workflow modulov",
   "Prispôsobenie systému pre konkrétnu firmu, role, tlačové výstupy a dokumenty",
   "Príprava na e-shop integrácie, mobilný picking a order processing"
 ];
@@ -406,7 +406,7 @@ const LANDING_OUTCOMES = [
 ];
 const LANDING_FAQ = [
   {
-    question: "Čo dokáže WMS Online sledovať?",
+    question: "Čo dokáže Factory OS sledovať?",
     answer:
       "Aplikácia zobrazuje stav skladu, zásoby podľa lokácie, históriu pohybov, príjmy, výdaje, presuny, dokumenty aj firemné workflow v jednom rozhraní."
   },
@@ -416,7 +416,7 @@ const LANDING_FAQ = [
       "Áno. Systém je vhodný pre interné sklady, výrobu, logistiku aj obchodné tímy, ktoré potrebujú mať procesy v jednom firemnom nástroji."
   },
   {
-    question: "Dá sa WMS Online napojiť na existujúce procesy?",
+    question: "Dá sa Factory OS napojiť na existujúce procesy?",
     answer:
       "Áno. Riešenie sa dá prispôsobiť konkrétnej firme, rolám, dokumentom, QR štítkom, lokátorom aj budúcim e-shop integráciám."
   }
@@ -12325,7 +12325,7 @@ function App() {
     const pageTitle = pendingAuthCheck ? `Overenie relácie | ${SITE_NAME}` : publicView ? LANDING_TITLE : `${tableConfig.title} | ${SITE_NAME}`;
     const pageDescription = publicView
       ? LANDING_DESCRIPTION
-      : `${tableConfig.subtitle}. Interná WMS aplikácia pre monitoring zásob, pohybov a kapacity skladu.`;
+      : `${tableConfig.subtitle}. Interná Factory OS aplikácia pre monitoring zásob, pohybov a kapacity skladu.`;
     const robotsDirective = publicView && !pendingAuthCheck ? "index, follow" : "noindex, nofollow";
     const shareImage = siteUrl ? `${siteUrl}/logo.png` : "/logo.png";
 
@@ -12737,7 +12737,7 @@ function App() {
         <section className="landing-layout">
           <article className="landing-card landing-hero-card">
             <div className="landing-hero-head">
-              <img src={logo} alt="WMS Online" className="landing-logo" />
+              <img src={logo} alt="Factory OS" className="landing-logo" />
               <div className="landing-hero-chip-row">
                 <span className="landing-hero-chip">
                   <ShieldCheck size={14} strokeWidth={2.1} />
@@ -12754,7 +12754,7 @@ function App() {
               <p className="landing-hero-kicker">Sklad, výroba, dochádzka a fakturácia v jednom prostredí</p>
               <h1>Platforma pre firmy, ktoré chcú zvyšovať efektivitu a nezaspali na inováciách</h1>
               <p className="subtitle">
-                WMS Online pomáha firmám dostať sklad, dokumenty a operatívu do jedného systému. Namiesto rozbitých
+                Factory OS pomáha firmám dostať sklad, dokumenty a operatívu do jedného systému. Namiesto rozbitých
                 evidencií dostaneš prehľadný web, Android terminály a setup podľa reálnej prevádzky.
               </p>
             </div>
@@ -12777,7 +12777,7 @@ function App() {
             <div className="landing-note">
               <h2>Čo robíme</h2>
               <p>
-                Navrhujeme a nasadzujeme WMS riešenie pre firmy, ktoré chcú mať sklad, pohyby materiálu, objednávky,
+                Navrhujeme a nasadzujeme Factory OS pre firmy, ktoré chcú mať sklad, pohyby materiálu, objednávky,
                 cenové ponuky, faktúry a budúci order processing v jednom systéme na webe aj v appke.
               </p>
             </div>
@@ -13019,7 +13019,7 @@ function App() {
             )}
           </section>
         </section>
-        <section className="landing-supporting" aria-label="Informácie o riešení WMS Online">
+        <section className="landing-supporting" aria-label="Informácie o riešení Factory OS">
           <article className="landing-card seo-section">
             <h2>Čo pre firmy dodávame</h2>
             <ul className="landing-list seo-list">
@@ -13539,7 +13539,7 @@ function App() {
 
             {selectedCompanyAdminModules.some((module) => module.key === "wms") && (
               <article className="company-admin-setup-card">
-                <span className="company-admin-setup-kicker">WMS layout</span>
+                <span className="company-admin-setup-kicker">Layout skladu</span>
                 {companyAdminSetupDraft.skipWmsRackPlanning ? (
                   <p>Detail regálov a pozícií je zatiaľ preskočený. Dopolníš ho neskôr po vstupe do skladu.</p>
                 ) : (
@@ -14114,8 +14114,8 @@ function App() {
             <img src={logo} alt="Logo" className="brand-logo" />
           </div>
           <div>
-            <strong>WMS Online</strong>
-            <p>Interný skladový cockpit</p>
+            <strong>Factory OS</strong>
+            <p>Interný firemný cockpit</p>
           </div>
         </div>
 
@@ -15239,7 +15239,7 @@ function App() {
             <div>
               <p className="workflow-eyebrow">Superadmin</p>
               <h2>Master Dashboard</h2>
-              <p className="panel-meta">Tenanty, billing, prístupy a servisné nástroje pre celý WMS projekt.</p>
+              <p className="panel-meta">Tenanty, billing, prístupy a servisné nástroje pre celý Factory OS projekt.</p>
             </div>
             <div className="master-head-actions">
               <button type="button" className="refresh-btn" onClick={loadCompanies}>

@@ -677,7 +677,7 @@ export async function createCheckoutSession({ company, user, appUser, billingCyc
       price_data: {
         currency: "eur",
         product_data: {
-          name: "WMS Online - onboarding a setup"
+          name: "Factory OS - onboarding a setup"
         },
         unit_amount: setupAmountCents
       },

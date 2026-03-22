@@ -2,7 +2,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { useRef } from "react";
 import { CurrencyCode, encode as encodePayBySquare, PaymentOptions } from "bysquare/pay";
-import { Boxes, ClipboardList, Clock3, Factory, MonitorSmartphone, ReceiptText, Settings2, Users } from "lucide-react";
+import { ArrowRight, Boxes, Building2, ClipboardList, Clock3, Factory, LogIn, MonitorSmartphone, ReceiptText, Settings2, ShieldCheck, Users, X } from "lucide-react";
 import * as XLSX from "xlsx";
 import { installHotjar, uninstallHotjar } from "./hotjar";
 import StatusPill from "./components/StatusPill";
@@ -4047,6 +4047,7 @@ function App() {
   const [authRegisterCompanyNameInput, setAuthRegisterCompanyNameInput] = useState("");
   const [authRegisterPasswordInput, setAuthRegisterPasswordInput] = useState("");
   const [authRegisterInviteTokenInput, setAuthRegisterInviteTokenInput] = useState(() => getPendingCompanyInviteToken());
+  const [isLandingAuthOpen, setIsLandingAuthOpen] = useState(() => Boolean(getPendingCompanyInviteToken()));
   const [authError, setAuthError] = useState("");
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [signOutSubmitting, setSignOutSubmitting] = useState(false);
@@ -12418,6 +12419,8 @@ function App() {
     }
   };
 
+  const landingAuthVisible = isLandingAuthOpen || Boolean(normalizeInviteToken(authRegisterInviteTokenInput));
+
   if (!authReady && !authInitTimedOut) {
     return (
       <main className="container">
@@ -12444,20 +12447,44 @@ function App() {
     return (
       <main className="container landing-screen">
         <section className="landing-layout">
-          <article className="landing-card">
-            <img src={logo} alt="WMS Online" className="landing-logo" />
-            <h1>Vyvíjame firemný systém pre sklad, objednávky, fakturáciu a procesy okolo nich</h1>
-            <p className="subtitle">
-              WMS Online pomáha firmám dostať sklad, dokumenty a operatívu do jedného prostredia. Namiesto rozbitých
-              Excelov, izolovaných evidencií a ručných prepisov dostaneš systém, ktorý sa dá prispôsobiť konkrétnej
-              prevádzke.
-            </p>
+          <article className="landing-card landing-hero-card">
+            <div className="landing-hero-head">
+              <img src={logo} alt="WMS Online" className="landing-logo" />
+              <div className="landing-hero-chip-row">
+                <span className="landing-hero-chip">
+                  <ShieldCheck size={14} strokeWidth={2.1} />
+                  Firemný systém
+                </span>
+                <span className="landing-hero-chip">
+                  <Building2 size={14} strokeWidth={2.1} />
+                  Web + Android
+                </span>
+              </div>
+            </div>
 
-            <ul className="landing-list">
-              {LANDING_FEATURES.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
+            <div className="landing-hero-copy">
+              <p className="landing-hero-kicker">Sklad, výroba, dochádzka a fakturácia v jednom prostredí</p>
+              <h1>Jedna platforma pre firmu, ktorá už nechce fungovať cez Excel a ručné prepisy</h1>
+              <p className="subtitle">
+                WMS Online pomáha firmám dostať sklad, dokumenty a operatívu do jedného systému. Namiesto rozbitých
+                evidencií dostaneš prehľadný web, Android terminály a setup podľa reálnej prevádzky.
+              </p>
+            </div>
+
+            <div className="landing-hero-module-grid" aria-label="Pokryté moduly">
+              {COMPANY_ADMIN_MODULE_OPTIONS.map((moduleOption) => {
+                const Icon = getModuleIcon(moduleOption.iconKey);
+                return (
+                  <article key={moduleOption.key} className="landing-hero-module-card">
+                    <span className="landing-hero-module-icon" aria-hidden="true">
+                      <Icon size={18} strokeWidth={2.05} />
+                    </span>
+                    <strong>{moduleOption.label}</strong>
+                    <span>{moduleOption.description}</span>
+                  </article>
+                );
+              })}
+            </div>
 
             <div className="landing-note">
               <h2>Čo robíme</h2>
@@ -12468,159 +12495,227 @@ function App() {
             </div>
           </article>
 
-          <section className="login-card auth-card">
-            <div className="auth-card-top">
-              <p className="auth-kicker">Prístup do systému</p>
-              <h2>{authMode === "login" ? "Firemné prihlásenie" : normalizeInviteToken(authRegisterInviteTokenInput) ? "Prijatie firemnej pozvánky" : "Založenie novej firmy"}</h2>
-              <p className="auth-subtitle">
-                {authMode === "login"
-                  ? getPendingCompanyInviteToken()
-                    ? "Prihlás existujúci účet. Uložená pozvánka sa po prihlásení automaticky spracuje."
-                    : "Prihlás sa do svojho firemného účtu cez login alebo email a heslo."
-                  : normalizeInviteToken(authRegisterInviteTokenInput)
-                    ? "Vytvor účet a pripoj sa do existujúcej firmy cez pozvánku."
-                    : "Založ novú firmu, získaj firemné admin práva a pokračuj priamo do setupu firmy."}
-              </p>
-            </div>
-
-            <div className="login-mode-switch" role="tablist" aria-label="Výber režimu prístupu">
-              <button
-                type="button"
-                className={`auth-mode-pill ${authMode === "login" ? "auth-mode-pill-active" : ""}`}
-                onClick={() => setAuthMode("login")}
-              >
-                Prihlásenie
-              </button>
-              <button
-                type="button"
-                className={`auth-mode-pill ${authMode === "signup" ? "auth-mode-pill-active" : ""}`}
-                onClick={() => setAuthMode("signup")}
-              >
-                Registrácia
-              </button>
-            </div>
-
-            {authMode === "login" ? (
-              <form className="login-form auth-form" onSubmit={handleSignIn}>
-                <div className="auth-form-grid">
-                  <label className="login-label auth-field" htmlFor="username">
-                    <span>Login alebo email</span>
-                    <input
-                      id="username"
-                      type="text"
-                      className="search-input"
-                      value={authUsernameInput}
-                      onChange={(event) => setAuthUsernameInput(event.target.value)}
-                      required
-                      autoComplete="username"
-                    />
-                  </label>
-                  <label className="login-label auth-field" htmlFor="password">
-                    <span>Heslo</span>
-                    <input
-                      id="password"
-                      type="password"
-                      className="search-input"
-                      value={authPassword}
-                      onChange={(event) => setAuthPassword(event.target.value)}
-                      required
-                      autoComplete="current-password"
-                    />
-                  </label>
-                </div>
-                <div className="auth-form-footer">
-                  <p className="auth-footnote">
-                    {normalizeInviteToken(authRegisterInviteTokenInput)
-                      ? "Pozvánka prevezme firmu a prístupy podľa linku od admina."
-                      : "Zakladateľ novej firmy dostane automaticky firemné admin práva vrátane pozvánok a setupu."}
+          <section className={`login-card auth-card landing-access-card${landingAuthVisible ? " is-open" : ""}`}>
+            {!landingAuthVisible ? (
+              <>
+                <div className="auth-card-top landing-access-top">
+                  <p className="auth-kicker">Prístup do systému</p>
+                  <h2>Prvotný vstup nechaj bokom, najprv si pozri produkt</h2>
+                  <p className="auth-subtitle">
+                    Prihlásenie môže zostať schované, kým ho fakt netreba. Nová firma sa zakladá onboardingom, existujúci
+                    účet sa otvorí cez jedno tlačidlo.
                   </p>
-                  <button type="submit" className="refresh-btn auth-submit-btn" disabled={authSubmitting}>
-                    {authSubmitting ? "Prihlasujem..." : "Prihlásiť sa"}
+                </div>
+
+                <div className="landing-access-actions">
+                  <button
+                    type="button"
+                    className="refresh-btn landing-access-primary"
+                    onClick={() => {
+                      setAuthMode("login");
+                      setIsLandingAuthOpen(true);
+                    }}
+                  >
+                    <LogIn size={16} strokeWidth={2.1} />
+                    Prihlásiť sa
+                  </button>
+                  <button
+                    type="button"
+                    className="settings-btn landing-access-secondary"
+                    onClick={() => {
+                      setAuthMode("signup");
+                      setIsLandingAuthOpen(true);
+                    }}
+                  >
+                    <ArrowRight size={16} strokeWidth={2.1} />
+                    Založiť firmu
                   </button>
                 </div>
-              </form>
+
+                <div className="landing-access-points">
+                  <div className="landing-access-point">
+                    <strong>Setup pred dashboardom</strong>
+                    <span>firma, moduly, hardware a kolegovia sa pripravia ešte pred vstupom do systému</span>
+                  </div>
+                  <div className="landing-access-point">
+                    <strong>Firemné admin práva</strong>
+                    <span>zakladateľ firmy dostane onboarding, pozvánky a správu prístupov hneď po registrácii</span>
+                  </div>
+                  <div className="landing-access-point">
+                    <strong>Android terminály</strong>
+                    <span>dochádzka a prevádzka vedia pokračovať aj mimo kancelárskeho webu</span>
+                  </div>
+                </div>
+              </>
             ) : (
-              <form className="login-form auth-form" onSubmit={handleRegister}>
-                <div className="auth-form-grid">
-                  {normalizeInviteToken(authRegisterInviteTokenInput) ? (
-                    <label className="login-label auth-field auth-field-full" htmlFor="register-invite-token">
-                      <span>Pozvánkový kód</span>
-                      <input
-                        id="register-invite-token"
-                        type="text"
-                        className="search-input"
-                        value={authRegisterInviteTokenInput}
-                        onChange={(event) => {
-                          const nextToken = normalizeInviteToken(event.target.value);
-                          setAuthRegisterInviteTokenInput(nextToken);
-                          setPendingCompanyInviteToken(nextToken);
-                        }}
-                        required
-                      />
-                    </label>
-                  ) : (
-                    <label className="login-label auth-field auth-field-full" htmlFor="register-company-name">
-                      <span>Názov firmy</span>
-                      <input
-                        id="register-company-name"
-                        type="text"
-                        className="search-input"
-                        value={authRegisterCompanyNameInput}
-                        onChange={(event) => setAuthRegisterCompanyNameInput(event.target.value)}
-                        required
-                      />
-                    </label>
-                  )}
-                  <label className="login-label auth-field" htmlFor="register-username">
-                    <span>Login</span>
-                    <input
-                      id="register-username"
-                      type="text"
-                      className="search-input"
-                      value={authRegisterUsernameInput}
-                      onChange={(event) => setAuthRegisterUsernameInput(event.target.value)}
-                      required
-                      autoComplete="username"
-                    />
-                  </label>
-                  <label className="login-label auth-field" htmlFor="register-email">
-                    <span>Email</span>
-                    <input
-                      id="register-email"
-                      type="email"
-                      className="search-input"
-                      value={authRegisterEmailInput}
-                      onChange={(event) => setAuthRegisterEmailInput(event.target.value)}
-                      required
-                      autoComplete="email"
-                    />
-                  </label>
-                  <label className="login-label auth-field auth-field-full" htmlFor="register-password">
-                    <span>Heslo</span>
-                    <input
-                      id="register-password"
-                      type="password"
-                      className="search-input"
-                      value={authRegisterPasswordInput}
-                      onChange={(event) => setAuthRegisterPasswordInput(event.target.value)}
-                      required
-                      autoComplete="new-password"
-                    />
-                  </label>
-                </div>
-                <div className="auth-form-footer">
-                  <p className="auth-footnote">
-                    {normalizeInviteToken(authRegisterInviteTokenInput)
-                      ? "Účet sa po potvrdení automaticky priradí k firme podľa pozvánky."
-                      : "Po registrácii sa vytvorí nová firma a tento účet získa plný prístup k nastaveniam. Predplatné potom aktivuješ v nastaveniach firmy cez Stripe checkout."}
-                  </p>
-                  <button type="submit" className="refresh-btn auth-submit-btn" disabled={authSubmitting}>
-                    {authSubmitting ? "Vytváram účet..." : normalizeInviteToken(authRegisterInviteTokenInput) ? "Vytvoriť účet a prijať pozvánku" : "Vytvoriť účet"}
+              <>
+                <div className="landing-auth-toolbar">
+                  <div className="login-mode-switch" role="tablist" aria-label="Výber režimu prístupu">
+                    <button
+                      type="button"
+                      className={`auth-mode-pill ${authMode === "login" ? "auth-mode-pill-active" : ""}`}
+                      onClick={() => setAuthMode("login")}
+                    >
+                      Prihlásenie
+                    </button>
+                    <button
+                      type="button"
+                      className={`auth-mode-pill ${authMode === "signup" ? "auth-mode-pill-active" : ""}`}
+                      onClick={() => setAuthMode("signup")}
+                    >
+                      Registrácia
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    className="clear-btn landing-auth-close"
+                    onClick={() => {
+                      setIsLandingAuthOpen(false);
+                      setAuthError("");
+                    }}
+                    aria-label="Zavrieť formulár"
+                  >
+                    <X size={16} strokeWidth={2.1} />
                   </button>
                 </div>
-              </form>
+
+                <div className="auth-card-top">
+                  <p className="auth-kicker">Prístup do systému</p>
+                  <h2>{authMode === "login" ? "Firemné prihlásenie" : normalizeInviteToken(authRegisterInviteTokenInput) ? "Prijatie firemnej pozvánky" : "Založenie novej firmy"}</h2>
+                  <p className="auth-subtitle">
+                    {authMode === "login"
+                      ? getPendingCompanyInviteToken()
+                        ? "Prihlás existujúci účet. Uložená pozvánka sa po prihlásení automaticky spracuje."
+                        : "Prihlás sa do svojho firemného účtu cez login alebo email a heslo."
+                      : normalizeInviteToken(authRegisterInviteTokenInput)
+                        ? "Vytvor účet a pripoj sa do existujúcej firmy cez pozvánku."
+                        : "Založ novú firmu, získaj firemné admin práva a pokračuj priamo do setupu firmy."}
+                  </p>
+                </div>
+
+                {authMode === "login" ? (
+                  <form className="login-form auth-form" onSubmit={handleSignIn}>
+                    <div className="auth-form-grid">
+                      <label className="login-label auth-field" htmlFor="username">
+                        <span>Login alebo email</span>
+                        <input
+                          id="username"
+                          type="text"
+                          className="search-input"
+                          value={authUsernameInput}
+                          onChange={(event) => setAuthUsernameInput(event.target.value)}
+                          required
+                          autoComplete="username"
+                        />
+                      </label>
+                      <label className="login-label auth-field" htmlFor="password">
+                        <span>Heslo</span>
+                        <input
+                          id="password"
+                          type="password"
+                          className="search-input"
+                          value={authPassword}
+                          onChange={(event) => setAuthPassword(event.target.value)}
+                          required
+                          autoComplete="current-password"
+                        />
+                      </label>
+                    </div>
+                    <div className="auth-form-footer">
+                      <p className="auth-footnote">
+                        {normalizeInviteToken(authRegisterInviteTokenInput)
+                          ? "Pozvánka prevezme firmu a prístupy podľa linku od admina."
+                          : "Zakladateľ novej firmy dostane automaticky firemné admin práva vrátane pozvánok a setupu."}
+                      </p>
+                      <button type="submit" className="refresh-btn auth-submit-btn" disabled={authSubmitting}>
+                        {authSubmitting ? "Prihlasujem..." : "Prihlásiť sa"}
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <form className="login-form auth-form" onSubmit={handleRegister}>
+                    <div className="auth-form-grid">
+                      {normalizeInviteToken(authRegisterInviteTokenInput) ? (
+                        <label className="login-label auth-field auth-field-full" htmlFor="register-invite-token">
+                          <span>Pozvánkový kód</span>
+                          <input
+                            id="register-invite-token"
+                            type="text"
+                            className="search-input"
+                            value={authRegisterInviteTokenInput}
+                            onChange={(event) => {
+                              const nextToken = normalizeInviteToken(event.target.value);
+                              setAuthRegisterInviteTokenInput(nextToken);
+                              setPendingCompanyInviteToken(nextToken);
+                            }}
+                            required
+                          />
+                        </label>
+                      ) : (
+                        <label className="login-label auth-field auth-field-full" htmlFor="register-company-name">
+                          <span>Názov firmy</span>
+                          <input
+                            id="register-company-name"
+                            type="text"
+                            className="search-input"
+                            value={authRegisterCompanyNameInput}
+                            onChange={(event) => setAuthRegisterCompanyNameInput(event.target.value)}
+                            required
+                          />
+                        </label>
+                      )}
+                      <label className="login-label auth-field" htmlFor="register-username">
+                        <span>Login</span>
+                        <input
+                          id="register-username"
+                          type="text"
+                          className="search-input"
+                          value={authRegisterUsernameInput}
+                          onChange={(event) => setAuthRegisterUsernameInput(event.target.value)}
+                          required
+                          autoComplete="username"
+                        />
+                      </label>
+                      <label className="login-label auth-field" htmlFor="register-email">
+                        <span>Email</span>
+                        <input
+                          id="register-email"
+                          type="email"
+                          className="search-input"
+                          value={authRegisterEmailInput}
+                          onChange={(event) => setAuthRegisterEmailInput(event.target.value)}
+                          required
+                          autoComplete="email"
+                        />
+                      </label>
+                      <label className="login-label auth-field auth-field-full" htmlFor="register-password">
+                        <span>Heslo</span>
+                        <input
+                          id="register-password"
+                          type="password"
+                          className="search-input"
+                          value={authRegisterPasswordInput}
+                          onChange={(event) => setAuthRegisterPasswordInput(event.target.value)}
+                          required
+                          autoComplete="new-password"
+                        />
+                      </label>
+                    </div>
+                    <div className="auth-form-footer">
+                      <p className="auth-footnote">
+                        {normalizeInviteToken(authRegisterInviteTokenInput)
+                          ? "Účet sa po potvrdení automaticky priradí k firme podľa pozvánky."
+                          : "Po registrácii sa vytvorí nová firma a tento účet získa plný prístup k nastaveniam. Predplatné potom aktivuješ v nastaveniach firmy cez Stripe checkout."}
+                      </p>
+                      <button type="submit" className="refresh-btn auth-submit-btn" disabled={authSubmitting}>
+                        {authSubmitting ? "Vytváram účet..." : normalizeInviteToken(authRegisterInviteTokenInput) ? "Vytvoriť účet a prijať pozvánku" : "Vytvoriť účet"}
+                      </button>
+                    </div>
+                  </form>
+                )}
+                {authError && <p className="error">{authError}</p>}
+              </>
             )}
-            {authError && <p className="error">{authError}</p>}
           </section>
         </section>
         <section className="landing-supporting" aria-label="Informácie o riešení WMS Online">

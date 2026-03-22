@@ -6,6 +6,7 @@ const STRIPE_API_BASE = "https://api.stripe.com/v1";
 const BILLING_STATUSES_WITH_ACTIVE_SUBSCRIPTION = new Set(["trialing", "active", "past_due", "unpaid", "incomplete"]);
 const ROLE_TABLE = String(process.env.VITE_USER_ROLES_TABLE || "app_users").trim() || "app_users";
 const MASTER_ORDER_NUMBER_PREFIX = "STRP";
+const MASTER_LEAD_NUMBER_PREFIX = "LEAD";
 
 function requiredEnv(name) {
   const value = String(process.env[name] || "").trim();
@@ -183,6 +184,15 @@ function buildMasterOrderNumber(sessionId) {
     .replace(/[^a-zA-Z0-9]/g, "")
     .toUpperCase();
   return `${MASTER_ORDER_NUMBER_PREFIX}-${sanitizedId.slice(-20) || Date.now()}`;
+}
+
+function buildMasterLeadOrderNumber(companyId) {
+  const companyToken = String(companyId || "")
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .toUpperCase()
+    .slice(-10);
+  const timestampToken = Date.now().toString(36).toUpperCase();
+  return `${MASTER_LEAD_NUMBER_PREFIX}-${companyToken || "COMPANY"}-${timestampToken}`;
 }
 
 function appendFormValue(params, key, value) {
@@ -630,6 +640,140 @@ async function createMasterOrderFromCheckoutSession({ company, checkoutSession }
     orderId: orderRow.id,
     orderNumber,
     masterCompanyId
+  };
+}
+
+async function createMasterOrderFromInterestSetup({ company, appUser, setup }) {
+  const masterCompanyId = await resolveMasterSalesCompanyId(String(company?.id || "").trim());
+  if (!masterCompanyId) {
+    return { created: false, reason: "master_company_not_found" };
+  }
+
+  const existingLeadNumber = String(company?.billing_checkout_session_id || "").trim();
+  const orderNumber = existingLeadNumber && existingLeadNumber.startsWith(`${MASTER_LEAD_NUMBER_PREFIX}-`)
+    ? existingLeadNumber
+    : buildMasterLeadOrderNumber(company?.id);
+
+  const { data: existingOrder, error: existingOrderError } = await getSupabaseAdmin()
+    .from("orders")
+    .select("id")
+    .eq("company_id", masterCompanyId)
+    .eq("order_number", orderNumber)
+    .maybeSingle();
+
+  if (existingOrderError) {
+    throw new Error(`master lead lookup failed: ${existingOrderError.message}`);
+  }
+
+  if (existingOrder?.id) {
+    return { created: false, reason: "already_exists", orderId: existingOrder.id, orderNumber, masterCompanyId };
+  }
+
+  const customerId = await ensureMasterCheckoutCustomer({
+    masterCompanyId,
+    company,
+    checkoutSession: {
+      customer_details: {
+        email: appUser?.email || "",
+        phone: setup.contactPhone || ""
+      }
+    },
+    setup
+  });
+
+  const orderItems = buildSetupOrderItemsFromMetadata(setup);
+  if (orderItems.length === 0) {
+    orderItems.push({
+      material_code: "Lead - onboarding dopyt",
+      position: "LEAD",
+      ordered_quantity: 1,
+      stock_quantity_snapshot: 0,
+      line_note: "bez explicitnych modulov alebo hardware"
+    });
+  }
+
+  const inviteCount = Array.isArray(setup.inviteDrafts) ? setup.inviteDrafts.length : 0;
+  const orderNoteParts = [
+    "Lead z onboardingu",
+    `firma ${sanitizeText(company?.name, 120)}`,
+    setup?.setupNote ? sanitizeText(setup.setupNote, 240) : "",
+    buildSetupSummary(setup),
+    inviteCount > 0 ? `${inviteCount} kolegov v plane` : "",
+    appUser?.email ? `kontakt ${sanitizeText(appUser.email, 120)}` : "",
+    setup?.contactPhone ? `telefon ${sanitizeText(setup.contactPhone, 40)}` : ""
+  ].filter(Boolean);
+
+  const { data: orderRow, error: orderInsertError } = await getSupabaseAdmin()
+    .from("orders")
+    .insert([
+      {
+        company_id: masterCompanyId,
+        customer_id: customerId,
+        customer_name: sanitizeText(setup.companyName || company?.name, 120) || "Firma",
+        order_number: orderNumber,
+        note: orderNoteParts.join(" | ").slice(0, 1000),
+        created_by: null
+      }
+    ])
+    .select("id")
+    .single();
+
+  if (orderInsertError) {
+    throw new Error(`master lead order insert failed: ${orderInsertError.message}`);
+  }
+
+  const { error: itemInsertError } = await getSupabaseAdmin()
+    .from("order_items")
+    .insert(orderItems.map((item) => ({ ...item, order_id: orderRow.id })));
+
+  if (itemInsertError) {
+    throw new Error(`master lead item insert failed: ${itemInsertError.message}`);
+  }
+
+  return {
+    created: true,
+    orderId: orderRow.id,
+    orderNumber,
+    masterCompanyId
+  };
+}
+
+export async function submitCompanyInterest({ company, appUser, onboardingSetup, req }) {
+  const normalizedSetup = normalizeCheckoutSetup(onboardingSetup);
+  const masterOrder = await createMasterOrderFromInterestSetup({
+    company,
+    appUser,
+    setup: {
+      ...normalizedSetup,
+      inviteDrafts: Array.isArray(onboardingSetup?.inviteDrafts) ? onboardingSetup.inviteDrafts : []
+    }
+  });
+
+  const selectedModuleSummary = normalizedSetup.selectedModules.map((item) => item.label).join(", ");
+  const hardwareSummary = normalizedSetup.hardwareItems.length > 0
+    ? normalizedSetup.hardwareItems.map((item) => `${item.label} x${item.quantity}`).join(", ")
+    : "";
+  const leadNote = [
+    "Lead z onboardingu",
+    selectedModuleSummary ? `moduly: ${selectedModuleSummary}` : "",
+    hardwareSummary ? `hardware: ${hardwareSummary}` : "",
+    normalizedSetup.setupNote ? normalizedSetup.setupNote : "",
+    appUser?.email ? `kontakt: ${sanitizeText(appUser.email, 120)}` : "",
+    normalizedSetup.contactPhone ? `telefon: ${sanitizeText(normalizedSetup.contactPhone, 40)}` : ""
+  ]
+    .filter(Boolean)
+    .join(" | ")
+    .slice(0, 1000);
+
+  await updateCompanyBilling(company?.id, {
+    billing_status: "lead",
+    billing_price_note: leadNote,
+    billing_checkout_session_id: masterOrder?.orderNumber || null
+  });
+
+  return {
+    ok: true,
+    orderNumber: masterOrder?.orderNumber || null
   };
 }
 

@@ -385,6 +385,7 @@ const INVOICE_STYLE_OPTIONS = [
 const BILLING_MANAGED_STATUSES = new Set(["trialing", "active", "past_due", "unpaid", "incomplete"]);
 const BILLING_STATUS_LABELS = {
   inactive: "Neaktivne",
+  lead: "Caka na kontakt",
   trialing: "Skusobna doba",
   active: "Aktivne",
   past_due: "Po splatnosti",
@@ -4637,6 +4638,26 @@ function App() {
     () => normalizeCompanyBillingStatus(activeCompany?.billing_status),
     [activeCompany?.billing_status]
   );
+  const activeCompanyLeadSetup = useMemo(() => {
+    if (!activeCompanyId) {
+      return null;
+    }
+
+    const currentDraftCompanyId = String(companyAdminSetupDraft?.companyId || "").trim();
+    if (currentDraftCompanyId && currentDraftCompanyId === activeCompanyId) {
+      return companyAdminSetupDraft;
+    }
+
+    return getStoredCompanyAdminSetup(activeCompanyId);
+  }, [activeCompanyId, companyAdminSetupDraft]);
+  const isLeadWaitingCompany = useMemo(() => {
+    if (isMaster || isCompanyAdminOnboardingActive || activeCompanyBillingStatus !== "lead") {
+      return false;
+    }
+
+    const leadModules = COMPANY_ADMIN_MODULE_OPTIONS.filter((option) => activeCompanyLeadSetup?.moduleSelections?.[option.key]);
+    return !(leadModules.length > 0 && leadModules.every((module) => module.key === "invoicing"));
+  }, [isMaster, isCompanyAdminOnboardingActive, activeCompanyBillingStatus, activeCompanyLeadSetup]);
   const activeCompanyHasManagedBilling = useMemo(
     () => hasManagedCompanyBilling(activeCompany),
     [activeCompany]
@@ -5464,11 +5485,27 @@ function App() {
         throw new Error("Setup sa nepodarilo uložiť.");
       }
 
+      const onboardingSetup = {
+        ...buildCompanyAdminCheckoutSetup(activeCompanyId),
+        inviteDrafts: Array.isArray(savedDraft.inviteDrafts) ? savedDraft.inviteDrafts : []
+      };
+
+      if (!selectedOnlyInvoicingModule) {
+        await postAuthenticatedRequest("/api/v1/onboarding/submit-interest", {
+          companyId: activeCompanyId,
+          onboardingSetup
+        });
+      }
+
       setCompanyAdminSetupDraft(savedDraft);
+      await loadCompanies();
+      await loadCompanyProfiles();
       setIsCompanyAdminOnboardingActive(false);
       setCompanyAdminOnboardingStep(0);
       clearPendingCompanyAdminSetup();
-      setSelectedTable(DAILY_OVERVIEW_TABLE);
+      if (selectedOnlyInvoicingModule) {
+        setSelectedTable(DAILY_OVERVIEW_TABLE);
+      }
     } catch (onboardingError) {
       setCompanyAdminOnboardingError(onboardingError?.message || "Onboarding sa nepodarilo dokončiť.");
     } finally {
@@ -5542,6 +5579,33 @@ function App() {
 
     if (!response.ok || !result?.ok) {
       throw new Error(result?.error || "Billing request zlyhal.");
+    }
+
+    return result;
+  };
+
+  const postAuthenticatedRequest = async (path, payload = {}) => {
+    const {
+      data: { session }
+    } = await supabase.auth.getSession();
+    const accessToken = String(session?.access_token || "").trim();
+
+    if (!accessToken) {
+      throw new Error("Relacia vyprsala. Prihlas sa znova.");
+    }
+
+    const response = await noStoreFetch(path, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`
+      },
+      body: JSON.stringify(payload)
+    });
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok || !result?.ok) {
+      throw new Error(result?.error || "Request zlyhal.");
     }
 
     return result;
@@ -5629,6 +5693,36 @@ function App() {
     } finally {
       setBillingSubmittingAction("");
     }
+  };
+
+  const handleReleaseLeadCompany = async (companyId) => {
+    const normalizedCompanyId = String(companyId || "").trim();
+    if (!normalizedCompanyId || !isMaster) {
+      return;
+    }
+
+    setBillingSubmittingAction(`release-lead-${normalizedCompanyId}`);
+    setBillingError("");
+
+    const { data, error: updateError } = await supabase
+      .from("companies")
+      .update({
+        billing_status: "inactive"
+      })
+      .eq("id", normalizedCompanyId)
+      .select("*")
+      .single();
+
+    if (updateError) {
+      setBillingError(updateError.message || "Nepodarilo sa odblokovať firmu.");
+      setBillingSubmittingAction("");
+      return;
+    }
+
+    const normalizedCompany = normalizeCompanyRecord(data);
+    setCompanies((prev) => prev.map((company) => (company.id === normalizedCompanyId ? normalizedCompany : company)));
+    setBillingMessage("Firma je odblokovaná a môže vstúpiť do aplikácie.");
+    setBillingSubmittingAction("");
   };
 
   const loadStockTwinSettings = async () => {
@@ -12397,6 +12491,12 @@ function App() {
     () => COMPANY_ADMIN_MODULE_OPTIONS.filter((option) => companyAdminSetupDraft.moduleSelections?.[option.key]),
     [companyAdminSetupDraft]
   );
+  const selectedOnlyInvoicingModule = useMemo(
+    () =>
+      selectedCompanyAdminModules.length > 0 &&
+      selectedCompanyAdminModules.every((module) => module.key === "invoicing"),
+    [selectedCompanyAdminModules]
+  );
   const companyAdminBillingEstimate = useMemo(
     () =>
       estimateWmsPricing({
@@ -13621,7 +13721,7 @@ function App() {
         <footer className="landing-footer" aria-label="Právne informácie">
           <div className="landing-footer-copy">
             <strong>Factory OS</strong>
-            <span>Jedna platforma pre sklad, výrobu, dochádzku, dokumenty a denné riadenie firmy.</span>
+            <span>Jedna platforma pre sklad, výrobu, dochádzku, dokumenty a denné riadenie firmy. Vyrobené na Slovensku pre Slovákov.</span>
           </div>
           <div className="landing-footer-links" aria-label="Právne odkazy">
             <button type="button" className="landing-footer-link" onClick={() => setLandingLegalDocument("vop")}>
@@ -14209,6 +14309,71 @@ function App() {
               Odhlásiť sa
             </button>
           </aside>
+        </section>
+      </main>
+    );
+  }
+
+  if (isLeadWaitingCompany) {
+    const plannedModules = COMPANY_ADMIN_MODULE_OPTIONS.filter((option) => activeCompanyLeadSetup?.moduleSelections?.[option.key]);
+    const plannedHardware = COMPANY_ADMIN_HARDWARE_OPTIONS.filter((option) => activeCompanyLeadSetup?.hardwareSelections?.[option.key]).map((option) => ({
+      ...option,
+      quantity: Math.max(1, Number.parseInt(String(activeCompanyLeadSetup?.hardwareQuantities?.[option.key] || "1"), 10) || 1)
+    }));
+    const plannedInvites = Array.isArray(activeCompanyLeadSetup?.inviteDrafts)
+      ? activeCompanyLeadSetup.inviteDrafts.filter((draft) => String(draft.email || "").trim() || String(draft.position || "").trim())
+      : [];
+
+    return (
+      <main className="container">
+        <section className="panel landing-legal-modal waitlist-panel">
+          <div className="landing-legal-head waitlist-head">
+            <div className="landing-legal-title-wrap">
+              <span className="landing-legal-icon" aria-hidden="true">
+                <Clock3 size={18} strokeWidth={2.05} />
+              </span>
+              <div>
+                <p className="auth-kicker">Dopyt prijatý</p>
+                <h2>Čoskoro sa ti ozveme</h2>
+                <p>
+                  Tvoj firemný dopyt sme zaevidovali do master dashboardu. Kým sa s tebou spojíme a potvrdíme ďalší postup,
+                  dashboard ostáva uzamknutý.
+                </p>
+              </div>
+            </div>
+            <button type="button" onClick={handleSignOut} className="logout-btn" disabled={signOutSubmitting}>
+              {signOutSubmitting ? "Odhlasujem..." : "Odhlásiť sa"}
+            </button>
+          </div>
+
+          <div className="landing-legal-body waitlist-body">
+            <article className="landing-legal-section">
+              <h3>{activeCompanyProfile?.name || activeCompany?.name || currentCompanyLabel}</h3>
+              <p>{activeCompanyProfile?.address || "Firemný profil je uložený a čaká na spracovanie."}</p>
+              <p>{activeCompany?.billing_checkout_session_id ? `Referenčný dopyt: ${activeCompany.billing_checkout_session_id}` : "Dopyt je v stave čaká na kontakt."}</p>
+            </article>
+
+            <article className="landing-legal-section">
+              <h3>Čo ste dopytovali</h3>
+              <p>{plannedModules.length > 0 ? plannedModules.map((item) => item.label).join(", ") : "Moduly doplníme spolu počas konzultácie."}</p>
+              <p>
+                {plannedHardware.length > 0
+                  ? `Hardware: ${plannedHardware.map((item) => `${item.label} x${item.quantity}`).join(", ")}`
+                  : "Hardware zatiaľ nebol vybraný."}
+              </p>
+              <p>
+                {plannedInvites.length > 0
+                  ? `${plannedInvites.length} kolegov v onboarding pláne`
+                  : "Bez pripravených kolegov v onboarding pláne."}
+              </p>
+            </article>
+
+            <article className="landing-legal-section">
+              <h3>Čo bude nasledovať</h3>
+              <p>Skontrolujeme firemný profil, moduly, hardware aj požiadavku na konfiguráciu systému.</p>
+              <p>Po potvrdení ďalšieho postupu vám otvoríme prístup do aplikácie alebo pripravíme individuálnu ponuku a rollout.</p>
+            </article>
+          </div>
         </section>
       </main>
     );
@@ -16403,6 +16568,16 @@ function App() {
                               <div className="master-user-email">{`do ${formatDate(company.billing_current_period_end)}`}</div>
                             )}
                             <div className="master-role-actions master-billing-actions">
+                              {normalizeCompanyBillingStatus(company.billing_status) === "lead" && (
+                                <button
+                                  type="button"
+                                  className="clear-btn"
+                                  onClick={() => handleReleaseLeadCompany(company.id)}
+                                  disabled={billingSubmittingAction === `release-lead-${company.id}`}
+                                >
+                                  {billingSubmittingAction === `release-lead-${company.id}` ? "Púšťam..." : "Pustiť do appky"}
+                                </button>
+                              )}
                               {hasManagedCompanyBilling(company) ? (
                                 <button
                                   type="button"

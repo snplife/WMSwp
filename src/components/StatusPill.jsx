@@ -21,6 +21,7 @@
     in: "v práci",
     out: "mimo",
     inactive: "neaktivne",
+    lead: "caka na kontakt",
     trialing: "skusobna doba",
     active: "aktivne",
     past_due: "po splatnosti",

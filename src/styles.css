@@ -4917,6 +4917,19 @@ tbody tr:nth-child(even) {
   line-height: 1.68;
 }
 
+.waitlist-panel {
+  width: min(960px, 100%);
+  margin: 3rem auto;
+}
+
+.waitlist-head {
+  align-items: center;
+}
+
+.waitlist-body {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .landing-flow-section {
   grid-column: 1 / -1;
   display: grid;
@@ -6311,6 +6324,10 @@ tbody tr:nth-child(even) {
 
   .incoming-invite-actions .settings-btn {
     width: 100%;
+  }
+
+  .waitlist-body {
+    grid-template-columns: 1fr;
   }
 }
 

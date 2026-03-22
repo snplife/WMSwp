@@ -9786,18 +9786,6 @@ function App() {
   }, [authReady, isLoggedIn]);
 
   useEffect(() => {
-    if (isLoggedIn || typeof window === "undefined") {
-      return undefined;
-    }
-
-    const rotate = window.setInterval(() => {
-      setLandingFlowActiveStep((current) => (current + 1) % LANDING_FLOW_SCENARIOS.length);
-    }, 4200);
-
-    return () => window.clearInterval(rotate);
-  }, [isLoggedIn]);
-
-  useEffect(() => {
     let mounted = true;
     let hydrationSequence = 0;
     const clearInitTimeout = () => {

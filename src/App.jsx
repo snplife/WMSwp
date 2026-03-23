@@ -2155,6 +2155,24 @@ function printOrderPdf(order, customer, items, companyName) {
   printHtmlDocument(buildOrderPrintHtml(order, customer, items, companyName));
 }
 
+function getPrintLucideIcon(iconKey) {
+  const icons = {
+    building:
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 22V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v18"/><path d="M6 12H4a1 1 0 0 0-1 1v9"/><path d="M18 12h2a1 1 0 0 1 1 1v9"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></svg>',
+    user:
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21a7 7 0 0 0-14 0"/><circle cx="12" cy="8" r="4"/></svg>',
+    package:
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>',
+    receipt:
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2"/><path d="M8 7h8"/><path d="M8 11h8"/><path d="M8 15h5"/></svg>',
+    note:
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-8"/><path d="M13 3v6h6"/><path d="M13 3l8 8"/><path d="M8 13h8"/><path d="M8 17h5"/></svg>',
+    calendar:
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/></svg>'
+  };
+  return icons[iconKey] || icons.receipt;
+}
+
 function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {}) {
   const normalizedCompany =
     companyProfile && typeof companyProfile === "object" ? companyProfile : { name: String(companyProfile || "").trim() };
@@ -2169,6 +2187,12 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
   const quoteCreatedAtLabel = quote?.created_at ? formatDocumentDate(quote.created_at) : formatDocumentDate(new Date().toISOString());
   const dueDateLabel = quote?.due_date ? formatDocumentDate(quote.due_date) : "-";
   const customerContact = [String(customer?.phone || "").trim(), String(customer?.email || "").trim()].filter(Boolean).join(" | ") || "-";
+  const supplierIcon = getPrintLucideIcon("building");
+  const customerIcon = getPrintLucideIcon("user");
+  const itemsIcon = getPrintLucideIcon("package");
+  const totalsIcon = getPrintLucideIcon("receipt");
+  const noteIcon = getPrintLucideIcon("note");
+  const calendarIcon = getPrintLucideIcon("calendar");
   const supplierIdentityLine = [
     `IČO: ${String(normalizedCompany?.ico || "").trim() || "-"}`,
     `DIČ: ${String(normalizedCompany?.dic || "").trim() || "-"}`,
@@ -2205,7 +2229,7 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
   const noteHtml = quoteNote
     ? `
         <section class="note-section">
-          <h3>Poznámka k ponuke</h3>
+          <h3 class="section-title-inline"><span class="section-icon">${noteIcon}</span><span>Poznámka k ponuke</span></h3>
           <p>${escapeHtml(quoteNote)}</p>
         </section>
       `
@@ -2304,8 +2328,35 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
           display: flex;
           justify-content: space-between;
           gap: 3mm;
+          align-items: flex-start;
           padding-top: 1.2mm;
           border-top: 0.3mm solid var(--invoice-border);
+        }
+        .header-meta-label-wrap,
+        .section-title-inline {
+          display: inline-flex;
+          align-items: center;
+          gap: 1.3mm;
+        }
+        .section-icon {
+          display: inline-flex;
+          width: 4.6mm;
+          height: 4.6mm;
+          color: var(--invoice-accent);
+          flex: 0 0 auto;
+        }
+        .section-icon svg {
+          width: 100%;
+          height: 100%;
+          stroke: currentColor;
+          fill: none;
+          stroke-width: 1.9;
+          stroke-linecap: round;
+          stroke-linejoin: round;
+        }
+        .header-meta-label-wrap .section-icon {
+          width: 3.8mm;
+          height: 3.8mm;
         }
         .header-meta-row span {
           font-size: 7.8pt;
@@ -2524,19 +2575,19 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
           </div>
           <div class="hero-right">
             <div class="header-meta">
-              <div class="header-meta-row"><span>Platnosť do</span><strong>${escapeHtml(dueDateLabel)}</strong></div>
-              <div class="header-meta-row"><span>Vystavené</span><strong>${escapeHtml(quoteCreatedAtLabel)}</strong></div>
+              <div class="header-meta-row"><span class="header-meta-label-wrap"><span class="section-icon">${calendarIcon}</span><span>Platnosť do</span></span><strong>${escapeHtml(dueDateLabel)}</strong></div>
+              <div class="header-meta-row"><span class="header-meta-label-wrap"><span class="section-icon">${calendarIcon}</span><span>Vystavené</span></span><strong>${escapeHtml(quoteCreatedAtLabel)}</strong></div>
             </div>
           </div>
         </header>
 
         <section class="parties">
           <article class="party">
-            <h2>Dodávateľ</h2>
+            <h2 class="section-title-inline"><span class="section-icon">${supplierIcon}</span><span>Dodávateľ</span></h2>
             <dl class="party-list">${buildQuoteDetailFieldsHtml(supplierDetailFields)}</dl>
           </article>
           <article class="party">
-            <h2>Odberateľ</h2>
+            <h2 class="section-title-inline"><span class="section-icon">${customerIcon}</span><span>Odberateľ</span></h2>
             <dl class="party-list">${buildQuoteDetailFieldsHtml(customerDetailFields)}</dl>
           </article>
         </section>
@@ -2544,7 +2595,7 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
         ${preItemsSectionsHtml}
 
         <section class="items-section">
-          <h2>Položky cenovej ponuky</h2>
+          <h2 class="section-title-inline"><span class="section-icon">${itemsIcon}</span><span>Položky cenovej ponuky</span></h2>
           <table>
             <thead>
               <tr>
@@ -2562,7 +2613,7 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
         </section>
 
         <section class="totals-section">
-          <h2>Rekapitulácia</h2>
+          <h2 class="section-title-inline"><span class="section-icon">${totalsIcon}</span><span>Rekapitulácia</span></h2>
           <div class="totals-box">
             <div class="total-row"><span>Bez DPH</span><strong>${escapeHtml(formatCurrencyValue(totals.total))}</strong></div>
             <div class="total-row"><span>DPH</span><strong>${escapeHtml(formatCurrencyValue(totals.vat))}</strong></div>
@@ -2602,6 +2653,12 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
   const invoiceOutroText = invoiceDocument.outroText;
   const invoiceOrderNumber = invoiceDocument.orderNumber;
   const customerContact = [String(customer?.phone || "").trim(), String(customer?.email || "").trim()].filter(Boolean).join(" | ") || "-";
+  const supplierIcon = getPrintLucideIcon("building");
+  const customerIcon = getPrintLucideIcon("user");
+  const itemsIcon = getPrintLucideIcon("package");
+  const totalsIcon = getPrintLucideIcon("receipt");
+  const noteIcon = getPrintLucideIcon("note");
+  const calendarIcon = getPrintLucideIcon("calendar");
   const supplierIdentityLine = [
     `IČO: ${String(normalizedCompany?.ico || "").trim() || "-"}`,
     `DIČ: ${String(normalizedCompany?.dic || "").trim() || "-"}`,
@@ -2684,7 +2741,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
   const noteHtml = invoiceNote
     ? `
         <section class="note-section">
-          <h3>${escapeHtml(invoiceDocument.documentKind === "proforma" ? "Poznámka k predfaktúre" : "Poznámka k faktúre")}</h3>
+          <h3 class="section-title-inline"><span class="section-icon">${noteIcon}</span><span>${escapeHtml(invoiceDocument.documentKind === "proforma" ? "Poznámka k predfaktúre" : "Poznámka k faktúre")}</span></h3>
           <p>${escapeHtml(invoiceNote)}</p>
         </section>
       `
@@ -2787,8 +2844,35 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           display: flex;
           justify-content: space-between;
           gap: 3mm;
+          align-items: flex-start;
           padding-top: 1.2mm;
           border-top: 0.3mm solid var(--invoice-border);
+        }
+        .header-meta-label-wrap,
+        .section-title-inline {
+          display: inline-flex;
+          align-items: center;
+          gap: 1.3mm;
+        }
+        .section-icon {
+          display: inline-flex;
+          width: 4.6mm;
+          height: 4.6mm;
+          color: var(--invoice-accent);
+          flex: 0 0 auto;
+        }
+        .section-icon svg {
+          width: 100%;
+          height: 100%;
+          stroke: currentColor;
+          fill: none;
+          stroke-width: 1.9;
+          stroke-linecap: round;
+          stroke-linejoin: round;
+        }
+        .header-meta-label-wrap .section-icon {
+          width: 3.8mm;
+          height: 3.8mm;
         }
         .header-meta-row span {
           font-size: 7.8pt;
@@ -3127,10 +3211,10 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
               invoiceOrderNumber || invoiceDocument.sourceProformaNumber
                 ? `
             <div class="header-meta">
-              ${invoiceOrderNumber ? `<div class="header-meta-row"><span>Objednávka</span><strong>${escapeHtml(invoiceOrderNumber)}</strong></div>` : ""}
+              ${invoiceOrderNumber ? `<div class="header-meta-row"><span class="header-meta-label-wrap"><span class="section-icon">${calendarIcon}</span><span>Objednávka</span></span><strong>${escapeHtml(invoiceOrderNumber)}</strong></div>` : ""}
               ${
                 invoiceDocument.sourceProformaNumber
-                  ? `<div class="header-meta-row"><span>Predfaktúra</span><strong>${escapeHtml(invoiceDocument.sourceProformaNumber)}</strong></div>`
+                  ? `<div class="header-meta-row"><span class="header-meta-label-wrap"><span class="section-icon">${calendarIcon}</span><span>Predfaktúra</span></span><strong>${escapeHtml(invoiceDocument.sourceProformaNumber)}</strong></div>`
                   : ""
               }
             </div>
@@ -3142,11 +3226,11 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
 
         <section class="parties">
           <article class="party">
-            <h2>Dodávateľ</h2>
+            <h2 class="section-title-inline"><span class="section-icon">${supplierIcon}</span><span>Dodávateľ</span></h2>
             <dl class="party-list">${buildInvoiceDetailFieldsHtml(supplierDetailFields)}</dl>
           </article>
           <article class="party">
-            <h2>Odberateľ</h2>
+            <h2 class="section-title-inline"><span class="section-icon">${customerIcon}</span><span>Odberateľ</span></h2>
             <dl class="party-list">${buildInvoiceDetailFieldsHtml(customerDetailFields)}</dl>
           </article>
         </section>
@@ -3162,7 +3246,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         </section>
 
         <section class="items-section">
-          <h2>${escapeHtml(invoiceIntroText || (invoiceDocument.documentKind === "proforma" ? "Položky predfaktúry" : "Položky faktúry"))}</h2>
+          <h2 class="section-title-inline"><span class="section-icon">${itemsIcon}</span><span>${escapeHtml(invoiceIntroText || (invoiceDocument.documentKind === "proforma" ? "Položky predfaktúry" : "Položky faktúry"))}</span></h2>
           <table>
             <thead>
               <tr>
@@ -3180,7 +3264,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         </section>
 
         <section class="totals-section">
-          <h2>Rekapitulácia</h2>
+          <h2 class="section-title-inline"><span class="section-icon">${totalsIcon}</span><span>Rekapitulácia</span></h2>
           <div class="totals-box">${totalsRowsHtml}</div>
         </section>
 

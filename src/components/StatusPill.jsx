@@ -13,6 +13,7 @@
     issued: "vystavená",
     paid: "uhradená",
     cancelled: "stornovaná",
+    archived: "archivovaná",
     clock_in: "príchod",
     clock_out: "odchod",
     break_start: "pauza štart",

@@ -95,35 +95,46 @@ const LANDING_LEGAL_DOCUMENTS = {
   vop: {
     label: "VOP",
     title: "Všeobecné obchodné podmienky",
-    intro: "Tieto podmienky upravujú základný rámec používania platformy Factory OS, onboardingu, dodávky modulov a súvisiacich služieb.",
+    intro: "Tieto podmienky upravujú základný rámec používania platformy Factory OS, onboardingu, dodávky modulov, hardware a súvisiacich implementačných služieb.",
+    meta: ["B2B služba", "Platí pre onboarding a prevádzku platformy", "Individuálne nacenenie má prednosť pred orientačným cenníkom"],
     icon: FileText,
     sections: [
       {
         title: "1. Predmet služby",
         paragraphs: [
           "Factory OS poskytuje firmám webovú platformu a súvisiace digitálne nástroje pre sklad, výrobu, dochádzku, dokumenty, reporting a onboarding nových prevádzok.",
-          "Rozsah aktivovaných modulov, hardware, konzultácií a onboarding služieb sa riadi podľa výberu zákazníka, potvrdeného setupu a následnej objednávky alebo checkoutu."
+          "Rozsah aktivovaných modulov, hardware, konzultácií a onboarding služieb sa riadi podľa výberu zákazníka, potvrdeného setupu a následnej objednávky, checkoutu alebo individuálnej ponuky."
         ]
       },
       {
         title: "2. Objednávka a aktivácia",
         paragraphs: [
           "Zákazník si v onboarding flow alebo v nastaveniach firmy vyberá moduly, počty používateľov, hardware a prípadné požiadavky na pomoc s konfiguráciou systému.",
-          "Platené služby a hardware sa aktivujú po potvrdení objednávky alebo po úspešnom checkout procese. Bezplatná vrstva sa môže aktivovať samostatne podľa aktuálneho cenníka."
+          "Platené služby a hardware sa aktivujú po potvrdení objednávky alebo po úspešnom checkout procese. Bezplatná vrstva sa môže aktivovať samostatne podľa aktuálneho cenníka.",
+          "Ak onboarding obsahuje individuálne nacenené položky alebo implementačné práce, finálny rozsah a cena sa potvrdzujú samostatne pred ostrým spustením."
         ]
       },
       {
         title: "3. Fakturácia a platby",
         paragraphs: [
           "Predplatné, jednorazové setup poplatky a hardware sa účtujú podľa aktuálneho cenníka alebo individuálne dohodnutej ponuky.",
-          "Ak zákazník uhradí predfaktúru, uhradená suma sa pri vystavení finálnej faktúry zohľadní a odpočíta od výslednej sumy na úhradu."
+          "Ak zákazník uhradí predfaktúru, uhradená suma sa pri vystavení finálnej faktúry zohľadní a odpočíta od výslednej sumy na úhradu.",
+          "V prípade pravidelného predplatného sa fakturačný interval, prípadné setup položky a termíny úhrad riadia potvrdeným billing modelom zákazníka."
         ]
       },
       {
-        title: "4. Práva a zodpovednosť",
+        title: "4. Prevádzka, zmeny a zodpovednosť",
         paragraphs: [
           "Zákazník zodpovedá za správnosť údajov, ktoré do systému vkladá, a za správu interných prístupov svojich používateľov.",
-          "Poskytovateľ zodpovedá za prevádzku platformy v primeranom rozsahu, pričom plánované rozšírenia, integrácie a špecifické úpravy sa riešia samostatným dojednaním."
+          "Poskytovateľ zabezpečuje prevádzku platformy v primeranom rozsahu. Plánované rozšírenia, integrácie, migrácie dát a špecifické úpravy sa riešia samostatným dojednaním.",
+          "Ak je súčasťou dodávky hardware alebo onsite implementácia, zákazník zabezpečí potrebnú súčinnosť, prístupy a technické podmienky pre nasadenie."
+        ]
+      },
+      {
+        title: "5. Ukončenie a podpora",
+        paragraphs: [
+          "Zákazník môže požiadať o ukončenie služby alebo zmenu rozsahu modulov podľa dohodnutého billing modelu a potvrdených obchodných podmienok.",
+          "Podpora, onboarding asistencia a následné úpravy sa riešia cez dohodnutý komunikačný kanál medzi zákazníkom a poskytovateľom."
         ]
       }
     ]
@@ -131,14 +142,16 @@ const LANDING_LEGAL_DOCUMENTS = {
   gdpr: {
     label: "GDPR",
     title: "Ochrana osobných údajov",
-    intro: "Factory OS spracúva osobné údaje len v rozsahu potrebnom na prevádzku služby, onboarding firmy, billing a správu používateľských prístupov.",
+    intro: "Factory OS spracúva osobné údaje len v rozsahu potrebnom na prevádzku služby, onboarding firmy, billing, podporu a správu používateľských prístupov.",
+    meta: ["Minimálny rozsah údajov", "Prístup podľa rolí a firmy", "Prevádzkové logy pre audit a bezpečnosť"],
     icon: ShieldCheck,
     sections: [
       {
         title: "1. Aké údaje spracúvame",
         paragraphs: [
           "Môžu sa spracúvať identifikačné a kontaktné údaje firmy, administrátora a používateľov, najmä meno, email, telefón, pracovná pozícia a prístupové oprávnenia.",
-          "Pri používaní dochádzky alebo prevádzkových modulov sa môžu ukladať aj prevádzkové eventy, terminálové záznamy, logy a auditné údaje."
+          "Pri používaní dochádzky alebo prevádzkových modulov sa môžu ukladať aj prevádzkové eventy, terminálové záznamy, logy a auditné údaje.",
+          "Pri obchodných moduloch sa môžu spracúvať aj údaje potrebné na cenové ponuky, objednávky, fakturáciu a komunikáciu so zákazníkom."
         ]
       },
       {
@@ -149,14 +162,21 @@ const LANDING_LEGAL_DOCUMENTS = {
         ]
       },
       {
-        title: "3. Zdieľanie a ochrana",
+        title: "3. Právny základ a uchovávanie",
         paragraphs: [
-          "Údaje sa nezdieľajú s tretími stranami mimo nevyhnutných technologických a platobných partnerov potrebných na prevádzku služby.",
-          "Prístup k dátam je obmedzený podľa rolí, firmy a oprávnení. Zákazník má mať vlastné interné pravidlá pre správu používateľov a zariadení."
+          "Spracúvanie osobných údajov prebieha na základe plnenia zmluvného vzťahu, oprávneného záujmu na bezpečnej prevádzke systému alebo splnenia zákonných povinností.",
+          "Údaje sa uchovávajú len počas obdobia potrebného na prevádzku služby, billing, audit, podporu a splnenie súvisiacich zákonných povinností."
         ]
       },
       {
-        title: "4. Práva dotknutých osôb",
+        title: "4. Zdieľanie a ochrana",
+        paragraphs: [
+          "Údaje sa nezdieľajú s tretími stranami mimo nevyhnutných technologických, platobných a komunikačných partnerov potrebných na prevádzku služby.",
+          "Prístup k údajom je obmedzený podľa rolí, firmy a oprávnení. Zákazník má mať vlastné interné pravidlá pre správu používateľov, zariadení a pracovných terminálov."
+        ]
+      },
+      {
+        title: "5. Práva dotknutých osôb",
         paragraphs: [
           "Používatelia a zákazníci môžu žiadať opravu nepresných údajov, obmedzenie spracúvania alebo výmaz údajov, pokiaľ to nie je v rozpore s účtovnými, zmluvnými alebo zákonnými povinnosťami.",
           "Konkrétne žiadosti o prístup k údajom alebo výmaz sa riešia cez kontaktný kanál poskytovateľa alebo cez zodpovedného firemného administrátora."
@@ -1691,6 +1711,10 @@ function computeInvoiceFinancials(invoice, items) {
     amountDue: Math.max(0, totals.totalWithVat - advanceAppliedGross),
     documentKind: document.documentKind
   };
+}
+
+function isInvoiceArchived(invoice) {
+  return Boolean(String(invoice?.archived_at || "").trim());
 }
 
 function resolvePrintableAssetUrl(assetUrl) {
@@ -4966,9 +4990,11 @@ function App() {
   const [invoiceOutroTextInput, setInvoiceOutroTextInput] = useState("");
   const [invoiceStoredNoteText, setInvoiceStoredNoteText] = useState("");
   const [invoiceSearchTerm, setInvoiceSearchTerm] = useState("");
+  const [showArchivedInvoices, setShowArchivedInvoices] = useState(false);
   const [invoiceDraftItems, setInvoiceDraftItems] = useState([createEmptyInvoiceDraftItem()]);
   const [invoiceSubmitting, setInvoiceSubmitting] = useState(false);
   const [invoiceStatusSavingId, setInvoiceStatusSavingId] = useState("");
+  const [invoiceDeletingId, setInvoiceDeletingId] = useState("");
   const [expandedInvoices, setExpandedInvoices] = useState({});
   const [orders, setOrders] = useState([]);
   const [orderItems, setOrderItems] = useState([]);
@@ -8066,7 +8092,7 @@ function App() {
       const scopedCompanyId = await resolveCustomerScope();
       const invoicesQuery = supabase
         .from("invoices")
-        .select("id,company_id,customer_id,customer_name,invoice_number,order_number,due_date,status,note,intro_text,outro_text,created_at,created_by")
+        .select("id,company_id,customer_id,customer_name,invoice_number,order_number,due_date,status,note,intro_text,outro_text,archived_at,created_at,created_by")
         .order("created_at", { ascending: false });
       const priceListQuery = supabase
         .from(PRICE_LIST_TABLE)
@@ -10062,7 +10088,7 @@ function App() {
         .from("invoices")
         .update(payloadBase)
         .eq("id", editingInvoiceId)
-        .select("id,company_id,customer_id,customer_name,invoice_number,order_number,due_date,status,note,intro_text,outro_text,created_at,created_by")
+        .select("id,company_id,customer_id,customer_name,invoice_number,order_number,due_date,status,note,intro_text,outro_text,archived_at,created_at,created_by")
         .single();
 
       if (invoiceUpdateError) {
@@ -10162,7 +10188,7 @@ function App() {
           created_by: authUser?.id || null
         }
       ])
-      .select("id,company_id,customer_id,customer_name,invoice_number,order_number,due_date,status,note,intro_text,outro_text,created_at,created_by")
+      .select("id,company_id,customer_id,customer_name,invoice_number,order_number,due_date,status,note,intro_text,outro_text,archived_at,created_at,created_by")
       .single();
 
     if (invoiceInsertError) {
@@ -10208,6 +10234,103 @@ function App() {
     setInvoiceStatusSavingId("");
   };
 
+  const handleInvoiceArchiveToggle = async (invoice) => {
+    const invoiceId = String(invoice?.id || "").trim();
+    if (!invoiceId) {
+      return;
+    }
+
+    const nextArchivedAt = isInvoiceArchived(invoice) ? null : new Date().toISOString();
+    setInvoiceStatusSavingId(invoiceId);
+    setInvoicesError("");
+
+    const { error: updateError } = await supabase.from("invoices").update({ archived_at: nextArchivedAt }).eq("id", invoiceId);
+    if (updateError) {
+      setInvoicesError(updateError.message || "Nepodarilo sa zmeniť stav archívu faktúry.");
+      setInvoiceStatusSavingId("");
+      return;
+    }
+
+    setInvoices((prev) => prev.map((row) => (row.id === invoiceId ? { ...row, archived_at: nextArchivedAt } : row)));
+    setInvoiceStatusSavingId("");
+  };
+
+  const handleDeleteInvoice = async (invoice) => {
+    const invoiceId = String(invoice?.id || "").trim();
+    if (!invoiceId) {
+      return;
+    }
+
+    const invoiceDocument = resolveInvoiceDocumentFields(invoice);
+    if (invoiceDocument.documentKind === "proforma" && (invoiceDocument.linkedInvoiceId || invoiceDocument.linkedInvoiceNumber)) {
+      setInvoicesError("Predfaktúra má naviazanú faktúru. Najprv zmaž alebo odpoj finálnu faktúru.");
+      return;
+    }
+
+    const documentLabel = invoiceDocument.documentKind === "proforma" ? "predfaktúru" : "faktúru";
+    if (!window.confirm(`Naozaj chceš vymazať ${documentLabel} "${invoice.invoice_number}"? Táto akcia je trvalá.`)) {
+      return;
+    }
+
+    setInvoiceDeletingId(invoiceId);
+    setInvoicesError("");
+
+    const sourceProformaId = String(invoiceDocument.sourceProformaId || "").trim();
+    const { error: deleteError } = await supabase.from("invoices").delete().eq("id", invoiceId);
+    if (deleteError) {
+      setInvoicesError(deleteError.message || "Nepodarilo sa vymazať faktúru.");
+      setInvoiceDeletingId("");
+      return;
+    }
+
+    let updatedSourceProformaRow = null;
+    if (sourceProformaId) {
+      const sourceProforma = invoices.find((row) => String(row.id || "") === sourceProformaId);
+      if (sourceProforma) {
+        const sourceProformaDocument = resolveInvoiceDocumentFields(sourceProforma);
+        const { data: sourceRow, error: sourceUpdateError } = await supabase
+          .from("invoices")
+          .update({
+            note: buildInvoiceDocumentNote({
+              ...sourceProformaDocument,
+              linkedInvoiceId: "",
+              linkedInvoiceNumber: ""
+            })
+          })
+          .eq("id", sourceProformaId)
+          .select("id,company_id,customer_id,customer_name,invoice_number,order_number,due_date,status,note,intro_text,outro_text,archived_at,created_at,created_by")
+          .single();
+
+        if (sourceUpdateError) {
+          setInvoicesError("Faktúra sa zmazala, ale nepodarilo sa odpojiť naviazanú predfaktúru.");
+          setInvoiceDeletingId("");
+          await loadInvoicesModuleData();
+          return;
+        }
+
+        updatedSourceProformaRow = sourceRow;
+      }
+    }
+
+    setInvoices((prev) => {
+      const remainingRows = prev.filter((row) => String(row.id || "") !== invoiceId);
+      if (!updatedSourceProformaRow) {
+        return remainingRows;
+      }
+      return remainingRows.map((row) => (row.id === updatedSourceProformaRow.id ? updatedSourceProformaRow : row));
+    });
+    setInvoiceItems((prev) => prev.filter((row) => String(row.invoice_id || "") !== invoiceId));
+    setExpandedInvoices((prev) => {
+      const next = { ...prev };
+      delete next[invoiceId];
+      return next;
+    });
+    if (editingInvoiceId === invoiceId) {
+      resetInvoiceDraft();
+    }
+    setInvoiceDeletingId("");
+  };
+
   const handleConvertProformaToInvoice = async (proforma) => {
     const proformaId = String(proforma?.id || "").trim();
     if (!proformaId) {
@@ -10217,6 +10340,10 @@ function App() {
     const document = resolveInvoiceDocumentFields(proforma);
     if (document.documentKind !== "proforma") {
       setInvoicesError("Konverzia je dostupná len pre predfaktúry.");
+      return;
+    }
+    if (isInvoiceArchived(proforma)) {
+      setInvoicesError("Archivovanú predfaktúru najprv obnov, až potom z nej vytvor finálnu faktúru.");
       return;
     }
     if (document.linkedInvoiceId || document.linkedInvoiceNumber) {
@@ -10266,7 +10393,7 @@ function App() {
           created_by: authUser?.id || null
         }
       ])
-      .select("id,company_id,customer_id,customer_name,invoice_number,order_number,due_date,status,note,intro_text,outro_text,created_at,created_by")
+      .select("id,company_id,customer_id,customer_name,invoice_number,order_number,due_date,status,note,intro_text,outro_text,archived_at,created_at,created_by")
       .single();
 
     if (invoiceInsertError) {
@@ -10307,7 +10434,7 @@ function App() {
       .from("invoices")
       .update({ note: buildInvoiceDocumentNote(updatedProformaMeta) })
       .eq("id", proformaId)
-      .select("id,company_id,customer_id,customer_name,invoice_number,order_number,due_date,status,note,intro_text,outro_text,created_at,created_by")
+      .select("id,company_id,customer_id,customer_name,invoice_number,order_number,due_date,status,note,intro_text,outro_text,archived_at,created_at,created_by")
       .single();
 
     if (proformaUpdateError) {
@@ -12355,12 +12482,18 @@ function App() {
         .some((value) => String(value || "").toLowerCase().includes(normalized))
     );
   }, [quotes, quoteSearchTerm]);
+  const visibleInvoices = useMemo(() => {
+    if (showArchivedInvoices) {
+      return invoices;
+    }
+    return invoices.filter((invoice) => !isInvoiceArchived(invoice));
+  }, [invoices, showArchivedInvoices]);
   const filteredInvoices = useMemo(() => {
     const normalized = String(invoiceSearchTerm || "").trim().toLowerCase();
     if (!normalized) {
-      return invoices;
+      return visibleInvoices;
     }
-    return invoices.filter((invoice) => {
+    return visibleInvoices.filter((invoice) => {
       const invoiceDocument = resolveInvoiceDocumentFields(invoice);
       return [
         invoice.invoice_number,
@@ -12373,10 +12506,12 @@ function App() {
         invoiceDocument.sourceProformaNumber,
         invoiceDocument.linkedInvoiceNumber,
         invoice.status,
+        isInvoiceArchived(invoice) ? "archivovane" : "",
+        formatDate(invoice.archived_at),
         formatDate(invoice.due_date)
       ].some((value) => String(value || "").toLowerCase().includes(normalized));
     });
-  }, [invoices, invoiceSearchTerm]);
+  }, [visibleInvoices, invoiceSearchTerm]);
   const invoiceDashboardStats = useMemo(() => {
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -12411,6 +12546,7 @@ function App() {
           normalizedDueDate < today &&
           invoice.status !== "paid" &&
           invoice.status !== "cancelled" &&
+          !isInvoiceArchived(invoice) &&
           financials.amountDue > 0;
         if (isOverdue) {
           acc.overdueCount += 1;
@@ -14499,6 +14635,15 @@ function App() {
                     <p className="auth-kicker">Právne informácie</p>
                     <h2 id="landing-legal-title">{activeLandingLegalDocument.title}</h2>
                     <p>{activeLandingLegalDocument.intro}</p>
+                    {Array.isArray(activeLandingLegalDocument.meta) && activeLandingLegalDocument.meta.length > 0 && (
+                      <div className="landing-legal-meta" aria-label="Zhrnutie dokumentu">
+                        {activeLandingLegalDocument.meta.map((item) => (
+                          <span key={item} className="landing-legal-meta-pill">
+                            {item}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <button
@@ -20223,7 +20368,9 @@ function App() {
                 <div className="panel-head workflow-section-head">
                   <div>
                     <h2>Zoznam dokladov</h2>
-                    <p className="panel-meta">{`${filteredInvoices.length} / ${invoices.length} faktúr a predfaktúr`}</p>
+                    <p className="panel-meta">
+                      {`${filteredInvoices.length} / ${visibleInvoices.length} faktúr a predfaktúr${showArchivedInvoices ? " vrátane archívu" : ""}`}
+                    </p>
                   </div>
                 </div>
                 <div className="panel-controls">
@@ -20234,6 +20381,13 @@ function App() {
                     value={invoiceSearchTerm}
                     onChange={(event) => setInvoiceSearchTerm(event.target.value)}
                   />
+                  <button
+                    type="button"
+                    className={`clear-btn ${showArchivedInvoices ? "stock-view-btn-active" : ""}`}
+                    onClick={() => setShowArchivedInvoices((current) => !current)}
+                  >
+                    {showArchivedInvoices ? "Skryť archív" : "Zobraziť archív"}
+                  </button>
                 </div>
 
                 {invoicesLoading ? (
@@ -20244,6 +20398,7 @@ function App() {
                   <div className="orders-list">
                     {filteredInvoices.map((invoice) => {
                       const isOpen = Boolean(expandedInvoices[invoice.id]);
+                      const archived = isInvoiceArchived(invoice);
                       const items = invoiceItemsByInvoiceId[invoice.id] || [];
                       const invoiceDocument = resolveInvoiceDocumentFields(invoice);
                       const financials = computeInvoiceFinancials(invoice, items);
@@ -20278,6 +20433,7 @@ function App() {
                               </span>
                               <span className="order-card-badge">{formatDate(invoice.created_at)}</span>
                               <span className="order-card-badge">{`Splatnosť ${formatDate(invoice.due_date)}`}</span>
+                              {archived && <span className="order-card-badge">{`Archív ${formatDate(invoice.archived_at)}`}</span>}
                               {invoiceDocument.orderNumber && <span className="order-card-badge">{`Obj. ${invoiceDocument.orderNumber}`}</span>}
                               {invoiceDocument.sourceProformaNumber && (
                                 <span className="order-card-badge">{`Predf. ${invoiceDocument.sourceProformaNumber}`}</span>
@@ -20297,53 +20453,86 @@ function App() {
                                 <p className="order-card-note">{`Odpočet uhradenej predfaktúry ${invoiceDocument.sourceProformaNumber}: ${formatCurrencyValue(financials.advanceAppliedGross)}`}</p>
                               )}
                               <div className="order-card-actions">
-                                <button type="button" className="clear-btn" onClick={() => handleEditInvoice(invoice)}>
+                                <button
+                                  type="button"
+                                  className="clear-btn"
+                                  onClick={() => handleEditInvoice(invoice)}
+                                  disabled={invoiceDeletingId === invoice.id}
+                                >
                                   Upraviť
                                 </button>
-                                <button type="button" className="clear-btn" onClick={() => handlePrintInvoice(invoice)}>
+                                <button
+                                  type="button"
+                                  className="clear-btn"
+                                  onClick={() => handlePrintInvoice(invoice)}
+                                  disabled={invoiceDeletingId === invoice.id}
+                                >
                                   PDF
                                 </button>
-                                {invoiceDocument.documentKind === "proforma" && !invoiceDocument.linkedInvoiceNumber && (
+                                {invoiceDocument.documentKind === "proforma" && !invoiceDocument.linkedInvoiceNumber && !archived && (
                                   <button
                                     type="button"
                                     className="clear-btn"
                                     onClick={() => handleConvertProformaToInvoice(invoice)}
-                                    disabled={invoiceSubmitting}
+                                    disabled={invoiceSubmitting || invoiceDeletingId === invoice.id}
                                   >
                                     Vytvoriť faktúru
                                   </button>
                                 )}
                                 <StatusPill status={String(invoice.status || "draft")} />
-                                {invoice.status !== "issued" && (
+                                {archived && <StatusPill status="archived" />}
+                                {!archived && invoice.status !== "issued" && (
                                   <button
                                     type="button"
                                     className="clear-btn"
                                     onClick={() => handleInvoiceStatusChange(invoice, "issued")}
-                                    disabled={invoiceStatusSavingId === invoice.id}
+                                    disabled={invoiceStatusSavingId === invoice.id || invoiceDeletingId === invoice.id}
                                   >
                                     Vystavená
                                   </button>
                                 )}
-                                {invoice.status !== "paid" && (
+                                {!archived && invoice.status !== "paid" && (
                                   <button
                                     type="button"
                                     className="clear-btn"
                                     onClick={() => handleInvoiceStatusChange(invoice, "paid")}
-                                    disabled={invoiceStatusSavingId === invoice.id}
+                                    disabled={invoiceStatusSavingId === invoice.id || invoiceDeletingId === invoice.id}
                                   >
                                     Uhradená
                                   </button>
                                 )}
-                                {invoice.status !== "cancelled" && (
+                                {!archived && invoice.status !== "cancelled" && (
                                   <button
                                     type="button"
                                     className="clear-btn"
                                     onClick={() => handleInvoiceStatusChange(invoice, "cancelled")}
-                                    disabled={invoiceStatusSavingId === invoice.id}
+                                    disabled={invoiceStatusSavingId === invoice.id || invoiceDeletingId === invoice.id}
                                   >
                                     Storno
                                   </button>
                                 )}
+                                <button
+                                  type="button"
+                                  className="clear-btn"
+                                  onClick={() => handleInvoiceArchiveToggle(invoice)}
+                                  disabled={invoiceStatusSavingId === invoice.id || invoiceDeletingId === invoice.id}
+                                >
+                                  {invoiceStatusSavingId === invoice.id
+                                    ? archived
+                                      ? "Obnovujem..."
+                                      : "Archivujem..."
+                                    : archived
+                                      ? "Obnoviť"
+                                      : "Archivovať"}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="clear-btn"
+                                  onClick={() => handleDeleteInvoice(invoice)}
+                                  disabled={invoiceDeletingId === invoice.id || invoiceStatusSavingId === invoice.id}
+                                >
+                                  {invoiceDeletingId === invoice.id ? "Mažem..." : "Zmazať"}
+                                </button>
                               </div>
                               <div className="table-wrap">
                                 <table>

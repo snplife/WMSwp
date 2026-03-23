@@ -2,7 +2,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { useRef } from "react";
 import { CurrencyCode, encode as encodePayBySquare, PaymentOptions } from "bysquare/pay";
-import { ArrowRight, Boxes, Building2, ClipboardList, Clock3, Factory, FileText, LogIn, MonitorSmartphone, ReceiptText, Settings2, ShieldCheck, Users, X } from "lucide-react";
+import { Activity, ArrowDownLeft, ArrowRight, ArrowRightLeft, ArrowUpRight, BarChart3, Boxes, Building2, CheckCircle2, ClipboardList, Clock3, Factory, FileText, History, LogIn, MapPin, MonitorSmartphone, Package, ReceiptText, RotateCcw, Settings2, ShieldCheck, Users, X } from "lucide-react";
 import * as XLSX from "xlsx";
 import { installHotjar, uninstallHotjar } from "./hotjar";
 import StatusPill from "./components/StatusPill";
@@ -814,6 +814,137 @@ function getModuleIcon(iconKey) {
     default:
       return MonitorSmartphone;
   }
+}
+
+function buildDailyOverviewCards({
+  dailyOverviewStats,
+  rowsCount,
+  lastTimestamp,
+  canAccessMesModule,
+  productionOrderInsights,
+  occupancyPercent,
+  occupancyLevel,
+  occupancyLabel,
+  occupiedPositions,
+  effectiveMaxPositions
+}) {
+  if (!dailyOverviewStats) {
+    return [];
+  }
+
+  const formatInteger = (value) => new Intl.NumberFormat("sk-SK").format(Number(value || 0));
+  const formatPercent = (value) => `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(Number(value || 0))} %`;
+
+  const cards = [
+    {
+      key: "moves",
+      label: "Dnešné pohyby",
+      value: formatInteger(rowsCount),
+      meta: "Všetky skladové pohyby zaznamenané dnes.",
+      icon: Activity,
+      tone: "teal"
+    },
+    {
+      key: "receive",
+      label: "Príjmy dnes",
+      value: formatInteger(dailyOverviewStats.receive),
+      meta: "Prijaté kusy a materiál na sklad.",
+      icon: ArrowDownLeft,
+      tone: "emerald"
+    },
+    {
+      key: "issue",
+      label: "Výdaje dnes",
+      value: formatInteger(dailyOverviewStats.issue),
+      meta: "Vyskladnené položky a interné odbery.",
+      icon: ArrowUpRight,
+      tone: "rose"
+    },
+    {
+      key: "move",
+      label: "Presuny dnes",
+      value: formatInteger(dailyOverviewStats.move),
+      meta: "Presuny medzi pozíciami a zónami.",
+      icon: ArrowRightLeft,
+      tone: "sky"
+    },
+    {
+      key: "positions",
+      label: "Aktívne pozície",
+      value: formatInteger(dailyOverviewStats.activePositions),
+      meta: "Lokácie, na ktorých dnes prebehla operácia.",
+      icon: MapPin,
+      tone: "indigo"
+    },
+    {
+      key: "materials",
+      label: "Materiály dnes",
+      value: formatInteger(dailyOverviewStats.uniqueMaterials),
+      meta: "Unikátne materiály, ktoré sa dnes pohli.",
+      icon: Package,
+      tone: "amber"
+    },
+    {
+      key: "busiest-hour",
+      label: "Najsilnejšia hodina",
+      value: dailyOverviewStats.busiestHourLabel,
+      meta: `${formatInteger(dailyOverviewStats.busiestHourCount)} pohybov`,
+      icon: BarChart3,
+      tone: "violet"
+    },
+    {
+      key: "last-operation",
+      label: "Posledná operácia",
+      value: lastTimestamp,
+      meta: "Čas posledného potvrdeného pohybu.",
+      icon: History,
+      tone: "slate",
+      smallValue: true
+    },
+    {
+      key: "occupancy",
+      label: "Zaplnenie skladu",
+      value: formatPercent(occupancyPercent),
+      meta: `Obsadené: ${formatInteger(occupiedPositions)} / ${formatInteger(effectiveMaxPositions)}`,
+      badge: `Stav: ${occupancyLabel}`,
+      icon: Boxes,
+      tone: occupancyLevel === "ok" ? "emerald" : occupancyLevel === "warn" ? "amber" : "rose",
+      articleClassName: `occupancy-${occupancyLevel}`,
+      valueClassName: `occupancy-value occupancy-value-${occupancyLevel}`,
+      badgeClassName: `occupancy-badge occupancy-badge-${occupancyLevel}`
+    }
+  ];
+
+  if (canAccessMesModule) {
+    cards.push(
+      {
+        key: "production-open",
+        label: "Vo výrobe",
+        value: formatInteger(productionOrderInsights.openCount),
+        meta: "Aktívne výrobné objednávky bez uzatvorenia.",
+        icon: Factory,
+        tone: "sky"
+      },
+      {
+        key: "production-completed",
+        label: "Dnes dokončené výroby",
+        value: formatInteger(productionOrderInsights.todayCompletedCount),
+        meta: "Výrobné objednávky uzatvorené dnes.",
+        icon: CheckCircle2,
+        tone: "emerald"
+      },
+      {
+        key: "production-returned",
+        label: "Dnes vrátené do skladu",
+        value: `${formatInteger(productionOrderInsights.todayReturnedQuantity)} ks`,
+        meta: "Hotové kusy zaúčtované späť na sklad.",
+        icon: RotateCcw,
+        tone: "amber"
+      }
+    );
+  }
+
+  return cards;
 }
 
 function HrModuleNavigation({ items, activeTable, onSelect }) {
@@ -2025,58 +2156,58 @@ function printOrderPdf(order, customer, items, companyName) {
 }
 
 function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {}) {
-  const generatedAt = new Date().toLocaleDateString("sk-SK");
   const normalizedCompany =
     companyProfile && typeof companyProfile === "object" ? companyProfile : { name: String(companyProfile || "").trim() };
+  const invoiceStyle = normalizeInvoiceStyle(normalizedCompany?.invoice_style);
+  const invoiceTheme = getInvoicePrintTheme(invoiceStyle);
   const companyName = String(normalizedCompany?.name || "-");
   const customerName = String(quote?.customer_name || customer?.name || "-");
+  const quoteNumber = String(quote?.quote_number || "-");
   const quoteNote = String(quote?.note || "").trim();
   const preItemsSectionsHtml = String(options?.preItemsSectionsHtml || "");
   const afterSummarySectionsHtml = String(options?.afterSummarySectionsHtml || options?.extraSectionsHtml || "");
-  const supplierFields = [
-    { label: "Dodávateľ", value: companyName, fullWidth: true },
-    { label: "Adresa", value: formatDocumentAddress(normalizedCompany?.address) || "-", fullWidth: true },
-    { label: "IČO", value: String(normalizedCompany?.ico || "").trim() || "-" },
-    { label: "DIČ", value: String(normalizedCompany?.dic || "").trim() || "-" },
-    { label: "IČ DPH", value: String(normalizedCompany?.ic_dph || "").trim() || "-" },
-    { label: "IBAN", value: formatIbanInput(normalizedCompany?.bank_account) || "-", fullWidth: true, valueClassName: "value value--mono" }
+  const quoteCreatedAtLabel = quote?.created_at ? formatDocumentDate(quote.created_at) : formatDocumentDate(new Date().toISOString());
+  const dueDateLabel = quote?.due_date ? formatDocumentDate(quote.due_date) : "-";
+  const customerContact = [String(customer?.phone || "").trim(), String(customer?.email || "").trim()].filter(Boolean).join(" | ") || "-";
+  const supplierIdentityLine = [
+    `IČO: ${String(normalizedCompany?.ico || "").trim() || "-"}`,
+    `DIČ: ${String(normalizedCompany?.dic || "").trim() || "-"}`,
+    `IČ DPH: ${String(normalizedCompany?.ic_dph || "").trim() || "-"}`
+  ].join("   ");
+  const customerIdentityLine = [
+    `IČO: ${String(customer?.ico || "").trim() || "-"}`,
+    `DIČ: ${String(customer?.dic || "").trim() || "-"}`,
+    `IČ DPH: ${String(customer?.ic_dph || "").trim() || "-"}`
+  ].join("   ");
+  const supplierDetailFields = [
+    { value: companyName, omitLabel: true, valueClassName: "detail-value detail-value--lead" },
+    { value: formatDocumentAddress(normalizedCompany?.address) || "-", omitLabel: true, valueClassName: "detail-value detail-value--muted" },
+    { value: supplierIdentityLine, omitLabel: true, valueClassName: "detail-value detail-value--inline-meta" },
+    { label: "IBAN", value: formatIbanInput(normalizedCompany?.bank_account) || "-", valueClassName: "detail-value detail-value--mono" }
   ];
-  const customerFields = [
-    { label: "Odberateľ", value: customerName, fullWidth: true },
-    { label: "Adresa", value: formatDocumentAddress(customer?.address) || "-", fullWidth: true },
-    { label: "IČO", value: String(customer?.ico || "").trim() || "-" },
-    { label: "DIČ", value: String(customer?.dic || "").trim() || "-" },
-    { label: "IČ DPH", value: String(customer?.ic_dph || "").trim() || "-" },
-    {
-      label: "Telefón / Email",
-      value: [String(customer?.phone || "").trim(), String(customer?.email || "").trim()].filter(Boolean).join(" | ") || "-",
-      fullWidth: true
-    }
+  const customerDetailFields = [
+    { value: customerName, omitLabel: true, valueClassName: "detail-value detail-value--lead" },
+    { value: formatDocumentAddress(customer?.address) || "-", omitLabel: true, valueClassName: "detail-value detail-value--muted" },
+    { value: customerIdentityLine, omitLabel: true, valueClassName: "detail-value detail-value--inline-meta" },
+    { label: "Kontakt", value: customerContact }
   ];
-  const buildPartyFieldsHtml = (fields) =>
+  const buildQuoteDetailFieldsHtml = (fields) =>
     fields
       .map(
         (field) => `
-          <div class="${field.fullWidth ? "party-field--full" : ""}">
-            <span class="section-label">${escapeHtml(field.label)}</span>
-            <div class="${escapeHtml(field.valueClassName || "value")}">${escapeHtml(field.value)}</div>
+          <div class="party-row${field.omitLabel ? " party-row--plain" : ""}">
+            ${field.omitLabel ? "" : `<dt class="detail-label">${escapeHtml(field.label)}</dt>`}
+            <dd class="${escapeHtml(field.valueClassName || "detail-value")}">${escapeHtml(field.value)}</dd>
           </div>
         `
       )
       .join("");
   const noteHtml = quoteNote
     ? `
-        <section class="note">
-          <h2 class="section-title">Poznámka k ponuke</h2>
-          <div>${escapeHtml(quoteNote)}</div>
+        <section class="note-section">
+          <h3>Poznámka k ponuke</h3>
+          <p>${escapeHtml(quoteNote)}</p>
         </section>
-      `
-    : "";
-  const dueDateLabel = quote?.due_date ? formatDocumentDate(quote.due_date) : "";
-  const dueDateMetaHtml = dueDateLabel
-    ? `
-            <span class="hero-meta-label">Splatnosť</span>
-            <div class="hero-meta-value">${escapeHtml(dueDateLabel)}</div>
       `
     : "";
   const rowsHtml = (items || [])
@@ -2088,19 +2219,22 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
         discountPercent: item.discount_percent,
         vatPercent: item.vat_percent
       });
+      const detailBits = [
+        Number(item.discount_percent || 0) > 0 ? `Zľava ${formatPercentValue(item.discount_percent || 0, 2)}` : "",
+        String(item.line_note || "").trim() ? String(item.line_note || "").trim() : ""
+      ].filter(Boolean);
       return `
         <tr>
-          <td>${index + 1}</td>
-          <td>${escapeHtml(String(item.material_code || "-"))}</td>
+          <td class="cell-index">${index + 1}</td>
+          <td>
+            <div class="item-title">${escapeHtml(String(item.material_code || "-"))}</div>
+            <div class="item-meta">${escapeHtml(detailBits.join(" | ") || "Bez doplňujúcich údajov")}</div>
+          </td>
           <td class="cell-right cell-qty">${escapeHtml(formatCell(item.quantity, "number"))}</td>
           <td class="cell-unit">${escapeHtml(String(item.unit || "ks"))}</td>
-          <td>${escapeHtml(formatCurrencyValue(item.unit_price || 0))}</td>
-          <td>${escapeHtml(formatPercentValue(item.discount_percent || 0, 2))}</td>
-          <td>${escapeHtml(formatPercentValue(item.vat_percent || 0, 2))}</td>
-          <td>${escapeHtml(formatCurrencyValue(item.final_unit_price || 0))}</td>
-          <td>${escapeHtml(formatCurrencyValue(computed.lineTotal))}</td>
-          <td>${escapeHtml(formatCurrencyValue(computed.lineTotalWithVat))}</td>
-          <td>${escapeHtml(String(item.line_note || "-"))}</td>
+          <td class="cell-right">${escapeHtml(formatCurrencyValue(item.final_unit_price || 0))}</td>
+          <td class="cell-right">${escapeHtml(formatPercentValue(item.vat_percent || 0, 2))}</td>
+          <td class="cell-right strong">${escapeHtml(formatCurrencyValue(computed.lineTotalWithVat))}</td>
         </tr>
       `;
     })
@@ -2111,201 +2245,334 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
   <html lang="sk">
     <head>
       <meta charset="UTF-8" />
-      <title>${escapeHtml(String(quote?.quote_number || "Cenova-ponuka"))}</title>
+      <title>${escapeHtml(quoteNumber || "Cenová ponuka")}</title>
       <style>
-        @import url("https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap");
-        @page { size: A4 portrait; margin: 0mm 6mm 6mm; }
+        @page { size: A4 portrait; margin: 10mm 10mm 12mm; }
+        :root {
+          --invoice-font: ${invoiceTheme.bodyFontFamily};
+          --invoice-heading-font: ${invoiceTheme.headingFontFamily};
+          --invoice-accent: ${invoiceTheme.accent};
+          --invoice-text: ${invoiceTheme.textColor};
+          --invoice-muted: ${invoiceTheme.mutedColor};
+          --invoice-label: ${invoiceTheme.labelColor};
+          --invoice-border: ${invoiceTheme.borderColor};
+          --invoice-border-strong: ${invoiceTheme.strongBorderColor};
+          --invoice-panel-bg: ${invoiceTheme.panelBackground};
+          --invoice-table-head-bg: ${invoiceTheme.tableHeadBackground};
+          --invoice-radius: ${invoiceTheme.radius};
+        }
         * { box-sizing: border-box; }
         body {
           margin: 0;
-          font-family: "Roboto", "Segoe UI", Arial, sans-serif;
-          color: #182431;
+          font-family: var(--invoice-font);
+          color: var(--invoice-text);
           background: #ffffff;
+          -webkit-font-smoothing: antialiased;
         }
         .page {
           display: grid;
-          gap: 3.8mm;
-          padding: 1.8mm 0 0;
-          background: #ffffff;
-          margin: 0;
+          gap: 3.4mm;
+          padding: 0;
         }
         .hero {
-          position: relative;
           display: grid;
-          grid-template-columns: minmax(0, 1fr) auto;
-          gap: 0.4mm;
-          align-items: end;
-          padding: 2.4mm 2.4mm 2.4mm 4mm;
-          border: 0.35mm solid #dbe5ef;
-          border-radius: 3mm;
-          background: #ffffff;
-          overflow: hidden;
+          grid-template-columns: minmax(0, 1fr) 46mm;
+          gap: 6mm;
+          align-items: start;
+          padding-top: 1.5mm;
+          border-top: 0.9mm solid var(--invoice-accent);
         }
-        .hero::before {
-          content: "";
-          position: absolute;
-          inset: 0 auto 0 0;
-          width: 1.3mm;
-          background: linear-gradient(180deg, #0f8a7f, #0f5f8f);
+        .hero h1 {
+          margin: 0;
+          font-size: 16.8pt;
+          line-height: 1;
+          font-weight: 700;
+          letter-spacing: -0.04em;
+          font-family: var(--invoice-heading-font);
+          color: var(--invoice-text);
         }
-        .hero-copy { display: grid; gap: 0.3mm; min-height: 0; }
-        .eyebrow { font-size: 5pt; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #7b8b98; line-height: 1; }
-        h1 { margin: 0; font-size: 10.8pt; line-height: 0.98; color: #182431; }
-        .hero-subtitle { font-size: 5.4pt; line-height: 1; color: #6b7b88; }
-        .hero-meta { display: grid; gap: 0.1mm; justify-items: end; text-align: right; align-content: end; }
-        .hero-meta-label { font-size: 5pt; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #7b8b98; line-height: 1; }
-        .hero-meta-value { font-size: 6.6pt; font-weight: 700; line-height: 1; color: #182431; }
-        .hero-meta-date { font-size: 5.2pt; line-height: 1; color: #6b7b88; }
-        .section-label { display: block; margin-bottom: 0.8mm; font-size: 6.6pt; color: #5a6c7c; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; }
-        .value { font-size: 9.4pt; font-weight: 700; }
-        .customer, .summary, .note, .items {
-          position: relative;
-          border: 0.35mm solid #dbe5ef;
-          border-radius: 3mm;
-          background: #ffffff;
-          overflow: hidden;
-        }
-        .customer::before, .summary::before, .note::before, .items::before {
-          content: "";
-          position: absolute;
-          inset: 0 auto 0 0;
-          width: 1.3mm;
-          background: linear-gradient(180deg, #0f8a7f, #0f5f8f);
-        }
-        .summary-card { padding: 2.4mm; }
-        .customer, .note, .items, .summary { padding: 2.7mm 2.6mm 2.7mm 4mm; }
-        .customer-head, .items-head, .summary-head { display: flex; justify-content: space-between; gap: 3mm; align-items: end; margin-bottom: 1.7mm; }
-        .section-title { margin: 0; font-size: 9.6pt; color: #182431; }
-        .section-subtitle { margin: 0.9mm 0 0; font-size: 8.2pt; color: #607180; }
-        .party-grid, .customer-grid, .summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2mm 4mm; }
-        .summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.6mm 2.2mm; }
-        .party-card {
-          border: 0.3mm solid #e4ebf3;
-          border-radius: 3mm;
-          background: linear-gradient(180deg, #ffffff, #f7fbff);
-          padding: 2.4mm;
+        .hero-right {
           display: grid;
-          gap: 1.6mm;
-          box-shadow: inset 0 0 0 0.2mm rgba(255,255,255,0.7);
+          gap: 2.6mm;
+          align-content: start;
         }
-        .party-card .section-title { font-size: 8.8pt; }
-        .party-fields {
+        .header-meta {
+          display: grid;
+          gap: 1.2mm;
+        }
+        .header-meta-row {
+          display: flex;
+          justify-content: space-between;
+          gap: 3mm;
+          padding-top: 1.2mm;
+          border-top: 0.3mm solid var(--invoice-border);
+        }
+        .header-meta-row span {
+          font-size: 7.8pt;
+          text-transform: uppercase;
+          letter-spacing: 0.1em;
+          color: var(--invoice-label);
+          font-weight: 700;
+          line-height: 1.1;
+        }
+        .header-meta-row strong {
+          font-size: 8.4pt;
+          line-height: 1.2;
+          color: var(--invoice-text);
+          font-weight: 600;
+        }
+        .parties {
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 1.6mm 3mm;
+          gap: 6mm;
+          padding-top: 2.3mm;
+          border-top: 0.35mm solid var(--invoice-border);
         }
-        .party-field--full { grid-column: 1 / -1; }
-        .party-card .section-label { margin-bottom: 0.5mm; font-size: 6.2pt; }
-        .party-card .value { font-size: 7.8pt; line-height: 1.3; }
-        .party-card .value--mono {
-          font-family: "Roboto Mono", "Consolas", "Courier New", monospace;
-          font-size: 7.2pt;
-          word-break: break-word;
+        .party h2,
+        .items-section h2,
+        .totals-section h2,
+        .note-section h3 {
+          margin: 0;
+          font-size: 9pt;
+          line-height: 1;
+          letter-spacing: -0.01em;
+          font-weight: 700;
+          color: var(--invoice-text);
+          font-family: var(--invoice-heading-font);
         }
-        .summary-card {
-          border: 0.3mm solid #e4ebf3;
-          border-radius: 3mm;
-          background: linear-gradient(180deg, #ffffff, #f7fbff);
-          box-shadow: inset 0 0 0 0.2mm rgba(255,255,255,0.7);
+        .party-list {
+          display: grid;
+          gap: 1.1mm;
+          margin: 2.1mm 0 0;
         }
-        .summary-card .section-label { margin-bottom: 0.45mm; font-size: 6pt; }
-        .summary-card .value { font-size: 8.2pt; line-height: 1.2; }
-        .summary--compact { padding-top: 2.6mm; padding-bottom: 2.6mm; }
-        .summary--compact .summary-head { margin-bottom: 1.2mm; }
-        .summary--compact .section-title { font-size: 9.4pt; }
-        .summary--compact .section-subtitle { margin-top: 0.3mm; font-size: 7.2pt; }
-        .summary-grid--compact { gap: 1.4mm 2mm; }
-        .summary-card--tight { padding: 2.1mm 2.4mm; }
-        .summary-card--tight .section-label { margin-bottom: 0.45mm; font-size: 6.2pt; }
-        .summary-card--tight .value { font-size: 8pt; line-height: 1.2; }
-        .note .section-title { margin-bottom: 1.1mm; font-size: 8.3pt; }
-        .note div { font-size: 7.8pt; line-height: 1.35; color: #31404d; }
-        table { width: 100%; border-collapse: collapse; font-size: 8.1pt; }
-        thead th { padding: 2.1mm 2.2mm; text-align: left; color: #33506b; background: #eef5fb; border-bottom: 0.35mm solid #d6e1ec; }
-        tbody td { padding: 2.1mm 2.2mm; vertical-align: top; border-bottom: 0.25mm solid #e6edf5; }
-        tbody tr:nth-child(even) td { background: #fbfdff; }
-        .cell-qty, .cell-unit { white-space: nowrap; }
-        .muted { font-size: 7.1pt; color: #6c7a88; }
-        .foot { font-size: 7pt; color: #6c7a88; text-align: right; }
+        .detail-label {
+          margin: 0;
+          font-size: 7.8pt;
+          text-transform: uppercase;
+          letter-spacing: 0.1em;
+          color: var(--invoice-label);
+          font-weight: 700;
+          line-height: 1.1;
+        }
+        .detail-value {
+          margin: 0;
+          font-size: 8.8pt;
+          line-height: 1.3;
+          font-weight: 700;
+          color: var(--invoice-text);
+        }
+        .detail-value--lead {
+          font-size: 9.6pt;
+          line-height: 1.2;
+        }
+        .detail-value--muted {
+          font-size: 9pt;
+          line-height: 1.35;
+          font-weight: 600;
+          color: var(--invoice-muted);
+        }
+        .detail-value--inline-meta {
+          font-size: 8.5pt;
+          line-height: 1.3;
+          font-weight: 600;
+          white-space: pre-wrap;
+        }
+        .detail-value--mono {
+          font-family: "Consolas", "Courier New", monospace;
+          font-size: 8.1pt;
+        }
+        .party-row {
+          display: grid;
+          grid-template-columns: 15mm 1fr;
+          gap: 1.5mm;
+          align-items: start;
+        }
+        .party-row--plain {
+          grid-template-columns: 1fr;
+          gap: 0;
+        }
+        .items-section {
+          padding-top: 2.3mm;
+          border-top: 0.35mm solid var(--invoice-border);
+        }
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          table-layout: fixed;
+        }
+        thead th {
+          padding: 1.5mm 1.6mm;
+          border-bottom: 0.35mm solid var(--invoice-border);
+          text-align: left;
+          font-size: 9.4pt;
+          text-transform: uppercase;
+          letter-spacing: 0.1em;
+          color: var(--invoice-label);
+          font-weight: 700;
+          line-height: 1.1;
+          background: var(--invoice-table-head-bg);
+        }
+        tbody td {
+          padding: 2mm 1.7mm;
+          border-bottom: 0.3mm solid var(--invoice-border);
+          vertical-align: top;
+          font-size: 9pt;
+          color: var(--invoice-text);
+        }
+        tbody tr:last-child td {
+          border-bottom: none;
+          padding-bottom: 0;
+        }
+        .cell-index {
+          width: 5mm;
+          color: #000000;
+        }
+        .cell-right {
+          text-align: right;
+        }
+        .cell-qty-head {
+          padding-right: 5mm;
+        }
+        .cell-unit-head {
+          padding-left: 5mm;
+        }
+        .cell-price-head {
+          white-space: nowrap;
+        }
+        .cell-qty {
+          white-space: nowrap;
+          padding-right: 5mm;
+        }
+        .cell-unit {
+          white-space: nowrap;
+          padding-left: 5mm;
+        }
+        .item-title {
+          font-size: 9.6pt;
+          font-weight: 600;
+          line-height: 1.25;
+        }
+        .item-meta {
+          margin-top: 0.7mm;
+          font-size: 8pt;
+          color: var(--invoice-muted);
+          line-height: 1.25;
+        }
+        .strong {
+          font-weight: 700;
+        }
+        .totals-section {
+          display: grid;
+          justify-items: end;
+          padding-top: 2.3mm;
+          border-top: 0.35mm solid var(--invoice-border);
+        }
+        .totals-box {
+          width: 60mm;
+          display: grid;
+          gap: 0;
+        }
+        .total-row {
+          display: flex;
+          justify-content: space-between;
+          gap: 4mm;
+          padding: 1mm 0;
+          border-bottom: 0.3mm solid var(--invoice-border);
+          font-size: 8pt;
+          color: var(--invoice-muted);
+        }
+        .total-row strong {
+          color: var(--invoice-text);
+          font-weight: 700;
+          font-size: 8.4pt;
+        }
+        .total-row--grand {
+          margin-top: 0.8mm;
+          padding-top: 1.7mm;
+          border-top: 0.45mm solid var(--invoice-border-strong);
+          border-bottom: none;
+          font-size: 9.8pt;
+          color: var(--invoice-text);
+          font-weight: 700;
+        }
+        .total-row--grand strong {
+          font-size: 10.2pt;
+        }
+        .note-section {
+          padding-top: 2.3mm;
+          border-top: 0.35mm solid var(--invoice-border);
+        }
+        .note-section p {
+          margin: 1.2mm 0 0;
+          font-size: 8.1pt;
+          line-height: 1.45;
+          color: var(--invoice-muted);
+        }
+        .foot {
+          font-size: 5.8pt;
+          color: var(--invoice-muted);
+          text-align: left;
+          padding-top: 1mm;
+        }
       </style>
     </head>
     <body>
       <section class="page">
         <header class="hero">
-          <div class="hero-copy">
-            <span class="eyebrow">Obchodná ponuka</span>
-            <h1>${escapeHtml(`Cenová ponuka č. ${String(quote?.quote_number || "-")}`)}</h1>
-            <div class="hero-subtitle">${escapeHtml(String(companyName || "-"))}</div>
+          <div>
+            <h1>${escapeHtml(`Cenová ponuka č. ${quoteNumber}`)}</h1>
           </div>
-          <div class="hero-meta">
-            <span class="hero-meta-label">Číslo ponuky</span>
-            <div class="hero-meta-value">${escapeHtml(String(quote?.quote_number || "-"))}</div>
-            ${dueDateMetaHtml}
-            <div class="hero-meta-date">${escapeHtml(`Vygenerované: ${generatedAt}`)}</div>
+          <div class="hero-right">
+            <div class="header-meta">
+              <div class="header-meta-row"><span>Platnosť do</span><strong>${escapeHtml(dueDateLabel)}</strong></div>
+              <div class="header-meta-row"><span>Vystavené</span><strong>${escapeHtml(quoteCreatedAtLabel)}</strong></div>
+            </div>
           </div>
         </header>
-        <section class="customer">
-          <div class="customer-head">
-            <div>
-              <h2 class="section-title">Zmluvné strany</h2>
-            </div>
-          </div>
-          <div class="party-grid">
-            <article class="party-card">
-              <div>
-                <h3 class="section-title">Dodávateľ</h3>
-              </div>
-              <div class="party-fields">${buildPartyFieldsHtml(supplierFields)}</div>
-            </article>
-            <article class="party-card">
-              <div>
-                <h3 class="section-title">Odberateľ</h3>
-              </div>
-              <div class="party-fields">${buildPartyFieldsHtml(customerFields)}</div>
-            </article>
-          </div>
+
+        <section class="parties">
+          <article class="party">
+            <h2>Dodávateľ</h2>
+            <dl class="party-list">${buildQuoteDetailFieldsHtml(supplierDetailFields)}</dl>
+          </article>
+          <article class="party">
+            <h2>Odberateľ</h2>
+            <dl class="party-list">${buildQuoteDetailFieldsHtml(customerDetailFields)}</dl>
+          </article>
         </section>
+
         ${preItemsSectionsHtml}
-        <section class="items">
-          <div class="items-head">
-            <div>
-              <h2 class="section-title">Položky ponuky</h2>
-            </div>
-          </div>
+
+        <section class="items-section">
+          <h2>Položky cenovej ponuky</h2>
           <table>
             <thead>
               <tr>
-                <th>#</th>
+                <th style="width:8mm;">#</th>
                 <th>Názov</th>
-                <th style="width:18mm;text-align:right;">Množstvo</th>
-                <th style="width:12mm;">MJ</th>
-                <th style="width:24mm;">Cena / MJ</th>
-                <th style="width:16mm;">Zľava</th>
-                <th style="width:14mm;">DPH</th>
-                <th style="width:24mm;">Po zľave / MJ</th>
-                <th style="width:24mm;">Spolu bez DPH</th>
-                <th style="width:24mm;">Spolu s DPH</th>
-                <th>Poznámka</th>
+                <th class="cell-qty-head" style="width:19mm;text-align:right;">Množstvo</th>
+                <th class="cell-unit-head" style="width:12mm;">MJ</th>
+                <th class="cell-price-head" style="width:38mm;text-align:right;">Cena bez DPH</th>
+                <th style="width:15mm;text-align:right;">DPH</th>
+                <th style="width:25mm;text-align:right;">Spolu</th>
               </tr>
             </thead>
-            <tbody>${rowsHtml || '<tr><td colspan="11">Ponuka nemá položky.</td></tr>'}</tbody>
+            <tbody>${rowsHtml || '<tr><td colspan="7">Cenová ponuka nemá položky.</td></tr>'}</tbody>
           </table>
         </section>
-        <section class="summary">
-          <div class="summary-head">
-            <div>
-              <h2 class="section-title">Finálne sumy</h2>
-            </div>
-          </div>
-          <div class="summary-grid">
-            <article class="summary-card"><span class="section-label">Bez DPH</span><div class="value">${escapeHtml(formatCurrencyValue(totals.total))}</div></article>
-            <article class="summary-card"><span class="section-label">DPH</span><div class="value">${escapeHtml(formatCurrencyValue(totals.vat))}</div></article>
-            <article class="summary-card"><span class="section-label">S DPH</span><div class="value">${escapeHtml(formatCurrencyValue(totals.totalWithVat))}</div></article>
+
+        <section class="totals-section">
+          <h2>Rekapitulácia</h2>
+          <div class="totals-box">
+            <div class="total-row"><span>Bez DPH</span><strong>${escapeHtml(formatCurrencyValue(totals.total))}</strong></div>
+            <div class="total-row"><span>DPH</span><strong>${escapeHtml(formatCurrencyValue(totals.vat))}</strong></div>
+            <div class="total-row total-row--grand"><span>Spolu s DPH</span><strong>${escapeHtml(formatCurrencyValue(totals.totalWithVat))}</strong></div>
           </div>
         </section>
+
         ${noteHtml}
         ${afterSummarySectionsHtml}
-        <div class="foot">Cenová ponuka č. ${escapeHtml(String(quote?.quote_number || "-"))}</div>
+        <div class="foot">Cenová ponuka č. ${escapeHtml(quoteNumber)}</div>
       </section>
     </body>
   </html>`;
@@ -3792,6 +4059,24 @@ function formatInviteStatusLabel(status) {
     return "Expirovaná";
   }
   return status || "-";
+}
+
+function isMissingRelationError(error, relationName) {
+  const code = String(error?.code || "").trim().toUpperCase();
+  const message = String(error?.message || "").trim().toLowerCase();
+  const relation = String(relationName || "").trim().toLowerCase();
+  return (
+    code === "42P01" ||
+    message.includes(`relation "${relation}" does not exist`) ||
+    message.includes(`table "${relation}" does not exist`) ||
+    (message.includes("does not exist") && message.includes(relation))
+  );
+}
+
+function isPermissionDeniedError(error) {
+  const code = String(error?.code || "").trim().toUpperCase();
+  const message = String(error?.message || "").trim().toLowerCase();
+  return code === "42501" || message.includes("permission denied") || message.includes("insufficient privilege");
 }
 
 function formatDocumentDate(value) {
@@ -5577,7 +5862,11 @@ function App() {
       const { error: deleteError } = await supabase.from(COMPANY_WAREHOUSES_TABLE).delete().in("id", warehousesToDelete);
       if (deleteError) {
         setCompanyWarehousesSubmitting(false);
-        setCompanyWarehousesError(deleteError.message || "Nepodarilo sa odstrániť zmazané sklady.");
+        if (isPermissionDeniedError(deleteError)) {
+          setCompanyWarehousesError("Tabuľka skladov v DB existuje, ale aktuálnemu userovi chýbajú práva na mazanie. Doplň GRANT pre authenticated alebo skontroluj RLS policies pre company_warehouses.");
+        } else {
+          setCompanyWarehousesError(deleteError.message || "Nepodarilo sa odstrániť zmazané sklady.");
+        }
         return;
       }
     }
@@ -5600,7 +5889,13 @@ function App() {
 
     if (saveError) {
       setCompanyWarehousesSubmitting(false);
-      setCompanyWarehousesError(saveError.message || "Nepodarilo sa uložiť sklady.");
+      if (isMissingRelationError(saveError, COMPANY_WAREHOUSES_TABLE)) {
+        setCompanyWarehousesError("DB ešte nemá tabuľku skladov. Spusti SQL bundle pre sklady a potom stránku obnov.");
+      } else if (isPermissionDeniedError(saveError)) {
+        setCompanyWarehousesError("Tabuľka skladov v DB existuje, ale aktuálnemu userovi chýbajú práva na zápis. Doplň GRANT pre authenticated alebo skontroluj RLS policies pre company_warehouses.");
+      } else {
+        setCompanyWarehousesError(saveError.message || "Nepodarilo sa uložiť sklady.");
+      }
       return;
     }
 
@@ -7166,8 +7461,10 @@ function App() {
       setCompanyWarehouseRows([]);
       setCompanyWarehouseDrafts(normalizeCompanyWarehouses([]));
       setCompanyWarehousesLoading(false);
-      if (String(error.message || "").toLowerCase().includes("company_warehouses")) {
+      if (isMissingRelationError(error, COMPANY_WAREHOUSES_TABLE)) {
         setCompanyWarehousesError("DB ešte nemá tabuľku skladov. Spusti SQL bundle pre sklady a potom stránku obnov.");
+      } else if (isPermissionDeniedError(error)) {
+        setCompanyWarehousesError("Tabuľka skladov v DB existuje, ale aktuálnemu userovi chýbajú práva na čítanie. Doplň GRANT pre authenticated alebo skontroluj RLS policies pre company_warehouses.");
       } else {
         setCompanyWarehousesError(error.message || "Nepodarilo sa načítať firemné sklady.");
       }
@@ -11910,6 +12207,33 @@ function App() {
       recentRows
     };
   }, [rows, selectedTable]);
+  const dailyOverviewCards = useMemo(
+    () =>
+      buildDailyOverviewCards({
+        dailyOverviewStats,
+        rowsCount: rows.length,
+        lastTimestamp,
+        canAccessMesModule,
+        productionOrderInsights,
+        occupancyPercent,
+        occupancyLevel,
+        occupancyLabel,
+        occupiedPositions,
+        effectiveMaxPositions
+      }),
+    [
+      dailyOverviewStats,
+      rows.length,
+      lastTimestamp,
+      canAccessMesModule,
+      productionOrderInsights,
+      occupancyPercent,
+      occupancyLevel,
+      occupancyLabel,
+      occupiedPositions,
+      effectiveMaxPositions
+    ]
+  );
   const currentCompanyLabel = useMemo(() => {
     if (isMaster) {
       return selectedCompanyId === "all" ? "Všetky firmy" : companyNameById[selectedCompanyId] || "Firma";
@@ -20810,58 +21134,28 @@ function App() {
       )}
 
       {!isMaster && !isWorkflowModule(selectedTable) && (
-      <section className="stats-grid">
+      <section className={`stats-grid ${isDailyOverviewTable(selectedTable) && dailyOverviewStats ? "overview-stats-grid" : ""}`}>
         {isDailyOverviewTable(selectedTable) && dailyOverviewStats && (
           <>
-            <article className="card">
-              <p>Dnešné pohyby</p>
-              <strong>{new Intl.NumberFormat("sk-SK").format(rows.length)}</strong>
-            </article>
-            <article className="card">
-              <p>Príjmy dnes</p>
-              <strong>{new Intl.NumberFormat("sk-SK").format(dailyOverviewStats.receive)}</strong>
-            </article>
-            <article className="card">
-              <p>Výdaje dnes</p>
-              <strong>{new Intl.NumberFormat("sk-SK").format(dailyOverviewStats.issue)}</strong>
-            </article>
-            <article className="card">
-              <p>Presuny dnes</p>
-              <strong>{new Intl.NumberFormat("sk-SK").format(dailyOverviewStats.move)}</strong>
-            </article>
-            <article className="card">
-              <p>Aktívne pozície</p>
-              <strong>{new Intl.NumberFormat("sk-SK").format(dailyOverviewStats.activePositions)}</strong>
-            </article>
-            <article className="card">
-              <p>Materiály dnes</p>
-              <strong>{new Intl.NumberFormat("sk-SK").format(dailyOverviewStats.uniqueMaterials)}</strong>
-            </article>
-            <article className="card">
-              <p>Najsilnejšia hodina</p>
-              <strong>{dailyOverviewStats.busiestHourLabel}</strong>
-              <p className="occupancy-meta">{`${dailyOverviewStats.busiestHourCount} pohybov`}</p>
-            </article>
-            <article className="card">
-              <p>Posledná operácia</p>
-              <strong className="small-text">{lastTimestamp}</strong>
-            </article>
-            {canAccessMesModule && (
-              <>
-                <article className="card">
-                  <p>Vo výrobe</p>
-                  <strong>{new Intl.NumberFormat("sk-SK").format(productionOrderInsights.openCount)}</strong>
+            {dailyOverviewCards.map((card) => {
+              const Icon = card.icon || Activity;
+              return (
+                <article
+                  key={card.key}
+                  className={`card overview-stat-card overview-stat-${card.tone || "teal"} ${card.articleClassName || ""}`.trim()}
+                >
+                  <div className="overview-stat-head">
+                    <span className={`overview-stat-icon overview-stat-icon-${card.tone || "teal"}`} aria-hidden="true">
+                      <Icon size={18} strokeWidth={2.1} />
+                    </span>
+                    <p>{card.label}</p>
+                  </div>
+                  <strong className={card.smallValue ? "small-text" : card.valueClassName || ""}>{card.value}</strong>
+                  {card.meta ? <p className="occupancy-meta overview-stat-meta">{card.meta}</p> : null}
+                  {card.badge ? <p className={card.badgeClassName || "occupancy-badge"}>{card.badge}</p> : null}
                 </article>
-                <article className="card">
-                  <p>Dnes dokončené výroby</p>
-                  <strong>{new Intl.NumberFormat("sk-SK").format(productionOrderInsights.todayCompletedCount)}</strong>
-                </article>
-                <article className="card">
-                  <p>Dnes vrátené do skladu</p>
-                  <strong>{`${new Intl.NumberFormat("sk-SK").format(productionOrderInsights.todayReturnedQuantity)} ks`}</strong>
-                </article>
-              </>
-            )}
+              );
+            })}
           </>
         )}
         {!isDailyOverviewTable(selectedTable) && selectedTable !== "stock" && (
@@ -20905,16 +21199,6 @@ function App() {
             <p className="occupancy-meta">{`Vzorka: ${stockAgeStats.sampleCount} položiek`}</p>
           </article>
         )}
-        {isDailyOverviewTable(selectedTable) && (
-          <article className={`card occupancy-${occupancyLevel}`}>
-            <p>Zaplnenie skladu</p>
-            <strong className={`occupancy-value occupancy-value-${occupancyLevel}`}>
-              {`${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(occupancyPercent)} %`}
-            </strong>
-            <p className="occupancy-meta">{`Obsadené: ${occupiedPositions} / ${effectiveMaxPositions}`}</p>
-            <p className={`occupancy-badge occupancy-badge-${occupancyLevel}`}>{`Stav: ${occupancyLabel}`}</p>
-          </article>
-        )}
         {selectedTable === "stock" && (
           <article className="card">
             <p>Voľné miesta</p>
@@ -20933,8 +21217,13 @@ function App() {
             </div>
           </div>
           <div className="daily-overview-grid">
-            <article className="card">
-              <p>Hodinový prehľad</p>
+            <article className="card overview-panel-card">
+              <div className="overview-panel-card-head">
+                <span className="overview-panel-card-icon overview-panel-card-icon-sky" aria-hidden="true">
+                  <BarChart3 size={18} strokeWidth={2.1} />
+                </span>
+                <p>Hodinový prehľad</p>
+              </div>
               <div
                 className="daily-hour-bars"
                 style={{ gridTemplateColumns: `repeat(${Math.max(1, dailyOverviewStats.hourlyBuckets.length)}, minmax(0, 1fr))` }}
@@ -20956,8 +21245,13 @@ function App() {
                 })}
               </div>
             </article>
-            <article className="card">
-              <p>Posledné operácie</p>
+            <article className="card overview-panel-card">
+              <div className="overview-panel-card-head">
+                <span className="overview-panel-card-icon overview-panel-card-icon-violet" aria-hidden="true">
+                  <History size={18} strokeWidth={2.1} />
+                </span>
+                <p>Posledné operácie</p>
+              </div>
               {dailyOverviewStats.recentRows.length === 0 ? (
                 <p className="hint">Dnes zatiaľ nie sú operácie.</p>
               ) : (
@@ -20975,8 +21269,13 @@ function App() {
               )}
             </article>
             {canAccessMesModule && (
-              <article className="card">
-                <p>Aktívne výrobné objednávky</p>
+              <article className="card overview-panel-card">
+                <div className="overview-panel-card-head">
+                  <span className="overview-panel-card-icon overview-panel-card-icon-emerald" aria-hidden="true">
+                    <Factory size={18} strokeWidth={2.1} />
+                  </span>
+                  <p>Aktívne výrobné objednávky</p>
+                </div>
                 {productionOrderInsights.openRows.length === 0 ? (
                   <p className="hint">Aktuálne nie je nič vo výrobe.</p>
                 ) : (

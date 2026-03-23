@@ -7049,8 +7049,8 @@ function App() {
     setInviteCanAccessMesInput(false);
     setCompanyInvitesMessage(
       inviteResult?.mail_queued
-        ? "Pozvanka je vytvorena a email sme zaradili do odoslania v reprezentativnej forme. Existujuci ucet ju uvidi po prihlaseni ako internu notifikaciu a link je skopirovany do schranky."
-        : `Pozvanka je vytvorena. Existujuci ucet ju uvidi po prihlaseni ako internu notifikaciu a link je skopirovany do schranky.${inviteResult?.mail_queue_error ? ` Mail sa nepodarilo zaradit do odoslania: ${inviteResult.mail_queue_error}` : ""}`
+        ? "Pozvánka je vytvorená a email sme zaradili do odoslania v reprezentatívnej forme. Existujúci účet ju uvidí po prihlásení ako internú notifikáciu a link je skopírovaný do schránky."
+        : `Pozvánka je vytvorená. Existujúci účet ju uvidí po prihlásení ako internú notifikáciu a link je skopírovaný do schránky.${inviteResult?.mail_queue_error ? ` Mail sa nepodarilo zaradiť do odoslania: ${inviteResult.mail_queue_error}` : ""}`
     );
     setInviteSubmitting(false);
     await loadCompanyInvites(activeCompanyId);
@@ -15489,6 +15489,50 @@ function App() {
             </div>
           </div>
 
+          <div className="company-settings-shell">
+            <section className="company-settings-hero">
+              <article className="company-settings-hero-card company-settings-hero-card-highlight">
+                <div className="company-settings-hero-icon" aria-hidden="true">
+                  <Building2 size={20} strokeWidth={2.1} />
+                </div>
+                <div className="company-settings-hero-copy">
+                  <span className="company-settings-hero-kicker">Firemný profil</span>
+                  <strong>{activeCompany?.name || "Vyber firmu"}</strong>
+                  <p>Správa identity firmy, skladov, fakturačných defaultov a prístupov z jedného miesta.</p>
+                </div>
+              </article>
+              <article className="company-settings-hero-card">
+                <div className="company-settings-hero-icon" aria-hidden="true">
+                  <Boxes size={20} strokeWidth={2.1} />
+                </div>
+                <div className="company-settings-hero-copy">
+                  <span className="company-settings-hero-kicker">Sklady</span>
+                  <strong>{new Intl.NumberFormat("sk-SK").format(companyWarehouseDrafts.length || 0)}</strong>
+                  <p>{companyWarehouseDrafts.length > 0 ? "Globálny zoznam skladov je pripravený pre všetkých adminov firmy." : "Založ prvý sklad a priprav firmu na reálnu prevádzku."}</p>
+                </div>
+              </article>
+              <article className="company-settings-hero-card">
+                <div className="company-settings-hero-icon" aria-hidden="true">
+                  <ReceiptText size={20} strokeWidth={2.1} />
+                </div>
+                <div className="company-settings-hero-copy">
+                  <span className="company-settings-hero-kicker">Fakturačné defaulty</span>
+                  <strong>{`${companyInvoiceDueDaysInput || "14"} dní`}</strong>
+                  <p>Predvolené texty, splatnosť a štýl faktúry držíš na jednom mieste pre celý obchodný tok.</p>
+                </div>
+              </article>
+              <article className="company-settings-hero-card">
+                <div className="company-settings-hero-icon" aria-hidden="true">
+                  <ShieldCheck size={20} strokeWidth={2.1} />
+                </div>
+                <div className="company-settings-hero-copy">
+                  <span className="company-settings-hero-kicker">Prístupy</span>
+                  <strong>{new Intl.NumberFormat("sk-SK").format(companyInvites.length || 0)}</strong>
+                  <p>Pozvánky, role a povolenia k workflow alebo manufacturing priamo pre aktuálne vybranú firmu.</p>
+                </div>
+              </article>
+            </section>
+
           {(isCompanyAdmin || isMaster) && (
             <div className="company-admin-setup-grid">
               <article className="company-admin-setup-card company-admin-setup-card-highlight">
@@ -15606,7 +15650,14 @@ function App() {
 
           <form className="company-settings-form" onSubmit={handleSaveCompanyMaxPositions}>
             <div className="company-settings-column">
-              <div className="workflow-form-section company-profile-section">
+              <div className="workflow-form-section company-profile-section company-settings-section-card">
+                <div className="company-settings-section-head">
+                  <div>
+                    <span className="company-settings-section-kicker">Identita firmy</span>
+                    <h3>Firemný profil</h3>
+                    <p className="panel-meta">Názov, identifikačné údaje, adresa a bankový účet používané naprieč aplikáciou.</p>
+                  </div>
+                </div>
                 <div className="company-lookup-field">
                   <label className="settings-field">
                     <span>Názov firmy</span>
@@ -15707,7 +15758,14 @@ function App() {
             </div>
 
             <div className="company-settings-column">
-              <div className="workflow-form-section company-capacity-section">
+              <div className="workflow-form-section company-capacity-section company-settings-section-card">
+                <div className="company-settings-section-head">
+                  <div>
+                    <span className="company-settings-section-kicker">Prevádzka</span>
+                    <h3>Sklady a konfigurácia</h3>
+                    <p className="panel-meta">Kapacita skladu, interné sklady firmy, fakturačné defaulty a prístupový manažment.</p>
+                  </div>
+                </div>
                 <label className="settings-field" htmlFor="company-max-positions">
                   <span>Počet miest na sklade</span>
                   <input
@@ -15721,7 +15779,7 @@ function App() {
                     disabled={!activeCompanyId || companySettingsSubmitting}
                   />
                 </label>
-                <div className="workflow-form-section">
+                <div className="workflow-form-section company-settings-subcard">
                   <div className="workflow-subsection-head">
                     <h3>Sklady</h3>
                     <p className="panel-meta">Globálny register skladov pre túto firmu. Každý admin firmy uvidí rovnaký zoznam skladov.</p>
@@ -15836,7 +15894,7 @@ function App() {
                   {companyWarehousesError && <p className="error">{companyWarehousesError}</p>}
                   {companyWarehousesMessage && <p className="settings-hint">{companyWarehousesMessage}</p>}
                 </div>
-                <div className="workflow-form-section">
+                <div className="workflow-form-section company-settings-subcard">
                   <div className="workflow-subsection-head">
                     <h3>Predvolené faktúry</h3>
                     <p className="panel-meta">Tieto hodnoty sa predvyplnia pri vytváraní novej faktúry.</p>
@@ -15892,7 +15950,7 @@ function App() {
                   </label>
                 </div>
                 {(isMaster || canManageOrders) && (
-                  <div className="workflow-form-section" ref={companyInvitesSectionRef}>
+                  <div className="workflow-form-section company-settings-subcard" ref={companyInvitesSectionRef}>
                     <div className="workflow-subsection-head">
                       <h3>Pozvánky do firmy</h3>
                       <p className="panel-meta">Existujúci účet s týmto emailom uvidí pozvánku ako internú notifikáciu po prihlásení. Invite link ostáva ako fallback pre nový účet.</p>
@@ -15991,36 +16049,45 @@ function App() {
                   </div>
                 )}
                 {isMaster && (
-                  <label className="settings-field">
-                    <span>Food & beverage / expirácia</span>
-                    <label className="pricing-options">
-                      <input
-                        type="checkbox"
-                        checked={companyTracksExpiryDateInput}
-                        onChange={(event) => setCompanyTracksExpiryDateInput(event.target.checked)}
-                        disabled={!activeCompanyId || companySettingsSubmitting}
-                      />
-                      <span>Sledovať dátum spotreby pre túto firmu</span>
+                  <div className="company-settings-capabilities">
+                    <div className="company-settings-section-head company-settings-section-head-compact">
+                      <div>
+                        <span className="company-settings-section-kicker">Capability</span>
+                        <h3>Systémové prepínače</h3>
+                        <p className="panel-meta">Master nastavuje, ktoré capability sú pre firmu vôbec dostupné.</p>
+                      </div>
+                    </div>
+                    <label className="settings-field">
+                      <span>Food & beverage / expirácia</span>
+                      <label className="pricing-options">
+                        <input
+                          type="checkbox"
+                          checked={companyTracksExpiryDateInput}
+                          onChange={(event) => setCompanyTracksExpiryDateInput(event.target.checked)}
+                          disabled={!activeCompanyId || companySettingsSubmitting}
+                        />
+                        <span>Sledovať dátum spotreby pre túto firmu</span>
+                      </label>
                     </label>
-                  </label>
-                )}
-                {isMaster && (
-                  <label className="settings-field">
-                    <span>Manufacturing / MES</span>
-                    <label className="pricing-options">
-                      <input
-                        type="checkbox"
-                        checked={companyMesEnabledInput}
-                        onChange={(event) => setCompanyMesEnabledInput(event.target.checked)}
-                        disabled={!activeCompanyId || companySettingsSubmitting}
-                      />
-                      <span>Povoliť Manufacturing overview, MES a HMI pre túto firmu</span>
+                    <label className="settings-field">
+                      <span>Manufacturing / MES</span>
+                      <label className="pricing-options">
+                        <input
+                          type="checkbox"
+                          checked={companyMesEnabledInput}
+                          onChange={(event) => setCompanyMesEnabledInput(event.target.checked)}
+                          disabled={!activeCompanyId || companySettingsSubmitting}
+                        />
+                        <span>Povoliť Manufacturing overview, MES a HMI pre túto firmu</span>
+                      </label>
                     </label>
-                  </label>
+                  </div>
                 )}
-                <button type="submit" className="settings-btn" disabled={!activeCompanyId || companySettingsSubmitting}>
-                  {companySettingsSubmitting ? "Ukladám..." : "Uložiť nastavenia firmy"}
-                </button>
+                <div className="company-settings-submit-row">
+                  <button type="submit" className="settings-btn" disabled={!activeCompanyId || companySettingsSubmitting}>
+                    {companySettingsSubmitting ? "Ukladám..." : "Uložiť nastavenia firmy"}
+                  </button>
+                </div>
               </div>
             </div>
           </form>
@@ -16030,6 +16097,7 @@ function App() {
               ? "Firemný profil sa uloží pre aktuálne vybranú firmu. Tu zároveň nastavuješ, či firma vôbec uvidí expiráciu, Manufacturing a MES."
               : "Firemný profil sa uloží pre aktuálne vybranú firmu. Nastavenia expirácií a MES spravuje master účet."}
           </p>
+          </div>
         </section>
       )}
 

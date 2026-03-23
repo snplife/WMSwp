@@ -37,13 +37,13 @@ function resolveSiteUrl(req) {
 function buildInvitePermissionsList({ canManageOrders, canAccessMes }) {
   const items = [];
   if (canManageOrders) {
-    items.push("Objednavky a workflow");
+    items.push("Objednávky a workflow");
   }
   if (canAccessMes) {
-    items.push("Vyrobne objednavky a manufacturing");
+    items.push("Výrobné objednávky a manufacturing");
   }
   if (items.length === 0) {
-    items.push("Zakladny firemny pristup");
+    items.push("Základný firemný prístup");
   }
   return items;
 }
@@ -54,18 +54,18 @@ function buildInvitePermissionsSummary(permissions) {
 
 function buildInviteMailText({ companyName, permissions, inviteUrl, inviterName }) {
   return [
-    "Pozvanka do Factory OS",
+    "Pozvánka do Factory OS",
     "",
-    "Dobry den,",
+    "Dobrý deň,",
     "",
-    `boli ste pozvany do firmy ${companyName} v systeme Factory OS.`,
-    `Rozsah pristupu: ${buildInvitePermissionsSummary(permissions)}.`,
-    inviterName ? `Pozvanku vytvoril: ${inviterName}.` : "",
+    `boli ste pozvaný do firmy ${companyName} v systéme Factory OS.`,
+    `Rozsah prístupu: ${buildInvitePermissionsSummary(permissions)}.`,
+    inviterName ? `Pozvánku vytvoril: ${inviterName}.` : "",
     "",
-    "Pozvanku prijmete cez tento odkaz:",
+    "Pozvánku prijmete cez tento odkaz:",
     inviteUrl,
     "",
-    "Ak uz mate ucet, pozvanka sa vam zobrazi aj po prihlaseni priamo v aplikacii.",
+    "Ak už máte účet, pozvánka sa vám zobrazí aj po prihlásení priamo v aplikácii.",
     "",
     "Factory OS"
   ]
@@ -92,27 +92,27 @@ function buildInviteMailHtml({ companyName, permissions, inviteUrl, inviterName 
       <div style="max-width:680px;margin:0 auto;background:#ffffff;border:1px solid #d8e1ec;border-radius:28px;overflow:hidden;box-shadow:0 22px 60px rgba(13,36,62,0.12);">
         <div style="padding:28px 32px;background:linear-gradient(135deg,#10293f 0%,#1f5f8b 100%);color:#ffffff;">
           <div style="font-size:12px;letter-spacing:0.14em;text-transform:uppercase;opacity:0.76;margin-bottom:12px;">Factory OS</div>
-          <h1 style="margin:0;font-size:30px;line-height:1.12;">Pozvanka do firmy ${safeCompanyName}</h1>
+          <h1 style="margin:0;font-size:30px;line-height:1.12;">Pozvánka do firmy ${safeCompanyName}</h1>
           <p style="margin:14px 0 0;font-size:15px;line-height:1.7;max-width:520px;opacity:0.9;">
-            Pristup do systemu, dokumentov a internych firemnych modulov v jednom prostredi.
+            Prístup do systému, dokumentov a interných firemných modulov v jednom prostredí.
           </p>
         </div>
         <div style="padding:30px 32px;">
           <p style="margin:0 0 18px;font-size:15px;line-height:1.7;">
-            Dobry den, boli ste pozvany do firmy <strong>${safeCompanyName}</strong> v systeme Factory OS.
+            Dobrý deň, boli ste pozvaný do firmy <strong>${safeCompanyName}</strong> v systéme Factory OS.
           </p>
 
           <div style="padding:18px 20px;border:1px solid #d7e3f1;border-radius:20px;background:#f8fbff;margin-bottom:18px;">
-            <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.08em;color:#6a7f93;margin-bottom:10px;">Co budete mat dostupne</div>
+            <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.08em;color:#6a7f93;margin-bottom:10px;">Čo budete mať dostupné</div>
             <div>${permissionHtml}</div>
-            ${safeInviter ? `<div style="margin-top:12px;font-size:14px;color:#597086;">Pozvanku vytvoril: ${safeInviter}</div>` : ""}
+            ${safeInviter ? `<div style="margin-top:12px;font-size:14px;color:#597086;">Pozvánku vytvoril: ${safeInviter}</div>` : ""}
           </div>
 
           <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:18px;">
             <a href="${safeInviteUrl}" style="display:inline-block;padding:14px 22px;border-radius:999px;background:#1e6fd7;color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;">
-              Otvorit pozvanku
+              Otvoriť pozvánku
             </a>
-            <span style="font-size:13px;color:#597086;">Pozvanka sa vam zobrazi aj po prihlaseni, ak uz mate aktivny ucet.</span>
+            <span style="font-size:13px;color:#597086;">Pozvánka sa vám zobrazí aj po prihlásení, ak už máte aktívny účet.</span>
           </div>
 
           <div style="padding:16px 18px;border-radius:18px;background:#fff8ee;border:1px solid #f0ddb9;">
@@ -146,7 +146,7 @@ export default async function handler(req, res) {
     if (!email || !email.includes("@")) {
       return sendJson(res, 400, {
         ok: false,
-        error: "Zadaj platny email pre pozvanku."
+        error: "Zadaj platný email pre pozvánku."
       });
     }
 
@@ -168,7 +168,7 @@ export default async function handler(req, res) {
       .single();
 
     if (inviteError) {
-      throw new Error(inviteError.message || "Nepodarilo sa vytvorit pozvanku.");
+      throw new Error(inviteError.message || "Nepodarilo sa vytvoriť pozvánku.");
     }
 
     const inviteToken = String(inviteRow?.token || "").trim();
@@ -184,11 +184,11 @@ export default async function handler(req, res) {
       action: "INVITE",
       material_code: "COMPANY_INVITE",
       position: sanitizeText(auth.company?.name || "Factory OS", 120),
-      note: sanitizeText(`Pozvanka do firmy ${auth.company?.name || "Firma"}`, 240),
+      note: sanitizeText(`Pozvánka do firmy ${auth.company?.name || "Firma"}`, 240),
       created_at_ms: Date.now(),
       recipient_email: email,
       payload: {
-        subject: `Pozvanka do ${sanitizeText(auth.company?.name || "Factory OS", 120)} | Factory OS`,
+        subject: `Pozvánka do ${sanitizeText(auth.company?.name || "Factory OS", 120)} | Factory OS`,
         text: buildInviteMailText({
           companyName: auth.company?.name || "Firma",
           permissions,

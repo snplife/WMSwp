@@ -22,6 +22,8 @@ type GraphTokenResponse = {
   error_description?: string;
 };
 
+type AlertPayload = Record<string, unknown>;
+
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data, null, 2), {
     status,
@@ -66,11 +68,31 @@ function formatAlertTimestamp(createdAtMs: number): string {
   }).format(date);
 }
 
+function getPayloadValue(alert: AlertRow, key: string): string {
+  const payload = alert.payload as AlertPayload | null;
+  const value = payload?.[key];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function buildMailSubject(alert: AlertRow): string {
-  return `WMS alert: ${alert.material_code} ${alert.action}`;
+  return getPayloadValue(alert, "subject") || `WMS alert: ${alert.material_code} ${alert.action}`;
 }
 
 function buildMailText(alert: AlertRow): string {
+  const customText = getPayloadValue(alert, "text");
+  if (customText) {
+    return customText;
+  }
+
   return [
     "WMS material alert",
     "",
@@ -84,6 +106,28 @@ function buildMailText(alert: AlertRow): string {
     "",
     "Tento email bol odoslany automaticky z WMS alert queue.",
   ].join("\n");
+}
+
+function buildMailHtml(alert: AlertRow): string {
+  const customHtml = getPayloadValue(alert, "html");
+  if (customHtml) {
+    return customHtml;
+  }
+
+  return `
+    <div style="margin:0;padding:24px;background:#f5f7fb;font-family:Arial,sans-serif;color:#16324a;">
+      <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #d8e1ec;border-radius:20px;padding:24px;">
+        <h1 style="margin:0 0 16px;font-size:24px;">WMS material alert</h1>
+        <p style="margin:0 0 8px;"><strong>Material:</strong> ${escapeHtml(alert.material_code)}</p>
+        <p style="margin:0 0 8px;"><strong>Akcia:</strong> ${escapeHtml(alert.action)}</p>
+        <p style="margin:0 0 8px;"><strong>Pozicia:</strong> ${escapeHtml(alert.position)}</p>
+        <p style="margin:0 0 8px;"><strong>Cas:</strong> ${escapeHtml(formatAlertTimestamp(alert.created_at_ms))}</p>
+        <p style="margin:0 0 8px;"><strong>Firma ID:</strong> ${escapeHtml(alert.company_id)}</p>
+        <p style="margin:0 0 8px;"><strong>Event key:</strong> ${escapeHtml(alert.event_key)}</p>
+        <p style="margin:0;"><strong>Poznamka:</strong> ${escapeHtml(alert.note || "-")}</p>
+      </div>
+    </div>
+  `.trim();
 }
 
 async function fetchGraphAccessToken(
@@ -125,6 +169,8 @@ async function sendMailWithGraph(
   alert: AlertRow,
 ): Promise<void> {
   const sendMailUrl = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(senderUser)}/sendMail`;
+  const customHtml = getPayloadValue(alert, "html");
+  const isHtml = Boolean(customHtml);
 
   const response = await fetch(sendMailUrl, {
     method: "POST",
@@ -136,8 +182,8 @@ async function sendMailWithGraph(
       message: {
         subject: buildMailSubject(alert),
         body: {
-          contentType: "Text",
-          content: buildMailText(alert),
+          contentType: isHtml ? "HTML" : "Text",
+          content: isHtml ? buildMailHtml(alert) : buildMailText(alert),
         },
         toRecipients: [
           {

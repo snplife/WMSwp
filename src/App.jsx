@@ -19,6 +19,7 @@ const PRODUCTION_MODULE = "__production__";
 const ATTENDANCE_MODULE = "__attendance__";
 const ATTENDANCE_GROUPS_MODULE = "__attendance_groups__";
 const ATTENDANCE_SETTINGS_MODULE = "__attendance_settings__";
+const COMPANY_SETTINGS_MODULE = "__company_settings__";
 const PRICE_LIST_TABLE = "price_list";
 const BILLING_API_BASE = "/api/v1/billing";
 const QUOTE_VAT_OPTIONS = [0, 5, 19, 23];
@@ -711,6 +712,10 @@ function isEmployeesModule(table) {
   return String(table || "").trim() === ROLE_TABLE;
 }
 
+function isCompanySettingsModule(table) {
+  return String(table || "").trim() === COMPANY_SETTINGS_MODULE;
+}
+
 function isHrTable(table) {
   const normalized = String(table || "").trim();
   return isEmployeesModule(normalized) || isAttendanceModule(normalized) || isAttendanceGroupsModule(normalized) || isAttendanceSettingsModule(normalized);
@@ -718,6 +723,7 @@ function isHrTable(table) {
 
 function isWorkflowModule(table) {
   return (
+    isCompanySettingsModule(table) ||
     isEmployeesModule(table) ||
     isCustomerModule(table) ||
     isQuoteModule(table) ||
@@ -764,6 +770,9 @@ function getTableLabel(table) {
   }
   if (isAttendanceSettingsModule(table)) {
     return "Nastavenia dochádzky";
+  }
+  if (String(table || "").trim() === COMPANY_SETTINGS_MODULE) {
+    return "Nastavenia firmy";
   }
   if (String(table || "").trim() === ROLE_TABLE) {
     return "Zamestnanci";
@@ -3768,6 +3777,23 @@ function formatDate(value) {
   return parsed.toLocaleString();
 }
 
+function formatInviteStatusLabel(status) {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (normalized === "pending") {
+    return "Čaká na prijatie";
+  }
+  if (normalized === "accepted") {
+    return "Prijatá";
+  }
+  if (normalized === "revoked") {
+    return "Stornovaná";
+  }
+  if (normalized === "expired") {
+    return "Expirovaná";
+  }
+  return status || "-";
+}
+
 function formatDocumentDate(value) {
   if (value === null || value === undefined || value === "") {
     return "-";
@@ -4415,7 +4441,6 @@ function App() {
   const [masterCompanyBillingFilter, setMasterCompanyBillingFilter] = useState("all");
   const [occupancyChartRange, setOccupancyChartRange] = useState("week");
   const [occupancySeries, setOccupancySeries] = useState([]);
-  const [isCompanySettingsOpen, setIsCompanySettingsOpen] = useState(false);
   const [isStockTwinSettingsOpen, setIsStockTwinSettingsOpen] = useState(false);
   const [companyMaxPositionsInput, setCompanyMaxPositionsInput] = useState(String(ENV_DEFAULT_MAX_POSITIONS));
   const [companyTracksExpiryDateInput, setCompanyTracksExpiryDateInput] = useState(false);
@@ -4734,6 +4759,7 @@ function App() {
       return Array.from(
         new Set([
           ...tableNames,
+          COMPANY_SETTINGS_MODULE,
           ROLE_TABLE,
           PRICE_LIST_TABLE,
           CUSTOMERS_MODULE,
@@ -4748,7 +4774,7 @@ function App() {
       );
     }
     if (isActiveCompanyBasicFree) {
-      return [PRICE_LIST_TABLE, CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE];
+      return [COMPANY_SETTINGS_MODULE, PRICE_LIST_TABLE, CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE];
     }
     const userBaseTables = Array.from(
       new Set([DAILY_OVERVIEW_TABLE, ...tableNames.filter((table) => !isCompaniesTable(table) && (table === "stock" || isTransactionsTable(table)))])
@@ -4759,6 +4785,7 @@ function App() {
     return Array.from(
       new Set([
         PRICE_LIST_TABLE,
+        COMPANY_SETTINGS_MODULE,
         ...userBaseTables,
         ...tableNames.filter((table) => !isCompaniesTable(table)),
         CUSTOMERS_MODULE,
@@ -6994,26 +7021,21 @@ function App() {
     setInviteSubmitting(true);
     setCompanyInvitesError("");
     setCompanyInvitesMessage("");
-    const { data, error: inviteError } = await supabase
-      .from("company_invites")
-      .insert({
-        company_id: activeCompanyId,
+    let inviteResult = null;
+    try {
+      inviteResult = await postAuthenticatedRequest("/api/v1/invites/create", {
+        companyId: activeCompanyId,
         email,
-        can_manage_orders: Boolean(inviteCanManageOrdersInput),
-        can_access_mes: Boolean(inviteCanAccessMesInput),
-        created_by: authUser?.id || null
-      })
-      .select("*")
-      .single();
-
-    if (inviteError) {
-      setCompanyInvitesError(inviteError.message || "Nepodarilo sa vytvoriť pozvánku.");
+        canManageOrders: Boolean(inviteCanManageOrdersInput),
+        canAccessMes: Boolean(inviteCanAccessMesInput)
+      });
+    } catch (error) {
+      setCompanyInvitesError(error instanceof Error ? error.message : "Nepodarilo sa vytvoriť pozvánku.");
       setInviteSubmitting(false);
       return;
     }
 
-    const inviteToken = normalizeInviteToken(data?.token || "");
-    const inviteUrl = inviteToken ? `${window.location.origin}${window.location.pathname}?invite=${inviteToken}` : "";
+    const inviteUrl = String(inviteResult?.invite_url || "").trim();
     if (inviteUrl && navigator?.clipboard?.writeText) {
       try {
         await navigator.clipboard.writeText(inviteUrl);
@@ -7025,13 +7047,24 @@ function App() {
     setInviteEmailInput("");
     setInviteCanManageOrdersInput(false);
     setInviteCanAccessMesInput(false);
-    setCompanyInvitesMessage("Pozvánka je vytvorená. Existujúci účet s týmto emailom ju uvidí po prihlásení ako internú notifikáciu. Link je zároveň skopírovaný do schránky.");
+    setCompanyInvitesMessage(
+      inviteResult?.mail_queued
+        ? "Pozvanka je vytvorena a email sme zaradili do odoslania v reprezentativnej forme. Existujuci ucet ju uvidi po prihlaseni ako internu notifikaciu a link je skopirovany do schranky."
+        : `Pozvanka je vytvorena. Existujuci ucet ju uvidi po prihlaseni ako internu notifikaciu a link je skopirovany do schranky.${inviteResult?.mail_queue_error ? ` Mail sa nepodarilo zaradit do odoslania: ${inviteResult.mail_queue_error}` : ""}`
+    );
     setInviteSubmitting(false);
     await loadCompanyInvites(activeCompanyId);
   };
 
   const handleRevokeCompanyInvite = async (invite) => {
     if (!invite?.id) {
+      return;
+    }
+
+    const confirmed =
+      typeof window === "undefined" ||
+      window.confirm(`Naozaj chceš stornovať pozvánku pre ${String(invite.email || "tohto používateľa").trim()}?`);
+    if (!confirmed) {
       return;
     }
 
@@ -7044,11 +7077,12 @@ function App() {
       .eq("id", invite.id);
 
     if (revokeError) {
-      setCompanyInvitesError(revokeError.message || "Nepodarilo sa zrušiť pozvánku.");
+      setCompanyInvitesError(revokeError.message || "Nepodarilo sa stornovať pozvánku.");
       setInviteRevokingId("");
       return;
     }
 
+    setCompanyInvitesMessage(`Pozvánka pre ${String(invite.email || "používateľa").trim()} bola stornovaná.`);
     setInviteRevokingId("");
     await loadCompanyInvites(activeCompanyId);
   };
@@ -12753,7 +12787,11 @@ function App() {
       visibleTableNames.includes(table)
     );
     const monitoringItems = visibleTableNames.filter(
-      (table) => !workflowItems.includes(table) && !manufacturingItems.includes(table) && !hrItems.includes(table)
+      (table) =>
+        table !== COMPANY_SETTINGS_MODULE &&
+        !workflowItems.includes(table) &&
+        !manufacturingItems.includes(table) &&
+        !hrItems.includes(table)
     );
     const sections = [
       {
@@ -12918,14 +12956,6 @@ function App() {
       });
     }
 
-    if (!activeCompanyHasManagedBilling) {
-      tasks.push({
-        key: "billing",
-        title: "Dokončiť billing",
-        detail: "Firma ešte nemá aktívne spravované predplatné alebo billing setup."
-      });
-    }
-
     return tasks;
   }, [
     companyProfileNameInput,
@@ -12936,8 +12966,7 @@ function App() {
     selectedCompanyAdminModules,
     companyAdminSetupDraft.skipWmsRackPlanning,
     companyInvites.length,
-    companyAdminPlannedInvites.length,
-    activeCompanyHasManagedBilling
+    companyAdminPlannedInvites.length
   ]);
 
   useEffect(() => {
@@ -13033,7 +13062,7 @@ function App() {
   useEffect(() => {
     const query = String(companyProfileNameInput || "").trim();
     const companyProfileLookupEnabled =
-      ((selectedTable === "stock" && isCompanySettingsOpen) || isCompanyAdminOnboardingActive) && Boolean(activeCompanyId);
+      (selectedTable === COMPANY_SETTINGS_MODULE || isCompanyAdminOnboardingActive) && Boolean(activeCompanyId);
 
     if (!companyProfileLookupEnabled || isLoggedIn === false) {
       setCompanyProfileLookupResults([]);
@@ -13088,7 +13117,7 @@ function App() {
     }, COMPANY_LOOKUP_DEBOUNCE_MS);
 
     return () => window.clearTimeout(timerId);
-  }, [companyProfileNameInput, selectedCompanyProfileRegistryId, selectedTable, isCompanySettingsOpen, isCompanyAdminOnboardingActive, activeCompanyId, isLoggedIn]);
+  }, [companyProfileNameInput, selectedCompanyProfileRegistryId, selectedTable, isCompanyAdminOnboardingActive, activeCompanyId, isLoggedIn]);
 
   useEffect(() => {
     if (hotjarAllowed) {
@@ -15285,41 +15314,39 @@ function App() {
           ))}
         </nav>
 
-        {selectedTable === "stock" && (
-          <section className="sidebar-section">
-            <button
-              type="button"
-              className={`sidebar-section-toggle ${collapsedSidebarSections.tools ? "is-collapsed" : ""}`}
-              onClick={() => toggleSidebarSection("tools")}
-              aria-expanded={!collapsedSidebarSections.tools}
-            >
-              <span className="sidebar-section-title">Nástroje</span>
-              <span className="sidebar-section-chevron">{collapsedSidebarSections.tools ? "+" : "−"}</span>
-            </button>
-            {!collapsedSidebarSections.tools && (
-              <div className="sidebar-tree">
+        <section className="sidebar-section">
+          <button
+            type="button"
+            className={`sidebar-section-toggle ${collapsedSidebarSections.tools ? "is-collapsed" : ""}`}
+            onClick={() => toggleSidebarSection("tools")}
+            aria-expanded={!collapsedSidebarSections.tools}
+          >
+            <span className="sidebar-section-title">Nástroje</span>
+            <span className="sidebar-section-chevron">{collapsedSidebarSections.tools ? "+" : "−"}</span>
+          </button>
+          {!collapsedSidebarSections.tools && (
+            <div className="sidebar-tree">
+              <button
+                type="button"
+                className={`sidebar-link ${selectedTable === COMPANY_SETTINGS_MODULE ? "sidebar-link-active" : ""}`}
+                onClick={() => setSelectedTable(COMPANY_SETTINGS_MODULE)}
+              >
+                <span className="sidebar-link-bullet" />
+                <span>Nastavenia firmy</span>
+              </button>
+              {isMaster && (
                 <button
                   type="button"
-                  className={`sidebar-link ${isCompanySettingsOpen ? "sidebar-link-active" : ""}`}
-                  onClick={() => setIsCompanySettingsOpen((current) => !current)}
+                  className={`sidebar-link ${isStockTwinSettingsOpen ? "sidebar-link-active" : ""}`}
+                  onClick={() => setIsStockTwinSettingsOpen((current) => !current)}
                 >
                   <span className="sidebar-link-bullet" />
-                  <span>Nastavenia firmy</span>
+                  <span>Twin layout</span>
                 </button>
-                {isMaster && (
-                  <button
-                    type="button"
-                    className={`sidebar-link ${isStockTwinSettingsOpen ? "sidebar-link-active" : ""}`}
-                    onClick={() => setIsStockTwinSettingsOpen((current) => !current)}
-                  >
-                    <span className="sidebar-link-bullet" />
-                    <span>Twin layout</span>
-                  </button>
-                )}
-              </div>
-            )}
-          </section>
-        )}
+              )}
+            </div>
+          )}
+        </section>
       </aside>
 
       <div className="dashboard-main">
@@ -15449,14 +15476,14 @@ function App() {
         </section>
       )}
 
-      {selectedTable === "stock" && isCompanySettingsOpen && (
+      {selectedTable === COMPANY_SETTINGS_MODULE && (
         <section className="panel">
           <div className="panel-head">
             <div>
               <h2>Nastavenia firmy</h2>
               <p className="panel-meta">
                 {activeCompany
-                  ? `Kapacita skladu a firemné údaje pre ${activeCompany.name}`
+                  ? `Firemný profil, sklady, pozvánky a prevádzkové nastavenia pre ${activeCompany.name}`
                   : "Vyber konkrétnu firmu, aby sa dali upraviť firemné nastavenia."}
               </p>
             </div>
@@ -15466,11 +15493,11 @@ function App() {
             <div className="company-admin-setup-grid">
               <article className="company-admin-setup-card company-admin-setup-card-highlight">
                 <span className="company-admin-setup-kicker">{isMaster ? "Master pohľad" : "Firemný admin setup"}</span>
-                <strong>{isMaster ? "Správa firmy" : "Máš admin práva pre svoju firmu"}</strong>
+                <strong>{isMaster ? "Firemné nastavenia na jednom mieste" : "Máš admin práva pre svoju firmu"}</strong>
                 <p>
                   {isMaster
-                    ? "Tu nastavuješ firemný profil, pozvánky, billing a systémové capability pre konkrétnu firmu."
-                    : "Po registrácii si automaticky dostal firemné admin oprávnenia. Úvodný setup už prebieha pred dashboardom, tu potom riešiš profil firmy, billing a pozvánky."}
+                    ? "Tu nastavuješ firemný profil, sklady, pozvánky a systémové capability pre konkrétnu firmu."
+                    : "Po registrácii si automaticky dostal firemné admin oprávnenia. Úvodný setup už prebieha pred dashboardom, tu potom riešiš profil firmy, sklady a pozvánky."}
                 </p>
               </article>
               <article className="company-admin-setup-card">
@@ -15485,8 +15512,8 @@ function App() {
                     <span>Vytvor pozvánky a pri každej nastav, či má mať prístup k objednávkam a Manufacturing / MES.</span>
                   </div>
                   <div className="company-admin-setup-item">
-                    <strong>3. Billing a HR</strong>
-                    <span>Aktivuj billing a potom pokračuj do HR modulov na zamestnancov, skupiny a dochádzku.</span>
+                    <strong>3. Sklady a prevádzka</strong>
+                    <span>Nastav sklady, kapacity a potom pokračuj do HR modulov na zamestnancov, skupiny a dochádzku.</span>
                   </div>
                 </div>
               </article>
@@ -15569,7 +15596,7 @@ function App() {
                   <div className="company-admin-setup-summary-stats">
                     <span className="table-badge">profil hotový</span>
                     <span className="table-badge">moduly vybraté</span>
-                    <span className="table-badge">billing nastavený</span>
+                    <span className="table-badge">prístupy pripravené</span>
                   </div>
                   <p className="panel-meta">Momentálne tu nie sú žiadne otvorené onboarding tasky.</p>
                 </div>
@@ -15930,7 +15957,7 @@ function App() {
                             {companyInvites.map((invite) => (
                               <tr key={invite.id}>
                                 <td>{invite.email || "-"}</td>
-                                <td>{invite.status || "pending"}</td>
+                                <td>{formatInviteStatusLabel(invite.status || "pending")}</td>
                                 <td>{[
                                   invite.can_manage_orders ? "objednávky" : "",
                                   invite.can_access_mes ? "MES" : ""
@@ -15948,7 +15975,7 @@ function App() {
                                         onClick={() => handleRevokeCompanyInvite(invite)}
                                         disabled={inviteRevokingId === invite.id}
                                       >
-                                        {inviteRevokingId === invite.id ? "Ruším..." : "Zrušiť"}
+                                        {inviteRevokingId === invite.id ? "Stornujem..." : "Stornovať pozvánku"}
                                       </button>
                                     )}
                                   </div>
@@ -15990,101 +16017,6 @@ function App() {
                       <span>Povoliť Manufacturing overview, MES a HMI pre túto firmu</span>
                     </label>
                   </label>
-                )}
-                {(isMaster || canManageOrders) && (
-                  <div className="workflow-form-section billing-section">
-                    <div className="workflow-subsection-head">
-                      <h3>SaaS billing</h3>
-                      <p className="panel-meta">Stripe checkout a customer portal sú naviazané na aktuálne vybranú firmu.</p>
-                    </div>
-                    <div className="billing-status-card">
-                      <div className="billing-status-head">
-                        <StatusPill status={activeCompanyBillingStatus} />
-                        <strong>{formatCompanyBillingStatus(activeCompanyBillingStatus)}</strong>
-                      </div>
-                      <p className="panel-meta">
-                        {activeCompany?.billing_interval === "year"
-                          ? "Fakturácia ročne"
-                          : activeCompany?.billing_interval === "month"
-                            ? "Fakturácia mesačne"
-                            : "Predplatné zatiaľ nie je aktivované."}
-                      </p>
-                      {activeCompany?.billing_current_period_end && (
-                        <p className="settings-hint">{`Aktuálne obdobie do ${formatDate(activeCompany.billing_current_period_end)}.`}</p>
-                      )}
-                      {activeCompany?.billing_trial_ends_at && (
-                        <p className="settings-hint">{`Skúšobné obdobie do ${formatDate(activeCompany.billing_trial_ends_at)}.`}</p>
-                      )}
-                      {activeCompany?.billing_cancel_at_period_end && (
-                        <p className="settings-hint">Predplatné je nastavené na ukončenie na konci aktuálneho obdobia.</p>
-                      )}
-                      {!activeCompanyHasManagedBilling && !activeCompanyBillingPricing.isFreeBasic && (
-                        <p className="settings-hint">
-                          {`Prvý checkout zahrnie setup ${new Intl.NumberFormat("sk-SK").format(activeCompanyBillingPricing.setup)} EUR a potom ${
-                            new Intl.NumberFormat("sk-SK").format(activeCompanyBillingPricing.monthly)
-                          } EUR / mes. alebo ${new Intl.NumberFormat("sk-SK").format(activeCompanyBillingPricing.annualDiscounted)} EUR / rok.`}
-                        </p>
-                      )}
-                      {activeCompanyBillingPricing.isFreeBasic && (
-                        <p className="settings-hint">
-                          Basic vrstva s fakturáciou a cenovými ponukami je zdarma. Sklad, dochádzka a MES sa aktivujú ako platené moduly.
-                        </p>
-                      )}
-                      {activeCompanyBillingPricing.billingNote && <p className="settings-hint">{activeCompanyBillingPricing.billingNote}</p>}
-                    </div>
-                    <div className="billing-actions">
-                      {activeCompanyHasManagedBilling ? (
-                        <button
-                          type="button"
-                          className="settings-btn"
-                          onClick={handleOpenBillingPortal}
-                          disabled={!activeCompanyId || billingSubmittingAction === `portal-${activeCompanyId}`}
-                        >
-                          {billingSubmittingAction === `portal-${activeCompanyId}` ? "Otváram portal..." : "Spravovať billing"}
-                        </button>
-                      ) : (
-                        activeCompanyBillingPricing.isFreeBasic ? (
-                          <button
-                            type="button"
-                            className="settings-btn"
-                            onClick={() => handleStartBillingCheckout("monthly")}
-                            disabled={!activeCompanyId || Boolean(billingSubmittingAction)}
-                          >
-                            {billingSubmittingAction === `checkout-monthly-${activeCompanyId}` ? "Aktivujem..." : "Aktivovať basic zdarma"}
-                          </button>
-                        ) : (
-                          <>
-                            <button
-                              type="button"
-                              className="settings-btn"
-                              onClick={() => handleStartBillingCheckout("monthly")}
-                              disabled={!activeCompanyId || Boolean(billingSubmittingAction)}
-                            >
-                              {billingSubmittingAction === `checkout-monthly-${activeCompanyId}` ? "Presmerovávam..." : "Aktivovať mesačne"}
-                            </button>
-                            <button
-                              type="button"
-                              className="settings-btn"
-                              onClick={() => handleStartBillingCheckout("annual")}
-                              disabled={!activeCompanyId || Boolean(billingSubmittingAction)}
-                            >
-                              {billingSubmittingAction === `checkout-annual-${activeCompanyId}` ? "Presmerovávam..." : "Aktivovať ročne"}
-                            </button>
-                          </>
-                        )
-                      )}
-                      <button
-                        type="button"
-                        className="clear-btn"
-                        onClick={handleRefreshBillingState}
-                        disabled={billingSubmittingAction === "refresh"}
-                      >
-                        {billingSubmittingAction === "refresh" ? "Obnovujem..." : "Obnoviť billing stav"}
-                      </button>
-                    </div>
-                    {billingMessage && <p className="settings-hint">{billingMessage}</p>}
-                    {billingError && <p className="error">{billingError}</p>}
-                  </div>
                 )}
                 <button type="submit" className="settings-btn" disabled={!activeCompanyId || companySettingsSubmitting}>
                   {companySettingsSubmitting ? "Ukladám..." : "Uložiť nastavenia firmy"}

@@ -1,0 +1,793 @@
+-- WMS section bundle: users and access
+-- Use after the earlier prerequisite sections are already installed.
+
+-- >>> BEGIN 20_wms_users_core.txt
+-- 20_wms_users_core.txt
+-- User table + policies + helper functions for web/admin user management.
+
+create extension if not exists pgcrypto;
+
+alter table public.companies add column if not exists max_positions integer not null default 100;
+alter table public.companies add column if not exists tracks_expiry_date boolean not null default false;
+
+create table if not exists public.app_users (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  email text not null,
+  username text not null,
+  role text not null check (role in ('master', 'user')),
+  can_manage_orders boolean not null default false,
+  company_id uuid references public.companies (id),
+  created_by uuid references auth.users (id),
+  db_url text,
+  db_anon_key text,
+  updated_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
+alter table public.app_users add column if not exists email text;
+alter table public.app_users add column if not exists username text;
+alter table public.app_users add column if not exists role text;
+alter table public.app_users add column if not exists can_manage_orders boolean not null default false;
+alter table public.app_users add column if not exists company_id uuid references public.companies (id);
+alter table public.app_users add column if not exists created_by uuid references auth.users (id);
+alter table public.app_users add column if not exists db_url text;
+alter table public.app_users add column if not exists db_anon_key text;
+alter table public.app_users add column if not exists updated_at timestamptz not null default now();
+alter table public.app_users add column if not exists created_at timestamptz not null default now();
+
+update public.app_users au
+set email = coalesce(nullif(au.email, ''), u.email)
+from auth.users u
+where au.user_id = u.id
+  and (au.email is null or au.email = '');
+
+update public.app_users
+set username = lower(split_part(email, '@', 1))
+where (username is null or username = '')
+  and email is not null;
+
+update public.app_users
+set role = 'user'
+where role is null or role = '';
+
+update public.app_users
+set can_manage_orders = true
+where role = 'master';
+
+update public.app_users
+set can_manage_orders = false
+where can_manage_orders is null;
+
+alter table public.app_users
+  drop constraint if exists app_users_role_check;
+alter table public.app_users
+  add constraint app_users_role_check check (role in ('master', 'user'));
+
+alter table public.app_users
+  drop constraint if exists app_users_user_must_have_company;
+alter table public.app_users
+  add constraint app_users_user_must_have_company
+  check (role = 'master' or company_id is not null) not valid;
+
+update public.app_users
+set company_id = (select id from public.companies order by created_at asc limit 1)
+where role = 'user' and company_id is null;
+
+alter table public.app_users
+  validate constraint app_users_user_must_have_company;
+
+create unique index if not exists idx_app_users_email_unique
+  on public.app_users (lower(email));
+
+create unique index if not exists idx_app_users_username_unique
+  on public.app_users (lower(username));
+
+create index if not exists idx_app_users_company
+  on public.app_users (company_id);
+
+create index if not exists idx_app_users_can_manage_orders
+  on public.app_users (can_manage_orders);
+
+create or replace function public.touch_app_users_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_touch_app_users_updated_at on public.app_users;
+create trigger trg_touch_app_users_updated_at
+before update on public.app_users
+for each row execute function public.touch_app_users_updated_at();
+
+create or replace function public.is_master(uid uuid default auth.uid())
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.app_users
+    where user_id = uid
+      and role = 'master'
+  );
+$$;
+
+create or replace function public.user_company_id(uid uuid default auth.uid())
+returns uuid
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select company_id
+  from public.app_users
+  where user_id = uid
+  limit 1;
+$$;
+
+create or replace function public.can_manage_orders(uid uuid default auth.uid())
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.app_users
+    where user_id = uid
+      and can_manage_orders = true
+  );
+$$;
+
+create or replace function public.can_bootstrap_master(target_user_id uuid, target_role text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select
+    target_user_id = auth.uid()
+    and lower(coalesce(target_role, '')) = 'master'
+    and not exists (
+      select 1
+      from public.app_users
+      where role = 'master'
+    );
+$$;
+
+grant execute on function public.is_master(uuid) to authenticated;
+grant execute on function public.user_company_id(uuid) to authenticated;
+grant execute on function public.can_manage_orders(uuid) to authenticated;
+grant execute on function public.can_bootstrap_master(uuid, text) to authenticated;
+
+alter table public.app_users enable row level security;
+
+drop policy if exists app_users_select_own on public.app_users;
+drop policy if exists app_users_select_master on public.app_users;
+drop policy if exists app_users_insert_master on public.app_users;
+drop policy if exists app_users_update_master on public.app_users;
+drop policy if exists app_users_delete_master on public.app_users;
+
+create policy app_users_select_own
+on public.app_users
+for select
+to authenticated
+using (auth.uid() = user_id);
+
+create policy app_users_select_master
+on public.app_users
+for select
+to authenticated
+using (public.is_master(auth.uid()));
+
+create policy app_users_insert_master
+on public.app_users
+for insert
+to authenticated
+with check (
+  public.is_master(auth.uid())
+  or public.can_bootstrap_master(user_id, role)
+);
+
+create policy app_users_update_master
+on public.app_users
+for update
+to authenticated
+using (public.is_master(auth.uid()))
+with check (public.is_master(auth.uid()));
+
+create policy app_users_delete_master
+on public.app_users
+for delete
+to authenticated
+using (public.is_master(auth.uid()));
+-- <<< END 20_wms_users_core.txt
+
+-- >>> BEGIN 21_wms_users_jwt_claims_hook.txt
+-- 21_wms_users_jwt_claims_hook.txt
+-- Adds app_role + company_id claims to JWT from public.app_users.
+-- After running, enable this function in Supabase Dashboard:
+-- Authentication -> Hooks -> Custom access token hook -> public.custom_access_token_hook
+
+create or replace function public.custom_access_token_hook(event jsonb)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  uid uuid;
+  claims jsonb;
+  v_role text;
+  v_company_id uuid;
+begin
+  uid := nullif(event->>'user_id', '')::uuid;
+  claims := coalesce(event->'claims', '{}'::jsonb);
+
+  if uid is null then
+    return event;
+  end if;
+
+  select role, company_id
+    into v_role, v_company_id
+  from public.app_users
+  where user_id = uid;
+
+  claims := jsonb_set(claims, '{app_role}', to_jsonb(coalesce(v_role, 'user')), true);
+
+  if v_company_id is not null then
+    claims := jsonb_set(claims, '{company_id}', to_jsonb(v_company_id::text), true);
+  else
+    claims := claims - 'company_id';
+  end if;
+
+  event := jsonb_set(event, '{claims}', claims, true);
+  return event;
+end;
+$$;
+
+grant usage on schema public to supabase_auth_admin;
+grant execute on function public.custom_access_token_hook(jsonb) to supabase_auth_admin;
+revoke execute on function public.custom_access_token_hook(jsonb) from authenticated, anon, public;
+-- <<< END 21_wms_users_jwt_claims_hook.txt
+
+-- >>> BEGIN 22_wms_users_admin_ops.txt
+-- 22_wms_users_admin_ops.txt
+-- Master-only helpers for creating/updating user profile rows in app_users.
+
+create or replace function public.wms_upsert_user_profile(
+  p_user_id uuid,
+  p_email text,
+  p_username text,
+  p_role text default 'user',
+  p_can_manage_orders boolean default false,
+  p_company_id uuid default null,
+  p_db_url text default null,
+  p_db_anon_key text default null,
+  p_created_by uuid default auth.uid()
+)
+returns public.app_users
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_role text := lower(coalesce(p_role, 'user'));
+  v_row public.app_users;
+begin
+  if not public.is_master(auth.uid()) and not public.can_bootstrap_master(p_user_id, v_role) then
+    raise exception 'Only master can upsert user profiles';
+  end if;
+
+  if v_role not in ('master', 'user') then
+    raise exception 'Invalid role: %', v_role;
+  end if;
+
+  if v_role = 'user' and p_company_id is null then
+    raise exception 'company_id is required for user role';
+  end if;
+
+  insert into public.app_users (
+    user_id, email, username, role, can_manage_orders, company_id, db_url, db_anon_key, created_by
+  )
+  values (
+    p_user_id,
+    lower(coalesce(p_email, '')),
+    lower(coalesce(p_username, split_part(coalesce(p_email, ''), '@', 1))),
+    v_role,
+    case when v_role = 'master' then true else coalesce(p_can_manage_orders, false) end,
+    case when v_role = 'master' then null else p_company_id end,
+    p_db_url,
+    p_db_anon_key,
+    p_created_by
+  )
+  on conflict (user_id)
+  do update set
+    email = excluded.email,
+    username = excluded.username,
+    role = excluded.role,
+    can_manage_orders = excluded.can_manage_orders,
+    company_id = excluded.company_id,
+    db_url = coalesce(excluded.db_url, public.app_users.db_url),
+    db_anon_key = coalesce(excluded.db_anon_key, public.app_users.db_anon_key),
+    updated_at = now()
+  returning * into v_row;
+
+  return v_row;
+end;
+$$;
+
+grant execute on function public.wms_upsert_user_profile(uuid, text, text, text, boolean, uuid, text, text, uuid) to authenticated;
+
+create or replace function public.set_company_max_positions(target_company_id uuid, target_max_positions integer)
+returns public.companies
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_company public.companies;
+begin
+  if target_company_id is null then
+    raise exception 'company_id is required';
+  end if;
+
+  if coalesce(target_max_positions, 0) < 1 then
+    raise exception 'max_positions must be greater than 0';
+  end if;
+
+  if not (
+    public.is_master(auth.uid())
+    or target_company_id = public.user_company_id(auth.uid())
+  ) then
+    raise exception 'Only master or company owner can update capacity';
+  end if;
+
+  update public.companies
+  set max_positions = least(1000000, greatest(1, target_max_positions))
+  where id = target_company_id
+  returning * into v_company;
+
+  if v_company is null then
+    raise exception 'company not found';
+  end if;
+
+  return v_company;
+end;
+$$;
+
+grant execute on function public.set_company_max_positions(uuid, integer) to authenticated;
+
+create or replace function public.wms_repair_users_without_company(p_fallback_company_id uuid default null)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_company_id uuid;
+  v_count integer := 0;
+begin
+  if not public.is_master(auth.uid()) then
+    raise exception 'Only master can run repair';
+  end if;
+
+  v_company_id := coalesce(p_fallback_company_id, (select id from public.companies order by created_at asc limit 1));
+
+  if v_company_id is null then
+    return 0;
+  end if;
+
+  update public.app_users
+  set company_id = v_company_id,
+      updated_at = now()
+  where role = 'user'
+    and company_id is null;
+
+  get diagnostics v_count = row_count;
+  return v_count;
+end;
+$$;
+
+grant execute on function public.wms_repair_users_without_company(uuid) to authenticated;
+-- <<< END 22_wms_users_admin_ops.txt
+
+-- >>> BEGIN 23_wms_users_checks.txt
+-- 23_wms_users_checks.txt
+
+-- user rows
+select user_id, email, username, role, can_manage_orders, company_id, created_at, updated_at
+from public.app_users
+order by created_at desc;
+
+-- invalid user rows (should be 0)
+select *
+from public.app_users
+where role = 'user' and company_id is null;
+
+-- duplicate usernames/emails (should be 0 rows)
+select lower(username) as key, count(*)
+from public.app_users
+group by lower(username)
+having count(*) > 1;
+
+select lower(email) as key, count(*)
+from public.app_users
+group by lower(email)
+having count(*) > 1;
+
+-- helper functions sanity
+select public.is_master(auth.uid()) as is_master_now;
+select public.user_company_id(auth.uid()) as user_company_now;
+select public.can_manage_orders(auth.uid()) as can_manage_orders_now;
+
+-- company capacity sanity
+select id, name, max_positions, tracks_expiry_date
+from public.companies
+order by name;
+
+-- optional repair dry run target check
+select count(*) as users_without_company
+from public.app_users
+where role = 'user' and company_id is null;
+-- <<< END 23_wms_users_checks.txt
+
+-- >>> BEGIN 46_wms_auth_self_signup_company_invites.txt
+alter table if exists public.app_users
+  add column if not exists can_access_mes boolean not null default false;
+
+alter table if exists public.company_profiles
+  add column if not exists invoice_due_days integer not null default 14;
+
+alter table if exists public.company_profiles
+  add column if not exists invoice_intro_text text not null default '';
+
+alter table if exists public.company_profiles
+  add column if not exists invoice_outro_text text not null default '';
+
+alter table if exists public.company_profiles
+  add column if not exists invoice_style text not null default 'clean';
+
+create table if not exists public.company_invites (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies (id) on delete cascade,
+  email text not null,
+  token text not null default encode(gen_random_bytes(18), 'hex'),
+  role text not null default 'user' check (role in ('user')),
+  can_manage_orders boolean not null default false,
+  can_access_mes boolean not null default false,
+  status text not null default 'pending' check (status in ('pending', 'accepted', 'revoked')),
+  expires_at timestamptz not null default (now() + interval '7 days'),
+  accepted_at timestamptz,
+  accepted_by uuid references auth.users (id) on delete set null,
+  revoked_at timestamptz,
+  created_by uuid references auth.users (id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists idx_company_invites_token_unique
+  on public.company_invites (token);
+
+create index if not exists idx_company_invites_company_status
+  on public.company_invites (company_id, status, created_at desc);
+
+create index if not exists idx_company_invites_email
+  on public.company_invites (lower(email));
+
+alter table public.company_invites enable row level security;
+
+drop policy if exists "company_invites_select_auth" on public.company_invites;
+drop policy if exists "company_invites_insert_auth" on public.company_invites;
+drop policy if exists "company_invites_update_auth" on public.company_invites;
+drop policy if exists "company_invites_delete_auth" on public.company_invites;
+
+create policy "company_invites_select_auth"
+on public.company_invites
+for select
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy "company_invites_insert_auth"
+on public.company_invites
+for insert
+to authenticated
+with check (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy "company_invites_update_auth"
+on public.company_invites
+for update
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+)
+with check (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy "company_invites_delete_auth"
+on public.company_invites
+for delete
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create or replace function public.bootstrap_self_signup(p_company_name text, p_username text default null)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_email text;
+  v_existing public.app_users%rowtype;
+  v_company_id uuid;
+  v_username text;
+begin
+  if v_user_id is null then
+    raise exception 'Musis byt prihlaseny.';
+  end if;
+
+  select *
+  into v_existing
+  from public.app_users
+  where user_id = v_user_id
+  limit 1;
+
+  if v_existing.user_id is not null then
+    return jsonb_build_object(
+      'company_id', v_existing.company_id,
+      'already_initialized', true
+    );
+  end if;
+
+  select lower(coalesce(email, ''))
+  into v_email
+  from auth.users
+  where id = v_user_id;
+
+  if coalesce(v_email, '') = '' then
+    raise exception 'K uctu sa nepodarilo nacitat email.';
+  end if;
+
+  if coalesce(trim(p_company_name), '') = '' then
+    raise exception 'Nazov firmy nemoze byt prazdny.';
+  end if;
+
+  if exists (
+    select 1
+    from public.companies
+    where lower(name) = lower(trim(p_company_name))
+  ) then
+    raise exception 'Firma s tymto nazvom uz existuje.';
+  end if;
+
+  v_username := lower(regexp_replace(coalesce(nullif(trim(p_username), ''), split_part(v_email, '@', 1)), '[^a-z0-9._-]+', '', 'g'));
+  if coalesce(v_username, '') = '' then
+    v_username := 'user-' || left(replace(v_user_id::text, '-', ''), 8);
+  end if;
+
+  if exists (
+    select 1
+    from public.app_users
+    where lower(username) = lower(v_username)
+      and user_id <> v_user_id
+  ) then
+    v_username := left(v_username, 22) || '-' || left(replace(v_user_id::text, '-', ''), 6);
+  end if;
+
+  insert into public.companies (name)
+  values (trim(p_company_name))
+  returning id into v_company_id;
+
+  insert into public.company_profiles (
+    company_id,
+    name,
+    invoice_due_days,
+    invoice_style,
+    created_by,
+    updated_by
+  )
+  values (
+    v_company_id,
+    trim(p_company_name),
+    14,
+    'clean',
+    v_user_id,
+    v_user_id
+  )
+  on conflict (company_id) do update
+    set name = excluded.name,
+        updated_by = excluded.updated_by;
+
+  insert into public.app_users (
+    user_id,
+    email,
+    username,
+    role,
+    can_manage_orders,
+    can_access_mes,
+    company_id,
+    created_by
+  )
+  values (
+    v_user_id,
+    v_email,
+    v_username,
+    'user',
+    true,
+    false,
+    v_company_id,
+    v_user_id
+  )
+  on conflict (user_id) do update
+    set email = excluded.email,
+        username = excluded.username,
+        company_id = excluded.company_id,
+        can_manage_orders = true,
+        can_access_mes = false;
+
+  return jsonb_build_object(
+    'company_id', v_company_id,
+    'company_name', trim(p_company_name),
+    'username', v_username
+  );
+end;
+$$;
+
+grant execute on function public.bootstrap_self_signup(text, text) to authenticated;
+
+create or replace function public.accept_company_invite(p_token text, p_username text default null)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_email text;
+  v_existing public.app_users%rowtype;
+  v_invite public.company_invites%rowtype;
+  v_username text;
+begin
+  if v_user_id is null then
+    raise exception 'Musis byt prihlaseny.';
+  end if;
+
+  select lower(coalesce(email, ''))
+  into v_email
+  from auth.users
+  where id = v_user_id;
+
+  if coalesce(v_email, '') = '' then
+    raise exception 'K uctu sa nepodarilo nacitat email.';
+  end if;
+
+  select *
+  into v_invite
+  from public.company_invites
+  where token = trim(coalesce(p_token, ''))
+    and status = 'pending'
+  limit 1;
+
+  if v_invite.id is null then
+    raise exception 'Pozvanka neexistuje alebo uz nie je platna.';
+  end if;
+
+  if v_invite.expires_at < now() then
+    update public.company_invites
+    set status = 'revoked',
+        revoked_at = now()
+    where id = v_invite.id;
+    raise exception 'Pozvanka uz expirovala.';
+  end if;
+
+  if lower(v_invite.email) <> v_email then
+    raise exception 'Pozvanka je viazana na iny email.';
+  end if;
+
+  select *
+  into v_existing
+  from public.app_users
+  where user_id = v_user_id
+  limit 1;
+
+  if v_existing.user_id is not null and v_existing.role = 'master' then
+    raise exception 'Master ucet nemozno pripojit cez firemnu pozvanku.';
+  end if;
+
+  if v_existing.user_id is not null and v_existing.company_id is not null and v_existing.company_id <> v_invite.company_id then
+    raise exception 'Ucet uz patri do inej firmy.';
+  end if;
+
+  v_username := lower(regexp_replace(coalesce(nullif(trim(p_username), ''), nullif(v_existing.username, ''), split_part(v_email, '@', 1)), '[^a-z0-9._-]+', '', 'g'));
+  if coalesce(v_username, '') = '' then
+    v_username := 'user-' || left(replace(v_user_id::text, '-', ''), 8);
+  end if;
+
+  if exists (
+    select 1
+    from public.app_users
+    where lower(username) = lower(v_username)
+      and user_id <> v_user_id
+  ) then
+    v_username := left(v_username, 22) || '-' || left(replace(v_user_id::text, '-', ''), 6);
+  end if;
+
+  insert into public.app_users (
+    user_id,
+    email,
+    username,
+    role,
+    can_manage_orders,
+    can_access_mes,
+    company_id,
+    created_by
+  )
+  values (
+    v_user_id,
+    v_email,
+    v_username,
+    'user',
+    v_invite.can_manage_orders,
+    v_invite.can_access_mes,
+    v_invite.company_id,
+    coalesce(v_invite.created_by, v_user_id)
+  )
+  on conflict (user_id) do update
+    set email = excluded.email,
+        username = excluded.username,
+        company_id = excluded.company_id,
+        can_manage_orders = excluded.can_manage_orders,
+        can_access_mes = excluded.can_access_mes;
+
+  update public.company_invites
+  set status = 'accepted',
+      accepted_at = now(),
+      accepted_by = v_user_id
+  where id = v_invite.id;
+
+  return jsonb_build_object(
+    'company_id', v_invite.company_id,
+    'email', v_email,
+    'username', v_username
+  );
+end;
+$$;
+
+grant execute on function public.accept_company_invite(text, text) to authenticated;
+-- <<< END 46_wms_auth_self_signup_company_invites.txt

@@ -115,7 +115,7 @@ declare
   v_username text;
 begin
   if v_user_id is null then
-    raise exception 'Musíš byť prihlásený.';
+    raise exception 'Musis byt prihlaseny.';
   end if;
 
   select *
@@ -137,11 +137,11 @@ begin
   where id = v_user_id;
 
   if coalesce(v_email, '') = '' then
-    raise exception 'K účtu sa nepodarilo načítať email.';
+    raise exception 'K uctu sa nepodarilo nacitat email.';
   end if;
 
   if coalesce(trim(p_company_name), '') = '' then
-    raise exception 'Názov firmy nemôže byť prázdny.';
+    raise exception 'Nazov firmy nemoze byt prazdny.';
   end if;
 
   if exists (
@@ -149,7 +149,7 @@ begin
     from public.companies
     where lower(name) = lower(trim(p_company_name))
   ) then
-    raise exception 'Firma s týmto názvom už existuje.';
+    raise exception 'Firma s tymto nazvom uz existuje.';
   end if;
 
   v_username := lower(regexp_replace(coalesce(nullif(trim(p_username), ''), split_part(v_email, '@', 1)), '[^a-z0-9._-]+', '', 'g'));
@@ -206,7 +206,7 @@ begin
     v_username,
     'user',
     true,
-    true,
+    false,
     v_company_id,
     v_user_id
   )
@@ -215,7 +215,7 @@ begin
         username = excluded.username,
         company_id = excluded.company_id,
         can_manage_orders = true,
-        can_access_mes = true;
+        can_access_mes = false;
 
   return jsonb_build_object(
     'company_id', v_company_id,
@@ -241,7 +241,7 @@ declare
   v_username text;
 begin
   if v_user_id is null then
-    raise exception 'Musíš byť prihlásený.';
+    raise exception 'Musis byt prihlaseny.';
   end if;
 
   select lower(coalesce(email, ''))
@@ -250,7 +250,7 @@ begin
   where id = v_user_id;
 
   if coalesce(v_email, '') = '' then
-    raise exception 'K účtu sa nepodarilo načítať email.';
+    raise exception 'K uctu sa nepodarilo nacitat email.';
   end if;
 
   select *
@@ -261,7 +261,7 @@ begin
   limit 1;
 
   if v_invite.id is null then
-    raise exception 'Pozvánka neexistuje alebo už nie je platná.';
+    raise exception 'Pozvanka neexistuje alebo uz nie je platna.';
   end if;
 
   if v_invite.expires_at < now() then
@@ -269,11 +269,11 @@ begin
     set status = 'revoked',
         revoked_at = now()
     where id = v_invite.id;
-    raise exception 'Pozvánka už exspirovala.';
+    raise exception 'Pozvanka uz expirovala.';
   end if;
 
   if lower(v_invite.email) <> v_email then
-    raise exception 'Pozvánka je viazaná na iný email.';
+    raise exception 'Pozvanka je viazana na iny email.';
   end if;
 
   select *
@@ -283,11 +283,11 @@ begin
   limit 1;
 
   if v_existing.user_id is not null and v_existing.role = 'master' then
-    raise exception 'Master účet nemožno pripojiť cez firemnú pozvánku.';
+    raise exception 'Master ucet nemozno pripojit cez firemnu pozvanku.';
   end if;
 
   if v_existing.user_id is not null and v_existing.company_id is not null and v_existing.company_id <> v_invite.company_id then
-    raise exception 'Účet už patrí do inej firmy.';
+    raise exception 'Ucet uz patri do inej firmy.';
   end if;
 
   v_username := lower(regexp_replace(coalesce(nullif(trim(p_username), ''), nullif(v_existing.username, ''), split_part(v_email, '@', 1)), '[^a-z0-9._-]+', '', 'g'));

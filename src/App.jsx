@@ -359,7 +359,7 @@ const TABLE_CONFIG = {
 };
 
 const DEFAULT_CONFIG = {
-  title: "Supabase tabuľka",
+  title: "Dátová tabuľka",
   subtitle: "Živý monitoring",
   columns: [{ label: "ID", keys: ["id"], required: true }],
   searchKeys: ["id"],
@@ -1171,7 +1171,9 @@ function createEmptyCompanyAdminInviteDraft(index = 0, overrides = {}) {
 }
 
 function createDefaultCompanyAdminSetupDraft(overrides = {}) {
-  const defaultModuleSelections = Object.fromEntries(COMPANY_ADMIN_MODULE_OPTIONS.map((option) => [option.key, false]));
+  const defaultModuleSelections = Object.fromEntries(
+    COMPANY_ADMIN_MODULE_OPTIONS.map((option) => [option.key, option.key === "invoicing"])
+  );
   const defaultHardwareSelections = Object.fromEntries(COMPANY_ADMIN_HARDWARE_OPTIONS.map((option) => [option.key, false]));
   const defaultHardwareQuantities = Object.fromEntries(COMPANY_ADMIN_HARDWARE_OPTIONS.map((option) => [option.key, "1"]));
   const rawModuleSelections =
@@ -5138,6 +5140,17 @@ function App() {
     () => resolveCompanyBillingPricing(activeCompany || {}, pricingEstimate),
     [activeCompany, pricingEstimate]
   );
+  const activeCompanySelectedModuleKeys = useMemo(
+    () => COMPANY_ADMIN_MODULE_OPTIONS.filter((option) => activeCompanyLeadSetup?.moduleSelections?.[option.key]).map((option) => option.key),
+    [activeCompanyLeadSetup]
+  );
+  const isActiveCompanyInvoicingOnly = useMemo(
+    () =>
+      !isMaster &&
+      activeCompanySelectedModuleKeys.length > 0 &&
+      activeCompanySelectedModuleKeys.every((moduleKey) => moduleKey === "invoicing"),
+    [isMaster, activeCompanySelectedModuleKeys]
+  );
   useEffect(() => {
     if (!isLoggedIn || !activeCompanyId || (!isMaster && !canManageOrders)) {
       setCompanyInvites([]);
@@ -5168,8 +5181,8 @@ function App() {
         ])
       );
     }
-    if (isActiveCompanyBasicFree) {
-      return [COMPANY_SETTINGS_MODULE, PRICE_LIST_TABLE, CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE];
+    if (isActiveCompanyBasicFree || isActiveCompanyInvoicingOnly) {
+      return [INVOICES_MODULE, QUOTES_MODULE, CUSTOMERS_MODULE, PRICE_LIST_TABLE, COMPANY_SETTINGS_MODULE];
     }
     const userBaseTables = Array.from(
       new Set([DAILY_OVERVIEW_TABLE, ...tableNames.filter((table) => !isCompaniesTable(table) && (table === "stock" || isTransactionsTable(table)))])
@@ -5194,7 +5207,7 @@ function App() {
         ...(canAccessMesModule ? [PRODUCTION_MODULE] : [])
       ])
     );
-  }, [isMaster, isActiveCompanyBasicFree, canAccessOrdersModule, canAccessMesModule]);
+  }, [isMaster, isActiveCompanyBasicFree, isActiveCompanyInvoicingOnly, canAccessOrdersModule, canAccessMesModule]);
   const normalizedStockTwinLayout = useMemo(() => normalizeStockTwinLayout(stockTwinLayout), [stockTwinLayout]);
   const customersById = useMemo(
     () => Object.fromEntries(customers.map((customer) => [customer.id, customer])),
@@ -10904,7 +10917,7 @@ function App() {
         return;
       }
       setAuthInitTimedOut(true);
-      setAuthError((prev) => prev || "Auth init timeout. Skontroluj Vercel env a Supabase dostupnosť.");
+      setAuthError((prev) => prev || "Auth init timeout. Skontroluj Vercel env a dostupnosť backendu.");
     }, AUTH_INIT_TIMEOUT_MS);
 
     const hydrateFromSession = async (session) => {
@@ -17687,7 +17700,7 @@ function App() {
                   <th>Firma</th>
                   <th>Objednávky + výroba</th>
                   <th>MES / HMI</th>
-                  <th>Supabase</th>
+                  <th>Databáza</th>
                   <th>Vytvorené</th>
                   <th>Akcie</th>
                 </tr>

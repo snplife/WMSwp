@@ -13410,7 +13410,7 @@ function App() {
     const stockItems = [
       DAILY_OVERVIEW_TABLE,
       "stock",
-      ...Array.from(TRANSACTIONS_TABLE_NAMES)
+      ...Array.from(TRANSACTION_TABLE_ALIASES)
     ].filter((table) => visibleTableNames.includes(table));
     const mesItems = [PRODUCTION_MODULE].filter((table) => visibleTableNames.includes(table));
     const attendanceItems = [ROLE_TABLE, ATTENDANCE_MODULE, ATTENDANCE_GROUPS_MODULE, ATTENDANCE_SETTINGS_MODULE].filter((table) =>

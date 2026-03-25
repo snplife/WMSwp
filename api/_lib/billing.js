@@ -265,6 +265,11 @@ function resolveSiteUrl(req) {
   return `${protocol}://${host}`;
 }
 
+function normalizePersistedBillingPlanKey(planKey) {
+  const normalized = String(planKey || "").trim().toLowerCase();
+  return normalized === "monthly" || normalized === "annual" ? normalized : null;
+}
+
 async function updateCompanyBilling(companyId, patch) {
   const normalizedCompanyId = String(companyId || "").trim();
   if (!normalizedCompanyId) {
@@ -486,6 +491,53 @@ async function ensureMasterCheckoutCustomer({ masterCompanyId, company, checkout
 
   if (error) {
     throw new Error(`master customer insert failed: ${error.message}`);
+  }
+
+  return data.id;
+}
+
+async function ensureMasterRegistrationCustomer({ masterCompanyId, company, appUser, contactPhone = "" }) {
+  const customerName = sanitizeText(company?.name, 120) || "Firma";
+  const customerEmail = sanitizeText(appUser?.email || company?.billing_email || "", 120).toLowerCase();
+  const customerPhone = sanitizeText(contactPhone, 40);
+  const customerNote = `Auto-created from web registration for company ${sanitizeText(company?.name, 120)} (${sanitizeText(company?.id, 60)}).`;
+  const existingCustomer = await findExistingCustomerByName(masterCompanyId, customerName);
+
+  if (existingCustomer?.id) {
+    const { error: updateError } = await getSupabaseAdmin()
+      .from("customers")
+      .update({
+        email: customerEmail || existingCustomer.email || null,
+        phone: customerPhone || existingCustomer.phone || null,
+        note: customerNote
+      })
+      .eq("id", existingCustomer.id);
+
+    if (updateError) {
+      throw new Error(`master registration customer update failed: ${updateError.message}`);
+    }
+
+    return existingCustomer.id;
+  }
+
+  const { data, error } = await getSupabaseAdmin()
+    .from("customers")
+    .insert([
+      {
+        company_id: masterCompanyId,
+        name: customerName,
+        email: customerEmail || null,
+        phone: customerPhone || null,
+        address: null,
+        note: customerNote,
+        created_by: null
+      }
+    ])
+    .select("id")
+    .single();
+
+  if (error) {
+    throw new Error(`master registration customer insert failed: ${error.message}`);
   }
 
   return data.id;
@@ -738,6 +790,225 @@ async function createMasterOrderFromInterestSetup({ company, appUser, setup }) {
   };
 }
 
+async function upsertMasterCrmLead({ masterCompanyId, sourceCompanyId, appUser, setup, orderNumber }) {
+  const normalizedMasterCompanyId = String(masterCompanyId || "").trim();
+  if (!normalizedMasterCompanyId) {
+    return null;
+  }
+
+  const selectedModuleSummary = setup.selectedModules.map((item) => item.label).join(", ");
+  const hardwareSummary = setup.hardwareItems.length > 0
+    ? setup.hardwareItems.map((item) => `${item.label} x${item.quantity}`).join(", ")
+    : "";
+  const note = [
+    "Lead z onboardingu",
+    setup.setupNote ? sanitizeText(setup.setupNote, 240) : "",
+    selectedModuleSummary ? `moduly: ${selectedModuleSummary}` : "",
+    hardwareSummary ? `hardware: ${hardwareSummary}` : "",
+    appUser?.email ? `kontakt: ${sanitizeText(appUser.email, 120)}` : "",
+    setup.contactPhone ? `telefon: ${sanitizeText(setup.contactPhone, 40)}` : ""
+  ]
+    .filter(Boolean)
+    .join(" | ")
+    .slice(0, 1000);
+
+  const normalizedSourceCompanyId = String(sourceCompanyId || "").trim();
+  let existingLead = null;
+  if (normalizedSourceCompanyId) {
+    const { data, error } = await getSupabaseAdmin()
+      .from("crm_companies")
+      .select("id")
+      .eq("company_id", normalizedMasterCompanyId)
+      .eq("source_company_id", normalizedSourceCompanyId)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(`crm lead lookup failed: ${error.message}`);
+    }
+    existingLead = data || null;
+  }
+
+  const payload = {
+    company_id: normalizedMasterCompanyId,
+    source_company_id: normalizedSourceCompanyId || null,
+    name: sanitizeText(setup.companyName || "Firma", 120) || "Firma",
+    source: "onboarding",
+    pipeline_status: "new",
+    contact_email: sanitizeText(appUser?.email || "", 120).toLowerCase(),
+    contact_phone: sanitizeText(setup.contactPhone || "", 40),
+    note,
+    lead_modules: selectedModuleSummary,
+    lead_hardware: hardwareSummary,
+    external_reference: sanitizeText(orderNumber || "", 120),
+    updated_by: null
+  };
+
+  let crmLeadId = existingLead?.id || null;
+  if (crmLeadId) {
+    const { error } = await getSupabaseAdmin()
+      .from("crm_companies")
+      .update(payload)
+      .eq("id", crmLeadId);
+
+    if (error) {
+      throw new Error(`crm lead update failed: ${error.message}`);
+    }
+  } else {
+    const { data, error } = await getSupabaseAdmin()
+      .from("crm_companies")
+      .insert([{ ...payload, created_by: null }])
+      .select("id")
+      .single();
+
+    if (error) {
+      throw new Error(`crm lead insert failed: ${error.message}`);
+    }
+    crmLeadId = data?.id || null;
+  }
+
+  if (crmLeadId) {
+    const { error } = await getSupabaseAdmin()
+      .from("crm_activities")
+      .insert([
+        {
+          company_id: normalizedMasterCompanyId,
+          crm_company_id: crmLeadId,
+          activity_type: "system",
+          title: "Lead z onboardingu",
+          note,
+          created_by: null
+        }
+      ]);
+
+    if (error) {
+      throw new Error(`crm lead activity insert failed: ${error.message}`);
+    }
+  }
+
+  return crmLeadId;
+}
+
+async function upsertMasterCrmRegistrationLead({ masterCompanyId, sourceCompanyId, company, appUser, contactPhone = "" }) {
+  const normalizedMasterCompanyId = String(masterCompanyId || "").trim();
+  if (!normalizedMasterCompanyId) {
+    return null;
+  }
+
+  const normalizedSourceCompanyId = String(sourceCompanyId || "").trim();
+  let existingLead = null;
+  if (normalizedSourceCompanyId) {
+    const { data, error } = await getSupabaseAdmin()
+      .from("crm_companies")
+      .select("id")
+      .eq("company_id", normalizedMasterCompanyId)
+      .eq("source_company_id", normalizedSourceCompanyId)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(`crm registration lookup failed: ${error.message}`);
+    }
+    existingLead = data || null;
+  }
+
+  const note = [
+    "Lead z registracie na webe",
+    appUser?.email ? `kontakt: ${sanitizeText(appUser.email, 120)}` : "",
+    contactPhone ? `telefon: ${sanitizeText(contactPhone, 40)}` : "",
+    company?.id ? `source company: ${sanitizeText(company.id, 60)}` : ""
+  ]
+    .filter(Boolean)
+    .join(" | ")
+    .slice(0, 1000);
+
+  const payload = {
+    company_id: normalizedMasterCompanyId,
+    source_company_id: normalizedSourceCompanyId || null,
+    name: sanitizeText(company?.name || "Firma", 120) || "Firma",
+    source: "manual",
+    pipeline_status: "new",
+    contact_email: sanitizeText(appUser?.email || "", 120).toLowerCase(),
+    contact_phone: sanitizeText(contactPhone, 40),
+    note,
+    lead_modules: "",
+    lead_hardware: "",
+    external_reference: normalizedSourceCompanyId || null,
+    updated_by: null
+  };
+
+  let crmLeadId = existingLead?.id || null;
+  if (crmLeadId) {
+    const { error } = await getSupabaseAdmin()
+      .from("crm_companies")
+      .update(payload)
+      .eq("id", crmLeadId);
+
+    if (error) {
+      throw new Error(`crm registration update failed: ${error.message}`);
+    }
+  } else {
+    const { data, error } = await getSupabaseAdmin()
+      .from("crm_companies")
+      .insert([{ ...payload, created_by: null }])
+      .select("id")
+      .single();
+
+    if (error) {
+      throw new Error(`crm registration insert failed: ${error.message}`);
+    }
+    crmLeadId = data?.id || null;
+  }
+
+  if (crmLeadId) {
+    const { error } = await getSupabaseAdmin()
+      .from("crm_activities")
+      .insert([
+        {
+          company_id: normalizedMasterCompanyId,
+          crm_company_id: crmLeadId,
+          activity_type: "system",
+          title: "Registracia na webe",
+          note,
+          created_by: null
+        }
+      ]);
+
+    if (error) {
+      throw new Error(`crm registration activity insert failed: ${error.message}`);
+    }
+  }
+
+  return crmLeadId;
+}
+
+export async function syncRegisteredCompanyToMasterSales({ company, appUser, contactPhone = "" }) {
+  const masterCompanyId = await resolveMasterSalesCompanyId(String(company?.id || "").trim());
+  if (!masterCompanyId) {
+    return { ok: false, reason: "master_company_not_found" };
+  }
+
+  const customerId = await ensureMasterRegistrationCustomer({
+    masterCompanyId,
+    company,
+    appUser,
+    contactPhone
+  });
+
+  const crmCompanyId = await upsertMasterCrmRegistrationLead({
+    masterCompanyId,
+    sourceCompanyId: company?.id || null,
+    company,
+    appUser,
+    contactPhone
+  });
+
+  return {
+    ok: true,
+    masterCompanyId,
+    customerId: customerId || null,
+    crmCompanyId: crmCompanyId || null
+  };
+}
+
 export async function submitCompanyInterest({ company, appUser, onboardingSetup, req }) {
   const normalizedSetup = normalizeCheckoutSetup(onboardingSetup);
   const masterOrder = await createMasterOrderFromInterestSetup({
@@ -768,8 +1039,22 @@ export async function submitCompanyInterest({ company, appUser, onboardingSetup,
   await updateCompanyBilling(company?.id, {
     billing_status: "lead",
     billing_price_note: leadNote,
-    billing_checkout_session_id: masterOrder?.orderNumber || null
+    billing_checkout_session_id: masterOrder?.orderNumber || null,
+    lead_contacted_at: null,
+    lead_contacted_by: null
   });
+
+  try {
+    await upsertMasterCrmLead({
+      masterCompanyId: masterOrder?.masterCompanyId || null,
+      sourceCompanyId: company?.id || null,
+      appUser,
+      setup: normalizedSetup,
+      orderNumber: masterOrder?.orderNumber || null
+    });
+  } catch (crmError) {
+    console.warn("CRM lead sync skipped:", crmError?.message || crmError);
+  }
 
   return {
     ok: true,
@@ -868,11 +1153,14 @@ export async function createCheckoutSession({ company, user, appUser, billingCyc
     await updateCompanyBilling(company?.id, {
       billing_email: String(appUser?.email || user?.email || company?.billing_email || "").trim().toLowerCase() || null,
       billing_status: "active",
-      billing_plan_key: "basic_free",
+      billing_plan_key: null,
       billing_interval: null,
       billing_currency: "eur",
       billing_subscription_id: null,
       billing_price_id: null,
+      billing_price_monthly: 0,
+      billing_price_annual: 0,
+      billing_setup_fee: 0,
       billing_checkout_session_id: null,
       billing_cancel_at_period_end: false,
       billing_current_period_end: null
@@ -923,9 +1211,16 @@ export async function createCheckoutSession({ company, user, appUser, billingCyc
   await updateCompanyBilling(company?.id, {
     stripe_customer_id: stripeCustomerId,
     billing_email: String(appUser?.email || user?.email || company?.billing_email || "").trim().toLowerCase() || null,
-    billing_plan_key: cycleConfig.planKey,
+    billing_plan_key: normalizePersistedBillingPlanKey(cycleConfig.planKey),
     billing_interval: checkoutMode === "subscription" ? cycleConfig.interval : null,
     billing_currency: "eur",
+    ...(effectivePricing.isFreeBasic
+      ? {
+          billing_price_monthly: 0,
+          billing_price_annual: 0,
+          billing_setup_fee: 0
+        }
+      : {}),
     billing_checkout_session_id: session.id
   });
 
@@ -994,11 +1289,14 @@ export async function processStripeWebhookEvent(event) {
     } else if (String(object?.metadata?.free_basic || "").trim() === "true") {
       await updateCompanyBilling(company.id, {
         billing_status: "active",
-        billing_plan_key: "basic_free",
+        billing_plan_key: null,
         billing_interval: null,
         billing_currency: "eur",
         billing_subscription_id: null,
         billing_price_id: null,
+        billing_price_monthly: 0,
+        billing_price_annual: 0,
+        billing_setup_fee: 0,
         billing_cancel_at_period_end: false,
         billing_current_period_end: null,
         billing_checkout_session_id: object?.id || null

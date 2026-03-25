@@ -7,7 +7,7 @@ import * as XLSX from "xlsx";
 import { installHotjar, uninstallHotjar } from "./hotjar";
 import StatusPill from "./components/StatusPill";
 import { clearSupabaseAuthStorage, noStoreFetch, supabase, supabaseAnonKey, supabaseUrl, tableNames } from "./supabaseClient";
-import { estimateWmsPricing, normalizeBillingPriceValue, resolveCompanyBillingPricing } from "../shared/billingPricing";
+import { estimateWmsPricing, isCompanyOnBasicFreePlan, normalizeBillingPriceValue, resolveCompanyBillingPricing } from "../shared/billingPricing";
 import logo from "../logo.png";
 
 const DAILY_OVERVIEW_TABLE = "__daily_overview__";
@@ -5683,8 +5683,8 @@ function App() {
     [activeCompany?.billing_status]
   );
   const isActiveCompanyBasicFree = useMemo(
-    () => !isMaster && String(activeCompany?.billing_plan_key || "").trim().toLowerCase() === "basic_free",
-    [isMaster, activeCompany?.billing_plan_key]
+    () => !isMaster && isCompanyOnBasicFreePlan(activeCompany),
+    [isMaster, activeCompany]
   );
   const shouldShowLeadContactNotice = useMemo(
     () =>

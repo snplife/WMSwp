@@ -139,6 +139,21 @@ export function resolveBillingCycleConfig(estimate, billingCycle = "monthly") {
   };
 }
 
+export function isCompanyOnBasicFreePlan(company = {}) {
+  const normalizedPlanKey = String(company?.billing_plan_key || "").trim().toLowerCase();
+  if (normalizedPlanKey === "basic_free") {
+    return true;
+  }
+
+  const normalizedStatus = String(company?.billing_status || "").trim().toLowerCase();
+  const hasSubscription = Boolean(String(company?.billing_subscription_id || "").trim());
+  const monthly = normalizeBillingPriceValue(company?.billing_price_monthly);
+  const annual = normalizeBillingPriceValue(company?.billing_price_annual);
+  const setup = normalizeBillingPriceValue(company?.billing_setup_fee);
+
+  return !hasSubscription && normalizedStatus === "active" && monthly === 0 && annual === 0 && setup === 0;
+}
+
 export function buildBillingLineItemDescription(estimate) {
   if (estimate?.isFreeBasic) {
     return "Basic fakturacia a cenove ponuky zdarma";
@@ -164,7 +179,7 @@ export function resolveCompanyBillingPricing(company = {}, estimateInput = {}) {
   const annualOverride = normalizeBillingPriceValue(company?.billing_price_annual);
   const setupOverride = normalizeBillingPriceValue(company?.billing_setup_fee);
   const note = String(company?.billing_price_note || "").trim();
-  const isFreeBasicPlan = String(company?.billing_plan_key || "").trim().toLowerCase() === "basic_free";
+  const isFreeBasicPlan = isCompanyOnBasicFreePlan(company);
   const usesCustomPricing = monthlyOverride !== null || annualOverride !== null || setupOverride !== null || Boolean(note);
   const monthly = isFreeBasicPlan ? 0 : monthlyOverride ?? estimate.monthly;
   const annualDiscounted = isFreeBasicPlan ? 0 : annualOverride ?? estimate.annualDiscounted;

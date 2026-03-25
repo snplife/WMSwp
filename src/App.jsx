@@ -4182,6 +4182,19 @@ function hasCompanyCustomPricing(company) {
   );
 }
 
+function trackMetaPixelEvent(eventName, payload) {
+  if (typeof window === "undefined" || typeof window.fbq !== "function") {
+    return;
+  }
+
+  if (payload && typeof payload === "object") {
+    window.fbq("track", eventName, payload);
+    return;
+  }
+
+  window.fbq("track", eventName);
+}
+
 function parseLeadBillingNote(note) {
   const parts = String(note || "")
     .split("|")
@@ -15403,6 +15416,7 @@ function App() {
     if (activeUser) {
       try {
         await completeAuthBootstrapForUser(activeUser, username);
+        trackMetaPixelEvent("CompleteRegistration");
       } catch (bootstrapError) {
         setAuthError(bootstrapError?.message || "Účet je vytvorený, ale onboarding firmy zlyhal.");
         setAuthSubmitting(false);

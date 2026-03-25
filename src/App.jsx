@@ -11,6 +11,7 @@ import { estimateWmsPricing, normalizeBillingPriceValue, resolveCompanyBillingPr
 import logo from "../logo.png";
 
 const DAILY_OVERVIEW_TABLE = "__daily_overview__";
+const CRM_MODULE = "__crm__";
 const CUSTOMERS_MODULE = "__customers__";
 const QUOTES_MODULE = "__quotes__";
 const INVOICES_MODULE = "__invoices__";
@@ -40,6 +41,22 @@ const ATTENDANCE_SHIFT_OPTIONS = [
   { value: "three_shift", label: "Trojzmenná" },
   { value: "continuous", label: "Nepretržitá" },
   { value: "custom", label: "Vlastný režim" }
+];
+const CRM_PIPELINE_OPTIONS = [
+  { value: "new", label: "Nový lead" },
+  { value: "contacted", label: "Oslovený" },
+  { value: "qualified", label: "Kvalifikovaný" },
+  { value: "proposal", label: "Ponuka" },
+  { value: "won", label: "Vyhraté" },
+  { value: "lost", label: "Prehraté" }
+];
+const CRM_ACTIVITY_TYPE_OPTIONS = [
+  { value: "note", label: "Poznámka" },
+  { value: "call", label: "Telefonát" },
+  { value: "email", label: "Email" },
+  { value: "meeting", label: "Stretnutie" },
+  { value: "task", label: "Úloha" },
+  { value: "system", label: "Systém" }
 ];
 const COMPANY_ADMIN_MODULE_OPTIONS = [
   { key: "wms", label: "WMS", description: "Sklad, pohyby materiálu, lokácie a mobilný picking", iconKey: "wms", pricingLabel: "Platené" },
@@ -223,6 +240,18 @@ const TABLE_CONFIG = {
     orderBy: "material_code",
     orderAsc: true,
     metricLabel: "Položky cenníka",
+    metricValue: (rows) => rows.length
+  },
+  [CRM_MODULE]: {
+    title: "CRM",
+    subtitle: "Leady, firmy, kontakty a follow-up pipeline",
+    columns: [],
+    searchKeys: [],
+    statusKeys: [],
+    timeKeys: [],
+    orderBy: "created_at",
+    orderAsc: false,
+    metricLabel: "CRM firmy",
     metricValue: (rows) => rows.length
   },
   [CUSTOMERS_MODULE]: {
@@ -713,6 +742,10 @@ function isCustomerModule(table) {
   return String(table || "").trim() === CUSTOMERS_MODULE;
 }
 
+function isCrmModule(table) {
+  return String(table || "").trim() === CRM_MODULE;
+}
+
 function isQuoteModule(table) {
   return String(table || "").trim() === QUOTES_MODULE;
 }
@@ -757,6 +790,7 @@ function isHrTable(table) {
 function isWorkflowModule(table) {
   return (
     isCompanySettingsModule(table) ||
+    isCrmModule(table) ||
     isEmployeesModule(table) ||
     isCustomerModule(table) ||
     isQuoteModule(table) ||
@@ -3750,7 +3784,9 @@ function normalizeCompanyRecord(row) {
     billing_current_period_end: row.billing_current_period_end || null,
     billing_trial_ends_at: row.billing_trial_ends_at || null,
     billing_cancel_at_period_end: Boolean(row.billing_cancel_at_period_end),
-    billing_checkout_session_id: String(row.billing_checkout_session_id || "").trim()
+    billing_checkout_session_id: String(row.billing_checkout_session_id || "").trim(),
+    lead_contacted_at: row.lead_contacted_at || null,
+    lead_contacted_by: row.lead_contacted_by || null
   };
 }
 
@@ -3789,6 +3825,65 @@ function hasCompanyCustomPricing(company) {
     normalizeBillingPriceValue(company?.billing_setup_fee) !== null ||
     Boolean(String(company?.billing_price_note || "").trim())
   );
+}
+
+function parseLeadBillingNote(note) {
+  const parts = String(note || "")
+    .split("|")
+    .map((part) => String(part || "").trim())
+    .filter(Boolean);
+
+  const findValue = (prefix) => {
+    const entry = parts.find((part) => part.toLowerCase().startsWith(prefix));
+    return entry ? entry.slice(prefix.length).trim() : "";
+  };
+
+  return {
+    modules: findValue("moduly:"),
+    hardware: findValue("hardware:"),
+    contactEmail: findValue("kontakt:"),
+    contactPhone: findValue("telefon:")
+  };
+}
+
+function normalizeCrmCompanyRecord(row) {
+  if (!row || typeof row !== "object") {
+    return row;
+  }
+  return {
+    ...row,
+    name: String(row.name || "").trim(),
+    source: String(row.source || "manual").trim().toLowerCase(),
+    pipeline_status: String(row.pipeline_status || "new").trim().toLowerCase(),
+    contact_name: String(row.contact_name || "").trim(),
+    contact_email: String(row.contact_email || "").trim(),
+    contact_phone: String(row.contact_phone || "").trim(),
+    note: String(row.note || "").trim(),
+    lead_modules: String(row.lead_modules || "").trim(),
+    lead_hardware: String(row.lead_hardware || "").trim(),
+    external_reference: String(row.external_reference || "").trim(),
+    created_at: row.created_at || null,
+    updated_at: row.updated_at || null
+  };
+}
+
+function normalizeCrmActivityRecord(row) {
+  if (!row || typeof row !== "object") {
+    return row;
+  }
+  return {
+    ...row,
+    activity_type: String(row.activity_type || "note").trim().toLowerCase(),
+    title: String(row.title || "").trim(),
+    note: String(row.note || "").trim(),
+    happened_at: row.happened_at || null,
+    created_at: row.created_at || null
+  };
+}
+
+function formatCrmPipelineStatus(status) {
+  const normalized = String(status || "new").trim().toLowerCase();
+  return CRM_PIPELINE_OPTIONS.find((option) => option.value === normalized)?.label || normalized;
 }
 
 function normalizeCompanyProfileRecord(row) {
@@ -3840,6 +3935,7 @@ function normalizeManagedUserRecord(row) {
     ...row,
     can_manage_orders: Boolean(row.can_manage_orders),
     can_access_mes: Boolean(row.can_access_mes),
+    can_access_attendance: Boolean(row.can_access_attendance),
     db_url: row.db_url || DEFAULT_DB_URL || null,
     db_anon_key: row.db_anon_key || DEFAULT_DB_ANON_KEY || null
   };
@@ -4801,6 +4897,7 @@ function App() {
   const [userCompanyId, setUserCompanyId] = useState(null);
   const [canManageOrders, setCanManageOrders] = useState(false);
   const [canAccessMes, setCanAccessMes] = useState(false);
+  const [canAccessAttendance, setCanAccessAttendance] = useState(false);
   const [companies, setCompanies] = useState([]);
   const [companyProfiles, setCompanyProfiles] = useState([]);
   const [companiesError, setCompaniesError] = useState("");
@@ -4830,6 +4927,7 @@ function App() {
   const [newUserCompanyId, setNewUserCompanyId] = useState("");
   const [newUserCanManageOrders, setNewUserCanManageOrders] = useState(false);
   const [newUserCanAccessMes, setNewUserCanAccessMes] = useState(false);
+  const [newUserCanAccessAttendance, setNewUserCanAccessAttendance] = useState(false);
   const [lastCreatedDemoCredentials, setLastCreatedDemoCredentials] = useState(null);
   const [newCompanyName, setNewCompanyName] = useState("");
   const [newCompanyTracksExpiryDate, setNewCompanyTracksExpiryDate] = useState(false);
@@ -4977,6 +5075,29 @@ function App() {
   const [attendanceManagementNoteInput, setAttendanceManagementNoteInput] = useState("");
   const [attendanceManagementHappenedAtInput, setAttendanceManagementHappenedAtInput] = useState(() => formatDateTimeLocalInputValue());
   const [attendanceManagementSubmittingId, setAttendanceManagementSubmittingId] = useState("");
+  const [crmCompanies, setCrmCompanies] = useState([]);
+  const [crmActivities, setCrmActivities] = useState([]);
+  const [crmLoading, setCrmLoading] = useState(false);
+  const [crmError, setCrmError] = useState("");
+  const [crmSearchTerm, setCrmSearchTerm] = useState("");
+  const [editingCrmCompanyId, setEditingCrmCompanyId] = useState("");
+  const [selectedCrmCompanyId, setSelectedCrmCompanyId] = useState("");
+  const [crmCompanyCompanyIdInput, setCrmCompanyCompanyIdInput] = useState("");
+  const [crmCompanyNameInput, setCrmCompanyNameInput] = useState("");
+  const [crmCompanySourceInput, setCrmCompanySourceInput] = useState("manual");
+  const [crmCompanyStatusInput, setCrmCompanyStatusInput] = useState("new");
+  const [crmCompanyContactNameInput, setCrmCompanyContactNameInput] = useState("");
+  const [crmCompanyContactEmailInput, setCrmCompanyContactEmailInput] = useState("");
+  const [crmCompanyContactPhoneInput, setCrmCompanyContactPhoneInput] = useState("");
+  const [crmCompanyNextContactAtInput, setCrmCompanyNextContactAtInput] = useState("");
+  const [crmCompanyModulesInput, setCrmCompanyModulesInput] = useState("");
+  const [crmCompanyHardwareInput, setCrmCompanyHardwareInput] = useState("");
+  const [crmCompanyNoteInput, setCrmCompanyNoteInput] = useState("");
+  const [crmSubmitting, setCrmSubmitting] = useState(false);
+  const [crmActivityTypeInput, setCrmActivityTypeInput] = useState("note");
+  const [crmActivityTitleInput, setCrmActivityTitleInput] = useState("");
+  const [crmActivityNoteInput, setCrmActivityNoteInput] = useState("");
+  const [crmActivitySubmitting, setCrmActivitySubmitting] = useState(false);
   const [customers, setCustomers] = useState([]);
   const [quotes, setQuotes] = useState([]);
   const [quoteItems, setQuoteItems] = useState([]);
@@ -5077,6 +5198,7 @@ function App() {
   const isCompanyAdmin = !isMaster && canManageOrders && Boolean(userCompanyId);
   const canUseCompanyAdminOnboarding = isMaster || isCompanyAdmin;
   const canAccessOrdersModule = isMaster || canManageOrders;
+  const canAccessAttendanceModule = isMaster || canAccessAttendance;
   const hotjarAllowed = (authReady || authInitTimedOut) && (!isLoggedIn || !isMaster);
   const companyNameById = useMemo(
     () =>
@@ -5129,18 +5251,10 @@ function App() {
     () => !isMaster && String(activeCompany?.billing_plan_key || "").trim().toLowerCase() === "basic_free",
     [isMaster, activeCompany?.billing_plan_key]
   );
-  const activeCompanyLeadSetup = useMemo(() => {
-    if (!activeCompanyId) {
-      return null;
-    }
-
-    const currentDraftCompanyId = String(companyAdminSetupDraft?.companyId || "").trim();
-    if (currentDraftCompanyId && currentDraftCompanyId === activeCompanyId) {
-      return companyAdminSetupDraft;
-    }
-
-    return getStoredCompanyAdminSetup(activeCompanyId);
-  }, [activeCompanyId, companyAdminSetupDraft]);
+  const shouldShowLeadContactNotice = useMemo(
+    () => !isMaster && !isCompanyAdminOnboardingActive && activeCompanyBillingStatus === "lead" && !activeCompany?.lead_contacted_at,
+    [isMaster, isCompanyAdminOnboardingActive, activeCompanyBillingStatus, activeCompany?.lead_contacted_at]
+  );
   const activateCompanyAdminOnboarding = (targetCompanyId, overrides = {}) => {
     const normalizedCompanyId = String(targetCompanyId || "").trim();
     if (!normalizedCompanyId) {
@@ -5186,14 +5300,6 @@ function App() {
     setCompanyAdminOnboardingError("");
     setCompanyAdminSetupMessage("");
   };
-  const isLeadWaitingCompany = useMemo(() => {
-    if (isMaster || isCompanyAdminOnboardingActive || activeCompanyBillingStatus !== "lead") {
-      return false;
-    }
-
-    const leadModules = COMPANY_ADMIN_MODULE_OPTIONS.filter((option) => activeCompanyLeadSetup?.moduleSelections?.[option.key]);
-    return !(leadModules.length > 0 && leadModules.every((module) => module.key === "invoicing"));
-  }, [isMaster, isCompanyAdminOnboardingActive, activeCompanyBillingStatus, activeCompanyLeadSetup]);
   const activeCompanyHasManagedBilling = useMemo(
     () => hasManagedCompanyBilling(activeCompany),
     [activeCompany]
@@ -5202,6 +5308,12 @@ function App() {
     () => resolveCompanyBillingPricing(activeCompany || {}, pricingEstimate),
     [activeCompany, pricingEstimate]
   );
+  useEffect(() => {
+    if (editingCrmCompanyId) {
+      return;
+    }
+    setCrmCompanyCompanyIdInput(activeCompanyId || "");
+  }, [activeCompanyId, editingCrmCompanyId]);
   useEffect(() => {
     if (!isLoggedIn || !activeCompanyId || (!isMaster && !canManageOrders)) {
       setCompanyInvites([]);
@@ -5220,6 +5332,7 @@ function App() {
           SYSTEM_ADMIN_MODULE,
           ...tableNames,
           COMPANY_SETTINGS_MODULE,
+          CRM_MODULE,
           ROLE_TABLE,
           PRICE_LIST_TABLE,
           CUSTOMERS_MODULE,
@@ -5234,7 +5347,7 @@ function App() {
       );
     }
     if (isActiveCompanyBasicFree) {
-      return [INVOICES_MODULE, QUOTES_MODULE, CUSTOMERS_MODULE, PRICE_LIST_TABLE, COMPANY_SETTINGS_MODULE];
+      return [CRM_MODULE, INVOICES_MODULE, QUOTES_MODULE, CUSTOMERS_MODULE, PRICE_LIST_TABLE, COMPANY_SETTINGS_MODULE];
     }
     const userBaseTables = Array.from(
       new Set([DAILY_OVERVIEW_TABLE, ...tableNames.filter((table) => !isCompaniesTable(table) && (table === "stock" || isTransactionsTable(table)))])
@@ -5244,6 +5357,7 @@ function App() {
     }
     return Array.from(
       new Set([
+        CRM_MODULE,
         PRICE_LIST_TABLE,
         COMPANY_SETTINGS_MODULE,
         ...userBaseTables,
@@ -5251,15 +5365,15 @@ function App() {
         CUSTOMERS_MODULE,
         QUOTES_MODULE,
         INVOICES_MODULE,
-        ...(canAccessOrdersModule ? [ROLE_TABLE] : []),
         ...(canAccessOrdersModule ? [ORDERS_MODULE] : []),
-        ...(canAccessOrdersModule ? [ATTENDANCE_MODULE] : []),
-        ...(canAccessOrdersModule ? [ATTENDANCE_GROUPS_MODULE] : []),
-        ...(canAccessOrdersModule ? [ATTENDANCE_SETTINGS_MODULE] : []),
+        ...(canAccessAttendanceModule ? [ROLE_TABLE] : []),
+        ...(canAccessAttendanceModule ? [ATTENDANCE_MODULE] : []),
+        ...(canAccessAttendanceModule ? [ATTENDANCE_GROUPS_MODULE] : []),
+        ...(canAccessAttendanceModule ? [ATTENDANCE_SETTINGS_MODULE] : []),
         ...(canAccessMesModule ? [PRODUCTION_MODULE] : [])
       ])
     );
-  }, [isMaster, isActiveCompanyBasicFree, canAccessOrdersModule, canAccessMesModule]);
+  }, [isMaster, isActiveCompanyBasicFree, canAccessOrdersModule, canAccessAttendanceModule, canAccessMesModule]);
   const normalizedStockTwinLayout = useMemo(() => normalizeStockTwinLayout(stockTwinLayout), [stockTwinLayout]);
   const customersById = useMemo(
     () => Object.fromEntries(customers.map((customer) => [customer.id, customer])),
@@ -5570,6 +5684,7 @@ function App() {
       effectiveMaxPositions,
       tracksExpiryDate: Boolean(activeCompany?.tracks_expiry_date),
       canAccessOrdersModule,
+      canAccessAttendanceModule,
       canAccessMesModule
   });
   const markViewDataFresh = (table = selectedTable) => {
@@ -6242,9 +6357,7 @@ function App() {
       setIsCompanyAdminOnboardingActive(false);
       setCompanyAdminOnboardingStep(0);
       clearPendingCompanyAdminSetup();
-      if (selectedOnlyInvoicingModule) {
-        setSelectedTable(DAILY_OVERVIEW_TABLE);
-      }
+      setSelectedTable(DAILY_OVERVIEW_TABLE);
     } catch (onboardingError) {
       setCompanyAdminOnboardingError(onboardingError?.message || "Onboarding sa nepodarilo dokončiť.");
     } finally {
@@ -6434,33 +6547,46 @@ function App() {
     }
   };
 
-  const handleReleaseLeadCompany = async (companyId) => {
-    const normalizedCompanyId = String(companyId || "").trim();
+  const handleLeadContactedToggle = async (company, nextValue) => {
+    const normalizedCompanyId = String(company?.id || "").trim();
     if (!normalizedCompanyId || !isMaster) {
       return;
     }
 
-    setBillingSubmittingAction(`release-lead-${normalizedCompanyId}`);
+    setBillingSubmittingAction(`lead-contact-${normalizedCompanyId}`);
     setBillingError("");
+    setBillingMessage("");
+
+    const payload = nextValue
+      ? {
+          lead_contacted_at: new Date().toISOString(),
+          lead_contacted_by: authUser?.id || null
+        }
+      : {
+          lead_contacted_at: null,
+          lead_contacted_by: null
+        };
 
     const { data, error: updateError } = await supabase
       .from("companies")
-      .update({
-        billing_status: "inactive"
-      })
+      .update(payload)
       .eq("id", normalizedCompanyId)
       .select("*")
       .single();
 
     if (updateError) {
-      setBillingError(updateError.message || "Nepodarilo sa odblokovať firmu.");
+      setBillingError(updateError.message || "Nepodarilo sa uložiť stav oslovenia.");
       setBillingSubmittingAction("");
       return;
     }
 
     const normalizedCompany = normalizeCompanyRecord(data);
-    setCompanies((prev) => prev.map((company) => (company.id === normalizedCompanyId ? normalizedCompany : company)));
-    setBillingMessage("Firma je odblokovaná a môže vstúpiť do aplikácie.");
+    setCompanies((prev) => prev.map((row) => (row.id === normalizedCompanyId ? normalizedCompany : row)));
+    setBillingMessage(
+      nextValue
+        ? `Firma ${normalizedCompany.name || ""} je označená ako oslovená.`
+        : `Firma ${normalizedCompany.name || ""} je znovu otvorená v zozname na kontaktovanie.`
+    );
     setBillingSubmittingAction("");
   };
 
@@ -7133,6 +7259,7 @@ function App() {
         role: rowRole,
         can_manage_orders: rowRole === "master",
         can_access_mes: rowRole === "master",
+        can_access_attendance: rowRole === "master",
         db_url: DEFAULT_DB_URL || null,
         db_anon_key: DEFAULT_DB_ANON_KEY || null,
         created_by: user.id
@@ -7141,7 +7268,15 @@ function App() {
     );
   };
 
-  const createManagedUserAccount = async ({ username, password, role, companyId, canManageOrders, canAccessMes: canAccessMesInput }) => {
+  const createManagedUserAccount = async ({
+    username,
+    password,
+    role,
+    companyId,
+    canManageOrders,
+    canAccessMes: canAccessMesInput,
+    canAccessAttendance: canAccessAttendanceInput
+  }) => {
     const normalizedUsername = normalizeUsernameInput(username);
     if (!normalizedUsername) {
       throw new Error("Zadaj login (username).");
@@ -7180,6 +7315,7 @@ function App() {
         role: normalizedRole,
         can_manage_orders: normalizedRole === "master" ? true : Boolean(canManageOrders),
         can_access_mes: normalizedRole === "master" ? true : Boolean(canAccessMesInput),
+        can_access_attendance: normalizedRole === "master" ? true : Boolean(canAccessAttendanceInput),
         company_id: effectiveCompanyId,
         db_url: DEFAULT_DB_URL || null,
         db_anon_key: DEFAULT_DB_ANON_KEY || null,
@@ -7217,7 +7353,8 @@ function App() {
         role: newUserRole,
         companyId: effectiveCompanyIdForUser,
         canManageOrders: newUserCanManageOrders,
-        canAccessMes: newUserCanAccessMes
+        canAccessMes: newUserCanAccessMes,
+        canAccessAttendance: newUserCanAccessAttendance
       });
 
       setNewUsername("");
@@ -7226,6 +7363,7 @@ function App() {
       setNewUserCompanyId("");
       setNewUserCanManageOrders(false);
       setNewUserCanAccessMes(false);
+      setNewUserCanAccessAttendance(false);
       setLastCreatedDemoCredentials(null);
       await loadManagedUsers();
     } catch (createError) {
@@ -7260,7 +7398,8 @@ function App() {
         role: "user",
         companyId,
         canManageOrders: true,
-        canAccessMes: true
+        canAccessMes: true,
+        canAccessAttendance: true
       });
 
       setLastCreatedDemoCredentials({
@@ -7296,7 +7435,8 @@ function App() {
       .update({
         role: nextRole,
         can_manage_orders: nextRole === "master" ? true : Boolean(row.can_manage_orders),
-        can_access_mes: nextRole === "master" ? true : Boolean(row.can_access_mes)
+        can_access_mes: nextRole === "master" ? true : Boolean(row.can_access_mes),
+        can_access_attendance: nextRole === "master" ? true : Boolean(row.can_access_attendance)
       })
       .eq("user_id", row.user_id);
 
@@ -7403,6 +7543,42 @@ function App() {
     await loadManagedUsers();
   };
 
+  const handleManagedAttendanceAccessChange = async (row, nextValue) => {
+    if (!row?.user_id || row.role === "master") {
+      return;
+    }
+
+    const normalizedNextValue = Boolean(nextValue);
+    setManagedUsersError("");
+    const { data: savedRow, error: updateError } = await supabase
+      .from(ROLE_TABLE)
+      .update({ can_access_attendance: normalizedNextValue })
+      .eq("user_id", row.user_id)
+      .select("*")
+      .maybeSingle();
+
+    if (updateError || !savedRow) {
+      setManagedUsersError(updateError?.message || "Nepodarilo sa uložiť prístup k dochádzke.");
+      return;
+    }
+
+    const normalizedSavedRow = normalizeManagedUserRecord(savedRow);
+    setManagedUsers((prev) =>
+      prev.map((managedUser) =>
+        managedUser.user_id === row.user_id
+          ? {
+              ...managedUser,
+              ...normalizedSavedRow
+            }
+          : managedUser
+      )
+    );
+    if (row.user_id === authUser?.id) {
+      setCanAccessAttendance(Boolean(normalizedSavedRow.can_access_attendance));
+    }
+    await loadManagedUsers();
+  };
+
   const handleManagedCompanyChange = async (row, nextCompanyId) => {
     if (!row?.user_id) {
       return;
@@ -7423,6 +7599,9 @@ function App() {
       return;
     }
 
+    if (row.user_id === authUser?.id) {
+      setUserCompanyId(normalizedCompany);
+    }
     await loadManagedUsers();
   };
 
@@ -8010,6 +8189,186 @@ function App() {
     return (data || []).map((row) => hydrateCustomerRecord(row));
   };
 
+  const resetCrmCompanyForm = () => {
+    setEditingCrmCompanyId("");
+    setCrmCompanyCompanyIdInput(activeCompanyId || "");
+    setCrmCompanyNameInput("");
+    setCrmCompanySourceInput("manual");
+    setCrmCompanyStatusInput("new");
+    setCrmCompanyContactNameInput("");
+    setCrmCompanyContactEmailInput("");
+    setCrmCompanyContactPhoneInput("");
+    setCrmCompanyNextContactAtInput("");
+    setCrmCompanyModulesInput("");
+    setCrmCompanyHardwareInput("");
+    setCrmCompanyNoteInput("");
+  };
+
+  const loadCrmModuleData = async () => {
+    if (!authReady || !isLoggedIn) {
+      setCrmCompanies([]);
+      setCrmActivities([]);
+      setCrmLoading(false);
+      setCrmError("");
+      return;
+    }
+
+    setCrmLoading(true);
+    setCrmError("");
+
+    try {
+      const scopedCompanyId = await resolveCustomerScope();
+      const crmCompaniesQuery = supabase
+        .from("crm_companies")
+        .select("*")
+        .order("created_at", { ascending: false });
+      const scopedCrmCompaniesQuery = scopedCompanyId ? crmCompaniesQuery.eq("company_id", scopedCompanyId) : crmCompaniesQuery;
+      const { data: companyRows, error: crmCompaniesError } = await scopedCrmCompaniesQuery;
+
+      if (crmCompaniesError) {
+        throw crmCompaniesError;
+      }
+
+      const normalizedCompanies = (companyRows || []).map((row) => normalizeCrmCompanyRecord(row));
+      const companyIds = normalizedCompanies.map((row) => row.id).filter(Boolean);
+      let activityRows = [];
+      if (companyIds.length > 0) {
+        const activitiesQuery = supabase
+          .from("crm_activities")
+          .select("*")
+          .in("crm_company_id", companyIds)
+          .order("happened_at", { ascending: false });
+        const { data, error: activitiesError } = await activitiesQuery;
+        if (activitiesError) {
+          throw activitiesError;
+        }
+        activityRows = (data || []).map((row) => normalizeCrmActivityRecord(row));
+      }
+
+      setCrmCompanies(normalizedCompanies);
+      setCrmActivities(activityRows);
+      if (!selectedCrmCompanyId && normalizedCompanies.length > 0) {
+        setSelectedCrmCompanyId(normalizedCompanies[0].id);
+      }
+      markViewDataFresh(CRM_MODULE);
+    } catch (loadCrmError) {
+      setCrmCompanies([]);
+      setCrmActivities([]);
+      setCrmError(loadCrmError?.message || "Nepodarilo sa načítať CRM.");
+    } finally {
+      setCrmLoading(false);
+    }
+  };
+
+  const handleEditCrmCompany = (company) => {
+    if (!company?.id) {
+      return;
+    }
+    setEditingCrmCompanyId(company.id);
+    setSelectedCrmCompanyId(company.id);
+    setCrmCompanyCompanyIdInput(company.company_id || activeCompanyId || "");
+    setCrmCompanyNameInput(String(company.name || ""));
+    setCrmCompanySourceInput(String(company.source || "manual"));
+    setCrmCompanyStatusInput(String(company.pipeline_status || "new"));
+    setCrmCompanyContactNameInput(String(company.contact_name || ""));
+    setCrmCompanyContactEmailInput(String(company.contact_email || ""));
+    setCrmCompanyContactPhoneInput(String(company.contact_phone || ""));
+    setCrmCompanyNextContactAtInput(company.next_contact_at ? formatDateTimeLocalInputValue(company.next_contact_at) : "");
+    setCrmCompanyModulesInput(String(company.lead_modules || ""));
+    setCrmCompanyHardwareInput(String(company.lead_hardware || ""));
+    setCrmCompanyNoteInput(String(company.note || ""));
+  };
+
+  const handleSaveCrmCompany = async (event) => {
+    event.preventDefault();
+    const targetCompanyId = String(crmCompanyCompanyIdInput || activeCompanyId || "").trim();
+    const name = String(crmCompanyNameInput || "").trim();
+    if (!targetCompanyId) {
+      setCrmError("Pre CRM záznam vyber firmu.");
+      return;
+    }
+    if (!name) {
+      setCrmError("Zadaj názov firmy alebo leadu.");
+      return;
+    }
+
+    setCrmSubmitting(true);
+    setCrmError("");
+
+    const payload = {
+      company_id: targetCompanyId,
+      name,
+      source: String(crmCompanySourceInput || "manual").trim().toLowerCase(),
+      pipeline_status: String(crmCompanyStatusInput || "new").trim().toLowerCase(),
+      contact_name: String(crmCompanyContactNameInput || "").trim(),
+      contact_email: String(crmCompanyContactEmailInput || "").trim(),
+      contact_phone: String(crmCompanyContactPhoneInput || "").trim(),
+      next_contact_at: crmCompanyNextContactAtInput ? new Date(crmCompanyNextContactAtInput).toISOString() : null,
+      lead_modules: String(crmCompanyModulesInput || "").trim(),
+      lead_hardware: String(crmCompanyHardwareInput || "").trim(),
+      note: String(crmCompanyNoteInput || "").trim(),
+      updated_by: authUser?.id || null
+    };
+
+    const query = editingCrmCompanyId
+      ? supabase.from("crm_companies").update(payload).eq("id", editingCrmCompanyId).select("*").single()
+      : supabase.from("crm_companies").insert([{ ...payload, created_by: authUser?.id || null }]).select("*").single();
+
+    const { data, error: crmSaveError } = await query;
+    if (crmSaveError) {
+      setCrmError(crmSaveError.message || "Nepodarilo sa uložiť CRM záznam.");
+      setCrmSubmitting(false);
+      return;
+    }
+
+    const normalizedCompany = normalizeCrmCompanyRecord(data);
+    setCrmCompanies((prev) =>
+      editingCrmCompanyId
+        ? prev.map((row) => (row.id === normalizedCompany.id ? normalizedCompany : row))
+        : [normalizedCompany, ...prev]
+    );
+    setSelectedCrmCompanyId(normalizedCompany.id);
+    resetCrmCompanyForm();
+    setCrmSubmitting(false);
+  };
+
+  const handleSaveCrmActivity = async (event) => {
+    event.preventDefault();
+    if (!selectedCrmCompany?.id) {
+      setCrmError("Najprv vyber CRM firmu.");
+      return;
+    }
+
+    setCrmActivitySubmitting(true);
+    setCrmError("");
+    const { data, error: activityError } = await supabase
+      .from("crm_activities")
+      .insert([
+        {
+          company_id: selectedCrmCompany.company_id,
+          crm_company_id: selectedCrmCompany.id,
+          activity_type: String(crmActivityTypeInput || "note").trim().toLowerCase(),
+          title: String(crmActivityTitleInput || "").trim(),
+          note: String(crmActivityNoteInput || "").trim(),
+          created_by: authUser?.id || null
+        }
+      ])
+      .select("*")
+      .single();
+
+    if (activityError) {
+      setCrmError(activityError.message || "Nepodarilo sa uložiť CRM aktivitu.");
+      setCrmActivitySubmitting(false);
+      return;
+    }
+
+    setCrmActivities((prev) => [normalizeCrmActivityRecord(data), ...prev]);
+    setCrmActivityTypeInput("note");
+    setCrmActivityTitleInput("");
+    setCrmActivityNoteInput("");
+    setCrmActivitySubmitting(false);
+  };
+
   const loadCustomersModuleData = async () => {
     if (!authReady || !isLoggedIn || !canAccessOrdersModule) {
       setCustomers([]);
@@ -8373,7 +8732,7 @@ function App() {
   };
 
   const loadAttendanceModuleData = async () => {
-    if (!authReady || !isLoggedIn || !canAccessOrdersModule) {
+    if (!authReady || !isLoggedIn || !canAccessAttendanceModule) {
       setAttendanceProfiles([]);
       setAttendanceTerminals([]);
       setAttendanceEvents([]);
@@ -11005,6 +11364,7 @@ function App() {
         setUserCompanyId(null);
         setCanManageOrders(false);
         setCanAccessMes(false);
+        setCanAccessAttendance(false);
         setSelectedCompanyId("all");
       } else {
         const fallbackUsername = usernameFromInternalEmail(user.email);
@@ -11017,6 +11377,7 @@ function App() {
         setUserCompanyId(claimedCompanyId);
         setCanManageOrders(claimedRole === "master");
         setCanAccessMes(claimedRole === "master");
+        setCanAccessAttendance(claimedRole === "master");
         if (claimedRole !== "master") {
           setSelectedCompanyId(claimedCompanyId || "");
         }
@@ -11050,6 +11411,7 @@ function App() {
           setUserCompanyId(resolvedCompanyId);
           setCanManageOrders(role === "master" ? true : Boolean(ownRow?.can_manage_orders));
           setCanAccessMes(role === "master" ? true : Boolean(ownRow?.can_access_mes));
+          setCanAccessAttendance(role === "master" ? true : Boolean(ownRow?.can_access_attendance));
           if (role !== "master") {
             setSelectedCompanyId(resolvedCompanyId || "");
           }
@@ -11085,6 +11447,7 @@ function App() {
         setAuthUsername("");
         setCanManageOrders(false);
         setCanAccessMes(false);
+        setCanAccessAttendance(false);
         setAuthReady(true);
         setAuthInitTimedOut(true);
         setAuthError(
@@ -11139,7 +11502,7 @@ function App() {
         const [{ data: ownRow }, resolvedCompanyId] = await Promise.all([
           supabase
             .from(ROLE_TABLE)
-            .select("company_id,can_manage_orders,can_access_mes,username,email")
+            .select("company_id,can_manage_orders,can_access_mes,can_access_attendance,username,email")
             .eq("user_id", authUser.id)
             .maybeSingle(),
           fetchOwnCompanyIdViaRpc(authUser.id)
@@ -11156,6 +11519,7 @@ function App() {
         }
         setCanManageOrders(Boolean(ownRow?.can_manage_orders));
         setCanAccessMes(Boolean(ownRow?.can_access_mes));
+        setCanAccessAttendance(Boolean(ownRow?.can_access_attendance));
 
         const [{ data: companyRows, error: companiesLoadError }, { data: companyProfileRows, error: companyProfilesLoadError }] = await Promise.all([
           supabase
@@ -11326,7 +11690,7 @@ function App() {
       setStockAgeStats({ avgDays: null, sampleCount: 0 });
       setOccupancySeries([]);
       setLoading(false);
-      if (canAccessOrdersModule) {
+      if (canAccessAttendanceModule) {
         loadAttendanceModuleData();
       } else {
         resetAttendanceModuleState();
@@ -11334,7 +11698,7 @@ function App() {
 
       let reloadTimer = null;
       const scheduleReload = () => {
-        if (!canAccessOrdersModule) {
+        if (!canAccessAttendanceModule) {
           return;
         }
         if (reloadTimer) {
@@ -11381,6 +11745,37 @@ function App() {
 
       const channel = supabase.channel(`customers-${selectedCompanyId || userCompanyId || "own"}`);
       ["customers", "orders", "quotes", "invoices"].forEach((table) => {
+        channel.on("postgres_changes", { event: "*", schema: "public", table }, scheduleReload);
+      });
+      channel.subscribe();
+
+      return () => {
+        if (reloadTimer) {
+          window.clearTimeout(reloadTimer);
+        }
+        supabase.removeChannel(channel);
+      };
+    }
+
+    if (isCrmModule(selectedTable)) {
+      setRows([]);
+      setStockSnapshotRows([]);
+      setDeadStockByKey({});
+      setStockAgeStats({ avgDays: null, sampleCount: 0 });
+      setOccupancySeries([]);
+      setLoading(false);
+      loadCrmModuleData();
+
+      let reloadTimer = null;
+      const scheduleReload = () => {
+        if (reloadTimer) {
+          window.clearTimeout(reloadTimer);
+        }
+        reloadTimer = window.setTimeout(() => loadCrmModuleData(), 350);
+      };
+
+      const channel = supabase.channel(`crm-${selectedCompanyId || userCompanyId || "own"}`);
+      ["crm_companies", "crm_activities"].forEach((table) => {
         channel.on("postgres_changes", { event: "*", schema: "public", table }, scheduleReload);
       });
       channel.subscribe();
@@ -11579,7 +11974,7 @@ function App() {
       }
       supabase.removeChannel(channel);
     };
-  }, [selectedTable, isLoggedIn, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id, occupancyChartRange, effectiveMaxPositions, activeCompany?.tracks_expiry_date, canAccessOrdersModule, canAccessMesModule]);
+  }, [selectedTable, isLoggedIn, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id, occupancyChartRange, effectiveMaxPositions, activeCompany?.tracks_expiry_date, canAccessOrdersModule, canAccessAttendanceModule, canAccessMesModule]);
 
   useEffect(() => {
     if (!authReady || !isLoggedIn) {
@@ -11594,6 +11989,10 @@ function App() {
 
       if (isCustomerModule(selectedTable)) {
         loadCustomersModuleData();
+        return;
+      }
+      if (isCrmModule(selectedTable)) {
+        loadCrmModuleData();
         return;
       }
       if (isEmployeesModule(selectedTable) || isAttendanceModule(selectedTable) || isAttendanceGroupsModule(selectedTable) || isAttendanceSettingsModule(selectedTable)) {
@@ -11640,7 +12039,7 @@ function App() {
       window.removeEventListener("focus", handleWindowFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [isLoggedIn, selectedTable, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id, occupancyChartRange, effectiveMaxPositions, activeCompany?.tracks_expiry_date, canAccessOrdersModule, canAccessMesModule]);
+  }, [isLoggedIn, selectedTable, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id, occupancyChartRange, effectiveMaxPositions, activeCompany?.tracks_expiry_date, canAccessOrdersModule, canAccessAttendanceModule, canAccessMesModule]);
 
   useEffect(() => {
     if (!authReady || !isLoggedIn) {
@@ -11932,6 +12331,62 @@ function App() {
       return haystack.includes(normalizedSearch);
     });
   }, [companies, masterCompanySearch, masterCompanyBillingFilter]);
+  const primaryUserByCompanyId = useMemo(() => {
+    const sortedUsers = [...managedUsers].sort(
+      (a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
+    );
+    const next = {};
+    sortedUsers.forEach((row) => {
+      if (row.role === "master" || !row.company_id || next[row.company_id]) {
+        return;
+      }
+      next[row.company_id] = row;
+    });
+    return next;
+  }, [managedUsers]);
+  const leadCompaniesToContact = useMemo(
+    () =>
+      companies
+        .filter((company) => normalizeCompanyBillingStatus(company.billing_status) === "lead" && !company.lead_contacted_at)
+        .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()),
+    [companies]
+  );
+  const filteredCrmCompanies = useMemo(() => {
+    const normalizedSearch = String(crmSearchTerm || "").trim().toLowerCase();
+    if (!normalizedSearch) {
+      return crmCompanies;
+    }
+
+    return crmCompanies.filter((row) =>
+      [
+        row.name,
+        row.contact_name,
+        row.contact_email,
+        row.contact_phone,
+        row.pipeline_status,
+        row.source,
+        row.lead_modules,
+        row.lead_hardware,
+        row.note,
+        row.external_reference,
+        companyNameById[row.company_id]
+      ]
+        .map((value) => String(value || "").toLowerCase())
+        .join(" ")
+        .includes(normalizedSearch)
+    );
+  }, [crmCompanies, crmSearchTerm, companyNameById]);
+  const selectedCrmCompany = useMemo(
+    () => crmCompanies.find((row) => row.id === selectedCrmCompanyId) || null,
+    [crmCompanies, selectedCrmCompanyId]
+  );
+  const selectedCrmActivities = useMemo(
+    () =>
+      crmActivities
+        .filter((row) => row.crm_company_id === selectedCrmCompanyId)
+        .sort((a, b) => new Date(b.happened_at || 0).getTime() - new Date(a.happened_at || 0).getTime()),
+    [crmActivities, selectedCrmCompanyId]
+  );
   const masterPlatformStats = useMemo(() => {
     const totalCompanies = companies.length;
     const billingActive = companies.filter((company) => hasManagedCompanyBilling(company)).length;
@@ -12044,10 +12499,6 @@ function App() {
       return Number.isFinite(happenedMs) && happenedMs >= startMs;
     });
     const clockedInCount = Object.values(attendancePresenceByProfileId).filter((row) => row.state === "in" || row.state === "pause").length;
-    const onlineTerminals = attendanceTerminals.filter((row) => {
-      const lastSeenMs = new Date(row.last_seen_at || "").getTime();
-      return row.is_active && Number.isFinite(lastSeenMs) && Date.now() - lastSeenMs <= 5 * 60 * 1000;
-    }).length;
 
     return {
       profiles: attendanceProfiles.length,
@@ -12055,7 +12506,7 @@ function App() {
       clockedInCount,
       todayEvents: todayEvents.length,
       terminals: attendanceTerminals.length,
-      onlineTerminals
+      activeTerminals: attendanceTerminals.filter((row) => row.is_active).length
     };
   }, [attendanceProfiles, attendanceEvents, attendanceTerminals, attendancePresenceByProfileId]);
   const attendanceGroupMemberCountById = useMemo(() => {
@@ -13404,7 +13855,7 @@ function App() {
   }, [machineDashboardRows]);
   const sidebarSections = useMemo(() => {
     const systemItems = isMaster ? [SYSTEM_ADMIN_MODULE].filter((table) => visibleTableNames.includes(table)) : [];
-    const workflowItems = [PRICE_LIST_TABLE, CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE].filter((table) =>
+    const workflowItems = [CRM_MODULE, PRICE_LIST_TABLE, CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE].filter((table) =>
       visibleTableNames.includes(table)
     );
     const stockItems = [
@@ -14029,6 +14480,7 @@ function App() {
     setUserCompanyId(null);
     setCanManageOrders(false);
     setCanAccessMes(false);
+    setCanAccessAttendance(false);
     setCompanyProfiles([]);
     setSelectedCompanyId("all");
     setRows([]);
@@ -14930,19 +15382,6 @@ function App() {
                     </div>
                   </div>
 
-                  <div className="company-onboarding-pricing-note">
-                    <strong>
-                      {companyAdminBillingEstimate.isFreeBasic
-                        ? "Basic fakturácia a cenové ponuky: zdarma"
-                        : `Platené moduly od ${formatCurrencyValue(companyAdminBillingEstimate.monthly)} / mesiac + setup ${formatCurrencyValue(companyAdminBillingEstimate.setup)}`}
-                    </strong>
-                    <span>
-                      {companyAdminBillingEstimate.isFreeBasic
-                        ? "Ak vyberieš len fakturáciu, onboarding a bežné doklady ostanú bez mesačného poplatku."
-                        : "Hneď ako pridáš sklad, MES alebo dochádzku, aktivuje sa platený Factory OS plán podľa veľkosti firmy."}
-                    </span>
-                  </div>
-
                   <div className="company-onboarding-module-grid">
                     {COMPANY_ADMIN_MODULE_OPTIONS.map((module) => {
                       const isSelected = Boolean(companyAdminSetupDraft.moduleSelections?.[module.key]);
@@ -14957,9 +15396,6 @@ function App() {
                           <div className="company-onboarding-module-card-head">
                             <span className="company-onboarding-module-icon" aria-hidden="true">
                               <Icon size={18} strokeWidth={2.05} />
-                            </span>
-                            <span className={`company-onboarding-module-badge ${module.pricingLabel === "Zdarma" ? "is-free" : "is-paid"}`}>
-                              {module.pricingLabel}
                             </span>
                           </div>
                           <strong>{module.label}</strong>
@@ -15303,71 +15739,6 @@ function App() {
               Odhlásiť sa
             </button>
           </aside>
-        </section>
-      </main>
-    );
-  }
-
-  if (isLeadWaitingCompany) {
-    const plannedModules = COMPANY_ADMIN_MODULE_OPTIONS.filter((option) => activeCompanyLeadSetup?.moduleSelections?.[option.key]);
-    const plannedHardware = COMPANY_ADMIN_HARDWARE_OPTIONS.filter((option) => activeCompanyLeadSetup?.hardwareSelections?.[option.key]).map((option) => ({
-      ...option,
-      quantity: Math.max(1, Number.parseInt(String(activeCompanyLeadSetup?.hardwareQuantities?.[option.key] || "1"), 10) || 1)
-    }));
-    const plannedInvites = Array.isArray(activeCompanyLeadSetup?.inviteDrafts)
-      ? activeCompanyLeadSetup.inviteDrafts.filter((draft) => String(draft.email || "").trim() || String(draft.position || "").trim())
-      : [];
-
-    return (
-      <main className="container">
-        <section className="panel landing-legal-modal waitlist-panel">
-          <div className="landing-legal-head waitlist-head">
-            <div className="landing-legal-title-wrap">
-              <span className="landing-legal-icon" aria-hidden="true">
-                <Clock3 size={18} strokeWidth={2.05} />
-              </span>
-              <div>
-                <p className="auth-kicker">Dopyt prijatý</p>
-                <h2>Čoskoro sa ti ozveme</h2>
-                <p>
-                  Tvoj firemný dopyt sme zaevidovali do master dashboardu. Kým sa s tebou spojíme a potvrdíme ďalší postup,
-                  dashboard ostáva uzamknutý.
-                </p>
-              </div>
-            </div>
-            <button type="button" onClick={handleSignOut} className="logout-btn" disabled={signOutSubmitting}>
-              {signOutSubmitting ? "Odhlasujem..." : "Odhlásiť sa"}
-            </button>
-          </div>
-
-          <div className="landing-legal-body waitlist-body">
-            <article className="landing-legal-section">
-              <h3>{activeCompanyProfile?.name || activeCompany?.name || currentCompanyLabel}</h3>
-              <p>{activeCompanyProfile?.address || "Firemný profil je uložený a čaká na spracovanie."}</p>
-              <p>{activeCompany?.billing_checkout_session_id ? `Referenčný dopyt: ${activeCompany.billing_checkout_session_id}` : "Dopyt je v stave čaká na kontakt."}</p>
-            </article>
-
-            <article className="landing-legal-section">
-              <h3>Čo ste dopytovali</h3>
-              <p>{plannedModules.length > 0 ? plannedModules.map((item) => item.label).join(", ") : "Moduly doplníme spolu počas konzultácie."}</p>
-              <p>
-                {plannedHardware.length > 0
-                  ? `Hardware: ${plannedHardware.map((item) => `${item.label} x${item.quantity}`).join(", ")}`
-                  : "Hardware zatiaľ nebol vybraný."}
-              </p>
-              <p>
-                {plannedInvites.length > 0
-                  ? `${plannedInvites.length} kolegov v onboarding pláne`
-                  : "Bez pripravených kolegov v onboarding pláne."}
-              </p>
-            </article>
-
-            <article className="landing-legal-section">
-              <h3>Čo bude nasledovať</h3>
-              <p>Skontrolujeme firemný profil, moduly, hardware aj požiadavku na konfiguráciu systému.</p>
-              <p>Po potvrdení ďalšieho postupu vám otvoríme prístup do aplikácie alebo pripravíme individuálnu ponuku a rollout.</p>
-            </article>
-          </div>
         </section>
       </main>
     );
@@ -16054,6 +16425,10 @@ function App() {
                   loadCustomersModuleData();
                   return;
                 }
+                if (isCrmModule(selectedTable)) {
+                  loadCrmModuleData();
+                  return;
+                }
                 if (isEmployeesModule(selectedTable) || isAttendanceModule(selectedTable) || isAttendanceGroupsModule(selectedTable) || isAttendanceSettingsModule(selectedTable)) {
                   loadAttendanceModuleData();
                   return;
@@ -16088,6 +16463,35 @@ function App() {
         </div>
       </section>
 
+      {shouldShowLeadContactNotice && (
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <p className="workflow-eyebrow">Onboarding follow-up</p>
+              <h2>Čoskoro vás budeme kontaktovať</h2>
+              <p className="panel-meta">
+                Setup firmy je uložený a dashboard už môžeš normálne používať. Náš tím sa ti ozve kvôli ďalšiemu postupu,
+                potvrdeniu modulov a prípadnému hardware rollout-u.
+              </p>
+            </div>
+            <div className="hero-badges">
+              <span className="table-badge">dopyt prijatý</span>
+              {activeCompany?.billing_checkout_session_id && <span className="table-badge">{activeCompany.billing_checkout_session_id}</span>}
+            </div>
+          </div>
+          {(() => {
+            const leadDetails = parseLeadBillingNote(activeCompany?.billing_price_note);
+            return (
+              <div className="hero-badges">
+                {leadDetails.modules && <span className="table-badge">{`Moduly: ${leadDetails.modules}`}</span>}
+                {leadDetails.hardware && <span className="table-badge">{`Hardware: ${leadDetails.hardware}`}</span>}
+                {leadDetails.contactPhone && <span className="table-badge">{`Kontakt: ${leadDetails.contactPhone}`}</span>}
+              </div>
+            );
+          })()}
+        </section>
+      )}
+
       {(incomingCompanyInvitesLoading || incomingCompanyInvitesError || incomingCompanyInvites.length > 0) && (
         <section className="panel incoming-invites-panel">
           <div className="panel-head">
@@ -16109,6 +16513,7 @@ function App() {
                     <p>
                       {[
                         invite.can_manage_orders ? "objednávky" : "",
+                        invite.can_access_attendance ? "dochádzka" : "",
                         invite.can_access_mes ? "MES" : ""
                       ].filter(Boolean).join(" | ") || "základný prístup"}
                     </p>
@@ -16210,7 +16615,7 @@ function App() {
                   </div>
                   <div className="company-admin-setup-item">
                     <strong>2. Kolegovia a prístupy</strong>
-                    <span>Vytvor pozvánky a pri každej nastav, či má mať prístup k objednávkam a Manufacturing / MES.</span>
+                    <span>Vytvor pozvánky a pri každej nastav, či má mať prístup k workflow, dochádzke a Manufacturing / MES.</span>
                   </div>
                   <div className="company-admin-setup-item">
                     <strong>3. Sklady a prevádzka</strong>
@@ -16682,6 +17087,7 @@ function App() {
                                 <td>{formatInviteStatusLabel(invite.status || "pending")}</td>
                                 <td>{[
                                   invite.can_manage_orders ? "objednávky" : "",
+                                  invite.can_access_attendance ? "dochádzka" : "",
                                   invite.can_access_mes ? "MES" : ""
                                 ].filter(Boolean).join(" | ") || "základ"}</td>
                                 <td>{invite.expires_at ? formatDate(invite.expires_at) : "-"}</td>
@@ -17241,7 +17647,7 @@ function App() {
             <article className="master-system-note-card">
               <span className="master-system-note-kicker">Kde zapnúť workflow</span>
               <strong>Používateľ</strong>
-              <p>V tabuľke Platform users zapni userovi checkbox pre objednávky a workflow. Tým dostane workflow, fakturáciu, quotes aj dochádzku.</p>
+              <p>V tabuľke Platform users zapni userovi workflow. CRM je dostupné celej firme, workflow zapína dokumenty a objednávky.</p>
             </article>
             <article className="master-system-note-card">
               <span className="master-system-note-kicker">Kde zapnúť MES</span>
@@ -17252,6 +17658,11 @@ function App() {
               <span className="master-system-note-kicker">Sklad a denný prehľad</span>
               <strong>Firemný režim</strong>
               <p>Sklad, denný prehľad a transakcie sa nezapínajú samostatným user checkboxom. Zobrazia sa automaticky, ak firma nie je v basic free režime.</p>
+            </article>
+            <article className="master-system-note-card">
+              <span className="master-system-note-kicker">Master sales firma</span>
+              <strong>Master + firma</strong>
+              <p>Master môže mať priradenú aj konkrétnu firmu, napr. Meslula. Billing a onboarding leady sa potom ukladajú pod túto firmu a vidno ich aj z bežného firemného účtu.</p>
             </article>
           </div>
 
@@ -17349,17 +17760,26 @@ function App() {
               <span>Workflow</span>
             </label>
             <label className="pricing-options">
-              <input
-                type="checkbox"
-                checked={newUserRole === "master" ? true : newUserCanAccessMes}
-                onChange={(event) => setNewUserCanAccessMes(event.target.checked)}
-                disabled={newUserRole === "master"}
-              />
-              <span>MES / HMI</span>
-            </label>
-            <button type="submit" className="settings-btn" disabled={createUserSubmitting}>
-              {createUserSubmitting ? "Vytváram..." : "Vytvoriť účet"}
-            </button>
+      <input
+        type="checkbox"
+        checked={newUserRole === "master" ? true : newUserCanAccessMes}
+        onChange={(event) => setNewUserCanAccessMes(event.target.checked)}
+        disabled={newUserRole === "master"}
+      />
+      <span>MES / HMI</span>
+    </label>
+    <label className="pricing-options">
+      <input
+        type="checkbox"
+        checked={newUserRole === "master" ? true : newUserCanAccessAttendance}
+        onChange={(event) => setNewUserCanAccessAttendance(event.target.checked)}
+        disabled={newUserRole === "master"}
+      />
+      <span>Dochádzka</span>
+    </label>
+    <button type="submit" className="settings-btn" disabled={createUserSubmitting}>
+      {createUserSubmitting ? "Vytváram..." : "Vytvoriť účet"}
+    </button>
           </form>
           <div className="master-inline-actions">
             <button
@@ -17370,14 +17790,14 @@ function App() {
             >
               {createUserSubmitting ? "Vytváram..." : "Vytvoriť demo profil"}
             </button>
-            <span className="panel-meta">Demo profil sa vytvorí pre aktuálne vybranú firmu a dostane Manufacturing aj MES.</span>
+            <span className="panel-meta">Demo profil sa vytvorí pre aktuálne vybranú firmu a dostane workflow, MES aj dochádzku.</span>
           </div>
           {lastCreatedDemoCredentials && (
             <p className="settings-hint">
               {`Demo login: ${lastCreatedDemoCredentials.username} | heslo: ${lastCreatedDemoCredentials.password} | firma: ${lastCreatedDemoCredentials.companyName}`}
             </p>
           )}
-          <p className="settings-hint">Workflow zapína dokumenty, objednávky a dochádzkové moduly. Sklad a denný prehľad sa userovi zobrazia automaticky mimo basic free režimu firmy.</p>
+          <p className="settings-hint">Workflow zapína dokumenty a objednávky. Dochádzka aj MES majú vlastné samostatné checkboxy. Sklad a denný prehľad sa userovi zobrazia automaticky mimo basic free režimu firmy.</p>
           </article>
 
           <article className="master-section-card">
@@ -17538,6 +17958,78 @@ function App() {
           <section className="master-section-card master-table-section">
           <div className="panel-head">
             <div>
+              <h3>Koho treba kontaktovať</h3>
+              <p className="panel-meta">Lead firmy z onboardingu, ktoré ešte neboli oslovené. Po označení ako oslovené zmizne používateľovi follow-up hláška v dashboarde.</p>
+            </div>
+            <span className="panel-meta">{`Otvorené leady: ${leadCompaniesToContact.length}`}</span>
+          </div>
+          <div className="table-wrap">
+            <table className="master-users-table">
+              <thead>
+                <tr>
+                  <th>Firma</th>
+                  <th>Kontakt</th>
+                  <th>Vybrané moduly</th>
+                  <th>Hardware / setup</th>
+                  <th>Ref.</th>
+                  <th>Vytvorené</th>
+                  <th>Oslovené</th>
+                </tr>
+              </thead>
+              <tbody>
+                {leadCompaniesToContact.map((company) => {
+                  const leadDetails = parseLeadBillingNote(company.billing_price_note);
+                  const primaryUser = primaryUserByCompanyId[company.id];
+                  return (
+                    <tr key={`lead-follow-up-${company.id}`}>
+                      <td>
+                        <strong>{company.name || "-"}</strong>
+                        <div className="master-user-email">{company.id}</div>
+                      </td>
+                      <td>
+                        <div>{leadDetails.contactEmail || primaryUser?.email || "-"}</div>
+                        <div className="master-user-email">{leadDetails.contactPhone || "telefón nedoplnený"}</div>
+                      </td>
+                      <td>{leadDetails.modules || "moduly nešpecifikované"}</td>
+                      <td>
+                        <div>{leadDetails.hardware || "bez hardware výberu"}</div>
+                        {company.billing_price_note && <div className="master-user-email">{company.billing_price_note}</div>}
+                      </td>
+                      <td>{company.billing_checkout_session_id || "-"}</td>
+                      <td>{formatDate(company.created_at)}</td>
+                      <td>
+                        <label className="pricing-options">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(company.lead_contacted_at)}
+                            onChange={(event) => handleLeadContactedToggle(company, event.target.checked)}
+                            disabled={billingSubmittingAction === `lead-contact-${company.id}`}
+                          />
+                          <span>
+                            {billingSubmittingAction === `lead-contact-${company.id}`
+                              ? "ukladám..."
+                              : company.lead_contacted_at
+                                ? "oslovené"
+                                : "označiť"}
+                          </span>
+                        </label>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {leadCompaniesToContact.length === 0 && (
+                  <tr>
+                    <td colSpan={7}>Momentálne tu nie je žiadny otvorený onboarding lead.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          </section>
+
+          <section className="master-section-card master-table-section">
+          <div className="panel-head">
+            <div>
               <h3>Firemné portfólio</h3>
               <p className="panel-meta">Operatívny prehľad firiem, billing stavu a master zásahov na úrovni firmy.</p>
             </div>
@@ -17672,17 +18164,12 @@ function App() {
                             {company.billing_current_period_end && (
                               <div className="master-user-email">{`do ${formatDate(company.billing_current_period_end)}`}</div>
                             )}
+                            {normalizeCompanyBillingStatus(company.billing_status) === "lead" && (
+                              <div className="master-user-email">
+                                {company.lead_contacted_at ? `oslovené ${formatDate(company.lead_contacted_at)}` : "čaká na prvý kontakt"}
+                              </div>
+                            )}
                             <div className="master-role-actions master-billing-actions">
-                              {normalizeCompanyBillingStatus(company.billing_status) === "lead" && (
-                                <button
-                                  type="button"
-                                  className="clear-btn"
-                                  onClick={() => handleReleaseLeadCompany(company.id)}
-                                  disabled={billingSubmittingAction === `release-lead-${company.id}`}
-                                >
-                                  {billingSubmittingAction === `release-lead-${company.id}` ? "Púšťam..." : "Pustiť do appky"}
-                                </button>
-                              )}
                               {hasManagedCompanyBilling(company) ? (
                                 <button
                                   type="button"
@@ -17808,6 +18295,7 @@ function App() {
                   <th>Rola</th>
                   <th>Firma</th>
                   <th>Workflow</th>
+                  <th>Dochádzka</th>
                   <th>MES / HMI</th>
                   <th>Databáza</th>
                   <th>Vytvorené</th>
@@ -17824,21 +18312,18 @@ function App() {
                     </td>
                     <td>{row.role}</td>
                     <td>
-                      {row.role === "master" ? (
-                        <span className="table-badge table-badge-master">všetky</span>
-                      ) : (
-                        <select
-                          value={row.company_id || ""}
-                          onChange={(event) => handleManagedCompanyChange(row, event.target.value)}
-                        >
-                          <option value="">Bez firmy</option>
-                          {companies.map((company) => (
-                            <option key={company.id} value={company.id}>
-                              {company.name}
-                            </option>
-                          ))}
-                        </select>
-                        )}
+                      <div className="master-user-email">{row.role === "master" ? "globálny prístup" : "firma používateľa"}</div>
+                      <select
+                        value={row.company_id || ""}
+                        onChange={(event) => handleManagedCompanyChange(row, event.target.value)}
+                      >
+                        <option value="">{row.role === "master" ? "Bez firemného napojenia" : "Bez firmy"}</option>
+                        {companies.map((company) => (
+                          <option key={company.id} value={company.id}>
+                            {company.name}
+                          </option>
+                        ))}
+                      </select>
                     </td>
                     <td>
                       {row.role === "master" ? (
@@ -17851,6 +18336,20 @@ function App() {
                             onChange={(event) => handleManagedOrderAccessChange(row, event.target.checked)}
                           />
                           <span>{row.can_manage_orders ? "povolené" : "zakázané"}</span>
+                        </label>
+                      )}
+                    </td>
+                    <td>
+                      {row.role === "master" ? (
+                        <span className="table-badge table-badge-master">áno</span>
+                      ) : (
+                        <label className="pricing-options">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(row.can_access_attendance)}
+                            onChange={(event) => handleManagedAttendanceAccessChange(row, event.target.checked)}
+                          />
+                          <span>{row.can_access_attendance ? "povolené" : "zakázané"}</span>
                         </label>
                       )}
                     </td>
@@ -17905,7 +18404,7 @@ function App() {
                 ))}
                 {filteredManagedUsers.length === 0 && (
                   <tr>
-                    <td colSpan={8}>Žiadne účty pre tento filter.</td>
+                    <td colSpan={9}>Žiadne účty pre tento filter.</td>
                   </tr>
                 )}
               </tbody>
@@ -17915,7 +18414,7 @@ function App() {
         </section>
       )}
 
-      {isEmployeesModule(selectedTable) && canAccessOrdersModule && (
+      {isEmployeesModule(selectedTable) && canAccessAttendanceModule && (
         <section className="panel workflow-shell workflow-shell-attendance workflow-shell-attendance-settings">
           <div className="panel-head workflow-header">
             <div>
@@ -17994,8 +18493,8 @@ function App() {
                     <p>{attendanceSummary.todayEvents}</p>
                   </div>
                   <div>
-                    <span className="draft-field-label">Terminály online</span>
-                    <p>{`${attendanceSummary.onlineTerminals} / ${attendanceSummary.terminals}`}</p>
+                    <span className="draft-field-label">Aktívne terminály</span>
+                    <p>{`${attendanceSummary.activeTerminals} / ${attendanceSummary.terminals}`}</p>
                   </div>
                   <div>
                     <span className="draft-field-label">Aktívna firma</span>
@@ -18309,7 +18808,7 @@ function App() {
         </section>
       )}
 
-      {isAttendanceModule(selectedTable) && canAccessOrdersModule && (
+      {isAttendanceModule(selectedTable) && canAccessAttendanceModule && (
         <section className="panel workflow-shell workflow-shell-attendance">
           <div className="panel-head workflow-header">
             <div>
@@ -18344,9 +18843,9 @@ function App() {
               <span>príchody, odchody a pauzy</span>
             </article>
             <article className="card workflow-stat-card">
-              <p>Terminály online</p>
-              <strong>{`${new Intl.NumberFormat("sk-SK").format(attendanceSummary.onlineTerminals)} / ${new Intl.NumberFormat("sk-SK").format(attendanceSummary.terminals)}`}</strong>
-              <span>heartbeat do 5 minút</span>
+              <p>Aktívne terminály</p>
+              <strong>{`${new Intl.NumberFormat("sk-SK").format(attendanceSummary.activeTerminals)} / ${new Intl.NumberFormat("sk-SK").format(attendanceSummary.terminals)}`}</strong>
+              <span>zariadenia pripravené na použitie</span>
             </article>
           </div>
 
@@ -18358,8 +18857,8 @@ function App() {
             </article>
             <article className="attendance-settings-hero-card">
               <span className="attendance-settings-hero-kicker">Terminály</span>
-              <strong>{`${attendanceSummary.onlineTerminals} online`}</strong>
-              <p>Heartbeat hneď ukáže, či Android kiosk komunikuje a odkiaľ prišiel posledný event.</p>
+              <strong>{`${attendanceSummary.activeTerminals} aktívnych`}</strong>
+              <p>Prehľad ukazuje, koľko kioskov je pripravených na použitie a z ktorého prišiel posledný event.</p>
             </article>
             <article className="attendance-settings-hero-card">
               <span className="attendance-settings-hero-kicker">Audit</span>
@@ -18385,7 +18884,7 @@ function App() {
                   </div>
                   <div>
                     <span className="draft-field-label">Online terminály</span>
-                    <p>{`${attendanceSummary.onlineTerminals} / ${attendanceSummary.terminals}`}</p>
+                    <p>{`${attendanceSummary.activeTerminals} / ${attendanceSummary.terminals}`}</p>
                   </div>
                   <div>
                     <span className="draft-field-label">Aktívne profily</span>
@@ -18399,7 +18898,7 @@ function App() {
                 <div className="attendance-guidance-list">
                   <div className="attendance-guidance-item">
                     <strong>Primárny cieľ</strong>
-                    <span>sledovať, kto je práve v práci, kto je na pauze a ktoré terminály sú online</span>
+                    <span>sledovať, kto je práve v práci, kto je na pauze a z ktorého terminálu prišiel posledný event</span>
                   </div>
                   <div className="attendance-guidance-item">
                     <strong>Konfigurácia je oddelená</strong>
@@ -18439,7 +18938,7 @@ function App() {
                   <div>
                     <p className="workflow-section-kicker">Prevádzka</p>
                     <h2>Čo sleduješ</h2>
-                    <p className="panel-meta">Prehľad ukazuje aktuálny stav zamestnancov, online terminály a posledné logované udalosti z webu aj Android terminálov.</p>
+                    <p className="panel-meta">Prehľad ukazuje aktuálny stav zamestnancov, terminály a posledné logované udalosti z webu aj Android terminálov.</p>
                   </div>
                 </div>
                 <div className="attendance-meta-grid">
@@ -18449,7 +18948,7 @@ function App() {
                   </div>
                   <div>
                     <span className="draft-field-label">Terminály</span>
-                    <p>Online podľa heartbeat do 5 minút.</p>
+                    <p>Aktívne zariadenia s tokenmi pre kiosk režim.</p>
                   </div>
                   <div className="attendance-meta-grid-wide">
                     <span className="draft-field-label">Nastavenia</span>
@@ -18608,7 +19107,7 @@ function App() {
                 <div className="panel-head workflow-section-head">
                   <div>
                     <h2>Terminály</h2>
-                    <p className="panel-meta">Heartbeat sa považuje za online 5 minút od posledného pingu.</p>
+                    <p className="panel-meta">Prehľad registrovaných kiosk terminálov používaných pre dochádzku.</p>
                   </div>
                 </div>
 
@@ -18619,8 +19118,6 @@ function App() {
                 ) : (
                   <div className="orders-list attendance-list">
                     {attendanceTerminals.map((terminal) => {
-                      const lastSeenMs = new Date(terminal.last_seen_at || "").getTime();
-                      const isOnline = terminal.is_active && Number.isFinite(lastSeenMs) && Date.now() - lastSeenMs <= 5 * 60 * 1000;
                       return (
                         <article key={terminal.id} className="order-card attendance-card">
                           <div className="order-card-head attendance-card-head">
@@ -18629,15 +19126,14 @@ function App() {
                               <p>{terminal.terminal_code}</p>
                             </div>
                             <div className="attendance-card-pills">
-                              <StatusPill status={terminal.is_active ? (isOnline ? "active" : "inactive") : "inactive"} />
-                              {isOnline && <span className="table-badge">online</span>}
+                              <StatusPill status={terminal.is_active ? "active" : "inactive"} />
                             </div>
                           </div>
                           <div className="order-detail attendance-card-body">
                             <div className="attendance-meta-grid">
                               <div>
-                                <span className="draft-field-label">Posledný ping</span>
-                                <p>{terminal.last_seen_at ? formatCell(terminal.last_seen_at, "date_time") : "-"}</p>
+                                <span className="draft-field-label">Stav</span>
+                                <p>{terminal.is_active ? "Aktívny terminál" : "Neaktívny terminál"}</p>
                               </div>
                               <div className="attendance-meta-grid-wide">
                                 <span className="draft-field-label">Poznámka</span>
@@ -18714,7 +19210,7 @@ function App() {
         </section>
       )}
 
-      {isAttendanceGroupsModule(selectedTable) && canAccessOrdersModule && (
+      {isAttendanceGroupsModule(selectedTable) && canAccessAttendanceModule && (
         <section className="panel workflow-shell workflow-shell-attendance workflow-shell-attendance-settings">
           <div className="panel-head workflow-header">
             <div>
@@ -18999,7 +19495,7 @@ function App() {
                   </div>
                   <div className="attendance-guidance-item">
                     <strong>Terminály</strong>
-                    <span>{`${attendanceSummary.terminals} zariadení používa tokeny a heartbeat spravované priamo tu`}</span>
+                    <span>{`${attendanceSummary.terminals} zariadení používa tokeny a správu priamo v tomto module`}</span>
                   </div>
                 </div>
                 <div className="orders-form-actions">
@@ -19016,7 +19512,7 @@ function App() {
         </section>
       )}
 
-      {isAttendanceSettingsModule(selectedTable) && canAccessOrdersModule && (
+      {isAttendanceSettingsModule(selectedTable) && canAccessAttendanceModule && (
         <section className="panel workflow-shell workflow-shell-attendance workflow-shell-attendance-settings">
           <div className="panel-head workflow-header">
             <div>
@@ -19043,7 +19539,7 @@ function App() {
             <article className="card workflow-stat-card">
               <p>Terminály</p>
               <strong>{new Intl.NumberFormat("sk-SK").format(attendanceSummary.terminals)}</strong>
-              <span>{`${attendanceSummary.onlineTerminals} online`}</span>
+              <span>{`${attendanceSummary.activeTerminals} aktívnych`}</span>
             </article>
             <article className="card workflow-stat-card">
               <p>V práci</p>
@@ -19060,8 +19556,8 @@ function App() {
           <div className="attendance-settings-hero">
             <article className="attendance-settings-hero-card">
               <span className="attendance-settings-hero-kicker">Terminály</span>
-              <strong>{`${attendanceSummary.onlineTerminals} online / ${attendanceSummary.terminals}`}</strong>
-              <p>Credential pár sa generuje po vytvorení terminálu a heartbeat ukazuje, či je kiosk reálne dostupný.</p>
+              <strong>{`${attendanceSummary.activeTerminals} aktívnych / ${attendanceSummary.terminals}`}</strong>
+              <p>Credential pár sa generuje po vytvorení terminálu a kiosk vieš riadiť cez aktívny alebo neaktívny stav.</p>
             </article>
             <article className="attendance-settings-hero-card">
               <span className="attendance-settings-hero-kicker">Identifikácia</span>
@@ -19386,7 +19882,7 @@ function App() {
                 <div className="panel-head workflow-section-head">
                   <div>
                     <h2>Správa terminálov</h2>
-                    <p className="panel-meta">Heartbeat sa považuje za online 5 minút od posledného pingu.</p>
+                    <p className="panel-meta">Správa registrovaných kiosk terminálov používaných pre dochádzku.</p>
                   </div>
                 </div>
 
@@ -19397,8 +19893,6 @@ function App() {
                 ) : (
                   <div className="orders-list attendance-list">
                     {attendanceTerminals.map((terminal) => {
-                      const lastSeenMs = new Date(terminal.last_seen_at || "").getTime();
-                      const isOnline = terminal.is_active && Number.isFinite(lastSeenMs) && Date.now() - lastSeenMs <= 5 * 60 * 1000;
                       return (
                         <article key={terminal.id} className="order-card attendance-card">
                           <div className="order-card-head attendance-card-head">
@@ -19407,15 +19901,14 @@ function App() {
                               <p>{terminal.terminal_code}</p>
                             </div>
                             <div className="attendance-card-pills">
-                              <StatusPill status={terminal.is_active ? (isOnline ? "active" : "inactive") : "inactive"} />
-                              {isOnline && <span className="table-badge">online</span>}
+                              <StatusPill status={terminal.is_active ? "active" : "inactive"} />
                             </div>
                           </div>
                           <div className="order-detail attendance-card-body">
                             <div className="attendance-meta-grid">
                               <div>
-                                <span className="draft-field-label">Posledný ping</span>
-                                <p>{terminal.last_seen_at ? formatCell(terminal.last_seen_at, "date_time") : "-"}</p>
+                                <span className="draft-field-label">Stav</span>
+                                <p>{terminal.is_active ? "Aktívny terminál" : "Neaktívny terminál"}</p>
                               </div>
                               <div className="attendance-meta-grid-wide">
                                 <span className="draft-field-label">Poznámka</span>
@@ -19444,6 +19937,259 @@ function App() {
               </article>
             </div>
           </div>
+        </section>
+      )}
+
+      {isCrmModule(selectedTable) && (
+        <section className="panel workflow-shell workflow-shell-customers">
+          <div className="panel-head workflow-header">
+            <div>
+              <p className="workflow-eyebrow">Workflow CRM</p>
+              <h2>CRM pipeline</h2>
+              <p className="panel-meta">
+                Leady, obchodné firmy a follow-up aktivity pre aktuálnu firmu.
+                {isMaster && !activeCompanyId ? " Pre nový záznam najprv vyber konkrétnu firmu v hornom filtri." : ""}
+              </p>
+            </div>
+            <div className="hero-badges">
+              <span className="table-badge">{`${crmCompanies.length} firiem`}</span>
+              <span className="table-badge">{`${crmCompanies.filter((row) => row.pipeline_status === "new").length} nových`}</span>
+              <span className="table-badge">{`${crmCompanies.filter((row) => row.pipeline_status === "proposal").length} ponúk`}</span>
+            </div>
+          </div>
+          {crmError && <p className="error">{crmError}</p>}
+
+          <div className="orders-layout workflow-grid">
+            <div className="orders-column workflow-editor-column">
+              <form className="workflow-form-shell" onSubmit={handleSaveCrmCompany}>
+                <div className="workflow-form-section">
+                  <div className="workflow-subsection-head">
+                    <h3>{editingCrmCompanyId ? "Upraviť CRM firmu" : "Nový CRM záznam"}</h3>
+                    <p className="panel-meta">Tento záznam môžu vidieť aj bežní používatelia v rámci rovnakej firmy.</p>
+                  </div>
+                  {isMaster && (
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Firma</span>
+                      <select value={crmCompanyCompanyIdInput} onChange={(event) => setCrmCompanyCompanyIdInput(event.target.value)}>
+                        <option value="">Vyber firmu</option>
+                        {companies.map((company) => (
+                          <option key={company.id} value={company.id}>
+                            {company.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  <label className="workflow-field">
+                    <span className="workflow-field-label">Názov firmy / leadu</span>
+                    <input type="text" className="search-input" value={crmCompanyNameInput} onChange={(event) => setCrmCompanyNameInput(event.target.value)} />
+                  </label>
+                  <div className="workflow-field-grid">
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Zdroj</span>
+                      <select value={crmCompanySourceInput} onChange={(event) => setCrmCompanySourceInput(event.target.value)}>
+                        <option value="manual">manuálne</option>
+                        <option value="onboarding">onboarding</option>
+                        <option value="checkout">checkout</option>
+                        <option value="import">import</option>
+                      </select>
+                    </label>
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Stav</span>
+                      <select value={crmCompanyStatusInput} onChange={(event) => setCrmCompanyStatusInput(event.target.value)}>
+                        {CRM_PIPELINE_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  <div className="workflow-field-grid">
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Kontaktná osoba</span>
+                      <input type="text" className="search-input" value={crmCompanyContactNameInput} onChange={(event) => setCrmCompanyContactNameInput(event.target.value)} />
+                    </label>
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Ďalší kontakt</span>
+                      <input type="datetime-local" className="search-input" value={crmCompanyNextContactAtInput} onChange={(event) => setCrmCompanyNextContactAtInput(event.target.value)} />
+                    </label>
+                  </div>
+                  <div className="workflow-field-grid">
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Email</span>
+                      <input type="email" className="search-input" value={crmCompanyContactEmailInput} onChange={(event) => setCrmCompanyContactEmailInput(event.target.value)} />
+                    </label>
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Telefón</span>
+                      <input type="text" className="search-input" value={crmCompanyContactPhoneInput} onChange={(event) => setCrmCompanyContactPhoneInput(event.target.value)} />
+                    </label>
+                  </div>
+                  <label className="workflow-field">
+                    <span className="workflow-field-label">Vybrané moduly</span>
+                    <input type="text" className="search-input" value={crmCompanyModulesInput} onChange={(event) => setCrmCompanyModulesInput(event.target.value)} />
+                  </label>
+                  <label className="workflow-field">
+                    <span className="workflow-field-label">Hardware / setup</span>
+                    <input type="text" className="search-input" value={crmCompanyHardwareInput} onChange={(event) => setCrmCompanyHardwareInput(event.target.value)} />
+                  </label>
+                  <label className="workflow-field">
+                    <span className="workflow-field-label">Poznámka</span>
+                    <textarea className="order-note-input" value={crmCompanyNoteInput} onChange={(event) => setCrmCompanyNoteInput(event.target.value)} />
+                  </label>
+                  <div className="orders-form-actions">
+                    <button type="submit" className="settings-btn" disabled={crmSubmitting || (isMaster && !crmCompanyCompanyIdInput && !editingCrmCompanyId)}>
+                      {crmSubmitting ? "Ukladám..." : editingCrmCompanyId ? "Uložiť CRM záznam" : "Pridať CRM záznam"}
+                    </button>
+                    <button type="button" className="clear-btn" onClick={resetCrmCompanyForm} disabled={crmSubmitting}>
+                      Reset
+                    </button>
+                  </div>
+                </div>
+              </form>
+
+              {selectedCrmCompany && (
+                <form className="workflow-form-shell" onSubmit={handleSaveCrmActivity}>
+                  <div className="workflow-form-section">
+                    <div className="workflow-subsection-head">
+                      <h3>Nová CRM aktivita</h3>
+                      <p className="panel-meta">{selectedCrmCompany.name}</p>
+                    </div>
+                    <div className="workflow-field-grid">
+                      <label className="workflow-field">
+                        <span className="workflow-field-label">Typ</span>
+                        <select value={crmActivityTypeInput} onChange={(event) => setCrmActivityTypeInput(event.target.value)}>
+                          {CRM_ACTIVITY_TYPE_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="workflow-field">
+                        <span className="workflow-field-label">Nadpis</span>
+                        <input type="text" className="search-input" value={crmActivityTitleInput} onChange={(event) => setCrmActivityTitleInput(event.target.value)} />
+                      </label>
+                    </div>
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Poznámka</span>
+                      <textarea className="order-note-input" value={crmActivityNoteInput} onChange={(event) => setCrmActivityNoteInput(event.target.value)} />
+                    </label>
+                    <div className="orders-form-actions">
+                      <button type="submit" className="settings-btn" disabled={crmActivitySubmitting}>
+                        {crmActivitySubmitting ? "Ukladám..." : "Pridať aktivitu"}
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              )}
+            </div>
+
+            <div className="orders-column orders-column-list workflow-feed-column">
+              <div className="workflow-form-section">
+                <div className="workflow-subsection-head">
+                  <h3>CRM firmy</h3>
+                  <p className="panel-meta">Onboarding leady, vlastné firmy a obchodné follow-upy.</p>
+                </div>
+                <input
+                  type="search"
+                  className="search-input"
+                  placeholder="Hľadaj podľa firmy, kontaktu, modulu alebo poznámky"
+                  value={crmSearchTerm}
+                  onChange={(event) => setCrmSearchTerm(event.target.value)}
+                />
+              </div>
+              <div className="orders-list customer-database-list">
+                {crmLoading ? (
+                  <p className="panel-meta">Načítavam CRM...</p>
+                ) : filteredCrmCompanies.length === 0 ? (
+                  <p className="panel-meta">V CRM zatiaľ nie sú žiadne záznamy.</p>
+                ) : (
+                  filteredCrmCompanies.map((company) => (
+                    <article key={company.id} className="order-card customer-card">
+                      <div className="order-card-head customer-card-head">
+                        <div>
+                          <strong>{company.name}</strong>
+                          <div className="order-meta customer-inline-meta">
+                            <span>{formatCrmPipelineStatus(company.pipeline_status)}</span>
+                            <span>{company.source || "manual"}</span>
+                            {isMaster && company.company_id && <span>{companyNameById[company.company_id] || company.company_id}</span>}
+                          </div>
+                        </div>
+                        <div className="order-meta customer-inline-meta">
+                          {company.next_contact_at && <span>{`ďalší kontakt ${formatDate(company.next_contact_at)}`}</span>}
+                          {company.external_reference && <span>{company.external_reference}</span>}
+                        </div>
+                      </div>
+                      <div className="order-detail customer-card-body">
+                        <div className="customer-meta-grid">
+                          <div>
+                            <strong>Kontakt</strong>
+                            <p>{company.contact_name || "-"}</p>
+                          </div>
+                          <div>
+                            <strong>Email / telefón</strong>
+                            <p>{[company.contact_email, company.contact_phone].filter(Boolean).join(" | ") || "-"}</p>
+                          </div>
+                          <div className="customer-meta-grid-wide">
+                            <strong>Moduly</strong>
+                            <p>{company.lead_modules || "-"}</p>
+                          </div>
+                          <div className="customer-meta-grid-wide">
+                            <strong>Hardware / setup</strong>
+                            <p>{company.lead_hardware || "-"}</p>
+                          </div>
+                          <div className="customer-meta-grid-wide">
+                            <strong>Poznámka</strong>
+                            <p>{company.note || "-"}</p>
+                          </div>
+                        </div>
+                        <div className="customer-card-actions">
+                          <button type="button" className="clear-btn" onClick={() => setSelectedCrmCompanyId(company.id)}>
+                            Detail
+                          </button>
+                          <button type="button" className="clear-btn" onClick={() => handleEditCrmCompany(company)}>
+                            Upraviť
+                          </button>
+                        </div>
+                      </div>
+                    </article>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+
+          {selectedCrmCompany && (
+            <div className="workflow-form-section">
+              <div className="workflow-subsection-head">
+                <h3>CRM aktivity</h3>
+                <p className="panel-meta">{selectedCrmCompany.name}</p>
+              </div>
+              <div className="orders-list customer-database-list">
+                {selectedCrmActivities.length === 0 ? (
+                  <p className="panel-meta">Pre tento CRM záznam zatiaľ nie sú žiadne aktivity.</p>
+                ) : (
+                  selectedCrmActivities.map((activity) => (
+                    <article key={activity.id} className="order-card customer-card">
+                      <div className="order-card-head customer-card-head">
+                        <div>
+                          <strong>{activity.title || formatCrmPipelineStatus(activity.activity_type)}</strong>
+                          <div className="order-meta customer-inline-meta">
+                            <span>{activity.activity_type}</span>
+                            <span>{formatDate(activity.happened_at || activity.created_at)}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="order-detail customer-card-body">
+                        <p>{activity.note || "-"}</p>
+                      </div>
+                    </article>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
         </section>
       )}
 

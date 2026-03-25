@@ -20,6 +20,7 @@ const ATTENDANCE_MODULE = "__attendance__";
 const ATTENDANCE_GROUPS_MODULE = "__attendance_groups__";
 const ATTENDANCE_SETTINGS_MODULE = "__attendance_settings__";
 const COMPANY_SETTINGS_MODULE = "__company_settings__";
+const SYSTEM_ADMIN_MODULE = "__system_admin__";
 const PRICE_LIST_TABLE = "price_list";
 const BILLING_API_BASE = "/api/v1/billing";
 const QUOTE_VAT_OPTIONS = [0, 5, 19, 23];
@@ -354,6 +355,18 @@ const TABLE_CONFIG = {
     orderBy: "created_at",
     orderAsc: false,
     metricLabel: "Výrobné zákazky",
+    metricValue: (rows) => rows.length
+  },
+  [SYSTEM_ADMIN_MODULE]: {
+    title: "Správa systému",
+    subtitle: "Firmy, účty, billing a systémové prístupy na jednom mieste",
+    columns: [],
+    searchKeys: [],
+    statusKeys: [],
+    timeKeys: [],
+    orderBy: "created_at",
+    orderAsc: false,
+    metricLabel: "Tenanty",
     metricValue: (rows) => rows.length
   }
 };
@@ -793,6 +806,9 @@ function getTableLabel(table) {
   }
   if (String(table || "").trim() === COMPANY_SETTINGS_MODULE) {
     return "Nastavenia firmy";
+  }
+  if (String(table || "").trim() === SYSTEM_ADMIN_MODULE) {
+    return "Správa systému";
   }
   if (String(table || "").trim() === ROLE_TABLE) {
     return "Zamestnanci";
@@ -5059,6 +5075,7 @@ function App() {
   const tableConfig = getTableConfig(selectedTable);
   const isMaster = userRole === "master";
   const isCompanyAdmin = !isMaster && canManageOrders && Boolean(userCompanyId);
+  const canUseCompanyAdminOnboarding = isMaster || isCompanyAdmin;
   const canAccessOrdersModule = isMaster || canManageOrders;
   const hotjarAllowed = (authReady || authInitTimedOut) && (!isLoggedIn || !isMaster);
   const companyNameById = useMemo(
@@ -5124,6 +5141,51 @@ function App() {
 
     return getStoredCompanyAdminSetup(activeCompanyId);
   }, [activeCompanyId, companyAdminSetupDraft]);
+  const activateCompanyAdminOnboarding = (targetCompanyId, overrides = {}) => {
+    const normalizedCompanyId = String(targetCompanyId || "").trim();
+    if (!normalizedCompanyId) {
+      return;
+    }
+
+    const storedSetup = getStoredCompanyAdminSetup(normalizedCompanyId);
+    const nextDraft =
+      saveStoredCompanyAdminSetup(normalizedCompanyId, {
+        ...(storedSetup || {}),
+        ...overrides,
+        companyId: normalizedCompanyId,
+        companyName: String(
+          overrides.companyName ||
+            storedSetup?.companyName ||
+            companyNameById[normalizedCompanyId] ||
+            companiesById[normalizedCompanyId]?.name ||
+            ""
+        ).trim(),
+        contactPhone: String(overrides.contactPhone || storedSetup?.contactPhone || "").trim()
+      }) ||
+      createDefaultCompanyAdminSetupDraft({
+        ...(storedSetup || {}),
+        ...overrides,
+        companyId: normalizedCompanyId,
+        companyName: String(
+          overrides.companyName ||
+            storedSetup?.companyName ||
+            companyNameById[normalizedCompanyId] ||
+            companiesById[normalizedCompanyId]?.name ||
+            ""
+        ).trim(),
+        contactPhone: String(overrides.contactPhone || storedSetup?.contactPhone || "").trim()
+      });
+
+    if (isMaster && selectedCompanyId !== normalizedCompanyId) {
+      setSelectedCompanyId(normalizedCompanyId);
+    }
+
+    setCompanyAdminSetupDraft(nextDraft);
+    setIsCompanyAdminOnboardingActive(true);
+    setCompanyAdminOnboardingStep(Math.max(0, Number.parseInt(String(overrides.step ?? 0), 10) || 0));
+    setCompanyAdminOnboardingError("");
+    setCompanyAdminSetupMessage("");
+  };
   const isLeadWaitingCompany = useMemo(() => {
     if (isMaster || isCompanyAdminOnboardingActive || activeCompanyBillingStatus !== "lead") {
       return false;
@@ -5140,17 +5202,6 @@ function App() {
     () => resolveCompanyBillingPricing(activeCompany || {}, pricingEstimate),
     [activeCompany, pricingEstimate]
   );
-  const activeCompanySelectedModuleKeys = useMemo(
-    () => COMPANY_ADMIN_MODULE_OPTIONS.filter((option) => activeCompanyLeadSetup?.moduleSelections?.[option.key]).map((option) => option.key),
-    [activeCompanyLeadSetup]
-  );
-  const isActiveCompanyInvoicingOnly = useMemo(
-    () =>
-      !isMaster &&
-      activeCompanySelectedModuleKeys.length > 0 &&
-      activeCompanySelectedModuleKeys.every((moduleKey) => moduleKey === "invoicing"),
-    [isMaster, activeCompanySelectedModuleKeys]
-  );
   useEffect(() => {
     if (!isLoggedIn || !activeCompanyId || (!isMaster && !canManageOrders)) {
       setCompanyInvites([]);
@@ -5166,6 +5217,7 @@ function App() {
     if (isMaster) {
       return Array.from(
         new Set([
+          SYSTEM_ADMIN_MODULE,
           ...tableNames,
           COMPANY_SETTINGS_MODULE,
           ROLE_TABLE,
@@ -5181,7 +5233,7 @@ function App() {
         ])
       );
     }
-    if (isActiveCompanyBasicFree || isActiveCompanyInvoicingOnly) {
+    if (isActiveCompanyBasicFree) {
       return [INVOICES_MODULE, QUOTES_MODULE, CUSTOMERS_MODULE, PRICE_LIST_TABLE, COMPANY_SETTINGS_MODULE];
     }
     const userBaseTables = Array.from(
@@ -5207,7 +5259,7 @@ function App() {
         ...(canAccessMesModule ? [PRODUCTION_MODULE] : [])
       ])
     );
-  }, [isMaster, isActiveCompanyBasicFree, isActiveCompanyInvoicingOnly, canAccessOrdersModule, canAccessMesModule]);
+  }, [isMaster, isActiveCompanyBasicFree, canAccessOrdersModule, canAccessMesModule]);
   const normalizedStockTwinLayout = useMemo(() => normalizeStockTwinLayout(stockTwinLayout), [stockTwinLayout]);
   const customersById = useMemo(
     () => Object.fromEntries(customers.map((customer) => [customer.id, customer])),
@@ -6118,8 +6170,8 @@ function App() {
 
   const handleAdvanceCompanyAdminOnboarding = async () => {
     if (companyAdminOnboardingStep === 0) {
-      if (!String(companyProfileNameInput || activeCompany?.name || "").trim()) {
-        setCompanyAdminOnboardingError("Doplň názov firmy, aby sme vedeli dokončiť onboarding.");
+      if (selectedCompanyAdminModules.length === 0) {
+        setCompanyAdminOnboardingError("Vyber aspoň jednu oblasť, ktorú chce firma používať.");
         return;
       }
       setCompanyAdminOnboardingError("");
@@ -6128,8 +6180,8 @@ function App() {
     }
 
     if (companyAdminOnboardingStep === 1) {
-      if (selectedCompanyAdminModules.length === 0) {
-        setCompanyAdminOnboardingError("Vyber aspoň jeden modul, ktorý chce firma používať.");
+      if (!String(companyProfileNameInput || activeCompany?.name || "").trim()) {
+        setCompanyAdminOnboardingError("Doplň názov firmy, aby sme vedeli dokončiť onboarding.");
         return;
       }
       setCompanyAdminOnboardingError("");
@@ -6504,6 +6556,15 @@ function App() {
           throw signupBootstrapError;
         }
       } else {
+        const normalizedSignupCompanyId = String(signupBootstrapData?.company_id || "").trim();
+        if (normalizedSignupCompanyId) {
+          saveStoredCompanyAdminSetup(normalizedSignupCompanyId, {
+            companyId: normalizedSignupCompanyId,
+            companyName: String(signupBootstrapData?.company_name || pendingBootstrap.companyName || "").trim(),
+            contactPhone: String(pendingBootstrap?.phone || user.user_metadata?.phone || "").trim(),
+            completedAt: ""
+          });
+        }
         setPendingCompanyAdminSetup({
           mode: "company_admin_setup",
           userId: user.id,
@@ -6943,6 +7004,11 @@ function App() {
           String(a.name || "").localeCompare(String(b.name || ""), "sk-SK", { sensitivity: "base" })
         )
       );
+      activateCompanyAdminOnboarding(normalizedInserted.id, {
+        companyName: String(normalizedInserted.name || "").trim(),
+        completedAt: "",
+        step: 0
+      });
     }
     setCreateCompanySubmitting(false);
   };
@@ -11138,37 +11204,38 @@ function App() {
   }, [authReady, isLoggedIn, isMaster, authUser?.id, userCompanyId]);
 
   useEffect(() => {
-    if (!authReady || !isLoggedIn || !isCompanyAdmin || !authUser?.id || !userCompanyId) {
+    if (!authReady || !isLoggedIn || !canUseCompanyAdminOnboarding || !authUser?.id || !activeCompanyId) {
       setIsCompanyAdminOnboardingActive(false);
       return;
     }
 
+    if (isCompanyAdminOnboardingActive) {
+      return;
+    }
+
     const pendingSetup = getPendingCompanyAdminSetup();
-    if (!pendingSetup) {
-      return;
+    if (pendingSetup) {
+      const pendingUserId = String(pendingSetup.userId || "").trim();
+      const pendingCompanyId = String(pendingSetup.companyId || "").trim();
+      if ((!pendingUserId || pendingUserId === authUser.id) && (!pendingCompanyId || pendingCompanyId === String(activeCompanyId || "").trim())) {
+        activateCompanyAdminOnboarding(activeCompanyId, {
+          companyName: String(pendingSetup.companyName || activeCompany?.name || "").trim(),
+          contactPhone: String(pendingSetup.contactPhone || "").trim(),
+          step: 0
+        });
+        return;
+      }
     }
 
-    const pendingUserId = String(pendingSetup.userId || "").trim();
-    const pendingCompanyId = String(pendingSetup.companyId || "").trim();
-    if (pendingUserId && pendingUserId !== authUser.id) {
-      return;
+    const storedSetup = getStoredCompanyAdminSetup(activeCompanyId);
+    if (storedSetup && !String(storedSetup.completedAt || "").trim()) {
+      activateCompanyAdminOnboarding(activeCompanyId, {
+        ...storedSetup,
+        companyName: String(storedSetup.companyName || activeCompany?.name || "").trim(),
+        step: 0
+      });
     }
-    if (pendingCompanyId && pendingCompanyId !== String(userCompanyId || "").trim()) {
-      return;
-    }
-
-    setCompanyAdminSetupDraft((current) =>
-      createDefaultCompanyAdminSetupDraft({
-        ...current,
-        companyId: pendingCompanyId || current.companyId,
-        companyName: String(current.companyName || pendingSetup.companyName || activeCompany?.name || "").trim(),
-        contactPhone: String(current.contactPhone || pendingSetup.contactPhone || "").trim()
-      })
-    );
-    setIsCompanyAdminOnboardingActive(true);
-    setCompanyAdminOnboardingStep(0);
-    setCompanyAdminOnboardingError("");
-  }, [authReady, isLoggedIn, isCompanyAdmin, authUser?.id, userCompanyId, activeCompany?.name]);
+  }, [authReady, isLoggedIn, canUseCompanyAdminOnboarding, authUser?.id, activeCompanyId, activeCompany?.name, isCompanyAdminOnboardingActive]);
 
   useEffect(() => {
     if (!authReady) {
@@ -13336,26 +13403,29 @@ function App() {
       .sort((a, b) => String(a.area).localeCompare(String(b.area), "sk-SK", { sensitivity: "base" }));
   }, [machineDashboardRows]);
   const sidebarSections = useMemo(() => {
-    const manufacturingItems = [];
-    const hrItems = [ROLE_TABLE, ATTENDANCE_MODULE, ATTENDANCE_GROUPS_MODULE, ATTENDANCE_SETTINGS_MODULE].filter((table) =>
+    const systemItems = isMaster ? [SYSTEM_ADMIN_MODULE].filter((table) => visibleTableNames.includes(table)) : [];
+    const workflowItems = [PRICE_LIST_TABLE, CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE].filter((table) =>
       visibleTableNames.includes(table)
     );
-    const workflowItems = [PRICE_LIST_TABLE, CUSTOMERS_MODULE, QUOTES_MODULE, INVOICES_MODULE, ORDERS_MODULE, PRODUCTION_MODULE].filter((table) =>
+    const stockItems = [
+      DAILY_OVERVIEW_TABLE,
+      "stock",
+      ...Array.from(TRANSACTIONS_TABLE_NAMES)
+    ].filter((table) => visibleTableNames.includes(table));
+    const mesItems = [PRODUCTION_MODULE].filter((table) => visibleTableNames.includes(table));
+    const attendanceItems = [ROLE_TABLE, ATTENDANCE_MODULE, ATTENDANCE_GROUPS_MODULE, ATTENDANCE_SETTINGS_MODULE].filter((table) =>
       visibleTableNames.includes(table)
     );
-    const monitoringItems = visibleTableNames.filter(
-      (table) =>
-        table !== COMPANY_SETTINGS_MODULE &&
-        !workflowItems.includes(table) &&
-        !manufacturingItems.includes(table) &&
-        !hrItems.includes(table)
-    );
-    const sections = [
-      {
-        title: isMaster ? "Dáta" : "Monitoring",
-        items: monitoringItems
-      }
-    ];
+    const assignedItems = new Set([...systemItems, ...workflowItems, ...stockItems, ...mesItems, ...attendanceItems, COMPANY_SETTINGS_MODULE]);
+    const miscItems = visibleTableNames.filter((table) => !assignedItems.has(table));
+    const sections = [];
+
+    if (systemItems.length > 0) {
+      sections.push({
+        title: "Správa systému",
+        items: systemItems
+      });
+    }
 
     if (workflowItems.length > 0) {
       sections.push({
@@ -13364,17 +13434,31 @@ function App() {
       });
     }
 
-    if (hrItems.length > 0) {
+    if (stockItems.length > 0) {
       sections.push({
-        title: "HR",
-        items: hrItems
+        title: "Sklad",
+        items: stockItems
       });
     }
 
-    if (manufacturingItems.length > 0) {
+    if (mesItems.length > 0) {
       sections.push({
-        title: "Manufacturing",
-        items: manufacturingItems
+        title: "MES",
+        items: mesItems
+      });
+    }
+
+    if (attendanceItems.length > 0) {
+      sections.push({
+        title: "Dochádzka",
+        items: attendanceItems
+      });
+    }
+
+    if (miscItems.length > 0) {
+      sections.push({
+        title: isMaster ? "Dáta" : "Ostatné",
+        items: miscItems
       });
     }
 
@@ -14687,8 +14771,8 @@ function App() {
 
   if (isCompanyAdminOnboardingActive && activeCompanyId) {
     const onboardingSteps = [
+      { title: "Čo chcete využívať", description: "Vyber oblasti, ktoré chce firma používať od prvého dňa." },
       { title: "Firemné údaje", description: "Profil firmy a kontaktné údaje pre prvotné nastavenie." },
-      { title: "Moduly a hardware", description: "Vyber moduly, ktoré chce firma používať, a hardware pre každý z nich." },
       { title: "Pozvánky a pozície", description: "Priprav kolegov, ich pracovné pozície a prístupové rozsahy." }
     ];
 
@@ -14700,7 +14784,7 @@ function App() {
               <p className="company-admin-setup-kicker">Firemný onboarding</p>
               <h1>{currentCompanyLabel}</h1>
               <p className="subtitle">
-                Najprv dokončíš úvodný setup firmy. Až potom sa otvorí dashboard, aby boli moduly, hardware a tím zladené od začiatku.
+                Najprv vyberieš, čo chce firma reálne používať. Potom doplníš profil firmy a tím, aby bol dashboard pripravený od prvého dňa.
               </p>
             </div>
 
@@ -14725,7 +14809,7 @@ function App() {
             </div>
 
             <section className="company-onboarding-card">
-              {companyAdminOnboardingStep === 0 && (
+              {companyAdminOnboardingStep === 1 && (
                 <div className="company-onboarding-section">
                   <div className="panel-head">
                     <div>
@@ -14834,14 +14918,14 @@ function App() {
                 </div>
               )}
 
-              {companyAdminOnboardingStep === 1 && (
+              {companyAdminOnboardingStep === 0 && (
                 <div className="company-onboarding-section">
                   <div className="panel-head">
                     <div>
-                      <h2>Moduly a hardware</h2>
+                      <h2>Čo chcete využívať?</h2>
                       <p className="panel-meta">
-                        Vyber modul a pod ním sa zobrazí hardware, ktorý k nemu dáva zmysel. Basic vrstva s fakturáciou
-                        a cenovými ponukami je zdarma, sklad a ostatné prevádzkové moduly sú platené.
+                        Klikni na dlaždice podľa toho, čo chce firma naozaj používať. Pod vybranými oblasťami sa potom zobrazí
+                        relevantný hardware a ďalší setup.
                       </p>
                     </div>
                   </div>
@@ -14862,6 +14946,7 @@ function App() {
                   <div className="company-onboarding-module-grid">
                     {COMPANY_ADMIN_MODULE_OPTIONS.map((module) => {
                       const isSelected = Boolean(companyAdminSetupDraft.moduleSelections?.[module.key]);
+                      const Icon = getModuleIcon(module.iconKey);
                       return (
                         <button
                           key={module.key}
@@ -14869,11 +14954,17 @@ function App() {
                           className={`company-onboarding-module-card ${isSelected ? "is-selected" : ""}`}
                           onClick={() => handleCompanyAdminModuleToggle(module.key)}
                         >
-                          <span className={`company-onboarding-module-badge ${module.pricingLabel === "Zdarma" ? "is-free" : "is-paid"}`}>
-                            {module.pricingLabel}
-                          </span>
+                          <div className="company-onboarding-module-card-head">
+                            <span className="company-onboarding-module-icon" aria-hidden="true">
+                              <Icon size={18} strokeWidth={2.05} />
+                            </span>
+                            <span className={`company-onboarding-module-badge ${module.pricingLabel === "Zdarma" ? "is-free" : "is-paid"}`}>
+                              {module.pricingLabel}
+                            </span>
+                          </div>
                           <strong>{module.label}</strong>
                           <span>{module.description}</span>
+                          <small className="company-onboarding-module-action">{isSelected ? "Vybrané" : "Vybrať"}</small>
                         </button>
                       );
                     })}
@@ -17097,13 +17188,13 @@ function App() {
         </section>
       )}
 
-      {isMaster && (
+      {isMaster && selectedTable === SYSTEM_ADMIN_MODULE && (
         <section className="panel master-panel">
           <div className="panel-head master-panel-head">
             <div>
-              <p className="workflow-eyebrow">Superadmin</p>
-              <h2>Master Dashboard</h2>
-              <p className="panel-meta">Tenanty, billing, prístupy a servisné nástroje pre celý Factory OS projekt.</p>
+              <p className="workflow-eyebrow">Správa systému</p>
+              <h2>Master prehľad</h2>
+              <p className="panel-meta">Firmy, účty, billing, prístupy a servisné nástroje pre celý Factory OS projekt.</p>
             </div>
             <div className="master-head-actions">
               <button type="button" className="refresh-btn" onClick={loadCompanies}>
@@ -17146,12 +17237,30 @@ function App() {
             </article>
           </div>
 
+          <div className="master-system-note-grid">
+            <article className="master-system-note-card">
+              <span className="master-system-note-kicker">Kde zapnúť workflow</span>
+              <strong>Používateľ</strong>
+              <p>V tabuľke Platform users zapni userovi checkbox pre objednávky a workflow. Tým dostane workflow, fakturáciu, quotes aj dochádzku.</p>
+            </article>
+            <article className="master-system-note-card">
+              <span className="master-system-note-kicker">Kde zapnúť MES</span>
+              <strong>Používateľ + firma</strong>
+              <p>Na userovi zapni MES / HMI a zároveň musí mať firma zapnuté MES. Obe podmienky musia platiť naraz.</p>
+            </article>
+            <article className="master-system-note-card">
+              <span className="master-system-note-kicker">Sklad a denný prehľad</span>
+              <strong>Firemný režim</strong>
+              <p>Sklad, denný prehľad a transakcie sa nezapínajú samostatným user checkboxom. Zobrazia sa automaticky, ak firma nie je v basic free režime.</p>
+            </article>
+          </div>
+
           <div className="master-layout">
           <article className="master-section-card">
             <div className="workflow-subsection-head">
               <div>
-                <h3>Tenant management</h3>
-                <p className="panel-meta">Zakladanie firiem, demo profilov a rýchly kontext nad vybraným tenantom.</p>
+                <h3>Správa firiem</h3>
+                <p className="panel-meta">Zakladanie firiem, onboarding a rýchly kontext nad aktuálne vybranou firmou.</p>
               </div>
             </div>
           <form className="master-company-form" onSubmit={handleCreateCompany}>
@@ -17191,8 +17300,8 @@ function App() {
           <article className="master-section-card">
             <div className="workflow-subsection-head">
               <div>
-                <h3>Prístupy a role</h3>
-                <p className="panel-meta">Tvorba interných účtov a mapovanie práv na tenantov.</p>
+                <h3>Používatelia a prístupy</h3>
+                <p className="panel-meta">Tvorba interných účtov a mapovanie práv na firmy.</p>
               </div>
             </div>
           <form className="master-create-form" onSubmit={handleCreateManagedUser}>
@@ -17237,7 +17346,7 @@ function App() {
                 onChange={(event) => setNewUserCanManageOrders(event.target.checked)}
                 disabled={newUserRole === "master"}
               />
-              <span>Objednávky + výroba</span>
+              <span>Workflow</span>
             </label>
             <label className="pricing-options">
               <input
@@ -17268,13 +17377,13 @@ function App() {
               {`Demo login: ${lastCreatedDemoCredentials.username} | heslo: ${lastCreatedDemoCredentials.password} | firma: ${lastCreatedDemoCredentials.companyName}`}
             </p>
           )}
-          <p className="settings-hint">Master účet vidí všetky firmy. User účet môže byť bez firmy len dočasne, kým ho nepriradíš.</p>
+          <p className="settings-hint">Workflow zapína dokumenty, objednávky a dochádzkové moduly. Sklad a denný prehľad sa userovi zobrazia automaticky mimo basic free režimu firmy.</p>
           </article>
 
           <article className="master-section-card">
             <div className="workflow-subsection-head">
               <div>
-                <h3>Platform tools</h3>
+                <h3>Systémové nástroje</h3>
                 <p className="panel-meta">QR utility a servisné zásahy, ktoré nepatria koncovému používateľovi.</p>
               </div>
             </div>
@@ -17356,8 +17465,8 @@ function App() {
           <article className="master-section-card">
             <div className="workflow-subsection-head">
               <div>
-                <h3>Pricing stratégia</h3>
-                <p className="panel-meta">Referenčná kalkulačka pre billing a custom pricing override na tenantovi.</p>
+                <h3>Billing a pricing</h3>
+                <p className="panel-meta">Referenčná kalkulačka pre billing a custom pricing override na firme.</p>
               </div>
             </div>
           <section className="pricing-panel master-pricing-panel">
@@ -17429,8 +17538,8 @@ function App() {
           <section className="master-section-card master-table-section">
           <div className="panel-head">
             <div>
-              <h3>Tenant portfolio</h3>
-              <p className="panel-meta">Operatívny prehľad firiem, billing stavu a master zásahov na tenant úrovni.</p>
+              <h3>Firemné portfólio</h3>
+              <p className="panel-meta">Operatívny prehľad firiem, billing stavu a master zásahov na úrovni firmy.</p>
             </div>
           </div>
           <div className="panel-controls master-filters">
@@ -17667,8 +17776,8 @@ function App() {
           <section className="master-section-card master-table-section">
           <div className="panel-head">
             <div>
-              <h3>Platform users</h3>
-              <p className="panel-meta">Správa interných používateľov, rolí a tenant prístupov.</p>
+              <h3>Používateľské účty</h3>
+              <p className="panel-meta">Správa interných používateľov, rolí a prístupov na firmy.</p>
             </div>
           </div>
           <div className="panel-controls master-filters">
@@ -17698,7 +17807,7 @@ function App() {
                   <th>Login</th>
                   <th>Rola</th>
                   <th>Firma</th>
-                  <th>Objednávky + výroba</th>
+                  <th>Workflow</th>
                   <th>MES / HMI</th>
                   <th>Databáza</th>
                   <th>Vytvorené</th>

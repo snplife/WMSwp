@@ -776,6 +776,43 @@ select {
   font-size: 0.78rem;
 }
 
+.master-system-note-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.7rem;
+  margin-bottom: 0.9rem;
+}
+
+.master-system-note-card {
+  display: grid;
+  gap: 0.28rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid #d9e5f1;
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at top right, rgba(36, 89, 135, 0.08), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(243, 248, 253, 0.95));
+}
+
+.master-system-note-kicker {
+  color: #245987;
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.master-system-note-card strong {
+  color: #17324a;
+}
+
+.master-system-note-card p {
+  margin: 0;
+  color: #627486;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
 .master-layout {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3876,6 +3913,25 @@ tbody tr:nth-child(even) {
   color: #28445d;
 }
 
+.company-onboarding-module-card-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.company-onboarding-module-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 14px;
+  background: rgba(36, 89, 135, 0.08);
+  color: #245987;
+}
+
 .company-onboarding-module-badge {
   display: inline-flex;
   align-items: center;
@@ -3911,12 +3967,29 @@ tbody tr:nth-child(even) {
   line-height: 1.42;
 }
 
+.company-onboarding-module-action {
+  margin-top: 0.15rem;
+  color: #245987;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
 .company-onboarding-module-card.is-selected {
   border-color: #16715a;
   background:
     radial-gradient(circle at top right, rgba(21, 114, 89, 0.14), transparent 45%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(240, 249, 245, 0.96));
   box-shadow: 0 14px 28px rgba(21, 114, 89, 0.09);
+}
+
+.company-onboarding-module-card.is-selected .company-onboarding-module-icon {
+  background: rgba(21, 114, 89, 0.12);
+  color: #16715a;
+}
+
+.company-onboarding-module-card.is-selected .company-onboarding-module-action {
+  color: #16715a;
 }
 
 .company-onboarding-module-sections {
@@ -6610,6 +6683,7 @@ tbody tr:nth-child(even) {
   }
 
   .master-summary-grid,
+  .master-system-note-grid,
   .master-layout {
     grid-template-columns: 1fr;
   }

@@ -11,7 +11,8 @@ import { estimateWmsPricing, normalizeBillingPriceValue, resolveCompanyBillingPr
 import logo from "../logo.png";
 
 const DAILY_OVERVIEW_TABLE = "__daily_overview__";
-const CRM_MODULE = "__crm__";
+const CRM_MODULE = "CRM";
+const LEGACY_CRM_MODULE = "__crm__";
 const CUSTOMERS_MODULE = "__customers__";
 const QUOTES_MODULE = "__quotes__";
 const INVOICES_MODULE = "__invoices__";
@@ -41,6 +42,26 @@ const ATTENDANCE_SHIFT_OPTIONS = [
   { value: "three_shift", label: "Trojzmenná" },
   { value: "continuous", label: "Nepretržitá" },
   { value: "custom", label: "Vlastný režim" }
+];
+const ATTENDANCE_LEAVE_TYPE_OPTIONS = [
+  { value: "vacation", label: "Dovolenka" },
+  { value: "sick_leave", label: "PN" },
+  { value: "doctor", label: "Lekár" },
+  { value: "unpaid", label: "Neplatené voľno" },
+  { value: "other", label: "Iná absencia" }
+];
+const ATTENDANCE_LEAVE_STATUS_OPTIONS = [
+  { value: "planned", label: "Plánované" },
+  { value: "approved", label: "Schválené" },
+  { value: "cancelled", label: "Zrušené" }
+];
+const ATTENDANCE_EMPLOYMENT_TYPE_OPTIONS = [
+  { value: "full_time", label: "TPP - plný úväzok" },
+  { value: "part_time", label: "TPP - skrátený úväzok" },
+  { value: "agreement", label: "Dohoda" },
+  { value: "contractor", label: "Externista / živnosť" },
+  { value: "intern", label: "Stážista" },
+  { value: "temporary", label: "Dočasný pomer" }
 ];
 const CRM_PIPELINE_OPTIONS = [
   { value: "new", label: "Nový lead" },
@@ -743,7 +764,8 @@ function isCustomerModule(table) {
 }
 
 function isCrmModule(table) {
-  return String(table || "").trim() === CRM_MODULE;
+  const normalized = String(table || "").trim();
+  return normalized === CRM_MODULE || normalized === LEGACY_CRM_MODULE;
 }
 
 function isQuoteModule(table) {
@@ -1105,16 +1127,22 @@ function createEmptyInvoiceDraftItem() {
   };
 }
 
-function formatDateInputValue(value) {
-  if (!value) {
-    return "";
-  }
+function formatDateInputValue(value = new Date()) {
   const date = value instanceof Date ? new Date(value.getTime()) : new Date(value);
   if (Number.isNaN(date.getTime())) {
     return "";
   }
   const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
   return localDate.toISOString().slice(0, 10);
+}
+
+function formatMonthInputValue(value = new Date()) {
+  const date = value instanceof Date ? new Date(value.getTime()) : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return localDate.toISOString().slice(0, 7);
 }
 
 function normalizeInvoiceDueDays(value, fallback = 14) {
@@ -3485,6 +3513,298 @@ function printProductionPdf(productionOrder, inputs, outputs, companyName) {
   printHtmlDocument(buildProductionPrintHtml(productionOrder, inputs, outputs, companyName));
 }
 
+function buildAttendanceEmployeesPrintHtml({ companyName, rows = [], generatedAt, summary = {} }) {
+  const rowsHtml = rows
+    .map(
+      (row, index) => `
+        <tr>
+          <td>${index + 1}</td>
+          <td>${escapeHtml(String(row.fullName || "-"))}</td>
+          <td>${escapeHtml(String(row.employeeCode || "-"))}</td>
+          <td>${escapeHtml(String(row.employmentType || "-"))}</td>
+          <td>${escapeHtml(String(row.groupName || "-"))}</td>
+          <td>${escapeHtml(String(row.presenceLabel || "-"))}</td>
+          <td>${escapeHtml(String(row.entitlement || "-"))}</td>
+          <td>${escapeHtml(String(row.used || "-"))}</td>
+          <td>${escapeHtml(String(row.remaining || "-"))}</td>
+          <td>${escapeHtml(String(row.planned || "-"))}</td>
+          <td>${escapeHtml(String(row.lastEvent || "-"))}</td>
+        </tr>
+      `
+    )
+    .join("");
+
+  return `<!doctype html>
+  <html lang="sk">
+    <head>
+      <meta charset="UTF-8" />
+      <title>Dochadzka-zamestnanci</title>
+      <style>
+        @page { size: A4 landscape; margin: 12mm; }
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: Arial, sans-serif; color: #1b2631; }
+        .page { display: grid; gap: 6mm; }
+        .head { display: flex; justify-content: space-between; gap: 8mm; align-items: start; }
+        h1 { margin: 0 0 2mm; font-size: 18pt; }
+        .summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3mm; }
+        .summary-card, .section-box { border: 0.3mm solid #d9e2ec; border-radius: 3mm; padding: 4mm; }
+        .label { display: block; margin-bottom: 1mm; font-size: 8pt; color: #52606d; text-transform: uppercase; letter-spacing: 0.08em; }
+        .value { font-size: 12pt; font-weight: 700; }
+        table { width: 100%; border-collapse: collapse; font-size: 9pt; }
+        th, td { border: 0.3mm solid #d9e2ec; padding: 2.3mm; text-align: left; vertical-align: top; }
+        th { background: #eef4f8; }
+        .foot { font-size: 8pt; color: #52606d; }
+      </style>
+    </head>
+    <body>
+      <section class="page">
+        <header class="head">
+          <div>
+            <h1>Dochádzka - zamestnanci</h1>
+            <div class="foot">${escapeHtml(String(companyName || "-"))}</div>
+          </div>
+          <div class="foot">Vygenerované: ${escapeHtml(String(generatedAt || "-"))}</div>
+        </header>
+        <section class="summary">
+          <article class="summary-card"><span class="label">Zamestnanci</span><div class="value">${escapeHtml(String(summary.profiles || 0))}</div></article>
+          <article class="summary-card"><span class="label">V práci</span><div class="value">${escapeHtml(String(summary.clockedInCount || 0))}</div></article>
+          <article class="summary-card"><span class="label">Dovolenka rok</span><div class="value">${escapeHtml(String(summary.vacationDaysUsed || 0))}</div></article>
+          <article class="summary-card"><span class="label">Exportovaných</span><div class="value">${escapeHtml(String(rows.length || 0))}</div></article>
+        </section>
+        <section class="section-box">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Zamestnanec</th>
+                <th>Kód</th>
+                <th>Pracovný pomer</th>
+                <th>Skupina</th>
+                <th>Stav</th>
+                <th>Nárok</th>
+                <th>Vyčerpané</th>
+                <th>Zostáva</th>
+                <th>Plánované</th>
+                <th>Posledný event</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml || '<tr><td colspan="11">Žiadni zamestnanci pre tento filter.</td></tr>'}
+            </tbody>
+          </table>
+        </section>
+      </section>
+    </body>
+  </html>`;
+}
+
+function printAttendanceEmployeesPdf({ companyName, rows, summary }) {
+  printHtmlDocument(
+    buildAttendanceEmployeesPrintHtml({
+      companyName,
+      rows,
+      summary,
+      generatedAt: new Date().toLocaleString("sk-SK")
+    })
+  );
+}
+
+function buildAttendanceEmployeeCardPrintHtml({ companyName, profile, groupName, presenceLabel, vacationStats, leaves = [], recentEvents = [] }) {
+  const leaveRowsHtml = leaves
+    .map(
+      (leave, index) => `
+        <tr>
+          <td>${index + 1}</td>
+          <td>${escapeHtml(getAttendanceLeaveTypeLabel(leave.leave_type))}</td>
+          <td>${escapeHtml(getAttendanceLeaveStatusLabel(leave.status))}</td>
+          <td>${escapeHtml(formatDocumentDate(leave.start_date))}</td>
+          <td>${escapeHtml(formatDocumentDate(leave.end_date))}</td>
+          <td>${escapeHtml(String(leave.days_count || 0))}</td>
+          <td>${escapeHtml(String(leave.note || "-"))}</td>
+        </tr>
+      `
+    )
+    .join("");
+
+  const eventRowsHtml = recentEvents
+    .map(
+      (event, index) => `
+        <tr>
+          <td>${index + 1}</td>
+          <td>${escapeHtml(getAttendanceEventLabel(event.event_type))}</td>
+          <td>${escapeHtml(formatDate(event.happened_at))}</td>
+          <td>${escapeHtml(String(event.source || "-"))}</td>
+          <td>${escapeHtml(String(event.note || "-"))}</td>
+        </tr>
+      `
+    )
+    .join("");
+
+  return `<!doctype html>
+  <html lang="sk">
+    <head>
+      <meta charset="UTF-8" />
+      <title>${escapeHtml(String(profile?.full_name || "Zamestnanec"))}</title>
+      <style>
+        @page { size: A4 portrait; margin: 14mm; }
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: Arial, sans-serif; color: #1b2631; }
+        .page { display: grid; gap: 6mm; }
+        .head { display: flex; justify-content: space-between; gap: 8mm; align-items: start; }
+        h1 { margin: 0 0 2mm; font-size: 18pt; }
+        .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4mm; }
+        .card, .section-box { border: 0.3mm solid #d9e2ec; border-radius: 3mm; padding: 4mm; }
+        .label { display: block; margin-bottom: 1mm; font-size: 8pt; color: #52606d; text-transform: uppercase; letter-spacing: 0.08em; }
+        .value { font-size: 11pt; font-weight: 700; }
+        .section-title { margin: 0 0 3mm; font-size: 12pt; }
+        table { width: 100%; border-collapse: collapse; font-size: 9pt; }
+        th, td { border: 0.3mm solid #d9e2ec; padding: 2.5mm; text-align: left; vertical-align: top; }
+        th { background: #eef4f8; }
+        .foot { font-size: 8pt; color: #52606d; }
+      </style>
+    </head>
+    <body>
+      <section class="page">
+        <header class="head">
+          <div>
+            <h1>Karta zamestnanca</h1>
+            <div class="foot">${escapeHtml(String(companyName || "-"))}</div>
+          </div>
+          <div class="foot">Vygenerované: ${escapeHtml(new Date().toLocaleString("sk-SK"))}</div>
+        </header>
+        <section class="grid">
+          <article class="card"><span class="label">Meno</span><div class="value">${escapeHtml(String(profile?.full_name || "-"))}</div></article>
+          <article class="card"><span class="label">Interný kód</span><div class="value">${escapeHtml(String(profile?.employee_code || "-"))}</div></article>
+          <article class="card"><span class="label">Pracovný pomer</span><div class="value">${escapeHtml(getAttendanceEmploymentTypeLabel(profile?.employment_relation_type))}</div></article>
+          <article class="card"><span class="label">Skupina</span><div class="value">${escapeHtml(String(groupName || "-"))}</div></article>
+          <article class="card"><span class="label">Aktuálny stav</span><div class="value">${escapeHtml(String(presenceLabel || "-"))}</div></article>
+          <article class="card"><span class="label">PIN / Badge</span><div class="value">${escapeHtml(`${profile?.pin_code || "-"} / ${profile?.badge_code || "-"}`)}</div></article>
+          <article class="card"><span class="label">Nárok dovolenky</span><div class="value">${escapeHtml(`${vacationStats.total} d`)}</div></article>
+          <article class="card"><span class="label">Vyčerpané / zostáva</span><div class="value">${escapeHtml(`${vacationStats.used} d / ${vacationStats.remaining} d`)}</div></article>
+        </section>
+        <section class="section-box">
+          <h2 class="section-title">Dovolenky a absencie</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Typ</th>
+                <th>Stav</th>
+                <th>Od</th>
+                <th>Do</th>
+                <th>Dni</th>
+                <th>Poznámka</th>
+              </tr>
+            </thead>
+            <tbody>${leaveRowsHtml || '<tr><td colspan="7">Bez evidovaných absencií.</td></tr>'}</tbody>
+          </table>
+        </section>
+        <section class="section-box">
+          <h2 class="section-title">Posledné eventy</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Event</th>
+                <th>Čas</th>
+                <th>Zdroj</th>
+                <th>Poznámka</th>
+              </tr>
+            </thead>
+            <tbody>${eventRowsHtml || '<tr><td colspan="5">Bez eventov.</td></tr>'}</tbody>
+          </table>
+        </section>
+      </section>
+    </body>
+  </html>`;
+}
+
+function printAttendanceEmployeeCardPdf(payload) {
+  printHtmlDocument(buildAttendanceEmployeeCardPrintHtml(payload));
+}
+
+function buildAttendanceMonthlyPrintHtml({ companyName, profile, monthLabel, dayRows = [], summary = {} }) {
+  const rowsHtml = dayRows
+    .map(
+      (row) => `
+        <tr>
+          <td>${escapeHtml(String(row.dateLabel || "-"))}</td>
+          <td>${escapeHtml(String(row.weekdayLabel || "-"))}</td>
+          <td>${escapeHtml(String(row.firstIn || "-"))}</td>
+          <td>${escapeHtml(String(row.lastOut || "-"))}</td>
+          <td>${escapeHtml(String(row.breaks || "0"))}</td>
+          <td>${escapeHtml(String(row.worked || "-"))}</td>
+          <td>${escapeHtml(String(row.absence || "-"))}</td>
+          <td>${escapeHtml(String(row.note || "-"))}</td>
+        </tr>
+      `
+    )
+    .join("");
+
+  return `<!doctype html>
+  <html lang="sk">
+    <head>
+      <meta charset="UTF-8" />
+      <title>${escapeHtml(String(profile?.full_name || "Dochadzka"))}</title>
+      <style>
+        @page { size: A4 portrait; margin: 12mm; }
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: Arial, sans-serif; color: #1b2631; }
+        .page { display: grid; gap: 6mm; }
+        .head { display: flex; justify-content: space-between; gap: 8mm; align-items: start; }
+        h1 { margin: 0 0 2mm; font-size: 18pt; }
+        .summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3mm; }
+        .summary-card, .section-box { border: 0.3mm solid #d9e2ec; border-radius: 3mm; padding: 4mm; }
+        .label { display: block; margin-bottom: 1mm; font-size: 8pt; color: #52606d; text-transform: uppercase; letter-spacing: 0.08em; }
+        .value { font-size: 11pt; font-weight: 700; }
+        table { width: 100%; border-collapse: collapse; font-size: 9pt; }
+        th, td { border: 0.3mm solid #d9e2ec; padding: 2.3mm; text-align: left; vertical-align: top; }
+        th { background: #eef4f8; }
+        .foot { font-size: 8pt; color: #52606d; }
+      </style>
+    </head>
+    <body>
+      <section class="page">
+        <header class="head">
+          <div>
+            <h1>Mesačný dochádzkový výkaz</h1>
+            <div class="foot">${escapeHtml(String(companyName || "-"))}</div>
+            <div class="foot">${escapeHtml(String(profile?.full_name || "-"))} | ${escapeHtml(String(monthLabel || "-"))}</div>
+          </div>
+          <div class="foot">Vygenerované: ${escapeHtml(new Date().toLocaleString("sk-SK"))}</div>
+        </header>
+        <section class="summary">
+          <article class="summary-card"><span class="label">Odpracované dni</span><div class="value">${escapeHtml(String(summary.workedDays || 0))}</div></article>
+          <article class="summary-card"><span class="label">Odpracovaný čas</span><div class="value">${escapeHtml(String(summary.workedDuration || "-"))}</div></article>
+          <article class="summary-card"><span class="label">Dovolenka</span><div class="value">${escapeHtml(String(summary.vacationDays || 0))}</div></article>
+          <article class="summary-card"><span class="label">Iné absencie</span><div class="value">${escapeHtml(String(summary.absenceDays || 0))}</div></article>
+        </section>
+        <section class="section-box">
+          <table>
+            <thead>
+              <tr>
+                <th>Dátum</th>
+                <th>Deň</th>
+                <th>Príchod</th>
+                <th>Odchod</th>
+                <th>Pauzy</th>
+                <th>Odpracované</th>
+                <th>Absencia</th>
+                <th>Poznámka</th>
+              </tr>
+            </thead>
+            <tbody>${rowsHtml || '<tr><td colspan="8">Bez údajov za zvolené obdobie.</td></tr>'}</tbody>
+          </table>
+        </section>
+      </section>
+    </body>
+  </html>`;
+}
+
+function printAttendanceMonthlyPdf(payload) {
+  printHtmlDocument(buildAttendanceMonthlyPrintHtml(payload));
+}
+
 function normalizeDeadStockDays(value) {
   const parsed = Number.parseInt(String(value), 10);
   if (!Number.isFinite(parsed)) {
@@ -4010,9 +4330,12 @@ function normalizeAttendanceProfileRow(row) {
     employee_code: String(row.employee_code || "").trim(),
     full_name: String(row.full_name || "").trim(),
     group_id: String(row.group_id || "").trim(),
+    employment_relation_type: String(row.employment_relation_type || "").trim().toLowerCase(),
     pin_code: String(row.pin_code || "").trim(),
     badge_code: String(row.badge_code || "").trim(),
     note: String(row.note || "").trim(),
+    vacation_days_per_year: Number(row.vacation_days_per_year || 20),
+    vacation_carryover_days: Number(row.vacation_carryover_days || 0),
     is_active: Boolean(row.is_active)
   };
 }
@@ -4090,6 +4413,21 @@ function normalizeAttendanceEventRow(row) {
     ...row,
     event_type: String(row.event_type || "").trim().toLowerCase(),
     source: String(row.source || "").trim().toLowerCase(),
+    note: String(row.note || "").trim()
+  };
+}
+
+function normalizeAttendanceLeaveRow(row) {
+  if (!row || typeof row !== "object") {
+    return row;
+  }
+  return {
+    ...row,
+    leave_type: String(row.leave_type || "vacation").trim().toLowerCase(),
+    status: String(row.status || "approved").trim().toLowerCase(),
+    start_date: String(row.start_date || "").trim(),
+    end_date: String(row.end_date || "").trim(),
+    days_count: Number(row.days_count || 0),
     note: String(row.note || "").trim()
   };
 }
@@ -4197,6 +4535,39 @@ function formatAttendanceScheduleRow(row) {
 function getAttendanceShiftLabel(value) {
   const normalized = String(value || "").trim().toLowerCase();
   return ATTENDANCE_SHIFT_OPTIONS.find((option) => option.value === normalized)?.label || "Vlastný režim";
+}
+
+function getAttendanceLeaveTypeLabel(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return ATTENDANCE_LEAVE_TYPE_OPTIONS.find((option) => option.value === normalized)?.label || normalized || "-";
+}
+
+function getAttendanceLeaveStatusLabel(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return ATTENDANCE_LEAVE_STATUS_OPTIONS.find((option) => option.value === normalized)?.label || normalized || "-";
+}
+
+function getAttendanceEmploymentTypeLabel(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return ATTENDANCE_EMPLOYMENT_TYPE_OPTIONS.find((option) => option.value === normalized)?.label || normalized || "-";
+}
+
+function calculateAttendanceLeaveDayCount(startDate, endDate) {
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
+    return 0;
+  }
+  const cursor = new Date(start.getTime());
+  let total = 0;
+  while (cursor <= end) {
+    const weekday = getIsoWeekday(cursor);
+    if (weekday >= 1 && weekday <= 5) {
+      total += 1;
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return total;
 }
 
 function formatAttendanceBreakWindow(startValue, endValue) {
@@ -4370,6 +4741,20 @@ function formatDurationShort(valueMs) {
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
   return minutes > 0 ? `${hours} h ${minutes} min` : `${hours} h`;
+}
+
+function formatTimeOfDay(value) {
+  if (!value) {
+    return "-";
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return "-";
+  }
+  return parsed.toLocaleTimeString("sk-SK", {
+    hour: "2-digit",
+    minute: "2-digit"
+  });
 }
 
 function formatMesEventLabel(eventType) {
@@ -5034,11 +5419,13 @@ function App() {
   const [attendanceProfiles, setAttendanceProfiles] = useState([]);
   const [attendanceTerminals, setAttendanceTerminals] = useState([]);
   const [attendanceEvents, setAttendanceEvents] = useState([]);
+  const [attendanceLeaves, setAttendanceLeaves] = useState([]);
   const [attendanceGroups, setAttendanceGroups] = useState([]);
   const [attendanceGroupSchedules, setAttendanceGroupSchedules] = useState([]);
   const [attendanceLoading, setAttendanceLoading] = useState(false);
   const [attendanceError, setAttendanceError] = useState("");
   const [attendanceProfileSearch, setAttendanceProfileSearch] = useState("");
+  const [attendanceReportMonthInput, setAttendanceReportMonthInput] = useState(() => formatMonthInputValue());
   const [attendanceEventSearch, setAttendanceEventSearch] = useState("");
   const [isEmployeeProfileFormOpen, setIsEmployeeProfileFormOpen] = useState(false);
   const [editingAttendanceGroupId, setEditingAttendanceGroupId] = useState("");
@@ -5056,9 +5443,12 @@ function App() {
   const [attendanceProfileNameInput, setAttendanceProfileNameInput] = useState("");
   const [attendanceProfileCodeInput, setAttendanceProfileCodeInput] = useState("");
   const [attendanceProfileGroupIdInput, setAttendanceProfileGroupIdInput] = useState("");
+  const [attendanceProfileEmploymentTypeInput, setAttendanceProfileEmploymentTypeInput] = useState("");
   const [attendanceProfilePinInput, setAttendanceProfilePinInput] = useState("");
   const [attendanceProfileBadgeInput, setAttendanceProfileBadgeInput] = useState("");
   const [attendanceProfileNoteInput, setAttendanceProfileNoteInput] = useState("");
+  const [attendanceProfileVacationDaysInput, setAttendanceProfileVacationDaysInput] = useState("20");
+  const [attendanceProfileVacationCarryoverInput, setAttendanceProfileVacationCarryoverInput] = useState("0");
   const [attendanceProfileActiveInput, setAttendanceProfileActiveInput] = useState(true);
   const [attendanceProfileSubmitting, setAttendanceProfileSubmitting] = useState(false);
   const [attendanceProfileDeletingId, setAttendanceProfileDeletingId] = useState("");
@@ -5075,6 +5465,16 @@ function App() {
   const [attendanceManagementNoteInput, setAttendanceManagementNoteInput] = useState("");
   const [attendanceManagementHappenedAtInput, setAttendanceManagementHappenedAtInput] = useState(() => formatDateTimeLocalInputValue());
   const [attendanceManagementSubmittingId, setAttendanceManagementSubmittingId] = useState("");
+  const [selectedAttendanceLeaveProfileId, setSelectedAttendanceLeaveProfileId] = useState("");
+  const [editingAttendanceLeaveId, setEditingAttendanceLeaveId] = useState("");
+  const [attendanceLeaveTypeInput, setAttendanceLeaveTypeInput] = useState("vacation");
+  const [attendanceLeaveStatusInput, setAttendanceLeaveStatusInput] = useState("approved");
+  const [attendanceLeaveStartDateInput, setAttendanceLeaveStartDateInput] = useState(() => formatDateInputValue());
+  const [attendanceLeaveEndDateInput, setAttendanceLeaveEndDateInput] = useState(() => formatDateInputValue());
+  const [attendanceLeaveDaysInput, setAttendanceLeaveDaysInput] = useState("");
+  const [attendanceLeaveNoteInput, setAttendanceLeaveNoteInput] = useState("");
+  const [attendanceLeaveSubmitting, setAttendanceLeaveSubmitting] = useState(false);
+  const [attendanceLeaveDeletingId, setAttendanceLeaveDeletingId] = useState("");
   const [crmCompanies, setCrmCompanies] = useState([]);
   const [crmActivities, setCrmActivities] = useState([]);
   const [crmLoading, setCrmLoading] = useState(false);
@@ -6690,6 +7090,14 @@ function App() {
             contactPhone: String(pendingBootstrap?.phone || user.user_metadata?.phone || "").trim(),
             completedAt: ""
           });
+          try {
+            await postAuthenticatedRequest("/api/v1/onboarding/register-company", {
+              companyId: normalizedSignupCompanyId,
+              contactPhone: String(pendingBootstrap?.phone || user.user_metadata?.phone || "").trim()
+            });
+          } catch (registrationCrmError) {
+            console.warn("Registration CRM sync skipped:", registrationCrmError?.message || registrationCrmError);
+          }
         }
         setPendingCompanyAdminSetup({
           mode: "company_admin_setup",
@@ -8666,9 +9074,12 @@ function App() {
     setAttendanceProfileNameInput("");
     setAttendanceProfileCodeInput("");
     setAttendanceProfileGroupIdInput("");
+    setAttendanceProfileEmploymentTypeInput("");
     setAttendanceProfilePinInput("");
     setAttendanceProfileBadgeInput("");
     setAttendanceProfileNoteInput("");
+    setAttendanceProfileVacationDaysInput("20");
+    setAttendanceProfileVacationCarryoverInput("0");
     setAttendanceProfileActiveInput(true);
     setIsEmployeeProfileFormOpen(false);
   };
@@ -8702,6 +9113,19 @@ function App() {
     setAttendanceManagementSubmittingId("");
   };
 
+  const resetAttendanceLeaveForm = (profileId = "") => {
+    setEditingAttendanceLeaveId("");
+    setSelectedAttendanceLeaveProfileId(String(profileId || ""));
+    setAttendanceLeaveTypeInput("vacation");
+    setAttendanceLeaveStatusInput("approved");
+    setAttendanceLeaveStartDateInput(formatDateInputValue());
+    setAttendanceLeaveEndDateInput(formatDateInputValue());
+    setAttendanceLeaveDaysInput("");
+    setAttendanceLeaveNoteInput("");
+    setAttendanceLeaveSubmitting(false);
+    setAttendanceLeaveDeletingId("");
+  };
+
   const handleOpenAttendanceManagement = (profile, presence = null) => {
     setAttendanceManagingProfileId(String(profile?.id || ""));
     setAttendanceManagementEventType(getSuggestedAttendanceEventType(presence?.eventType || ""));
@@ -8709,10 +9133,23 @@ function App() {
     setAttendanceManagementHappenedAtInput(formatDateTimeLocalInputValue());
   };
 
+  const handleOpenAttendanceLeave = (profile) => {
+    const profileId = String(profile?.id || "");
+    if (!profileId) {
+      return;
+    }
+    if (selectedAttendanceLeaveProfileId === profileId && !editingAttendanceLeaveId) {
+      resetAttendanceLeaveForm("");
+      return;
+    }
+    resetAttendanceLeaveForm(profileId);
+  };
+
   const resetAttendanceModuleState = () => {
     setAttendanceProfiles([]);
     setAttendanceTerminals([]);
     setAttendanceEvents([]);
+    setAttendanceLeaves([]);
     setAttendanceGroups([]);
     setAttendanceGroupSchedules([]);
     setAttendanceLoading(false);
@@ -8729,6 +9166,7 @@ function App() {
     resetAttendanceProfileForm();
     resetAttendanceTerminalForm();
     resetAttendanceManagementForm();
+    resetAttendanceLeaveForm();
   };
 
   const loadAttendanceModuleData = async () => {
@@ -8736,6 +9174,7 @@ function App() {
       setAttendanceProfiles([]);
       setAttendanceTerminals([]);
       setAttendanceEvents([]);
+      setAttendanceLeaves([]);
       setAttendanceGroups([]);
       setAttendanceGroupSchedules([]);
       setAttendanceLoading(false);
@@ -8752,6 +9191,7 @@ function App() {
         setAttendanceProfiles([]);
         setAttendanceTerminals([]);
         setAttendanceEvents([]);
+        setAttendanceLeaves([]);
         setAttendanceGroups([]);
         setAttendanceGroupSchedules([]);
         setAttendanceLoading(false);
@@ -8762,13 +9202,14 @@ function App() {
         { data: profilesData, error: profilesError },
         { data: terminalsData, error: terminalsError },
         { data: eventsData, error: eventsError },
+        { data: leavesData, error: leavesError },
         { data: groupsData, error: groupsError },
         { data: schedulesData, error: schedulesError }
       ] =
         await Promise.all([
           supabase
             .from("attendance_profiles")
-            .select("id,company_id,group_id,employee_code,full_name,pin_code,badge_code,note,is_active,linked_user_id,created_at,updated_at")
+            .select("id,company_id,group_id,employee_code,full_name,employment_relation_type,pin_code,badge_code,note,is_active,linked_user_id,vacation_days_per_year,vacation_carryover_days,created_at,updated_at")
             .eq("company_id", scopedCompanyId)
             .order("full_name", { ascending: true }),
           supabase
@@ -8782,6 +9223,12 @@ function App() {
             .eq("company_id", scopedCompanyId)
             .order("happened_at", { ascending: false })
             .limit(250),
+          supabase
+            .from("attendance_leaves")
+            .select("id,company_id,profile_id,leave_type,status,start_date,end_date,days_count,note,created_at,updated_at")
+            .eq("company_id", scopedCompanyId)
+            .order("start_date", { ascending: false })
+            .limit(500),
           supabase
             .from("attendance_groups")
             .select("id,company_id,code,name,note,shift_mode,shift_pattern_note,break_windows,break_1_start,break_1_end,break_2_start,break_2_end,is_active,created_at,updated_at")
@@ -8804,6 +9251,9 @@ function App() {
       if (eventsError) {
         throw eventsError;
       }
+      if (leavesError) {
+        throw leavesError;
+      }
       if (groupsError) {
         throw groupsError;
       }
@@ -8814,6 +9264,7 @@ function App() {
       setAttendanceProfiles((profilesData || []).map((row) => normalizeAttendanceProfileRow(row)));
       setAttendanceTerminals((terminalsData || []).map((row) => normalizeAttendanceTerminalRow(row)));
       setAttendanceEvents((eventsData || []).map((row) => normalizeAttendanceEventRow(row)));
+      setAttendanceLeaves((leavesData || []).map((row) => normalizeAttendanceLeaveRow(row)));
       setAttendanceGroups((groupsData || []).map((row) => normalizeAttendanceGroupRow(row)));
       setAttendanceGroupSchedules((schedulesData || []).map((row) => normalizeAttendanceGroupScheduleRow(row)));
       markViewDataFresh(ROLE_TABLE);
@@ -8824,6 +9275,7 @@ function App() {
       setAttendanceProfiles([]);
       setAttendanceTerminals([]);
       setAttendanceEvents([]);
+      setAttendanceLeaves([]);
       setAttendanceGroups([]);
       setAttendanceGroupSchedules([]);
       setAttendanceError(loadAttendanceError?.message || "Nepodarilo sa načítať dochádzku.");
@@ -9002,9 +9454,12 @@ function App() {
     setAttendanceProfileNameInput(String(profile?.full_name || ""));
     setAttendanceProfileCodeInput(String(profile?.employee_code || ""));
     setAttendanceProfileGroupIdInput(String(profile?.group_id || ""));
+    setAttendanceProfileEmploymentTypeInput(String(profile?.employment_relation_type || ""));
     setAttendanceProfilePinInput(String(profile?.pin_code || ""));
     setAttendanceProfileBadgeInput(String(profile?.badge_code || ""));
     setAttendanceProfileNoteInput(String(profile?.note || ""));
+    setAttendanceProfileVacationDaysInput(String(profile?.vacation_days_per_year ?? 20));
+    setAttendanceProfileVacationCarryoverInput(String(profile?.vacation_carryover_days ?? 0));
     setAttendanceProfileActiveInput(Boolean(profile?.is_active));
     setIsEmployeeProfileFormOpen(true);
   };
@@ -9066,22 +9521,33 @@ function App() {
 
     const fullName = String(attendanceProfileNameInput || "").trim();
     const employeeCode = String(attendanceProfileCodeInput || "").trim();
-    if (!fullName || !employeeCode) {
-      setAttendanceError("Meno a interný kód zamestnanca sú povinné.");
+    const employmentRelationType = String(attendanceProfileEmploymentTypeInput || "").trim().toLowerCase();
+    if (!fullName || !employeeCode || !employmentRelationType) {
+      setAttendanceError("Meno, interný kód a druh pracovného pomeru sú povinné.");
       return;
     }
 
     setAttendanceProfileSubmitting(true);
     setAttendanceError("");
     try {
+      const vacationDaysPerYear = Math.max(0, Number(String(attendanceProfileVacationDaysInput || "").replace(",", ".")) || 0);
+      const vacationCarryoverDays = Math.max(0, Number(String(attendanceProfileVacationCarryoverInput || "").replace(",", ".")) || 0);
+      if (!(vacationDaysPerYear > 0)) {
+        setAttendanceError("Ročný nárok dovolenky musí byť väčší ako 0.");
+        setAttendanceProfileSubmitting(false);
+        return;
+      }
       const payload = {
         company_id: activeCompanyId,
         full_name: fullName,
         employee_code: employeeCode,
         group_id: String(attendanceProfileGroupIdInput || "").trim() || null,
+        employment_relation_type: employmentRelationType,
         pin_code: String(attendanceProfilePinInput || "").trim() || null,
         badge_code: String(attendanceProfileBadgeInput || "").trim() || null,
         note: String(attendanceProfileNoteInput || "").trim(),
+        vacation_days_per_year: vacationDaysPerYear,
+        vacation_carryover_days: vacationCarryoverDays,
         is_active: Boolean(attendanceProfileActiveInput),
         updated_by: authUser?.id || null
       };
@@ -9130,6 +9596,337 @@ function App() {
       setAttendanceError(deleteError?.message || "Nepodarilo sa zmazať attendance profil.");
     } finally {
       setAttendanceProfileDeletingId("");
+    }
+  };
+
+  const handleEditAttendanceLeave = (leave) => {
+    setEditingAttendanceLeaveId(String(leave?.id || ""));
+    setSelectedAttendanceLeaveProfileId(String(leave?.profile_id || ""));
+    setAttendanceLeaveTypeInput(String(leave?.leave_type || "vacation"));
+    setAttendanceLeaveStatusInput(String(leave?.status || "approved"));
+    setAttendanceLeaveStartDateInput(String(leave?.start_date || ""));
+    setAttendanceLeaveEndDateInput(String(leave?.end_date || ""));
+    setAttendanceLeaveDaysInput(String(leave?.days_count ?? ""));
+    setAttendanceLeaveNoteInput(String(leave?.note || ""));
+  };
+
+  const handleSaveAttendanceLeave = async (profile) => {
+    if (!activeCompanyId) {
+      setAttendanceError("Vyber firmu, pre ktorú chceš spravovať dovolenky.");
+      return;
+    }
+    const profileId = String(profile?.id || selectedAttendanceLeaveProfileId || "").trim();
+    if (!profileId) {
+      setAttendanceError("Chýba zamestnanec pre dovolenku alebo absenciu.");
+      return;
+    }
+    const startDate = String(attendanceLeaveStartDateInput || "").trim();
+    const endDate = String(attendanceLeaveEndDateInput || "").trim();
+    if (!startDate || !endDate) {
+      setAttendanceError("Zadaj dátum od aj do.");
+      return;
+    }
+    if (new Date(endDate) < new Date(startDate)) {
+      setAttendanceError("Dátum do nemôže byť skôr ako dátum od.");
+      return;
+    }
+
+    const computedDays = calculateAttendanceLeaveDayCount(startDate, endDate);
+    const inputDays = Number(String(attendanceLeaveDaysInput || "").replace(",", "."));
+    const effectiveDays = inputDays > 0 ? inputDays : computedDays;
+    if (!(effectiveDays > 0)) {
+      setAttendanceError("Počet dní musí byť väčší ako 0.");
+      return;
+    }
+
+    setAttendanceLeaveSubmitting(true);
+    setAttendanceError("");
+    try {
+      const payload = {
+        company_id: activeCompanyId,
+        profile_id: profileId,
+        leave_type: String(attendanceLeaveTypeInput || "vacation").trim().toLowerCase(),
+        status: String(attendanceLeaveStatusInput || "approved").trim().toLowerCase(),
+        start_date: startDate,
+        end_date: endDate,
+        days_count: effectiveDays,
+        note: String(attendanceLeaveNoteInput || "").trim(),
+        updated_by: authUser?.id || null,
+        updated_at: new Date().toISOString()
+      };
+
+      if (editingAttendanceLeaveId) {
+        const { error } = await supabase.from("attendance_leaves").update(payload).eq("id", editingAttendanceLeaveId);
+        if (error) {
+          throw error;
+        }
+      } else {
+        const { error } = await supabase.from("attendance_leaves").insert([
+          {
+            ...payload,
+            created_by: authUser?.id || null
+          }
+        ]);
+        if (error) {
+          throw error;
+        }
+      }
+
+      await loadAttendanceModuleData();
+      resetAttendanceLeaveForm(profileId);
+    } catch (saveError) {
+      setAttendanceError(saveError?.message || "Nepodarilo sa uložiť dovolenku alebo absenciu.");
+    } finally {
+      setAttendanceLeaveSubmitting(false);
+    }
+  };
+
+  const handleDeleteAttendanceLeave = async (leave) => {
+    if (!leave?.id) {
+      return;
+    }
+    if (!window.confirm("Zmazať záznam dovolenky alebo absencie?")) {
+      return;
+    }
+
+    setAttendanceLeaveDeletingId(String(leave.id));
+    setAttendanceError("");
+    try {
+      const { error } = await supabase.from("attendance_leaves").delete().eq("id", leave.id);
+      if (error) {
+        throw error;
+      }
+      await loadAttendanceModuleData();
+      if (editingAttendanceLeaveId === leave.id) {
+        resetAttendanceLeaveForm(String(leave.profile_id || ""));
+      }
+    } catch (deleteError) {
+      setAttendanceError(deleteError?.message || "Nepodarilo sa zmazať záznam absencie.");
+    } finally {
+      setAttendanceLeaveDeletingId("");
+    }
+  };
+
+  const handlePrintAttendanceEmployees = () => {
+    if (!activeCompanyId) {
+      setAttendanceError("Vyber firmu, pre ktorú chceš exportovať dochádzku.");
+      return;
+    }
+
+    try {
+      const exportRows = filteredAttendanceProfiles.map((profile) => {
+        const presence = attendancePresenceByProfileId[profile.id] || null;
+        const group = profile.group_id ? attendanceGroupsById[profile.group_id] || null : null;
+        const vacationStats = attendanceVacationStatsByProfileId[profile.id] || {
+          total: Number(profile.vacation_days_per_year || 0) + Number(profile.vacation_carryover_days || 0),
+          used: 0,
+          remaining: Number(profile.vacation_days_per_year || 0) + Number(profile.vacation_carryover_days || 0),
+          planned: 0
+        };
+        return {
+          fullName: profile.full_name,
+          employeeCode: profile.employee_code,
+          employmentType: getAttendanceEmploymentTypeLabel(profile.employment_relation_type),
+          groupName: group?.name || "-",
+          presenceLabel: profile.is_active ? (presence ? getAttendanceEventLabel(presence.eventType) : "Mimo práce") : "Neaktívny",
+          entitlement: `${vacationStats.total} d`,
+          used: `${vacationStats.used} d`,
+          remaining: `${vacationStats.remaining} d`,
+          planned: `${vacationStats.planned} d`,
+          lastEvent: presence ? `${getAttendanceEventLabel(presence.eventType)} | ${formatCell(presence.happenedAt, "date_time")}` : "-"
+        };
+      });
+
+      printAttendanceEmployeesPdf({
+        companyName: currentCompanyLabel,
+        rows: exportRows,
+        summary: attendanceSummary
+      });
+    } catch (printError) {
+      setAttendanceError(printError?.message || "Nepodarilo sa vytvoriť PDF dochádzky.");
+    }
+  };
+
+  const handlePrintAttendanceEmployeeCard = (profile) => {
+    if (!profile?.id) {
+      return;
+    }
+
+    try {
+      const presence = attendancePresenceByProfileId[profile.id] || null;
+      const group = profile.group_id ? attendanceGroupsById[profile.group_id] || null : null;
+      const vacationStats = attendanceVacationStatsByProfileId[profile.id] || {
+        total: Number(profile.vacation_days_per_year || 0) + Number(profile.vacation_carryover_days || 0),
+        used: 0,
+        remaining: Number(profile.vacation_days_per_year || 0) + Number(profile.vacation_carryover_days || 0)
+      };
+      const leaves = (attendanceLeavesByProfileId[profile.id] || []).slice(0, 12);
+      const recentEvents = attendanceEvents
+        .filter((event) => String(event.profile_id || "") === String(profile.id))
+        .sort((a, b) => new Date(b.happened_at || 0).getTime() - new Date(a.happened_at || 0).getTime())
+        .slice(0, 12);
+
+      printAttendanceEmployeeCardPdf({
+        companyName: currentCompanyLabel,
+        profile,
+        groupName: group?.name || "-",
+        presenceLabel: profile.is_active ? (presence ? getAttendanceEventLabel(presence.eventType) : "Mimo práce") : "Neaktívny",
+        vacationStats,
+        leaves,
+        recentEvents
+      });
+    } catch (printError) {
+      setAttendanceError(printError?.message || "Nepodarilo sa vytvoriť PDF kartu zamestnanca.");
+    }
+  };
+
+  const handlePrintAttendanceMonthly = (profile) => {
+    if (!profile?.id) {
+      return;
+    }
+
+    const monthMatch = String(attendanceReportMonthInput || "").match(/^(\d{4})-(\d{2})$/);
+    if (!monthMatch) {
+      setAttendanceError("Vyber platný mesiac pre mesačný dochádzkový výkaz.");
+      return;
+    }
+
+    try {
+      const year = Number(monthMatch[1]);
+      const monthIndex = Number(monthMatch[2]) - 1;
+      const monthStart = new Date(year, monthIndex, 1);
+      const monthEnd = new Date(year, monthIndex + 1, 0);
+      const nextMonthStart = new Date(year, monthIndex + 1, 1);
+      const monthLabel = monthStart.toLocaleDateString("sk-SK", {
+        month: "long",
+        year: "numeric"
+      });
+      const eventsByDay = {};
+      attendanceEvents
+        .filter((event) => String(event.profile_id || "") === String(profile.id))
+        .forEach((event) => {
+          const happenedAt = new Date(event.happened_at || 0);
+          if (Number.isNaN(happenedAt.getTime()) || happenedAt < monthStart || happenedAt >= nextMonthStart) {
+            return;
+          }
+          const dayKey = formatDateInputValue(happenedAt);
+          if (!eventsByDay[dayKey]) {
+            eventsByDay[dayKey] = [];
+          }
+          eventsByDay[dayKey].push(event);
+        });
+      Object.keys(eventsByDay).forEach((dayKey) => {
+        eventsByDay[dayKey] = eventsByDay[dayKey].sort((a, b) => new Date(a.happened_at || 0).getTime() - new Date(b.happened_at || 0).getTime());
+      });
+
+      const leavesByDay = {};
+      (attendanceLeavesByProfileId[profile.id] || []).forEach((leave) => {
+        const leaveStart = new Date(leave.start_date || 0);
+        const leaveEnd = new Date(leave.end_date || leave.start_date || 0);
+        if (Number.isNaN(leaveStart.getTime()) || Number.isNaN(leaveEnd.getTime()) || leaveEnd < monthStart || leaveStart > monthEnd) {
+          return;
+        }
+        const cursor = new Date(Math.max(monthStart.getTime(), leaveStart.getTime()));
+        const rangeEnd = new Date(Math.min(monthEnd.getTime(), leaveEnd.getTime()));
+        while (cursor <= rangeEnd) {
+          const dayKey = formatDateInputValue(cursor);
+          if (!leavesByDay[dayKey]) {
+            leavesByDay[dayKey] = [];
+          }
+          leavesByDay[dayKey].push(leave);
+          cursor.setDate(cursor.getDate() + 1);
+        }
+      });
+
+      const dayRows = [];
+      let workedDays = 0;
+      let workedDurationMs = 0;
+      let vacationDays = 0;
+      let absenceDays = 0;
+      const cursor = new Date(monthStart.getTime());
+      while (cursor <= monthEnd) {
+        const dayKey = formatDateInputValue(cursor);
+        const dayEvents = eventsByDay[dayKey] || [];
+        const dayLeaves = leavesByDay[dayKey] || [];
+        let currentWorkStartMs = null;
+        let dailyWorkedMs = 0;
+        let firstIn = "-";
+        let lastOut = "-";
+        let breaks = 0;
+
+        dayEvents.forEach((event) => {
+          const eventType = String(event.event_type || "").trim().toLowerCase();
+          const eventAt = new Date(event.happened_at || 0);
+          const eventMs = eventAt.getTime();
+          if (!Number.isFinite(eventMs)) {
+            return;
+          }
+          if (eventType === "clock_in" && firstIn === "-") {
+            firstIn = formatTimeOfDay(event.happened_at);
+          }
+          if (eventType === "clock_out") {
+            lastOut = formatTimeOfDay(event.happened_at);
+          }
+          if (eventType === "break_start") {
+            breaks += 1;
+          }
+          if ((eventType === "clock_in" || eventType === "break_end") && currentWorkStartMs === null) {
+            currentWorkStartMs = eventMs;
+          }
+          if ((eventType === "break_start" || eventType === "clock_out") && currentWorkStartMs !== null) {
+            dailyWorkedMs += Math.max(0, eventMs - currentWorkStartMs);
+            currentWorkStartMs = null;
+          }
+        });
+
+        const dayLeaveLabels = Array.from(
+          new Set(
+            dayLeaves.map((leave) => {
+              const typeLabel = getAttendanceLeaveTypeLabel(leave.leave_type);
+              const statusLabel = getAttendanceLeaveStatusLabel(leave.status);
+              return leave.status === "approved" ? typeLabel : `${typeLabel} (${statusLabel})`;
+            })
+          )
+        );
+        const rowNotes = Array.from(new Set([...dayEvents.map((event) => String(event.note || "").trim()), ...dayLeaves.map((leave) => String(leave.note || "").trim())].filter(Boolean)));
+
+        if (dailyWorkedMs > 0) {
+          workedDays += 1;
+          workedDurationMs += dailyWorkedMs;
+        }
+        if (dayLeaves.some((leave) => leave.leave_type === "vacation")) {
+          vacationDays += 1;
+        } else if (dayLeaves.length > 0) {
+          absenceDays += 1;
+        }
+
+        dayRows.push({
+          dateLabel: formatDocumentDate(cursor),
+          weekdayLabel: getAttendanceWeekdayMeta(getIsoWeekday(cursor))?.shortLabel || "-",
+          firstIn,
+          lastOut,
+          breaks,
+          worked: dailyWorkedMs > 0 ? formatDurationShort(dailyWorkedMs) : "-",
+          absence: dayLeaveLabels.join(", ") || "-",
+          note: rowNotes.join(" | ") || "-"
+        });
+        cursor.setDate(cursor.getDate() + 1);
+      }
+
+      printAttendanceMonthlyPdf({
+        companyName: currentCompanyLabel,
+        profile,
+        monthLabel,
+        dayRows,
+        summary: {
+          workedDays,
+          workedDuration: workedDurationMs > 0 ? formatDurationShort(workedDurationMs) : "-",
+          vacationDays,
+          absenceDays
+        }
+      });
+    } catch (printError) {
+      setAttendanceError(printError?.message || "Nepodarilo sa vytvoriť mesačný dochádzkový výkaz.");
     }
   };
 
@@ -11708,9 +12505,9 @@ function App() {
       };
 
       let channel = null;
-      if (canAccessOrdersModule) {
+      if (canAccessAttendanceModule) {
         channel = supabase.channel(`attendance-${selectedCompanyId || userCompanyId || "own"}`);
-        ["attendance_profiles", "attendance_terminals", "attendance_events", "attendance_groups", "attendance_group_schedules"].forEach((table) => {
+        ["attendance_profiles", "attendance_terminals", "attendance_events", "attendance_leaves", "attendance_groups", "attendance_group_schedules"].forEach((table) => {
           channel.on("postgres_changes", { event: "*", schema: "public", table }, scheduleReload);
         });
         channel.subscribe();
@@ -12414,6 +13211,27 @@ function App() {
     () => Object.fromEntries(attendanceProfiles.map((row) => [row.id, row])),
     [attendanceProfiles]
   );
+  const attendanceLeavesByProfileId = useMemo(() => {
+    const nextMap = {};
+    attendanceLeaves.forEach((row) => {
+      const profileId = String(row.profile_id || "");
+      if (!profileId) {
+        return;
+      }
+      if (!nextMap[profileId]) {
+        nextMap[profileId] = [];
+      }
+      nextMap[profileId].push(row);
+    });
+    Object.keys(nextMap).forEach((profileId) => {
+      nextMap[profileId] = nextMap[profileId].sort((a, b) => {
+        const aMs = new Date(a.start_date || a.created_at || 0).getTime();
+        const bMs = new Date(b.start_date || b.created_at || 0).getTime();
+        return bMs - aMs;
+      });
+    });
+    return nextMap;
+  }, [attendanceLeaves]);
   const attendanceGroupsById = useMemo(
     () => Object.fromEntries(attendanceGroups.map((row) => [row.id, row])),
     [attendanceGroups]
@@ -12446,7 +13264,7 @@ function App() {
     }
 
     return attendanceProfiles.filter((row) =>
-      [row.full_name, row.employee_code, row.badge_code, row.pin_code, row.note, attendanceGroupsById[row.group_id]?.name, attendanceGroupsById[row.group_id]?.code]
+      [row.full_name, row.employee_code, row.badge_code, row.pin_code, row.note, row.employment_relation_type, getAttendanceEmploymentTypeLabel(row.employment_relation_type), attendanceGroupsById[row.group_id]?.name, attendanceGroupsById[row.group_id]?.code]
         .map((value) => String(value || "").toLowerCase())
         .join(" ")
         .includes(normalizedSearch)
@@ -12494,11 +13312,19 @@ function App() {
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
     const startMs = startOfToday.getTime();
+    const currentYear = startOfToday.getFullYear();
     const todayEvents = attendanceEvents.filter((row) => {
       const happenedMs = new Date(row.happened_at || "").getTime();
       return Number.isFinite(happenedMs) && happenedMs >= startMs;
     });
     const clockedInCount = Object.values(attendancePresenceByProfileId).filter((row) => row.state === "in" || row.state === "pause").length;
+    const vacationDaysUsed = attendanceLeaves.reduce((sum, row) => {
+      const leaveYear = new Date(row.start_date || 0).getFullYear();
+      if (row.leave_type !== "vacation" || row.status !== "approved" || leaveYear !== currentYear) {
+        return sum;
+      }
+      return sum + Number(row.days_count || 0);
+    }, 0);
 
     return {
       profiles: attendanceProfiles.length,
@@ -12506,9 +13332,47 @@ function App() {
       clockedInCount,
       todayEvents: todayEvents.length,
       terminals: attendanceTerminals.length,
-      activeTerminals: attendanceTerminals.filter((row) => row.is_active).length
+      activeTerminals: attendanceTerminals.filter((row) => row.is_active).length,
+      vacationDaysUsed
     };
-  }, [attendanceProfiles, attendanceEvents, attendanceTerminals, attendancePresenceByProfileId]);
+  }, [attendanceProfiles, attendanceEvents, attendanceTerminals, attendancePresenceByProfileId, attendanceLeaves]);
+  const attendanceVacationStatsByProfileId = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    const nextMap = {};
+    attendanceProfiles.forEach((profile) => {
+      const entitlement = Number(profile.vacation_days_per_year || 0);
+      const carryover = Number(profile.vacation_carryover_days || 0);
+      nextMap[profile.id] = {
+        entitlement,
+        carryover,
+        total: entitlement + carryover,
+        used: 0,
+        planned: 0,
+        remaining: entitlement + carryover
+      };
+    });
+    attendanceLeaves.forEach((row) => {
+      if (row.leave_type !== "vacation") {
+        return;
+      }
+      const profileStats = nextMap[row.profile_id];
+      if (!profileStats) {
+        return;
+      }
+      const leaveYear = new Date(row.start_date || 0).getFullYear();
+      if (leaveYear !== currentYear) {
+        return;
+      }
+      const days = Number(row.days_count || 0);
+      if (row.status === "approved") {
+        profileStats.used += days;
+      } else if (row.status === "planned") {
+        profileStats.planned += days;
+      }
+      profileStats.remaining = profileStats.total - profileStats.used;
+    });
+    return nextMap;
+  }, [attendanceProfiles, attendanceLeaves]);
   const attendanceGroupMemberCountById = useMemo(() => {
     const nextMap = {};
     attendanceProfiles.forEach((row) => {
@@ -18449,9 +19313,9 @@ function App() {
               <span>bez rozpisu zmien</span>
             </article>
             <article className="card workflow-stat-card">
-              <p>Mimo práce</p>
-              <strong>{new Intl.NumberFormat("sk-SK").format(attendanceEmployeesClockedOutCount)}</strong>
-              <span>posledný stav odchod</span>
+              <p>Dovolenka rok</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(attendanceSummary.vacationDaysUsed)}</strong>
+              <span>schválené čerpanie</span>
             </article>
           </div>
 
@@ -18511,6 +19375,18 @@ function App() {
                     <span>manuálny príchod, odchod alebo pauzu upravíš hneď v zozname zamestnancov</span>
                   </div>
                 </div>
+                <div className="workflow-field-grid">
+                  <label className="workflow-field">
+                    <span className="workflow-field-label">Mesiac pre mesačný PDF výkaz</span>
+                    <input
+                      type="month"
+                      className="search-input"
+                      value={attendanceReportMonthInput}
+                      onChange={(event) => setAttendanceReportMonthInput(event.target.value)}
+                      disabled={!activeCompanyId}
+                    />
+                  </label>
+                </div>
                 <div className="orders-form-actions">
                   <button
                     type="button"
@@ -18540,6 +19416,9 @@ function App() {
                   </button>
                   <button type="button" className="clear-btn" onClick={() => setSelectedTable(ATTENDANCE_SETTINGS_MODULE)} disabled={!activeCompanyId}>
                     Nastavenia dochádzky
+                  </button>
+                  <button type="button" className="clear-btn" onClick={handlePrintAttendanceEmployees} disabled={!activeCompanyId}>
+                    PDF zoznam
                   </button>
                 </div>
               </article>
@@ -18596,6 +19475,24 @@ function App() {
                         </select>
                       </label>
                       <label className="workflow-field">
+                        <span className="workflow-field-label">Druh pracovného pomeru</span>
+                        <select
+                          value={attendanceProfileEmploymentTypeInput}
+                          onChange={(event) => setAttendanceProfileEmploymentTypeInput(event.target.value)}
+                          disabled={!activeCompanyId || attendanceProfileSubmitting}
+                          required
+                        >
+                          <option value="">Vyber druh pomeru</option>
+                          {ATTENDANCE_EMPLOYMENT_TYPE_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                    <div className="workflow-field-grid">
+                      <label className="workflow-field">
                         <span className="workflow-field-label">PIN</span>
                         <input
                           type="text"
@@ -18628,6 +19525,33 @@ function App() {
                         disabled={!activeCompanyId || attendanceProfileSubmitting}
                       />
                     </label>
+                    <div className="workflow-field-grid">
+                      <label className="workflow-field">
+                        <span className="workflow-field-label">Ročný nárok dovolenky</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.5"
+                          className="search-input"
+                          value={attendanceProfileVacationDaysInput}
+                          onChange={(event) => setAttendanceProfileVacationDaysInput(event.target.value)}
+                          disabled={!activeCompanyId || attendanceProfileSubmitting}
+                          required
+                        />
+                      </label>
+                      <label className="workflow-field">
+                        <span className="workflow-field-label">Prenos z minulého roka</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.5"
+                          className="search-input"
+                          value={attendanceProfileVacationCarryoverInput}
+                          onChange={(event) => setAttendanceProfileVacationCarryoverInput(event.target.value)}
+                          disabled={!activeCompanyId || attendanceProfileSubmitting}
+                        />
+                      </label>
+                    </div>
                     <label className="pricing-options">
                       <input
                         type="checkbox"
@@ -18678,6 +19602,17 @@ function App() {
                       const terminal = presence?.terminalId ? attendanceTerminalsById[presence.terminalId] || null : null;
                       const group = profile.group_id ? attendanceGroupsById[profile.group_id] || null : null;
                       const todaySchedule = group ? (attendanceGroupSchedulesByGroupId[group.id] || []).find((row) => Number(row.weekday || 0) === attendanceTodayWeekday) || null : null;
+                      const vacationStats = attendanceVacationStatsByProfileId[profile.id] || {
+                        entitlement: Number(profile.vacation_days_per_year || 0),
+                        carryover: Number(profile.vacation_carryover_days || 0),
+                        total: Number(profile.vacation_days_per_year || 0) + Number(profile.vacation_carryover_days || 0),
+                        used: 0,
+                        planned: 0,
+                        remaining: Number(profile.vacation_days_per_year || 0) + Number(profile.vacation_carryover_days || 0)
+                      };
+                      const leaveRows = attendanceLeavesByProfileId[profile.id] || [];
+                      const isLeavePanelOpen = selectedAttendanceLeaveProfileId === profile.id;
+                      const autoLeaveDays = calculateAttendanceLeaveDayCount(attendanceLeaveStartDateInput, attendanceLeaveEndDateInput);
                       return (
                         <article key={profile.id} className="order-card attendance-card">
                           <div className="order-card-head attendance-card-head">
@@ -18702,12 +19637,24 @@ function App() {
                                 <p>{group?.name || "-"}</p>
                               </div>
                               <div>
+                                <span className="draft-field-label">Pracovný pomer</span>
+                                <p>{getAttendanceEmploymentTypeLabel(profile.employment_relation_type)}</p>
+                              </div>
+                              <div>
                                 <span className="draft-field-label">Posledný terminál</span>
                                 <p>{terminal?.name || "-"}</p>
                               </div>
                               <div>
                                 <span className="draft-field-label">Posledný event</span>
                                 <p>{presence ? `${getAttendanceEventLabel(presence.eventType)} | ${formatCell(presence.happenedAt, "date_time")}` : "-"}</p>
+                              </div>
+                              <div>
+                                <span className="draft-field-label">Nárok dovolenky</span>
+                                <p>{`${vacationStats.total} d`}</p>
+                              </div>
+                              <div>
+                                <span className="draft-field-label">Vyčerpané / zostáva</span>
+                                <p>{`${vacationStats.used} d / ${vacationStats.remaining} d`}</p>
                               </div>
                               <div className="attendance-meta-grid-wide">
                                 <span className="draft-field-label">Dnešná pracovná doba</span>
@@ -18719,12 +19666,25 @@ function App() {
                               </div>
                             </div>
                             <div className="order-card-actions">
+                              <button type="button" className="clear-btn" onClick={() => handlePrintAttendanceEmployeeCard(profile)}>
+                                PDF karta
+                              </button>
+                              <button type="button" className="clear-btn" onClick={() => handlePrintAttendanceMonthly(profile)}>
+                                Mesačný PDF
+                              </button>
                               <button
                                 type="button"
                                 className="settings-btn"
                                 onClick={() => handleOpenAttendanceManagement(profile, presence)}
                               >
                                 {attendanceManagingProfileId === profile.id ? "Upraviť dochádzku" : "Správa dochádzky"}
+                              </button>
+                              <button
+                                type="button"
+                                className="clear-btn"
+                                onClick={() => handleOpenAttendanceLeave(profile)}
+                              >
+                                {isLeavePanelOpen ? "Zavrieť dovolenky" : "Dovolenky a absencie"}
                               </button>
                               <button
                                 type="button"
@@ -18793,6 +19753,125 @@ function App() {
                                   <button type="button" className="clear-btn" onClick={resetAttendanceManagementForm} disabled={attendanceManagementSubmittingId === profile.id}>
                                     Zavrieť
                                   </button>
+                                </div>
+                              </div>
+                            )}
+                            {isLeavePanelOpen && (
+                              <div className="attendance-management-panel">
+                                <div className="panel-head workflow-section-head">
+                                  <div>
+                                    <p className="workflow-section-kicker">Absencie</p>
+                                    <h3>Dovolenky a voľná</h3>
+                                    <p className="panel-meta">{`Nárok ${vacationStats.total} d | vyčerpané ${vacationStats.used} d | zostáva ${vacationStats.remaining} d${vacationStats.planned > 0 ? ` | plánované ${vacationStats.planned} d` : ""}`}</p>
+                                  </div>
+                                </div>
+                                <div className="workflow-field-grid">
+                                  <label className="workflow-field">
+                                    <span className="workflow-field-label">Typ</span>
+                                    <select value={attendanceLeaveTypeInput} onChange={(event) => setAttendanceLeaveTypeInput(event.target.value)} disabled={attendanceLeaveSubmitting}>
+                                      {ATTENDANCE_LEAVE_TYPE_OPTIONS.map((option) => (
+                                        <option key={option.value} value={option.value}>
+                                          {option.label}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </label>
+                                  <label className="workflow-field">
+                                    <span className="workflow-field-label">Stav</span>
+                                    <select value={attendanceLeaveStatusInput} onChange={(event) => setAttendanceLeaveStatusInput(event.target.value)} disabled={attendanceLeaveSubmitting}>
+                                      {ATTENDANCE_LEAVE_STATUS_OPTIONS.map((option) => (
+                                        <option key={option.value} value={option.value}>
+                                          {option.label}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </label>
+                                </div>
+                                <div className="workflow-field-grid">
+                                  <label className="workflow-field">
+                                    <span className="workflow-field-label">Dátum od</span>
+                                    <input
+                                      type="date"
+                                      className="search-input"
+                                      value={attendanceLeaveStartDateInput}
+                                      onChange={(event) => setAttendanceLeaveStartDateInput(event.target.value)}
+                                      disabled={attendanceLeaveSubmitting}
+                                    />
+                                  </label>
+                                  <label className="workflow-field">
+                                    <span className="workflow-field-label">Dátum do</span>
+                                    <input
+                                      type="date"
+                                      className="search-input"
+                                      value={attendanceLeaveEndDateInput}
+                                      onChange={(event) => setAttendanceLeaveEndDateInput(event.target.value)}
+                                      disabled={attendanceLeaveSubmitting}
+                                    />
+                                  </label>
+                                  <label className="workflow-field">
+                                    <span className="workflow-field-label">Počet dní</span>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="0.5"
+                                      className="search-input"
+                                      placeholder={autoLeaveDays > 0 ? String(autoLeaveDays) : "auto"}
+                                      value={attendanceLeaveDaysInput}
+                                      onChange={(event) => setAttendanceLeaveDaysInput(event.target.value)}
+                                      disabled={attendanceLeaveSubmitting}
+                                    />
+                                  </label>
+                                </div>
+                                <label className="workflow-field attendance-management-note">
+                                  <span className="workflow-field-label">Poznámka</span>
+                                  <textarea
+                                    className="order-note-input"
+                                    placeholder="napr. letná dovolenka, lekár, PN"
+                                    value={attendanceLeaveNoteInput}
+                                    onChange={(event) => setAttendanceLeaveNoteInput(event.target.value)}
+                                    disabled={attendanceLeaveSubmitting}
+                                  />
+                                </label>
+                                <div className="order-card-actions">
+                                  <button
+                                    type="button"
+                                    className="settings-btn"
+                                    onClick={() => handleSaveAttendanceLeave(profile)}
+                                    disabled={attendanceLeaveSubmitting}
+                                  >
+                                    {attendanceLeaveSubmitting ? "Ukladám..." : editingAttendanceLeaveId ? "Uložiť záznam" : "Pridať záznam"}
+                                  </button>
+                                  <button type="button" className="clear-btn" onClick={() => resetAttendanceLeaveForm(profile.id)} disabled={attendanceLeaveSubmitting}>
+                                    Reset
+                                  </button>
+                                </div>
+                                <div className="attendance-guidance-list">
+                                  {leaveRows.length === 0 ? (
+                                    <div className="attendance-guidance-item">
+                                      <strong>Zatiaľ nič</strong>
+                                      <span>Pre tohto zamestnanca ešte nie je evidovaná žiadna dovolenka ani absencia.</span>
+                                    </div>
+                                  ) : (
+                                    leaveRows.map((leave) => (
+                                      <div key={leave.id} className="attendance-guidance-item">
+                                        <strong>{`${getAttendanceLeaveTypeLabel(leave.leave_type)} | ${leave.days_count} d | ${getAttendanceLeaveStatusLabel(leave.status)}`}</strong>
+                                        <span>{`${formatDate(leave.start_date)} - ${formatDate(leave.end_date)}${leave.note ? ` | ${leave.note}` : ""}`}</span>
+                                        <div className="order-card-actions">
+                                          <button type="button" className="clear-btn" onClick={() => handleEditAttendanceLeave(leave)} disabled={attendanceLeaveSubmitting}>
+                                            Upraviť
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className="clear-btn"
+                                            onClick={() => handleDeleteAttendanceLeave(leave)}
+                                            disabled={attendanceLeaveDeletingId === leave.id}
+                                          >
+                                            {attendanceLeaveDeletingId === leave.id ? "Mažem..." : "Zmazať"}
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ))
+                                  )}
                                 </div>
                               </div>
                             )}

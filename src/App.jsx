@@ -11203,6 +11203,34 @@ function App() {
     setInvoicesError("");
   };
 
+  const syncSourceProformaForInvoice = async ({ sourceProformaId, linkedInvoiceId, linkedInvoiceNumber }) => {
+    const normalizedSourceProformaId = String(sourceProformaId || "").trim();
+    if (!normalizedSourceProformaId) {
+      return { row: null, error: null };
+    }
+
+    const sourceProforma = invoices.find((row) => String(row.id || "") === normalizedSourceProformaId);
+    if (!sourceProforma) {
+      return { row: null, error: new Error("Naviazaná predfaktúra sa medzitým nenašla.") };
+    }
+
+    const sourceProformaDocument = resolveInvoiceDocumentFields(sourceProforma);
+    const { data: updatedSourceRow, error: sourceUpdateError } = await supabase
+      .from("invoices")
+      .update({
+        note: buildInvoiceDocumentNote({
+          ...sourceProformaDocument,
+          linkedInvoiceId: String(linkedInvoiceId || "").trim(),
+          linkedInvoiceNumber: String(linkedInvoiceNumber || "").trim()
+        })
+      })
+      .eq("id", normalizedSourceProformaId)
+      .select("id,company_id,customer_id,customer_name,invoice_number,order_number,due_date,status,note,intro_text,outro_text,archived_at,created_at,created_by")
+      .single();
+
+    return { row: updatedSourceRow || null, error: sourceUpdateError || null };
+  };
+
   const handleCancelInvoiceEdit = () => {
     resetInvoiceDraft();
     setInvoicesError("");
@@ -11245,6 +11273,36 @@ function App() {
       orderNumber: normalizedInvoiceOrderNumber
     });
     const invoiceNotePayload = buildInvoiceDocumentNote(normalizedInvoiceDocumentMeta);
+    const normalizedSourceProformaId = String(normalizedInvoiceDocumentMeta.sourceProformaId || "").trim();
+    let sourceProformaToLink = null;
+
+    if (normalizedInvoiceDocumentKind === "invoice" && normalizedSourceProformaId) {
+      sourceProformaToLink = invoices.find((row) => String(row.id || "") === normalizedSourceProformaId) || null;
+      if (!sourceProformaToLink) {
+        setInvoicesError("Naviazaná predfaktúra sa nenašla. Obnov zoznam a skús to znova.");
+        return;
+      }
+      const sourceProformaDocument = resolveInvoiceDocumentFields(sourceProformaToLink);
+      if (sourceProformaDocument.documentKind !== "proforma") {
+        setInvoicesError("Naviazaný doklad nie je predfaktúra.");
+        return;
+      }
+      if (isInvoiceArchived(sourceProformaToLink)) {
+        setInvoicesError("Archivovanú predfaktúru najprv obnov, až potom z nej vytvor finálnu faktúru.");
+        return;
+      }
+      if (
+        (sourceProformaDocument.linkedInvoiceId || sourceProformaDocument.linkedInvoiceNumber) &&
+        String(sourceProformaDocument.linkedInvoiceId || "") !== String(editingInvoiceId || "")
+      ) {
+        setInvoicesError("Táto predfaktúra už má vytvorenú nadväznú faktúru.");
+        return;
+      }
+      if (String(sourceProformaToLink.status || "").trim().toLowerCase() !== "paid") {
+        setInvoicesError("Predfaktúra musí byť najprv označená ako uhradená.");
+        return;
+      }
+    }
 
     const normalizedItems = [];
     for (let index = 0; index < invoiceDraftItems.length; index += 1) {
@@ -11396,6 +11454,29 @@ function App() {
       });
 
       setInvoices((prev) => prev.map((row) => (row.id === updatedInvoiceRow.id ? updatedInvoiceRow : row)));
+      if (normalizedInvoiceDocumentKind === "invoice" && normalizedSourceProformaId) {
+        const { row: updatedSourceProformaRow, error: sourceProformaSyncError } = await syncSourceProformaForInvoice({
+          sourceProformaId: normalizedSourceProformaId,
+          linkedInvoiceId: updatedInvoiceRow.id,
+          linkedInvoiceNumber: updatedInvoiceRow.invoice_number
+        });
+        if (sourceProformaSyncError) {
+          setInvoicesError(sourceProformaSyncError.message || "Faktúra sa uložila, ale nepodarilo sa naviazať predfaktúru.");
+          setInvoiceSubmitting(false);
+          await loadInvoicesModuleData();
+          return;
+        }
+        if (updatedSourceProformaRow) {
+          setInvoices((prev) =>
+            prev.map((row) => {
+              if (row.id === updatedInvoiceRow.id) {
+                return updatedInvoiceRow;
+              }
+              return row.id === updatedSourceProformaRow.id ? updatedSourceProformaRow : row;
+            })
+          );
+        }
+      }
       setInvoiceItems((prev) => [
         ...prev.filter((row) => String(row.invoice_id || "") !== editingInvoiceId),
         ...mergedEditedItems
@@ -11444,7 +11525,29 @@ function App() {
       return;
     }
 
-    setInvoices((prev) => [invoiceRow, ...prev]);
+    let updatedSourceProformaRow = null;
+    if (normalizedInvoiceDocumentKind === "invoice" && normalizedSourceProformaId) {
+      const syncResult = await syncSourceProformaForInvoice({
+        sourceProformaId: normalizedSourceProformaId,
+        linkedInvoiceId: invoiceRow.id,
+        linkedInvoiceNumber: invoiceRow.invoice_number
+      });
+      if (syncResult.error) {
+        setInvoicesError(syncResult.error.message || "Faktúra vznikla, ale nepodarilo sa naviazať predfaktúru.");
+        setInvoiceSubmitting(false);
+        await loadInvoicesModuleData();
+        return;
+      }
+      updatedSourceProformaRow = syncResult.row || null;
+    }
+
+    setInvoices((prev) => {
+      const nextRows = [invoiceRow, ...prev];
+      if (!updatedSourceProformaRow) {
+        return nextRows;
+      }
+      return nextRows.map((row) => (row.id === updatedSourceProformaRow.id ? updatedSourceProformaRow : row));
+    });
     setInvoiceItems((prev) => [...prev, ...(insertedItems || [])]);
     setExpandedInvoices((prev) => ({ ...prev, [invoiceRow.id]: true }));
     resetInvoiceDraft();
@@ -11566,7 +11669,7 @@ function App() {
     setInvoiceDeletingId("");
   };
 
-  const handleConvertProformaToInvoice = async (proforma) => {
+  const handleConvertProformaToInvoice = (proforma) => {
     const proformaId = String(proforma?.id || "").trim();
     if (!proformaId) {
       return;
@@ -11607,82 +11710,26 @@ function App() {
       sourceProformaNumber: String(proforma.invoice_number || "").trim(),
       advanceAppliedGross: proformaFinancials.totalWithVat
     });
-
-    setInvoiceSubmitting(true);
+    setEditingInvoiceId("");
+    setSelectedInvoiceCustomerId(String(proforma.customer_id || ""));
+    setInvoiceNumberInput(buildInvoiceNumber());
+    setInvoiceDueDate(getDefaultInvoiceDueDate(activeCompanyProfile?.invoice_due_days ?? 14));
+    setInvoiceDocumentKindInput("invoice");
+    setInvoiceLinkedProformaMeta(finalInvoiceMeta);
+    setInvoiceOrderNumberInput(document.orderNumber);
+    setInvoiceIntroTextInput(document.introText);
+    setInvoiceOutroTextInput(document.outroText);
+    setInvoiceStoredNoteText(document.noteText);
+    setInvoiceDraftItems(
+      items.length > 0
+        ? items.map((item) => ({
+            ...createInvoiceDraftItemFromRow(item),
+            invoiceItemId: ""
+          }))
+        : [createEmptyInvoiceDraftItem()]
+    );
     setInvoicesError("");
-
-    const { data: invoiceRow, error: invoiceInsertError } = await supabase
-      .from("invoices")
-      .insert([
-        {
-          company_id: proforma.company_id,
-          customer_id: proforma.customer_id,
-          customer_name: proforma.customer_name,
-          invoice_number: buildInvoiceNumber(),
-          due_date: getDefaultInvoiceDueDate(activeCompanyProfile?.invoice_due_days ?? 14),
-          status: "issued",
-          note: buildInvoiceDocumentNote(finalInvoiceMeta),
-          order_number: document.orderNumber,
-          intro_text: document.introText,
-          outro_text: document.outroText,
-          created_by: authUser?.id || null
-        }
-      ])
-      .select("id,company_id,customer_id,customer_name,invoice_number,order_number,due_date,status,note,intro_text,outro_text,archived_at,created_at,created_by")
-      .single();
-
-    if (invoiceInsertError) {
-      setInvoicesError(invoiceInsertError.message || "Nepodarilo sa vytvoriť faktúru z predfaktúry.");
-      setInvoiceSubmitting(false);
-      return;
-    }
-
-    const duplicatedItems = items.map((item) => ({
-      invoice_id: invoiceRow.id,
-      material_code: item.material_code,
-      unit: item.unit,
-      quantity: item.quantity,
-      unit_price: item.unit_price,
-      purchase_price: item.purchase_price,
-      discount_percent: item.discount_percent,
-      vat_percent: item.vat_percent,
-      final_unit_price: item.final_unit_price,
-      line_total: item.line_total,
-      line_margin_total: item.line_margin_total,
-      line_note: item.line_note || ""
-    }));
-
-    const { data: insertedItems, error: itemInsertError } = await supabase.from("invoice_items").insert(duplicatedItems).select("*");
-    if (itemInsertError) {
-      setInvoicesError(itemInsertError.message || "Faktúra vznikla, ale položky sa nepodarilo skopírovať.");
-      setInvoiceSubmitting(false);
-      await loadInvoicesModuleData();
-      return;
-    }
-
-    const updatedProformaMeta = createDefaultInvoiceDocumentMeta({
-      ...document,
-      linkedInvoiceId: invoiceRow.id,
-      linkedInvoiceNumber: invoiceRow.invoice_number
-    });
-    const { data: updatedProformaRow, error: proformaUpdateError } = await supabase
-      .from("invoices")
-      .update({ note: buildInvoiceDocumentNote(updatedProformaMeta) })
-      .eq("id", proformaId)
-      .select("id,company_id,customer_id,customer_name,invoice_number,order_number,due_date,status,note,intro_text,outro_text,archived_at,created_at,created_by")
-      .single();
-
-    if (proformaUpdateError) {
-      setInvoicesError(proformaUpdateError.message || "Faktúra vznikla, ale nepodarilo sa naviazať predfaktúru.");
-      setInvoiceSubmitting(false);
-      await loadInvoicesModuleData();
-      return;
-    }
-
-    setInvoices((prev) => [invoiceRow, ...prev.map((row) => (row.id === updatedProformaRow.id ? updatedProformaRow : row))]);
-    setInvoiceItems((prev) => [...prev, ...(insertedItems || [])]);
-    setExpandedInvoices((prev) => ({ ...prev, [invoiceRow.id]: true, [updatedProformaRow.id]: true }));
-    setInvoiceSubmitting(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const handleCreateOrder = async (event) => {
@@ -16570,6 +16617,7 @@ function App() {
                 )}
               </div>
               <p className="panel-meta">{`${formatCurrencyValue(companyAdminHardwarePricingSummary.pricedSubtotal)} bez DPH orientačný subtotal`}</p>
+              <p className="panel-meta">Cena zahŕňa aj uvedenie do prevádzky.</p>
             </article>
 
             {selectedCompanyAdminModules.some((module) => module.key === "wms") && (
@@ -18787,7 +18835,7 @@ function App() {
               </label>
             </div>
             <div className="pricing-options">
-              <span>V cene: web, Android appka, email alerty, QR workflow</span>
+              <span>V cene: web, Android appka, email alerty, QR workflow, uvedenie do prevádzky</span>
               <label><input type="checkbox" checked={pricingNeedsCustomSupport} onChange={(event) => setPricingNeedsCustomSupport(event.target.checked)} /> Prioritný support / custom</label>
             </div>
             <div className="pricing-result">

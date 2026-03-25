@@ -99,7 +99,7 @@ const COMPANY_ADMIN_HARDWARE_OPTIONS = [
     label: "Tlač etikiet",
     description: "pozície, materiál, interné štítky",
     priceExVat: null,
-    moduleKeys: ["wms", "invoicing"]
+    moduleKeys: ["wms"]
   },
   {
     key: "attendance_terminal",
@@ -120,14 +120,14 @@ const COMPANY_ADMIN_HARDWARE_OPTIONS = [
     label: "Tablety / dashboardy",
     description: "vedúci, skladníci alebo majstri",
     priceExVat: null,
-    moduleKeys: ["mes", "attendance", "invoicing"]
+    moduleKeys: ["mes", "attendance"]
   },
   {
     key: "network_upgrade",
     label: "Sieť a Wi‑Fi",
     description: "pokrytie haly, kiosk zóna, stabilita terminálov",
     priceExVat: null,
-    moduleKeys: ["wms", "mes", "attendance", "invoicing"]
+    moduleKeys: ["wms", "mes", "attendance"]
   }
 ];
 const LANDING_LEGAL_DOCUMENTS = {
@@ -2737,7 +2737,42 @@ function printQuotePdf(quote, customer, items, companyProfile) {
   printHtmlDocument(buildQuotePrintHtml(quote, customer, items, companyProfile));
 }
 
-function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
+function buildInvoicePrintHtml(invoice, customer, items, companyProfile, language = "sk") {
+  const isEnglish = String(language || "").trim().toLowerCase() === "en";
+  const copy = {
+    documentInvoice: isEnglish ? "Invoice" : "Faktúra",
+    documentProforma: isEnglish ? "Proforma Invoice" : "Predfaktúra",
+    numberShort: isEnglish ? "No." : "č.",
+    supplier: isEnglish ? "Supplier" : "Dodávateľ",
+    customer: isEnglish ? "Customer" : "Odberateľ",
+    contact: isEnglish ? "Contact" : "Kontakt",
+    order: isEnglish ? "Order" : "Objednávka",
+    sourceProforma: isEnglish ? "Proforma" : "Predfaktúra",
+    paymentDetails: isEnglish ? "Payment details" : "Platobné údaje",
+    itemsInvoice: isEnglish ? "Invoice items" : "Položky faktúry",
+    itemsProforma: isEnglish ? "Proforma items" : "Položky predfaktúry",
+    noteInvoice: isEnglish ? "Invoice note" : "Poznámka k faktúre",
+    noteProforma: isEnglish ? "Proforma note" : "Poznámka k predfaktúre",
+    itemName: isEnglish ? "Item" : "Názov",
+    quantity: isEnglish ? "Quantity" : "Množstvo",
+    unit: isEnglish ? "Unit" : "MJ",
+    priceExVat: isEnglish ? "Price excl. VAT" : "Cena bez DPH",
+    total: isEnglish ? "Total" : "Spolu",
+    summary: isEnglish ? "Summary" : "Rekapitulácia",
+    totalExVat: isEnglish ? "Excl. VAT" : "Bez DPH",
+    vat: "VAT",
+    totalInclVat: isEnglish ? "Incl. VAT" : "Spolu s DPH",
+    paidProforma: isEnglish ? "Paid proforma" : "Uhradená predfaktúra",
+    amountDue: isEnglish ? "Amount due" : "Na úhradu",
+    noItems: isEnglish ? "The document has no items." : "Faktúra nemá položky.",
+    noExtraData: isEnglish ? "No additional details" : "Bez doplňujúcich údajov",
+    discount: isEnglish ? "Discount" : "Zľava",
+    iban: isEnglish ? "IBAN / Account:" : "IBAN / Číslo účtu:",
+    variableSymbol: isEnglish ? "Variable symbol:" : "Variabilný symbol:",
+    constantSymbol: isEnglish ? "Constant symbol:" : "Konštantný symbol:",
+    specificSymbol: isEnglish ? "Specific symbol:" : "Špecifický symbol:",
+    qrAlt: isEnglish ? "PayBySquare QR code" : "PayBySquare QR kod"
+  };
   const normalizedCompany =
     companyProfile && typeof companyProfile === "object" ? companyProfile : { name: String(companyProfile || "").trim() };
   const invoiceStyle = normalizeInvoiceStyle(normalizedCompany?.invoice_style);
@@ -2751,7 +2786,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
   const payBySquareData = buildInvoicePayBySquareData(invoice, items, companyProfile);
   const invoiceDocument = resolveInvoiceDocumentFields(invoice);
   const financials = computeInvoiceFinancials(invoice, items);
-  const documentTitle = invoiceDocument.documentKind === "proforma" ? "Predfaktúra" : "Faktúra";
+  const documentTitle = invoiceDocument.documentKind === "proforma" ? copy.documentProforma : copy.documentInvoice;
   const invoiceNote = invoiceDocument.noteText;
   const invoiceIntroText = invoiceDocument.introText;
   const invoiceOutroText = invoiceDocument.outroText;
@@ -2782,7 +2817,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
     { value: customerName, omitLabel: true, valueClassName: "detail-value detail-value--lead" },
     { value: formatDocumentAddress(customer?.address) || "-", omitLabel: true, valueClassName: "detail-value detail-value--muted" },
     { value: customerIdentityLine, omitLabel: true, valueClassName: "detail-value detail-value--inline-meta" },
-    { label: "Kontakt", value: customerContact }
+    { label: copy.contact, value: customerContact }
   ];
   const buildInvoiceDetailFieldsHtml = (fields) =>
     fields
@@ -2796,11 +2831,11 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
       )
       .join("");
   const bankDetailFields = [
-    { label: "IBAN / Číslo účtu:", value: bankingDetails.bankAccount, valueClassName: "bank-value bank-value--mono" },
+    { label: copy.iban, value: bankingDetails.bankAccount, valueClassName: "bank-value bank-value--mono" },
     { label: "SWIFT / BIC:", value: bankingDetails.swiftCode, valueClassName: "bank-value" },
-    { label: "Variabilný symbol:", value: bankingDetails.variableSymbol, valueClassName: "bank-value" },
-    { label: "Konštantný symbol:", value: bankingDetails.constantSymbol, valueClassName: "bank-value" },
-    { label: "Špecifický symbol:", value: bankingDetails.specificSymbol, valueClassName: "bank-value" }
+    { label: copy.variableSymbol, value: bankingDetails.variableSymbol, valueClassName: "bank-value" },
+    { label: copy.constantSymbol, value: bankingDetails.constantSymbol, valueClassName: "bank-value" },
+    { label: copy.specificSymbol, value: bankingDetails.specificSymbol, valueClassName: "bank-value" }
   ];
   const buildBankDetailFieldsHtml = (fields) =>
     fields
@@ -2823,7 +2858,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         vatPercent: item.vat_percent
       });
       const detailBits = [
-        Number(item.discount_percent || 0) > 0 ? `Zľava ${formatPercentValue(item.discount_percent || 0, 2)}` : "",
+        Number(item.discount_percent || 0) > 0 ? `${copy.discount} ${formatPercentValue(item.discount_percent || 0, 2)}` : "",
         String(item.line_note || "").trim() ? String(item.line_note || "").trim() : ""
       ].filter(Boolean);
       return `
@@ -2831,7 +2866,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
           <td class="cell-index">${index + 1}</td>
           <td>
             <div class="item-title">${escapeHtml(String(item.material_code || "-"))}</div>
-            <div class="item-meta">${escapeHtml(detailBits.join(" | ") || "Bez doplňujúcich údajov")}</div>
+            <div class="item-meta">${escapeHtml(detailBits.join(" | ") || copy.noExtraData)}</div>
           </td>
           <td class="cell-right cell-qty">${escapeHtml(formatCell(item.quantity, "number"))}</td>
           <td class="cell-unit">${escapeHtml(String(item.unit || "ks"))}</td>
@@ -2845,7 +2880,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
   const noteHtml = invoiceNote
     ? `
         <section class="note-section">
-          <h3 class="section-title-inline"><span class="section-icon">${noteIcon}</span><span>${escapeHtml(invoiceDocument.documentKind === "proforma" ? "Poznámka k predfaktúre" : "Poznámka k faktúre")}</span></h3>
+          <h3 class="section-title-inline"><span class="section-icon">${noteIcon}</span><span>${escapeHtml(invoiceDocument.documentKind === "proforma" ? copy.noteProforma : copy.noteInvoice)}</span></h3>
           <p>${escapeHtml(invoiceNote)}</p>
         </section>
       `
@@ -2862,7 +2897,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         <aside class="qr-card">
           <span class="qr-label">PayBySquare</span>
           <div class="pay-card-inner">
-            <img src="${escapeHtml(buildQrImageUrl(payBySquareData.qrPayload, 220))}" alt="PayBySquare QR kod" />
+            <img src="${escapeHtml(buildQrImageUrl(payBySquareData.qrPayload, 220))}" alt="${escapeHtml(copy.qrAlt)}" />
           </div>
         </aside>
       `
@@ -2873,19 +2908,19 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         </aside>
       `;
   const totalsRowsHtml = `
-    <div class="total-row"><span>Bez DPH</span><strong>${escapeHtml(formatCurrencyValue(financials.total))}</strong></div>
-    <div class="total-row"><span>DPH</span><strong>${escapeHtml(formatCurrencyValue(financials.vat))}</strong></div>
-    <div class="total-row"><span>Spolu s DPH</span><strong>${escapeHtml(formatCurrencyValue(financials.totalWithVat))}</strong></div>
+    <div class="total-row"><span>${escapeHtml(copy.totalExVat)}</span><strong>${escapeHtml(formatCurrencyValue(financials.total))}</strong></div>
+    <div class="total-row"><span>${escapeHtml(copy.vat)}</span><strong>${escapeHtml(formatCurrencyValue(financials.vat))}</strong></div>
+    <div class="total-row"><span>${escapeHtml(copy.totalInclVat)}</span><strong>${escapeHtml(formatCurrencyValue(financials.totalWithVat))}</strong></div>
     ${
       financials.advanceAppliedGross > 0
-        ? `<div class="total-row"><span>Uhradená predfaktúra</span><strong>- ${escapeHtml(formatCurrencyValue(financials.advanceAppliedGross))}</strong></div>`
+        ? `<div class="total-row"><span>${escapeHtml(copy.paidProforma)}</span><strong>- ${escapeHtml(formatCurrencyValue(financials.advanceAppliedGross))}</strong></div>`
         : ""
     }
-    <div class="total-row total-row--grand"><span>Na úhradu</span><strong>${escapeHtml(formatCurrencyValue(financials.amountDue))}</strong></div>
+    <div class="total-row total-row--grand"><span>${escapeHtml(copy.amountDue)}</span><strong>${escapeHtml(formatCurrencyValue(financials.amountDue))}</strong></div>
   `;
 
   return `<!doctype html>
-  <html lang="sk">
+  <html lang="${isEnglish ? "en" : "sk"}">
     <head>
       <meta charset="UTF-8" />
       <title>${escapeHtml(invoiceNumber || documentTitle)}</title>
@@ -3308,17 +3343,17 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
       <section class="page">
         <header class="hero">
           <div>
-            <h1>${escapeHtml(`${documentTitle} č. ${invoiceNumber}`)}</h1>
+            <h1>${escapeHtml(`${documentTitle} ${copy.numberShort} ${invoiceNumber}`)}</h1>
           </div>
           <div class="hero-right">
             ${
               invoiceOrderNumber || invoiceDocument.sourceProformaNumber
                 ? `
             <div class="header-meta">
-              ${invoiceOrderNumber ? `<div class="header-meta-row"><span class="header-meta-label-wrap"><span class="section-icon">${calendarIcon}</span><span>Objednávka</span></span><strong>${escapeHtml(invoiceOrderNumber)}</strong></div>` : ""}
+              ${invoiceOrderNumber ? `<div class="header-meta-row"><span class="header-meta-label-wrap"><span class="section-icon">${calendarIcon}</span><span>${escapeHtml(copy.order)}</span></span><strong>${escapeHtml(invoiceOrderNumber)}</strong></div>` : ""}
               ${
                 invoiceDocument.sourceProformaNumber
-                  ? `<div class="header-meta-row"><span class="header-meta-label-wrap"><span class="section-icon">${calendarIcon}</span><span>Predfaktúra</span></span><strong>${escapeHtml(invoiceDocument.sourceProformaNumber)}</strong></div>`
+                  ? `<div class="header-meta-row"><span class="header-meta-label-wrap"><span class="section-icon">${calendarIcon}</span><span>${escapeHtml(copy.sourceProforma)}</span></span><strong>${escapeHtml(invoiceDocument.sourceProformaNumber)}</strong></div>`
                   : ""
               }
             </div>
@@ -3330,18 +3365,18 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
 
         <section class="parties">
           <article class="party">
-            <h2 class="section-title-inline"><span class="section-icon">${supplierIcon}</span><span>Dodávateľ</span></h2>
+            <h2 class="section-title-inline"><span class="section-icon">${supplierIcon}</span><span>${escapeHtml(copy.supplier)}</span></h2>
             <dl class="party-list">${buildInvoiceDetailFieldsHtml(supplierDetailFields)}</dl>
           </article>
           <article class="party">
-            <h2 class="section-title-inline"><span class="section-icon">${customerIcon}</span><span>Odberateľ</span></h2>
+            <h2 class="section-title-inline"><span class="section-icon">${customerIcon}</span><span>${escapeHtml(copy.customer)}</span></h2>
             <dl class="party-list">${buildInvoiceDetailFieldsHtml(customerDetailFields)}</dl>
           </article>
         </section>
 
         <section class="payment-section">
           <article class="payment-copy">
-            <h3>Platobné údaje</h3>
+            <h3>${escapeHtml(copy.paymentDetails)}</h3>
             <div class="payment-bank">
               <dl class="bank-list">${buildBankDetailFieldsHtml(bankDetailFields)}</dl>
             </div>
@@ -3350,38 +3385,38 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile) {
         </section>
 
         <section class="items-section">
-          <h2 class="section-title-inline"><span class="section-icon">${itemsIcon}</span><span>${escapeHtml(invoiceIntroText || (invoiceDocument.documentKind === "proforma" ? "Položky predfaktúry" : "Položky faktúry"))}</span></h2>
+          <h2 class="section-title-inline"><span class="section-icon">${itemsIcon}</span><span>${escapeHtml(invoiceIntroText || (invoiceDocument.documentKind === "proforma" ? copy.itemsProforma : copy.itemsInvoice))}</span></h2>
           <table>
             <thead>
               <tr>
                 <th style="width:8mm;">#</th>
-                <th>Názov</th>
-                <th class="cell-qty-head" style="width:19mm;text-align:right;">Množstvo</th>
-                <th class="cell-unit-head" style="width:12mm;">MJ</th>
-                <th class="cell-price-head" style="width:38mm;text-align:right;">Cena bez DPH</th>
-                <th style="width:15mm;text-align:right;">DPH</th>
-                <th style="width:25mm;text-align:right;">Spolu</th>
+                <th>${escapeHtml(copy.itemName)}</th>
+                <th class="cell-qty-head" style="width:19mm;text-align:right;">${escapeHtml(copy.quantity)}</th>
+                <th class="cell-unit-head" style="width:12mm;">${escapeHtml(copy.unit)}</th>
+                <th class="cell-price-head" style="width:38mm;text-align:right;">${escapeHtml(copy.priceExVat)}</th>
+                <th style="width:15mm;text-align:right;">${escapeHtml(copy.vat)}</th>
+                <th style="width:25mm;text-align:right;">${escapeHtml(copy.total)}</th>
               </tr>
             </thead>
-            <tbody>${rowsHtml || '<tr><td colspan="7">Faktúra nemá položky.</td></tr>'}</tbody>
+            <tbody>${rowsHtml || `<tr><td colspan="7">${escapeHtml(copy.noItems)}</td></tr>`}</tbody>
           </table>
         </section>
 
         <section class="totals-section">
-          <h2 class="section-title-inline"><span class="section-icon">${totalsIcon}</span><span>Rekapitulácia</span></h2>
+          <h2 class="section-title-inline"><span class="section-icon">${totalsIcon}</span><span>${escapeHtml(copy.summary)}</span></h2>
           <div class="totals-box">${totalsRowsHtml}</div>
         </section>
 
         ${noteHtml}
         ${outroHtml}
-        <div class="foot">${escapeHtml(`${documentTitle} č. ${invoiceNumber}`)}</div>
+        <div class="foot">${escapeHtml(`${documentTitle} ${copy.numberShort} ${invoiceNumber}`)}</div>
       </section>
     </body>
   </html>`;
 }
 
-function printInvoicePdf(invoice, customer, items, companyProfile) {
-  printHtmlDocument(buildInvoicePrintHtml(invoice, customer, items, companyProfile));
+function printInvoicePdf(invoice, customer, items, companyProfile, language = "sk") {
+  printHtmlDocument(buildInvoicePrintHtml(invoice, customer, items, companyProfile, language));
 }
 
 function buildProductionPrintHtml(productionOrder, inputs, outputs, companyName) {
@@ -5652,8 +5687,13 @@ function App() {
     [isMaster, activeCompany?.billing_plan_key]
   );
   const shouldShowLeadContactNotice = useMemo(
-    () => !isMaster && !isCompanyAdminOnboardingActive && activeCompanyBillingStatus === "lead" && !activeCompany?.lead_contacted_at,
-    [isMaster, isCompanyAdminOnboardingActive, activeCompanyBillingStatus, activeCompany?.lead_contacted_at]
+    () =>
+      !isMaster &&
+      !isCompanyAdminOnboardingActive &&
+      !isActiveCompanyBasicFree &&
+      activeCompanyBillingStatus === "lead" &&
+      !activeCompany?.lead_contacted_at,
+    [isMaster, isCompanyAdminOnboardingActive, isActiveCompanyBasicFree, activeCompanyBillingStatus, activeCompany?.lead_contacted_at]
   );
   const activateCompanyAdminOnboarding = (targetCompanyId, overrides = {}) => {
     const normalizedCompanyId = String(targetCompanyId || "").trim();
@@ -11865,7 +11905,7 @@ function App() {
     }
   };
 
-  const handlePrintInvoice = (invoice) => {
+  const handlePrintInvoice = (invoice, language = "sk") => {
     try {
       printInvoicePdf(
         invoice,
@@ -11874,7 +11914,8 @@ function App() {
         buildEffectiveCompanyProfile(
           companiesById[invoice.company_id] || activeCompany || null,
           companyProfilesById[invoice.company_id] || null
-        ) || { name: companyNameById[invoice.company_id] || activeCompanyProfile?.name || activeCompany?.name || currentCompanyLabel }
+        ) || { name: companyNameById[invoice.company_id] || activeCompanyProfile?.name || activeCompany?.name || currentCompanyLabel },
+        language
       );
     } catch (printError) {
       setInvoicesError(printError?.message || "Nepodarilo sa vytvoriť PDF faktúry.");
@@ -22459,10 +22500,18 @@ function App() {
                                 <button
                                   type="button"
                                   className="clear-btn"
-                                  onClick={() => handlePrintInvoice(invoice)}
+                                  onClick={() => handlePrintInvoice(invoice, "sk")}
                                   disabled={invoiceDeletingId === invoice.id}
                                 >
                                   PDF
+                                </button>
+                                <button
+                                  type="button"
+                                  className="clear-btn"
+                                  onClick={() => handlePrintInvoice(invoice, "en")}
+                                  disabled={invoiceDeletingId === invoice.id}
+                                >
+                                  PDF EN
                                 </button>
                                 {invoiceDocument.documentKind === "proforma" && !invoiceDocument.linkedInvoiceNumber && !archived && (
                                   <button

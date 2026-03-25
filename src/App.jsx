@@ -5354,6 +5354,10 @@ function App() {
   const [managedUsers, setManagedUsers] = useState([]);
   const [managedUsersLoading, setManagedUsersLoading] = useState(false);
   const [managedUsersError, setManagedUsersError] = useState("");
+  const [companyManagedUsers, setCompanyManagedUsers] = useState([]);
+  const [companyManagedUsersLoading, setCompanyManagedUsersLoading] = useState(false);
+  const [companyManagedUsersError, setCompanyManagedUsersError] = useState("");
+  const [companyManagedUserRemovingId, setCompanyManagedUserRemovingId] = useState("");
   const [newUsername, setNewUsername] = useState("");
   const [newUserPassword, setNewUserPassword] = useState("");
   const [newUserRole, setNewUserRole] = useState("user");
@@ -6275,6 +6279,28 @@ function App() {
     setManagedUsersLoading(false);
   };
 
+  const loadCompanyManagedUsers = async (targetCompanyId = activeCompanyId || userCompanyId) => {
+    const normalizedCompanyId = String(targetCompanyId || "").trim();
+    if (!normalizedCompanyId || isMaster || !canManageOrders) {
+      setCompanyManagedUsers([]);
+      setCompanyManagedUsersError("");
+      setCompanyManagedUsersLoading(false);
+      return;
+    }
+
+    setCompanyManagedUsersLoading(true);
+    setCompanyManagedUsersError("");
+    try {
+      const result = await requestAuthenticatedJson(`/api/v1/company-users?companyId=${encodeURIComponent(normalizedCompanyId)}`);
+      setCompanyManagedUsers((result?.users || []).map((row) => normalizeManagedUserRecord(row)));
+    } catch (loadError) {
+      setCompanyManagedUsers([]);
+      setCompanyManagedUsersError(loadError?.message || "Nepodarilo sa načítať používateľov firmy.");
+    } finally {
+      setCompanyManagedUsersLoading(false);
+    }
+  };
+
   const loadCompanies = async () => {
     setCompaniesError("");
     const { data, error: companiesError } = await supabase
@@ -6916,6 +6942,55 @@ function App() {
     return result;
   };
 
+  const requestAuthenticatedJson = async (path, { method = "GET", payload = null } = {}) => {
+    const {
+      data: { session }
+    } = await supabase.auth.getSession();
+    const accessToken = String(session?.access_token || "").trim();
+
+    if (!accessToken) {
+      throw new Error("Relacia vyprsala. Prihlas sa znova.");
+    }
+
+    const response = await noStoreFetch(path, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`
+      },
+      ...(payload !== null ? { body: JSON.stringify(payload) } : {})
+    });
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok || !result?.ok) {
+      throw new Error(result?.error || "Request zlyhal.");
+    }
+
+    return result;
+  };
+
+  const checkRegistrationAvailability = async ({ email, username, companyName, inviteToken }) => {
+    const response = await noStoreFetch("/api/v1/public/registration-check", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        email,
+        username,
+        companyName,
+        inviteToken
+      })
+    });
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok || !result?.ok) {
+      throw new Error(result?.error || "Kontrola registrácie zlyhala.");
+    }
+
+    return result;
+  };
+
   const handleOpenBillingPortal = async (targetCompanyId = activeCompanyId) => {
     if (!targetCompanyId) {
       setBillingError("Najprv vyber firmu, pre ktoru chces otvorit billing portal.");
@@ -7162,8 +7237,18 @@ function App() {
         });
       }
 
+      const bootstrapCompanyId = String(signupBootstrapData?.company_id || "").trim();
+      const bootstrapCompanyName = String(signupBootstrapData?.company_name || pendingBootstrap.companyName || "").trim();
+      const bootstrapContactPhone = String(pendingBootstrap?.phone || user.user_metadata?.phone || "").trim();
+
       clearPendingAuthBootstrap();
-      return true;
+      return {
+        ok: true,
+        mode: "signup",
+        companyId: bootstrapCompanyId || null,
+        companyName: bootstrapCompanyName,
+        contactPhone: bootstrapContactPhone
+      };
     }
 
     return false;
@@ -8094,6 +8179,41 @@ function App() {
 
     setDeleteUserSubmitting(false);
     await loadManagedUsers();
+  };
+
+  const handleRemoveCompanyManagedUser = async (row) => {
+    if (!row?.user_id || !activeCompanyId) {
+      return;
+    }
+    if (row.user_id === authUser?.id) {
+      setCompanyManagedUsersError("Aktuálne prihlásený admin nemôže odobrať sám seba.");
+      return;
+    }
+
+    const login = row.username || usernameFromInternalEmail(row.email) || row.user_id;
+    const confirmed = window.confirm(
+      `Odobrať používateľa "${login}" z firmy? Stratí prístup do tejto firmy a do webu cez tento firemný profil.`
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setCompanyManagedUserRemovingId(row.user_id);
+    setCompanyManagedUsersError("");
+    try {
+      await requestAuthenticatedJson("/api/v1/company-users", {
+        method: "DELETE",
+        payload: {
+          companyId: activeCompanyId,
+          userId: row.user_id
+        }
+      });
+      await loadCompanyManagedUsers(activeCompanyId);
+    } catch (removeError) {
+      setCompanyManagedUsersError(removeError?.message || "Nepodarilo sa odobrať používateľa z firmy.");
+    } finally {
+      setCompanyManagedUserRemovingId("");
+    }
   };
 
   const handleRepairUsersWithoutCompany = async () => {
@@ -12942,6 +13062,8 @@ function App() {
   useEffect(() => {
     if (!authReady || !isLoggedIn) {
       setManagedUsers([]);
+      setCompanyManagedUsers([]);
+      setCompanyManagedUsersError("");
       setStockTwinLayout(DEFAULT_STOCK_TWIN_LAYOUT);
       setStockTwinRackDrafts([]);
       setStockTwinSettingsError("");
@@ -12958,6 +13080,17 @@ function App() {
     loadCompanyProfiles();
     loadStockTwinSettings();
   }, [authReady, isLoggedIn, isMaster, authUser?.id, activeCompanyId, userCompanyId]);
+
+  useEffect(() => {
+    if (!authReady || !isLoggedIn || isMaster || !canManageOrders || !activeCompanyId) {
+      setCompanyManagedUsers([]);
+      setCompanyManagedUsersError("");
+      setCompanyManagedUsersLoading(false);
+      return;
+    }
+
+    loadCompanyManagedUsers(activeCompanyId);
+  }, [authReady, isLoggedIn, isMaster, canManageOrders, authUser?.id, activeCompanyId]);
 
   useEffect(() => {
     if (!authReady || !isLoggedIn) {
@@ -15367,6 +15500,43 @@ function App() {
       return;
     }
 
+    try {
+      const availability = await checkRegistrationAvailability({
+        email,
+        username,
+        companyName,
+        inviteToken
+      });
+
+      if (availability?.email_exists) {
+        setAuthError(
+          inviteToken
+            ? "Účet s týmto emailom už existuje. Prihlás sa a pozvánka sa po prihlásení spracuje automaticky."
+            : "Účet s týmto emailom už existuje. Použi prihlásenie."
+        );
+        setAuthSubmitting(false);
+        return;
+      }
+
+      if (availability?.username_exists) {
+        setAuthError("Tento login už používa iný účet.");
+        setAuthSubmitting(false);
+        return;
+      }
+
+      if (!inviteToken && availability?.company_exists) {
+        setAuthError(
+          `Firma "${availability.company_name || companyName}" už existuje. Prístup do existujúcej firmy dáva až admin firmy cez pozvánku.`
+        );
+        setAuthSubmitting(false);
+        return;
+      }
+    } catch (availabilityError) {
+      setAuthError(availabilityError?.message || "Predbežná kontrola registrácie zlyhala.");
+      setAuthSubmitting(false);
+      return;
+    }
+
     const pendingBootstrapPayload = inviteToken
       ? { mode: "invite", email, username, phone, inviteToken }
       : { mode: "signup", email, username, phone, companyName };
@@ -15415,8 +15585,22 @@ function App() {
 
     if (activeUser) {
       try {
-        await completeAuthBootstrapForUser(activeUser, username);
+        const bootstrapResult = await completeAuthBootstrapForUser(activeUser, username);
         trackMetaPixelEvent("CompleteRegistration");
+        const bootstrappedCompanyId = String(bootstrapResult?.companyId || "").trim();
+        if (activeSession && bootstrappedCompanyId) {
+          setIsLoggedIn(true);
+          setAuthUser(activeUser);
+          setUserCompanyId(bootstrappedCompanyId);
+          setSelectedCompanyId(bootstrappedCompanyId);
+          setCanManageOrders(true);
+          activateCompanyAdminOnboarding(bootstrappedCompanyId, {
+            companyName: String(bootstrapResult?.companyName || companyName).trim(),
+            contactPhone: String(bootstrapResult?.contactPhone || phone).trim(),
+            step: 0
+          });
+          setIsLandingAuthOpen(false);
+        }
       } catch (bootstrapError) {
         setAuthError(bootstrapError?.message || "Účet je vytvorený, ale onboarding firmy zlyhal.");
         setAuthSubmitting(false);
@@ -18082,6 +18266,70 @@ function App() {
                       </div>
                     ) : (
                       <p className="panel-meta">Pre túto firmu zatiaľ nie sú vytvorené žiadne pozvánky.</p>
+                    )}
+                  </div>
+                )}
+                {!isMaster && canManageOrders && (
+                  <div className="workflow-form-section company-settings-subcard">
+                    <div className="workflow-subsection-head">
+                      <div>
+                        <h3>Používatelia firmy</h3>
+                        <p className="panel-meta">Firemný admin vie odobrať používateľovi prístup do tejto firmy. Nový prístup dáva cez pozvánku.</p>
+                      </div>
+                      <button
+                        type="button"
+                        className="refresh-btn"
+                        onClick={() => loadCompanyManagedUsers(activeCompanyId)}
+                        disabled={!activeCompanyId || companyManagedUsersLoading}
+                      >
+                        {companyManagedUsersLoading ? "Načítavam..." : "Obnoviť používateľov"}
+                      </button>
+                    </div>
+                    {companyManagedUsersError && <p className="error">{companyManagedUsersError}</p>}
+                    {companyManagedUsersLoading ? (
+                      <p className="panel-meta">Načítavam používateľov firmy...</p>
+                    ) : companyManagedUsers.length > 0 ? (
+                      <div className="table-wrap">
+                        <table className="master-users-table">
+                          <thead>
+                            <tr>
+                              <th>Login</th>
+                              <th>Workflow</th>
+                              <th>Dochádzka</th>
+                              <th>MES / HMI</th>
+                              <th>Vytvorené</th>
+                              <th>Akcie</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {companyManagedUsers.map((row) => (
+                              <tr key={row.user_id}>
+                                <td>
+                                  {row.username || usernameFromInternalEmail(row.email)}
+                                  {row.user_id === authUser?.id && <span className="table-badge table-badge-master">ty</span>}
+                                  <div className="master-user-email">{row.email || "-"}</div>
+                                </td>
+                                <td>{row.can_manage_orders ? "áno" : "nie"}</td>
+                                <td>{row.can_access_attendance ? "áno" : "nie"}</td>
+                                <td>{row.can_access_mes ? "áno" : "nie"}</td>
+                                <td>{formatDate(row.created_at)}</td>
+                                <td>
+                                  <button
+                                    type="button"
+                                    className="clear-btn"
+                                    onClick={() => handleRemoveCompanyManagedUser(row)}
+                                    disabled={companyManagedUserRemovingId === row.user_id || row.user_id === authUser?.id}
+                                  >
+                                    {companyManagedUserRemovingId === row.user_id ? "Odoberám..." : "Odobrať používateľa"}
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <p className="panel-meta">Pre túto firmu zatiaľ nie sú evidovaní žiadni ďalší používatelia.</p>
                     )}
                   </div>
                 )}

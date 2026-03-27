@@ -5823,7 +5823,6 @@ function App() {
   const [mesMachines, setMesMachines] = useState([]);
   const [mesTerminals, setMesTerminals] = useState([]);
   const [selectedMesMachineId, setSelectedMesMachineId] = useState("");
-  const [selectedMesOperatorKey, setSelectedMesOperatorKey] = useState("");
   const [isMesTerminalSectionVisible, setIsMesTerminalSectionVisible] = useState(false);
   const [isMesTerminalFormVisible, setIsMesTerminalFormVisible] = useState(false);
   const [editingMesTerminalId, setEditingMesTerminalId] = useState("");
@@ -15231,21 +15230,14 @@ function App() {
     machineDashboardRows,
     mesEventsByMachineId
   ]);
-  const selectedMesOperatorOverview = useMemo(
-    () => mesOperatorRows.find((row) => row.key === selectedMesOperatorKey) || null,
-    [mesOperatorRows, selectedMesOperatorKey]
-  );
   const mesOperatorSummary = useMemo(() => {
     const activeOperators = mesOperatorRows.filter((row) => row.activeRunCount > 0).length;
     const averageRunPct =
       mesOperatorRows.length > 0 ? mesOperatorRows.reduce((sum, row) => sum + Number(row.sessionRunPct || 0), 0) / mesOperatorRows.length : 0;
-    const averagePerformancePct =
-      mesOperatorRows.length > 0 ? mesOperatorRows.reduce((sum, row) => sum + Number(row.sessionPerformancePct || 0), 0) / mesOperatorRows.length : 0;
     return {
       totalOperators: mesOperatorRows.length,
       activeOperators,
-      averageRunPct,
-      averagePerformancePct
+      averageRunPct
     };
   }, [mesOperatorRows]);
   const mesProductionOrderRows = useMemo(() => {
@@ -15901,30 +15893,6 @@ function App() {
       setSelectedMesMachineId(mesMachineOptions[0].id);
     }
   }, [mesMachineOptions, selectedMesMachineId]);
-
-  useEffect(() => {
-    if (mesOperatorRows.length === 0) {
-      if (selectedMesOperatorKey) {
-        setSelectedMesOperatorKey("");
-      }
-      return;
-    }
-
-    const selectedStillExists = mesOperatorRows.some((row) => row.key === selectedMesOperatorKey);
-    const preferredOperatorName = String(selectedMesMachineOverview?.operatorName || currentMesMachineRun?.operator_name || "").trim();
-    const preferredOperator =
-      mesOperatorRows.find((row) => row.currentMachineId === selectedMesMachineId && normalizeMesOperatorLookupValue(row.operatorName) === normalizeMesOperatorLookupValue(preferredOperatorName)) ||
-      mesOperatorRows.find((row) => row.currentMachineId === selectedMesMachineId);
-
-    if ((!selectedMesOperatorKey || !selectedStillExists) && preferredOperator && preferredOperator.key !== selectedMesOperatorKey) {
-      setSelectedMesOperatorKey(preferredOperator.key);
-      return;
-    }
-
-    if (!selectedStillExists) {
-      setSelectedMesOperatorKey(mesOperatorRows[0].key);
-    }
-  }, [mesOperatorRows, selectedMesOperatorKey, selectedMesMachineId, selectedMesMachineOverview, currentMesMachineRun]);
 
   useEffect(() => {
     const query = String(companyProfileNameInput || "").trim();
@@ -17597,9 +17565,7 @@ function App() {
         <div>
           <p className="workflow-section-kicker">MES</p>
           <h2>Prehľad výroby v reálnom čase</h2>
-          <p className="panel-meta">
-            MES rozhranie v reálnom čase pre operátora, supervízora aj manažment. Dáta sa obnovia cez tlačidlo Obnoviť a pri zmenách v reálnom čase.
-          </p>
+          <p className="panel-meta">Stroje, operátori a výrobné zákazky pre aktuálnu firmu.</p>
         </div>
         <div className="hero-badges">
           <span className="table-badge">{getMesViewRoleLabel(mesViewRole)}</span>
@@ -17975,11 +17941,6 @@ function App() {
                     <p className="mes-focus-note">{`Aktívny prestoj: ${selectedMesMachineOverview.currentDowntimeReason}`}</p>
                   )}
                   <div className="order-card-actions mes-inline-actions">
-                    {selectedMachineOperator && (
-                      <button type="button" className="clear-btn" onClick={() => setSelectedMesOperatorKey(selectedMachineOperator.key)}>
-                        Otvoriť operátora
-                      </button>
-                    )}
                     {canAccessAttendanceModule && (selectedMachineOperator?.operatorName || selectedMesMachineOverview?.operatorName) && (
                       <button
                         type="button"
@@ -17989,10 +17950,10 @@ function App() {
                           setSelectedTable(ROLE_TABLE);
                         }}
                       >
-                        Otvoriť zamestnanca
-                      </button>
-                    )}
-                  </div>
+                          Zamestnanec
+                        </button>
+                      )}
+                    </div>
                 </div>
                 <div className="mes-detail-stats">
                   <article className="mes-mini-stat">
@@ -18354,153 +18315,80 @@ function App() {
           )}
 
           {machineDashboardRows.length > 0 && (
-            <div className="orders-layout workflow-grid">
-              <div className="orders-column workflow-editor-column">
-                <article className="orders-panel-card workflow-card workflow-card-list">
-                  <div className="panel-head workflow-section-head">
-                    <div>
-                      <h2>Operátori vo výrobe</h2>
-                      <p className="panel-meta">Klik na operátora otvorí jeho session detail, aktuálny stroj a percentá od začiatku jeho práce na stroji.</p>
-                    </div>
-                    <span className="panel-meta">{`${mesOperatorSummary.activeOperators} aktívnych / ${mesOperatorSummary.totalOperators}`}</span>
-                  </div>
-                  {mesOperatorRows.length === 0 ? (
-                    <p className="hint">V MES eventoch zatiaľ nie sú evidovaní žiadni operátori.</p>
-                  ) : (
-                    <div className="orders-list attendance-list mes-operator-list">
-                      {mesOperatorRows.map((operator) => (
-                        <article
-                          key={operator.key}
-                          className={`order-card attendance-card mes-operator-card ${selectedMesOperatorKey === operator.key ? "mes-operator-card-selected" : ""}`}
-                        >
-                          <button type="button" className="order-card-head attendance-card-head mes-operator-card-head" onClick={() => setSelectedMesOperatorKey(operator.key)}>
-                            <div>
-                              <strong>{operator.operatorName}</strong>
-                              <p>{operator.profile?.employee_code || operator.currentMachineName || "Bez aktívneho stroja"}</p>
-                            </div>
-                            <div className="attendance-card-pills">
-                              <span className="table-badge">{operator.activeRunCount > 0 ? "aktívny" : "bez runu"}</span>
-                              <span className="table-badge">{formatPercentValue(operator.sessionRunPct)}</span>
-                            </div>
-                          </button>
-                          <div className="order-detail attendance-card-body">
-                            <div className="attendance-meta-grid mes-terminal-meta-grid">
-                              <div>
-                                <span className="draft-field-label">Stroj / zákazka</span>
-                                <p>{`${operator.currentMachineName || "-"} | ${operator.currentWorkOrder || "-"}`}</p>
-                              </div>
-                              <div>
-                                <span className="draft-field-label">Výrobný čas od session štartu</span>
-                                <p>{formatPercentValue(operator.sessionRunPct)}</p>
-                              </div>
-                              <div>
-                                <span className="draft-field-label">Plnenie targetu</span>
-                                <p>{formatPercentValue(operator.sessionPerformancePct)}</p>
-                              </div>
-                              <div>
-                                <span className="draft-field-label">Kvalita / kusy</span>
-                                <p>{`${formatPercentValue(operator.sessionQualityPct)} | ${new Intl.NumberFormat("sk-SK").format(operator.sessionProducedParts)}`}</p>
-                              </div>
-                            </div>
+            <article className="orders-panel-card workflow-card workflow-card-list">
+              <div className="panel-head workflow-section-head">
+                <div>
+                  <h2>Operátori vo výrobe</h2>
+                  <p className="panel-meta">Len aktuálny stroj a výkon v prebiehajúcej session.</p>
+                </div>
+                <span className="panel-meta">{`${mesOperatorSummary.activeOperators} aktívnych / ${mesOperatorSummary.totalOperators}`}</span>
+              </div>
+              {mesOperatorRows.length === 0 ? (
+                <p className="hint">V MES eventoch zatiaľ nie sú evidovaní žiadni operátori.</p>
+              ) : (
+                <div className="orders-list attendance-list mes-operator-list">
+                  {mesOperatorRows.map((operator) => (
+                    <article key={operator.key} className="order-card attendance-card mes-operator-card">
+                      <div className="order-card-head attendance-card-head mes-operator-card-head">
+                        <div>
+                          <strong>{operator.operatorName}</strong>
+                          <p>{operator.profile?.employee_code || operator.currentMachineName || "Bez aktívneho stroja"}</p>
+                        </div>
+                        <div className="attendance-card-pills">
+                          <span className="table-badge">{operator.activeRunCount > 0 ? "aktívny" : "bez runu"}</span>
+                          <span className="table-badge">{formatPercentValue(operator.sessionRunPct)}</span>
+                        </div>
+                      </div>
+                      <div className="order-detail attendance-card-body">
+                        <div className="attendance-meta-grid mes-terminal-meta-grid">
+                          <div>
+                            <span className="draft-field-label">Stroj</span>
+                            <p>{operator.currentMachineName || "-"}</p>
                           </div>
-                        </article>
-                      ))}
-                    </div>
-                  )}
-                </article>
-              </div>
-              <div className="orders-column orders-column-list workflow-feed-column">
-                <article className="orders-panel-card workflow-card workflow-card-list">
-                  <div className="panel-head workflow-section-head">
-                    <div>
-                      <h2>Metriky operátora</h2>
-                      <p className="panel-meta">
-                        {selectedMesOperatorOverview
-                          ? [
-                              selectedMesOperatorOverview.operatorName,
-                              selectedMesOperatorOverview.currentMachineName || "",
-                              selectedMesOperatorOverview.currentWorkOrder || ""
-                            ]
-                              .filter(Boolean)
-                              .join(" | ")
-                          : "Vyber operátora zo zoznamu vľavo."}
-                      </p>
-                    </div>
-                  </div>
-                  {!selectedMesOperatorOverview ? (
-                    <p className="hint">Vyber operátora zo zoznamu vľavo.</p>
-                  ) : (
-                    <div className="mes-operator-metrics-grid">
-                      <article className="mes-mini-stat mes-mini-stat-highlight">
-                        <span>Výrobný čas</span>
-                        <strong>{formatPercentValue(selectedMesOperatorOverview.sessionRunPct)}</strong>
-                      </article>
-                      <article className="mes-mini-stat">
-                        <span>Stop / prestoj</span>
-                        <strong>{formatPercentValue(selectedMesOperatorOverview.sessionStopPct)}</strong>
-                      </article>
-                      <article className="mes-mini-stat">
-                        <span>Plnenie targetu</span>
-                        <strong>{formatPercentValue(selectedMesOperatorOverview.sessionPerformancePct)}</strong>
-                      </article>
-                      <article className="mes-mini-stat">
-                        <span>Kvalita</span>
-                        <strong>{formatPercentValue(selectedMesOperatorOverview.sessionQualityPct)}</strong>
-                      </article>
-                      <article className="mes-mini-stat">
-                        <span>Vyrobené v session</span>
-                        <strong>{new Intl.NumberFormat("sk-SK").format(selectedMesOperatorOverview.sessionProducedParts)}</strong>
-                      </article>
-                      <article className="mes-mini-stat">
-                        <span>Session od</span>
-                        <strong>{selectedMesOperatorOverview.sessionStartedAt ? formatDate(selectedMesOperatorOverview.sessionStartedAt) : "-"}</strong>
-                      </article>
-                    </div>
-                  )}
-                </article>
-              </div>
-            </div>
+                          <div>
+                            <span className="draft-field-label">Zákazka</span>
+                            <p>{operator.currentWorkOrder || "-"}</p>
+                          </div>
+                          <div>
+                            <span className="draft-field-label">Využitie</span>
+                            <p>{formatPercentValue(operator.sessionRunPct)}</p>
+                          </div>
+                          <div>
+                            <span className="draft-field-label">Plnenie targetu</span>
+                            <p>{formatPercentValue(operator.sessionPerformancePct)}</p>
+                          </div>
+                          <div>
+                            <span className="draft-field-label">Kvalita</span>
+                            <p>{formatPercentValue(operator.sessionQualityPct)}</p>
+                          </div>
+                          <div>
+                            <span className="draft-field-label">Vyrobené kusy</span>
+                            <p>{new Intl.NumberFormat("sk-SK").format(operator.sessionProducedParts)}</p>
+                          </div>
+                        </div>
+                        {canAccessAttendanceModule && operator.operatorName && (
+                          <div className="order-card-actions">
+                            <button
+                              type="button"
+                              className="clear-btn"
+                              onClick={() => {
+                                setAttendanceProfileSearch(operator.operatorName || "");
+                                setSelectedTable(ROLE_TABLE);
+                              }}
+                            >
+                              Zamestnanec
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </article>
           )}
 
           <div className="orders-layout workflow-grid">
-            <div className="orders-column workflow-editor-column">
-              <article className="orders-panel-card workflow-card workflow-card-list">
-                <div className="panel-head workflow-section-head">
-                  <div>
-                    <h2>Sledovanie prestojov</h2>
-                    <p className="panel-meta">Párované downtime úseky podľa eventov a dôvodov prestojov.</p>
-                  </div>
-                </div>
-                {mesDowntimeTimeline.length === 0 ? (
-                  <p className="hint">Zatiaľ nie sú dostupné downtime intervaly.</p>
-                ) : (
-                  <div className="table-wrap">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Stroj</th>
-                          <th>Začiatok</th>
-                          <th>Koniec</th>
-                          <th>Trvanie</th>
-                          <th>Dôvod prestoja</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {mesDowntimeTimeline.slice(0, 10).map((row) => (
-                          <tr key={row.id}>
-                            <td>{row.machineName}</td>
-                            <td>{formatDate(row.startAt)}</td>
-                            <td>{row.endAt ? formatDate(row.endAt) : "prebieha"}</td>
-                            <td>{formatDurationShort(row.durationMs)}</td>
-                            <td>{row.reason}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </article>
-            </div>
             <div className="orders-column orders-column-list workflow-feed-column">
               <article className="orders-panel-card workflow-card workflow-card-list">
                 <div className="panel-head workflow-section-head">

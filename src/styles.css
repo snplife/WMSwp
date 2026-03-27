@@ -2111,24 +2111,14 @@ select {
   background: linear-gradient(180deg, #2f6fba, #2d9a63);
 }
 
-.mes-operator-card-selected {
-  border-color: #9bbbe0;
-  box-shadow: 0 14px 28px rgba(35, 74, 119, 0.12);
-}
-
 .mes-operator-card-head {
   width: 100%;
+  align-items: flex-start;
 }
 
 .mes-operator-card-head strong {
   font-size: 1.02rem;
   color: #17324a;
-}
-
-.mes-operator-metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.75rem;
 }
 
 .mes-mini-stat-highlight {
@@ -2151,8 +2141,7 @@ select {
 
   .mes-terminal-summary-grid,
   .mes-terminal-preview-grid,
-  .mes-terminal-meta-grid,
-  .mes-operator-metrics-grid {
+  .mes-terminal-meta-grid {
     grid-template-columns: 1fr;
   }
 

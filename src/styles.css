@@ -1947,6 +1947,237 @@ select {
   gap: 1rem;
 }
 
+.mes-terminal-admin-card {
+  gap: 1rem;
+}
+
+.mes-terminal-admin-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.95fr) minmax(0, 1.2fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.mes-terminal-summary-card,
+.mes-terminal-form-shell,
+.mes-terminal-placeholder {
+  display: grid;
+  gap: 0.95rem;
+  padding: 1rem 1.05rem;
+  border: 1px solid #dce6f0;
+  border-radius: 20px;
+  background: linear-gradient(145deg, #ffffff, #f5faff 62%, #eef7f2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.mes-terminal-mode-banner,
+.mes-terminal-form-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.85rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.mes-terminal-mode-copy {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.mes-terminal-mode-copy strong,
+.mes-terminal-form-header h3 {
+  margin: 0;
+  color: #16314a;
+  font-size: 1.02rem;
+}
+
+.mes-terminal-mode-copy p,
+.mes-terminal-form-header p,
+.mes-terminal-placeholder p {
+  margin: 0;
+  color: #5d7184;
+  line-height: 1.5;
+}
+
+.mes-terminal-summary-grid,
+.mes-terminal-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.mes-terminal-summary-grid article,
+.mes-terminal-preview-grid article {
+  display: grid;
+  gap: 0.28rem;
+  align-content: start;
+  min-height: 100%;
+  padding: 0.8rem 0.85rem;
+  border: 1px solid #dde6f0;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 250, 255, 0.94));
+}
+
+.mes-terminal-summary-grid strong,
+.mes-terminal-preview-grid strong {
+  font-size: 1rem;
+  color: #17324a;
+  overflow-wrap: anywhere;
+}
+
+.mes-terminal-summary-grid p,
+.mes-terminal-preview-grid p {
+  margin: 0;
+  color: #5f7286;
+  line-height: 1.45;
+}
+
+.mes-terminal-placeholder {
+  align-content: center;
+  min-height: 100%;
+}
+
+.mes-terminal-placeholder strong {
+  color: #17324a;
+  font-size: 1rem;
+}
+
+.mes-terminal-list {
+  gap: 0.95rem;
+}
+
+.mes-inline-actions {
+  flex-wrap: wrap;
+}
+
+.mes-link-btn {
+  padding-inline: 0.7rem;
+}
+
+.mes-terminal-card::before {
+  background: linear-gradient(180deg, #1d7ca8, #44a35f);
+}
+
+.mes-terminal-card-head {
+  cursor: default;
+}
+
+.mes-terminal-card-head:hover {
+  background: linear-gradient(160deg, #f8fbff, #ffffff);
+}
+
+.mes-terminal-connectivity {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0.25rem 0.62rem;
+  border-radius: 999px;
+  border: 1px solid #d6e0eb;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.mes-terminal-connectivity.is-online {
+  border-color: #b9dfc1;
+  background: rgba(219, 246, 225, 0.95);
+  color: #1f6a38;
+}
+
+.mes-terminal-connectivity.is-offline {
+  border-color: #e5d3b4;
+  background: rgba(255, 244, 226, 0.95);
+  color: #8a5a12;
+}
+
+.mes-terminal-meta-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.mes-terminal-meta-wide {
+  grid-column: 1 / -1;
+}
+
+.mes-operator-list {
+  gap: 0.95rem;
+}
+
+.mes-operator-card {
+  border-color: #d7e4f0;
+}
+
+.mes-operator-card::before {
+  background: linear-gradient(180deg, #2f6fba, #2d9a63);
+}
+
+.mes-operator-card-selected {
+  border-color: #9bbbe0;
+  box-shadow: 0 14px 28px rgba(35, 74, 119, 0.12);
+}
+
+.mes-operator-card-head {
+  width: 100%;
+}
+
+.mes-operator-card-head strong,
+.mes-operator-detail-head strong {
+  font-size: 1.02rem;
+  color: #17324a;
+}
+
+.mes-operator-detail-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.mes-operator-detail-head p {
+  margin: 0.2rem 0 0;
+  color: #627689;
+  line-height: 1.45;
+}
+
+.mes-operator-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.mes-mini-stat-highlight {
+  border-color: #c7dae9;
+  background: linear-gradient(180deg, rgba(245, 250, 255, 0.98), rgba(235, 246, 255, 0.94));
+}
+
+@media (max-width: 1080px) {
+  .mes-terminal-admin-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .mes-terminal-mode-banner,
+  .mes-terminal-form-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .mes-terminal-summary-grid,
+  .mes-terminal-preview-grid,
+  .mes-terminal-meta-grid,
+  .mes-operator-metrics-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mes-terminal-card-head,
+  .mes-operator-detail-head,
+  .mes-operator-card-head {
+    flex-direction: column;
+  }
+}
+
 .mes-kpi-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));

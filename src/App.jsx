@@ -4427,6 +4427,125 @@ function buildMesTerminalCodeFromDeviceUid(value) {
   return normalized ? `UID-${normalized}` : "";
 }
 
+function sanitizeMesTerminalCode(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9_-]/g, "");
+}
+
+function isMesTerminalOnline(lastSeenAt) {
+  const lastSeenMs = Date.parse(String(lastSeenAt || ""));
+  return Number.isFinite(lastSeenMs) && Date.now() - lastSeenMs <= 5 * 60 * 1000;
+}
+
+function normalizeMesOperatorLookupValue(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function buildMesOperatorKey(operatorUserId, operatorName) {
+  const normalizedUserId = String(operatorUserId || "").trim();
+  if (normalizedUserId) {
+    return `user:${normalizedUserId}`;
+  }
+  const normalizedName = normalizeMesOperatorLookupValue(operatorName);
+  if (normalizedName) {
+    return `name:${normalizedName}`;
+  }
+  return "";
+}
+
+function getMesStateTransitionFromEvent(eventType) {
+  const normalized = String(eventType || "").trim().toLowerCase();
+  if (["start", "resume", "good_count", "scrap_count"].includes(normalized)) {
+    return "running";
+  }
+  if (["downtime_start", "pause", "stop"].includes(normalized)) {
+    return "stopped";
+  }
+  return "";
+}
+
+function summarizeMesStateWindow(events, startAt, endAt, fallbackState = "running") {
+  const startMs = new Date(startAt || 0).getTime();
+  const resolvedEndAt = endAt || new Date().toISOString();
+  const endMs = new Date(resolvedEndAt).getTime();
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+    return {
+      totalMs: 0,
+      runMs: 0,
+      stopMs: 0,
+      runPct: 0,
+      stopPct: 0
+    };
+  }
+
+  const orderedEvents = [...(events || [])]
+    .filter((row) => row?.happened_at)
+    .sort((a, b) => new Date(a.happened_at || 0).getTime() - new Date(b.happened_at || 0).getTime());
+
+  let currentState = fallbackState === "stopped" ? "stopped" : "running";
+  let cursorMs = startMs;
+  let runMs = 0;
+  let stopMs = 0;
+
+  orderedEvents.forEach((event) => {
+    const happenedMs = new Date(event.happened_at || 0).getTime();
+    if (!Number.isFinite(happenedMs)) {
+      return;
+    }
+    const nextState = getMesStateTransitionFromEvent(event.event_type);
+    if (!nextState) {
+      return;
+    }
+    if (happenedMs <= startMs) {
+      currentState = nextState;
+      return;
+    }
+    if (happenedMs >= endMs) {
+      return;
+    }
+    const segmentDurationMs = Math.max(0, happenedMs - cursorMs);
+    if (segmentDurationMs > 0) {
+      if (currentState === "running") {
+        runMs += segmentDurationMs;
+      } else {
+        stopMs += segmentDurationMs;
+      }
+    }
+    cursorMs = happenedMs;
+    currentState = nextState;
+  });
+
+  const tailDurationMs = Math.max(0, endMs - cursorMs);
+  if (tailDurationMs > 0) {
+    if (currentState === "running") {
+      runMs += tailDurationMs;
+    } else {
+      stopMs += tailDurationMs;
+    }
+  }
+
+  const totalMs = Math.max(0, endMs - startMs);
+  return {
+    totalMs,
+    runMs,
+    stopMs,
+    runPct: safeRatioPercent(runMs, totalMs),
+    stopPct: safeRatioPercent(stopMs, totalMs)
+  };
+}
+
+function isMissingMesDeviceUidColumnError(error) {
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    message.includes("mes_hmi_terminals.device_uid") &&
+    (message.includes("does not exist") ||
+      message.includes("schema cache") ||
+      message.includes("could not find"))
+  );
+}
+
 function normalizeAttendanceProfileRow(row) {
   if (!row || typeof row !== "object") {
     return row;
@@ -5694,9 +5813,11 @@ function App() {
   const [mesMachines, setMesMachines] = useState([]);
   const [mesTerminals, setMesTerminals] = useState([]);
   const [selectedMesMachineId, setSelectedMesMachineId] = useState("");
+  const [selectedMesOperatorKey, setSelectedMesOperatorKey] = useState("");
   const [isMesTerminalFormVisible, setIsMesTerminalFormVisible] = useState(false);
   const [editingMesTerminalId, setEditingMesTerminalId] = useState("");
   const [mesTerminalNameInput, setMesTerminalNameInput] = useState("");
+  const [mesTerminalCodeInput, setMesTerminalCodeInput] = useState("");
   const [mesTerminalDeviceUidInput, setMesTerminalDeviceUidInput] = useState("");
   const [mesTerminalWorkstationIdInput, setMesTerminalWorkstationIdInput] = useState("");
   const [mesTerminalPlatformInput, setMesTerminalPlatformInput] = useState("android");
@@ -5704,6 +5825,7 @@ function App() {
   const [mesTerminalActiveInput, setMesTerminalActiveInput] = useState(true);
   const [mesTerminalSubmitting, setMesTerminalSubmitting] = useState(false);
   const [mesTerminalDeletingId, setMesTerminalDeletingId] = useState("");
+  const [mesSupportsDeviceUid, setMesSupportsDeviceUid] = useState(true);
   const [mesLoading, setMesLoading] = useState(false);
   const [mesError, setMesError] = useState("");
   const latestLoadRowsRequestRef = useRef(0);
@@ -10374,6 +10496,7 @@ function App() {
       setMesWorkstations([]);
       setMesMachines([]);
       setMesTerminals([]);
+      setMesSupportsDeviceUid(true);
       setMesLoading(false);
       setMesError("");
       return;
@@ -10388,6 +10511,7 @@ function App() {
       setMesWorkstations([]);
       setMesMachines([]);
       setMesTerminals([]);
+      setMesSupportsDeviceUid(true);
       setMesLoading(false);
       setMesError("");
       return;
@@ -10400,6 +10524,12 @@ function App() {
 
     try {
       const sinceIso = new Date(Date.now() - MES_ANALYTICS_LOOKBACK_DAYS * DAY_MS).toISOString();
+      const terminalsQueryWithDeviceUid = supabase
+        .from("mes_hmi_terminals")
+        .select("id,company_id,workstation_id,terminal_code,device_uid,name,platform,app_mode,app_version,last_ip,last_seen_at,is_active,created_at,updated_at")
+        .eq("company_id", scopedCompanyId)
+        .order("created_at", { ascending: true });
+
       const [overviewResult, jobRunsResult, downtimeReasonsResult, workstationsResult, terminalsResult] = await Promise.all([
         supabase.rpc("mes_factory_overview", {
           p_company_id: scopedCompanyId
@@ -10422,18 +10552,14 @@ function App() {
           .eq("company_id", scopedCompanyId)
           .order("sort_order", { ascending: true })
           .order("name", { ascending: true }),
-        supabase
-          .from("mes_hmi_terminals")
-          .select("id,company_id,workstation_id,terminal_code,device_uid,name,platform,app_mode,app_version,last_ip,last_seen_at,is_active,created_at,updated_at")
-          .eq("company_id", scopedCompanyId)
-          .order("created_at", { ascending: true })
+        terminalsQueryWithDeviceUid
       ]);
 
       const { data, error: overviewError } = overviewResult;
       const { data: jobRunsData, error: jobRunsError } = jobRunsResult;
       const { data: downtimeReasonsData, error: downtimeReasonsError } = downtimeReasonsResult;
       const { data: workstationData, error: workstationsError } = workstationsResult;
-      const { data: terminalData, error: terminalsError } = terminalsResult;
+      let { data: terminalData, error: terminalsError } = terminalsResult;
 
       if (overviewError) {
         throw overviewError;
@@ -10447,6 +10573,19 @@ function App() {
       if (workstationsError) {
         throw workstationsError;
       }
+      if (terminalsError && isMissingMesDeviceUidColumnError(terminalsError)) {
+        const fallbackResult = await supabase
+          .from("mes_hmi_terminals")
+          .select("id,company_id,workstation_id,terminal_code,name,platform,app_mode,app_version,last_ip,last_seen_at,is_active,created_at,updated_at")
+          .eq("company_id", scopedCompanyId)
+          .order("created_at", { ascending: true });
+        terminalData = fallbackResult.data || [];
+        terminalsError = fallbackResult.error || null;
+        setMesSupportsDeviceUid(false);
+      } else {
+        setMesSupportsDeviceUid(true);
+      }
+
       if (terminalsError) {
         throw terminalsError;
       }
@@ -10515,6 +10654,7 @@ function App() {
   const resetMesTerminalForm = () => {
     setEditingMesTerminalId("");
     setMesTerminalNameInput("");
+    setMesTerminalCodeInput("");
     setMesTerminalDeviceUidInput("");
     setMesTerminalWorkstationIdInput("");
     setMesTerminalPlatformInput("android");
@@ -10526,6 +10666,7 @@ function App() {
   const handleEditMesTerminal = (terminal) => {
     setEditingMesTerminalId(String(terminal?.id || ""));
     setMesTerminalNameInput(String(terminal?.name || ""));
+    setMesTerminalCodeInput(String(terminal?.terminal_code || ""));
     setMesTerminalDeviceUidInput(String(terminal?.device_uid || ""));
     setMesTerminalWorkstationIdInput(String(terminal?.workstation_id || ""));
     setMesTerminalPlatformInput(String(terminal?.platform || "android").trim().toLowerCase() || "android");
@@ -10540,11 +10681,12 @@ function App() {
 
     const companyId = activeCompanyId || userCompanyId || "";
     const name = String(mesTerminalNameInput || "").trim();
+    const manualTerminalCode = sanitizeMesTerminalCode(mesTerminalCodeInput);
     const deviceUid = String(mesTerminalDeviceUidInput || "")
       .trim()
       .toUpperCase()
       .replace(/[^A-Z0-9]/g, "");
-    const terminalCode = buildMesTerminalCodeFromDeviceUid(deviceUid);
+    const terminalCode = mesSupportsDeviceUid ? buildMesTerminalCodeFromDeviceUid(deviceUid) : manualTerminalCode;
 
     if (!companyId) {
       setMesError("Vyber firmu, ku ktorej sa má HMI terminál registrovať.");
@@ -10554,12 +10696,17 @@ function App() {
       setMesError("Zadaj názov MES terminálu.");
       return;
     }
-    if (!deviceUid) {
-      setMesError("Zadaj UID zariadenia.");
-      return;
-    }
-    if (deviceUid.length !== 10) {
-      setMesError("UID zariadenia musí mať presne 10 znakov.");
+    if (mesSupportsDeviceUid) {
+      if (!deviceUid) {
+        setMesError("Zadaj UID zariadenia.");
+        return;
+      }
+      if (deviceUid.length !== 10) {
+        setMesError("UID zariadenia musí mať presne 10 znakov.");
+        return;
+      }
+    } else if (!manualTerminalCode) {
+      setMesError("Zadaj kód MES terminálu.");
       return;
     }
 
@@ -10571,7 +10718,7 @@ function App() {
         company_id: companyId,
         workstation_id: String(mesTerminalWorkstationIdInput || "").trim() || null,
         terminal_code: terminalCode,
-        device_uid: deviceUid || null,
+        ...(mesSupportsDeviceUid ? { device_uid: deviceUid || null } : {}),
         name,
         platform: String(mesTerminalPlatformInput || "android").trim().toLowerCase() || "android",
         app_mode: String(mesTerminalAppModeInput || "hmi").trim().toLowerCase() || "hmi",
@@ -13646,6 +13793,25 @@ function App() {
     () => Object.fromEntries(attendanceProfiles.map((row) => [row.id, row])),
     [attendanceProfiles]
   );
+  const attendanceProfilesByLinkedUserId = useMemo(
+    () =>
+      Object.fromEntries(
+        attendanceProfiles
+          .filter((row) => String(row.linked_user_id || "").trim())
+          .map((row) => [String(row.linked_user_id || "").trim(), row])
+      ),
+    [attendanceProfiles]
+  );
+  const attendanceProfilesByNameKey = useMemo(() => {
+    const nextMap = {};
+    attendanceProfiles.forEach((row) => {
+      const key = normalizeMesOperatorLookupValue(row.full_name);
+      if (key && !nextMap[key]) {
+        nextMap[key] = row;
+      }
+    });
+    return nextMap;
+  }, [attendanceProfiles]);
   const attendanceLeavesByProfileId = useMemo(() => {
     const nextMap = {};
     attendanceLeaves.forEach((row) => {
@@ -14835,6 +15001,255 @@ function App() {
     const matchById = mesAnalytics.topMachines.find((row) => row.machineId === selectedMesMachineId);
     return matchById || selectedMesMachineOverview;
   }, [mesAnalytics.topMachines, selectedMesMachineId, selectedMesMachineOverview]);
+  const mesOperatorRows = useMemo(() => {
+    const operatorsByKey = new Map();
+    const nameAliasToKey = {};
+
+    const ensureOperator = ({ operatorUserId, operatorName }) => {
+      const normalizedUserId = String(operatorUserId || "").trim();
+      const normalizedName = String(operatorName || "").trim();
+      const normalizedNameKey = normalizeMesOperatorLookupValue(normalizedName);
+      let key = buildMesOperatorKey(normalizedUserId, normalizedName);
+      if (!key && normalizedNameKey && nameAliasToKey[normalizedNameKey]) {
+        key = nameAliasToKey[normalizedNameKey];
+      }
+      if (!key) {
+        return null;
+      }
+
+      if (!operatorsByKey.has(key)) {
+        operatorsByKey.set(key, {
+          key,
+          operatorUserId: normalizedUserId,
+          operatorName: normalizedName,
+          normalizedNameKey,
+          runs: [],
+          events: [],
+          machineIds: new Set(),
+          workstationIds: new Set(),
+          lastSeenAt: "",
+          latestEvent: null,
+          activeRun: null,
+          latestRun: null
+        });
+      }
+
+      const entry = operatorsByKey.get(key);
+      if (!entry.operatorUserId && normalizedUserId) {
+        entry.operatorUserId = normalizedUserId;
+      }
+      if (!entry.operatorName && normalizedName) {
+        entry.operatorName = normalizedName;
+      }
+      if (!entry.normalizedNameKey && normalizedNameKey) {
+        entry.normalizedNameKey = normalizedNameKey;
+      }
+      if (normalizedNameKey) {
+        nameAliasToKey[normalizedNameKey] = key;
+      }
+      return entry;
+    };
+
+    mesRecentEventRows.forEach((event) => {
+      const entry = ensureOperator({
+        operatorUserId: event.operator_user_id,
+        operatorName: event.operator_name
+      });
+      if (!entry) {
+        return;
+      }
+      entry.events.push(event);
+      if (event.machine_id) {
+        entry.machineIds.add(String(event.machine_id));
+      }
+      if (event.workstation_id) {
+        entry.workstationIds.add(String(event.workstation_id));
+      }
+      const happenedAt = String(event.happened_at || "");
+      if (happenedAt && (!entry.lastSeenAt || happenedAt > entry.lastSeenAt)) {
+        entry.lastSeenAt = happenedAt;
+        entry.latestEvent = event;
+      }
+    });
+
+    mesRecentJobRuns.forEach((run) => {
+      const entry = ensureOperator({
+        operatorUserId: "",
+        operatorName: run.operator_name
+      });
+      if (!entry) {
+        return;
+      }
+      entry.runs.push(run);
+      if (run.machine_id) {
+        entry.machineIds.add(String(run.machine_id));
+      }
+      if (run.workstation_id) {
+        entry.workstationIds.add(String(run.workstation_id));
+      }
+      const runUpdatedAt = String(run.started_at || run.updated_at || run.created_at || "");
+      if (runUpdatedAt && (!entry.lastSeenAt || runUpdatedAt > entry.lastSeenAt)) {
+        entry.lastSeenAt = runUpdatedAt;
+      }
+      if (!entry.latestRun) {
+        entry.latestRun = run;
+      }
+      if (!entry.activeRun && ["running", "paused", "queued"].includes(String(run.status || "").toLowerCase())) {
+        entry.activeRun = run;
+      }
+    });
+
+    return Array.from(operatorsByKey.values())
+      .map((entry) => {
+        const profile =
+          (entry.operatorUserId ? attendanceProfilesByLinkedUserId[entry.operatorUserId] || null : null) ||
+          (entry.normalizedNameKey ? attendanceProfilesByNameKey[entry.normalizedNameKey] || null : null);
+        const presence = profile ? attendancePresenceByProfileId[profile.id] || null : null;
+        const activeRun = entry.activeRun || entry.latestRun || null;
+        const currentMachineId = String(activeRun?.machine_id || activeRun?.workstation_id || entry.latestEvent?.machine_id || entry.latestEvent?.workstation_id || "");
+        const currentMachineRow =
+          machineDashboardRows.find((row) => row.machineId === currentMachineId || row.workstationId === currentMachineId) || null;
+        const currentMachineEventsBase = currentMachineId ? mesEventsByMachineId[currentMachineId] || [] : [];
+        const currentMachineEvents = activeRun?.id
+          ? currentMachineEventsBase.filter((row) => !row.job_run_id || String(row.job_run_id) === String(activeRun.id))
+          : currentMachineEventsBase;
+        const matchingOperatorEvents = currentMachineEvents
+          .filter((row) => {
+            const eventKey = buildMesOperatorKey(row.operator_user_id, row.operator_name);
+            return eventKey === entry.key || normalizeMesOperatorLookupValue(row.operator_name) === entry.normalizedNameKey;
+          })
+          .sort((a, b) => new Date(a.happened_at || 0).getTime() - new Date(b.happened_at || 0).getTime());
+        const activeRunStartAt = String(activeRun?.started_at || activeRun?.created_at || "");
+        const activeRunStartMs = new Date(activeRunStartAt || 0).getTime();
+        const sessionAnchorEvent =
+          matchingOperatorEvents.find((row) => {
+            const happenedMs = new Date(row.happened_at || 0).getTime();
+            if (!Number.isFinite(happenedMs)) {
+              return false;
+            }
+            return !Number.isFinite(activeRunStartMs) || happenedMs >= activeRunStartMs;
+          }) ||
+          matchingOperatorEvents[0] ||
+          null;
+        const sessionStartedAt = String(sessionAnchorEvent?.happened_at || activeRunStartAt || entry.lastSeenAt || "");
+        const activeRunStatus = String(activeRun?.status || "").toLowerCase();
+        const sessionEndedAt =
+          ["running", "paused", "queued"].includes(activeRunStatus) || !activeRun
+            ? new Date().toISOString()
+            : String(activeRun?.ended_at || activeRun?.updated_at || entry.latestEvent?.happened_at || entry.lastSeenAt || "");
+        const sessionWindow = summarizeMesStateWindow(
+          currentMachineEvents,
+          sessionStartedAt,
+          sessionEndedAt,
+          activeRunStatus === "paused" ? "stopped" : "running"
+        );
+        const sessionProductionEvents = matchingOperatorEvents.filter((row) => {
+          const happenedMs = new Date(row.happened_at || 0).getTime();
+          const startMs = new Date(sessionStartedAt || 0).getTime();
+          const endMs = new Date(sessionEndedAt || 0).getTime();
+          return Number.isFinite(happenedMs) && Number.isFinite(startMs) && Number.isFinite(endMs) && happenedMs >= startMs && happenedMs <= endMs;
+        });
+        const sessionGoodParts = sessionProductionEvents
+          .filter((row) => String(row.event_type || "").toLowerCase() === "good_count")
+          .reduce((sum, row) => sum + Number(row.quantity || 0), 0);
+        const sessionScrapParts = sessionProductionEvents
+          .filter((row) => String(row.event_type || "").toLowerCase() === "scrap_count")
+          .reduce((sum, row) => sum + Number(row.quantity || 0), 0);
+        const sessionProducedParts = sessionGoodParts + sessionScrapParts;
+        const sessionTargetParts =
+          Number(currentMachineRow?.idealUnitsPerHour || 0) > 0 && sessionWindow.totalMs > 0
+            ? (sessionWindow.totalMs / (60 * 60 * 1000)) * Number(currentMachineRow.idealUnitsPerHour)
+            : 0;
+        const totalGoodPartsFromRuns = entry.runs.reduce((sum, row) => sum + Number(row.good_quantity || 0), 0);
+        const totalScrapPartsFromRuns = entry.runs.reduce((sum, row) => sum + Number(row.scrap_quantity || 0), 0);
+        const totalGoodPartsFromEvents = entry.events
+          .filter((row) => String(row.event_type || "").toLowerCase() === "good_count")
+          .reduce((sum, row) => sum + Number(row.quantity || 0), 0);
+        const totalScrapPartsFromEvents = entry.events
+          .filter((row) => String(row.event_type || "").toLowerCase() === "scrap_count")
+          .reduce((sum, row) => sum + Number(row.quantity || 0), 0);
+        const totalGoodParts = totalGoodPartsFromRuns > 0 ? totalGoodPartsFromRuns : totalGoodPartsFromEvents;
+        const totalScrapParts = totalScrapPartsFromRuns > 0 ? totalScrapPartsFromRuns : totalScrapPartsFromEvents;
+
+        return {
+          key: entry.key,
+          operatorUserId: entry.operatorUserId,
+          operatorName: entry.operatorName || profile?.full_name || "Neznámy operátor",
+          profile,
+          presence,
+          activeRun,
+          currentMachineId,
+          currentMachineName: currentMachineRow?.machineName || entry.latestEvent?.machine_id || activeRun?.machine_id || "-",
+          currentWorkstationName: currentMachineRow?.workstationName || currentMachineRow?.area || "-",
+          currentWorkOrder: activeRun?.job_number || currentMachineRow?.currentWorkOrder || "-",
+          machineIds: Array.from(entry.machineIds),
+          workstationIds: Array.from(entry.workstationIds),
+          machineCount: entry.machineIds.size,
+          activeRunCount: entry.runs.filter((row) => ["running", "paused", "queued"].includes(String(row.status || "").toLowerCase())).length,
+          jobCount: entry.runs.length,
+          totalGoodParts,
+          totalScrapParts,
+          totalProducedParts: totalGoodParts + totalScrapParts,
+          lastSeenAt: entry.lastSeenAt,
+          latestEvent: entry.latestEvent,
+          sessionStartedAt,
+          sessionRunMs: sessionWindow.runMs,
+          sessionStopMs: sessionWindow.stopMs,
+          sessionTotalMs: sessionWindow.totalMs,
+          sessionRunPct: sessionWindow.runPct,
+          sessionStopPct: sessionWindow.stopPct,
+          sessionGoodParts,
+          sessionScrapParts,
+          sessionProducedParts,
+          sessionPerformancePct: sessionTargetParts > 0 ? safeRatioPercent(sessionProducedParts, sessionTargetParts) : 0,
+          sessionQualityPct: safeRatioPercent(sessionGoodParts, sessionProducedParts),
+          sessionTargetParts,
+          idealUnitsPerHour: Number(currentMachineRow?.idealUnitsPerHour || 0) || null
+        };
+      })
+      .sort(
+        (a, b) =>
+          b.activeRunCount - a.activeRunCount ||
+          new Date(b.lastSeenAt || 0).getTime() - new Date(a.lastSeenAt || 0).getTime() ||
+          String(a.operatorName || "").localeCompare(String(b.operatorName || ""), "sk-SK", { sensitivity: "base" })
+      );
+  }, [
+    mesRecentEventRows,
+    mesRecentJobRuns,
+    attendanceProfilesByLinkedUserId,
+    attendanceProfilesByNameKey,
+    attendancePresenceByProfileId,
+    machineDashboardRows,
+    mesEventsByMachineId
+  ]);
+  const selectedMesOperatorOverview = useMemo(
+    () => mesOperatorRows.find((row) => row.key === selectedMesOperatorKey) || null,
+    [mesOperatorRows, selectedMesOperatorKey]
+  );
+  const selectedMesOperatorEvents = useMemo(() => {
+    if (!selectedMesOperatorOverview) {
+      return [];
+    }
+    return mesRecentEventRows
+      .filter((row) => {
+        const eventKey = buildMesOperatorKey(row.operator_user_id, row.operator_name);
+        return eventKey === selectedMesOperatorOverview.key || normalizeMesOperatorLookupValue(row.operator_name) === normalizeMesOperatorLookupValue(selectedMesOperatorOverview.operatorName);
+      })
+      .slice(0, 12);
+  }, [mesRecentEventRows, selectedMesOperatorOverview]);
+  const mesOperatorSummary = useMemo(() => {
+    const activeOperators = mesOperatorRows.filter((row) => row.activeRunCount > 0).length;
+    const averageRunPct =
+      mesOperatorRows.length > 0 ? mesOperatorRows.reduce((sum, row) => sum + Number(row.sessionRunPct || 0), 0) / mesOperatorRows.length : 0;
+    const averagePerformancePct =
+      mesOperatorRows.length > 0 ? mesOperatorRows.reduce((sum, row) => sum + Number(row.sessionPerformancePct || 0), 0) / mesOperatorRows.length : 0;
+    return {
+      totalOperators: mesOperatorRows.length,
+      activeOperators,
+      averageRunPct,
+      averagePerformancePct
+    };
+  }, [mesOperatorRows]);
   const mesProductionOrderRows = useMemo(() => {
     return mesRecentJobRuns
       .filter((row) => ["queued", "running", "paused", "planned"].includes(String(row.status || "").toLowerCase()))
@@ -15086,9 +15501,12 @@ function App() {
       activeOrders: mesProductionOrderRows.length,
       productionRate,
       goodParts: mesQualitySummary.goodParts,
-      scrapParts: mesQualitySummary.scrapParts
+      scrapParts: mesQualitySummary.scrapParts,
+      activeOperators: mesOperatorSummary.activeOperators,
+      onlineTerminals: mesTerminals.filter((row) => isMesTerminalOnline(row.last_seen_at)).length,
+      averageOperatorRunPct: mesOperatorSummary.averageRunPct
     };
-  }, [machineDashboardRows, mesProductionOrderRows.length, mesQualitySummary.goodParts, mesQualitySummary.scrapParts]);
+  }, [machineDashboardRows, mesProductionOrderRows.length, mesQualitySummary.goodParts, mesQualitySummary.scrapParts, mesOperatorSummary, mesTerminals]);
   const mesAlerts = useMemo(() => {
     const alerts = [];
     machineDashboardRows.forEach((row) => {
@@ -15453,6 +15871,30 @@ function App() {
       setSelectedMesMachineId(mesMachineOptions[0].id);
     }
   }, [mesMachineOptions, selectedMesMachineId]);
+
+  useEffect(() => {
+    if (mesOperatorRows.length === 0) {
+      if (selectedMesOperatorKey) {
+        setSelectedMesOperatorKey("");
+      }
+      return;
+    }
+
+    const selectedStillExists = mesOperatorRows.some((row) => row.key === selectedMesOperatorKey);
+    const preferredOperatorName = String(selectedMesMachineOverview?.operatorName || currentMesMachineRun?.operator_name || "").trim();
+    const preferredOperator =
+      mesOperatorRows.find((row) => row.currentMachineId === selectedMesMachineId && normalizeMesOperatorLookupValue(row.operatorName) === normalizeMesOperatorLookupValue(preferredOperatorName)) ||
+      mesOperatorRows.find((row) => row.currentMachineId === selectedMesMachineId);
+
+    if ((!selectedMesOperatorKey || !selectedStillExists) && preferredOperator && preferredOperator.key !== selectedMesOperatorKey) {
+      setSelectedMesOperatorKey(preferredOperator.key);
+      return;
+    }
+
+    if (!selectedStillExists) {
+      setSelectedMesOperatorKey(mesOperatorRows[0].key);
+    }
+  }, [mesOperatorRows, selectedMesOperatorKey, selectedMesMachineId, selectedMesMachineOverview, currentMesMachineRun]);
 
   useEffect(() => {
     const query = String(companyProfileNameInput || "").trim();
@@ -17100,8 +17542,27 @@ function App() {
     );
   }
 
-  const renderMesDashboard = () => (
-    <article className="orders-panel-card workflow-card workflow-card-list mes-dashboard-card">
+  const renderMesDashboard = () => {
+    const mesOnlineTerminalsCount = mesTerminals.filter((terminal) => isMesTerminalOnline(terminal.last_seen_at)).length;
+    const mesAssignedTerminalsCount = mesTerminals.filter((terminal) => terminal.workstation_id).length;
+    const mesRegistrationModeLabel = mesSupportsDeviceUid ? "Registrácia podľa UID" : "Registrácia podľa kódu";
+    const mesRegistrationModeMeta = mesSupportsDeviceUid
+      ? "Terminál sa páruje podľa 10-znakového device UID a interný kód sa vytvorí automaticky."
+      : "Aktuálna databáza ešte nemá device_uid, preto registrácia beží cez terminal_code.";
+    const mesTerminalIdentifierPreview = mesSupportsDeviceUid
+      ? buildMesTerminalCodeFromDeviceUid(mesTerminalDeviceUidInput)
+      : sanitizeMesTerminalCode(mesTerminalCodeInput);
+    const selectedMachineOperator =
+      mesOperatorRows.find(
+        (row) =>
+          row.currentMachineId === selectedMesMachineId &&
+          normalizeMesOperatorLookupValue(row.operatorName) === normalizeMesOperatorLookupValue(selectedMesMachineOverview?.operatorName || currentMesMachineRun?.operator_name || "")
+      ) ||
+      mesOperatorRows.find((row) => row.currentMachineId === selectedMesMachineId) ||
+      null;
+
+    return (
+      <article className="orders-panel-card workflow-card workflow-card-list mes-dashboard-card">
       <div className="panel-head workflow-section-head">
         <div>
           <p className="workflow-section-kicker">MES</p>
@@ -17123,173 +17584,262 @@ function App() {
         <p className="hint">Načítavam MES dashboard...</p>
       ) : (
         <>
-          <article className="orders-panel-card workflow-card workflow-card-list">
+          <article className="orders-panel-card workflow-card workflow-card-list mes-terminal-admin-card">
             <div className="panel-head workflow-section-head">
               <div>
                 <h2>MES terminály</h2>
-                <p className="panel-meta">Samostatná registrácia HMI terminálu k firme. Pracovisko môžeš priradiť hneď alebo až neskôr.</p>
+                <p className="panel-meta">Registrácia HMI zariadení, párovanie na firmu a pracovisko a rýchly prehľad online stavu.</p>
               </div>
-              <div className="order-card-actions">
-                <button
-                  type="button"
-                  className="settings-btn"
-                  onClick={() => {
-                    if (isMesTerminalFormVisible && !editingMesTerminalId) {
-                      resetMesTerminalForm();
-                    } else {
-                      setIsMesTerminalFormVisible(true);
-                      if (!editingMesTerminalId) {
-                        setMesError("");
-                      }
-                    }
-                  }}
-                  disabled={!activeCompanyId || mesTerminalSubmitting}
-                >
-                  {isMesTerminalFormVisible ? "Zavrieť registráciu" : "Registrovať terminál"}
-                </button>
+              <div className="hero-badges">
+                <span className="table-badge">{mesRegistrationModeLabel}</span>
+                <span className="table-badge">{`${mesOnlineTerminalsCount} online`}</span>
+                <span className="table-badge">{`${mesAssignedTerminalsCount} s pracoviskom`}</span>
               </div>
             </div>
 
-            {isMesTerminalFormVisible && (
-              <form className="orders-form" onSubmit={handleSaveMesTerminal}>
-                <div className="workflow-field-grid">
-                  <label className="workflow-field">
-                    <span className="workflow-field-label">Názov terminálu</span>
-                    <input
-                      type="text"
-                      className="search-input"
-                      value={mesTerminalNameInput}
-                      onChange={(event) => setMesTerminalNameInput(event.target.value)}
-                      placeholder="Android linka 1"
-                      disabled={mesTerminalSubmitting}
-                    />
-                  </label>
-                  <label className="workflow-field">
-                    <span className="workflow-field-label">UID zariadenia</span>
-                    <input
-                      type="text"
-                      className="search-input"
-                      value={mesTerminalDeviceUidInput}
-                      onChange={(event) => setMesTerminalDeviceUidInput(event.target.value.toUpperCase())}
-                      placeholder="10 znakov"
-                      maxLength={10}
-                      disabled={mesTerminalSubmitting}
-                    />
-                    <p className="workflow-helper-text">
-                      {buildMesTerminalCodeFromDeviceUid(mesTerminalDeviceUidInput)
-                        ? `Interný kód sa vytvorí ako ${buildMesTerminalCodeFromDeviceUid(mesTerminalDeviceUidInput)}`
-                        : "Terminál sa zaregistruje priamo podľa device UID."}
-                    </p>
-                  </label>
+            <div className="mes-terminal-admin-grid">
+              <div className="mes-terminal-summary-card">
+                <div className="mes-terminal-mode-banner">
+                  <div className="mes-terminal-mode-copy">
+                    <span className="workflow-section-kicker">Párovanie terminálu</span>
+                    <strong>{mesRegistrationModeLabel}</strong>
+                    <p>{mesRegistrationModeMeta}</p>
+                  </div>
+                  <span className="table-badge">{activeCompanyId ? currentCompanyLabel : "bez firmy"}</span>
                 </div>
-                <div className="workflow-field-grid">
-                  <label className="workflow-field">
-                    <span className="workflow-field-label">Pracovisko</span>
-                    <select
-                      value={mesTerminalWorkstationIdInput}
-                      onChange={(event) => setMesTerminalWorkstationIdInput(event.target.value)}
-                      disabled={mesTerminalSubmitting}
-                    >
-                      <option value="">Bez priradeného pracoviska</option>
-                      {mesWorkstations.map((workstation) => (
-                        <option key={workstation.id} value={workstation.id}>
-                          {`${workstation.name || workstation.code || "-"}${workstation.area ? ` | ${workstation.area}` : ""}`}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="workflow-field">
-                    <span className="workflow-field-label">Platforma</span>
-                    <select value={mesTerminalPlatformInput} onChange={(event) => setMesTerminalPlatformInput(event.target.value)} disabled={mesTerminalSubmitting}>
-                      <option value="android">Android</option>
-                      <option value="raspberry_pi">Raspberry Pi</option>
-                      <option value="web_kiosk">Web kiosk</option>
-                      <option value="other">Iné</option>
-                    </select>
-                  </label>
-                  <label className="workflow-field">
-                    <span className="workflow-field-label">Režim appky</span>
-                    <select value={mesTerminalAppModeInput} onChange={(event) => setMesTerminalAppModeInput(event.target.value)} disabled={mesTerminalSubmitting}>
-                      <option value="hmi">HMI</option>
-                      <option value="overview">Overview</option>
-                      <option value="maintenance">Maintenance</option>
-                    </select>
-                  </label>
+                <div className="mes-terminal-summary-grid">
+                  <article>
+                    <span className="draft-field-label">Aktívne záznamy</span>
+                    <strong>{new Intl.NumberFormat("sk-SK").format(mesTerminals.length)}</strong>
+                    <p>Registrované HMI terminály pre aktuálnu firmu.</p>
+                  </article>
+                  <article>
+                    <span className="draft-field-label">Online teraz</span>
+                    <strong>{new Intl.NumberFormat("sk-SK").format(mesOnlineTerminalsCount)}</strong>
+                    <p>Terminály, ktoré sa ozvali za posledných 5 minút.</p>
+                  </article>
+                  <article>
+                    <span className="draft-field-label">Napojené pracovisko</span>
+                    <strong>{new Intl.NumberFormat("sk-SK").format(mesAssignedTerminalsCount)}</strong>
+                    <p>Zariadenia, ktoré už majú priradené pracovisko.</p>
+                  </article>
+                  <article>
+                    <span className="draft-field-label">Preview identifikátora</span>
+                    <strong>{mesTerminalIdentifierPreview || "-"}</strong>
+                    <p>{mesSupportsDeviceUid ? "Vznikne automaticky po zadaní UID." : "Použije sa priamo ako terminal_code."}</p>
+                  </article>
                 </div>
-                <label className="settings-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={mesTerminalActiveInput}
-                    onChange={(event) => setMesTerminalActiveInput(event.target.checked)}
-                    disabled={mesTerminalSubmitting}
-                  />
-                  <span>Terminál je aktívny</span>
-                </label>
                 <div className="order-card-actions">
-                  <button type="submit" className="settings-btn" disabled={mesTerminalSubmitting || !activeCompanyId}>
-                    {mesTerminalSubmitting ? "Ukladám..." : editingMesTerminalId ? "Uložiť terminál" : "Registrovať terminál"}
+                  <button
+                    type="button"
+                    className="settings-btn"
+                    onClick={() => {
+                      if (isMesTerminalFormVisible && !editingMesTerminalId) {
+                        resetMesTerminalForm();
+                      } else {
+                        setIsMesTerminalFormVisible(true);
+                        if (!editingMesTerminalId) {
+                          setMesError("");
+                        }
+                      }
+                    }}
+                    disabled={!activeCompanyId || mesTerminalSubmitting}
+                  >
+                    {isMesTerminalFormVisible ? "Zavrieť registráciu" : "Registrovať terminál"}
                   </button>
-                  <button type="button" className="clear-btn" onClick={resetMesTerminalForm} disabled={mesTerminalSubmitting}>
-                    Zrušiť
-                  </button>
+                  {editingMesTerminalId && (
+                    <button type="button" className="clear-btn" onClick={resetMesTerminalForm} disabled={mesTerminalSubmitting}>
+                      Nový terminál
+                    </button>
+                  )}
                 </div>
-              </form>
-            )}
+              </div>
+
+              {isMesTerminalFormVisible ? (
+                <form className="orders-form mes-terminal-form-shell" onSubmit={handleSaveMesTerminal}>
+                  <div className="mes-terminal-form-header">
+                    <div>
+                      <h3>{editingMesTerminalId ? "Upraviť terminál" : "Nová registrácia terminálu"}</h3>
+                      <p>{mesSupportsDeviceUid ? "Admin registruje zariadenie podľa device UID, terminál sa potom páruje automaticky na firmu." : "Táto firma ešte beží na staršej schéme, preto sa terminál registruje cez interný kód."}</p>
+                    </div>
+                    <span className="table-badge">{mesSupportsDeviceUid ? "UID" : "terminal_code"}</span>
+                  </div>
+                  <div className="workflow-field-grid">
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Názov terminálu</span>
+                      <input
+                        type="text"
+                        className="search-input"
+                        value={mesTerminalNameInput}
+                        onChange={(event) => setMesTerminalNameInput(event.target.value)}
+                        placeholder="Android linka 1"
+                        disabled={mesTerminalSubmitting}
+                      />
+                    </label>
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">{mesSupportsDeviceUid ? "UID zariadenia" : "Kód terminálu"}</span>
+                      <input
+                        type="text"
+                        className="search-input"
+                        value={mesSupportsDeviceUid ? mesTerminalDeviceUidInput : mesTerminalCodeInput}
+                        onChange={(event) => {
+                          if (mesSupportsDeviceUid) {
+                            setMesTerminalDeviceUidInput(event.target.value.toUpperCase());
+                          } else {
+                            setMesTerminalCodeInput(event.target.value.toUpperCase());
+                          }
+                        }}
+                        placeholder={mesSupportsDeviceUid ? "10 znakov" : "MES-LINKA-01"}
+                        maxLength={mesSupportsDeviceUid ? 10 : undefined}
+                        disabled={mesTerminalSubmitting}
+                      />
+                      <p className="workflow-helper-text">
+                        {mesSupportsDeviceUid
+                          ? mesTerminalIdentifierPreview
+                            ? `Interný kód sa vytvorí ako ${mesTerminalIdentifierPreview}`
+                            : "Zadaj presne 10 znakov, podľa ktorých sa zariadenie spáruje s firmou."
+                          : "Zadaj stabilný interný kód, ktorý bude terminál používať pri registrácii."}
+                      </p>
+                    </label>
+                  </div>
+                  <div className="workflow-field-grid">
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Pracovisko</span>
+                      <select
+                        value={mesTerminalWorkstationIdInput}
+                        onChange={(event) => setMesTerminalWorkstationIdInput(event.target.value)}
+                        disabled={mesTerminalSubmitting}
+                      >
+                        <option value="">Bez priradeného pracoviska</option>
+                        {mesWorkstations.map((workstation) => (
+                          <option key={workstation.id} value={workstation.id}>
+                            {`${workstation.name || workstation.code || "-"}${workstation.area ? ` | ${workstation.area}` : ""}`}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Platforma</span>
+                      <select value={mesTerminalPlatformInput} onChange={(event) => setMesTerminalPlatformInput(event.target.value)} disabled={mesTerminalSubmitting}>
+                        <option value="android">Android</option>
+                        <option value="raspberry_pi">Raspberry Pi</option>
+                        <option value="web_kiosk">Web kiosk</option>
+                        <option value="other">Iné</option>
+                      </select>
+                    </label>
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Režim appky</span>
+                      <select value={mesTerminalAppModeInput} onChange={(event) => setMesTerminalAppModeInput(event.target.value)} disabled={mesTerminalSubmitting}>
+                        <option value="hmi">HMI</option>
+                        <option value="overview">Overview</option>
+                        <option value="maintenance">Maintenance</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div className="mes-terminal-preview-grid">
+                    <article>
+                      <span className="draft-field-label">Firma</span>
+                      <strong>{currentCompanyLabel || "-"}</strong>
+                      <p>Terminál sa uloží pod aktuálne vybranú firmu.</p>
+                    </article>
+                    <article>
+                      <span className="draft-field-label">Pracovisko</span>
+                      <strong>{mesTerminalWorkstationIdInput ? mesWorkstationsById[mesTerminalWorkstationIdInput]?.name || mesWorkstationsById[mesTerminalWorkstationIdInput]?.code || "-" : "Nepriradené"}</strong>
+                      <p>Pracovisko môžeš doplniť aj neskôr.</p>
+                    </article>
+                    <article>
+                      <span className="draft-field-label">Výsledný identifikátor</span>
+                      <strong>{mesTerminalIdentifierPreview || "-"}</strong>
+                      <p>{mesSupportsDeviceUid ? "Interný terminal_code vznikne z UID automaticky." : "Tento kód sa uloží priamo do databázy."}</p>
+                    </article>
+                  </div>
+                  <label className="settings-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={mesTerminalActiveInput}
+                      onChange={(event) => setMesTerminalActiveInput(event.target.checked)}
+                      disabled={mesTerminalSubmitting}
+                    />
+                    <span>Terminál je aktívny</span>
+                  </label>
+                  <div className="order-card-actions">
+                    <button type="submit" className="settings-btn" disabled={mesTerminalSubmitting || !activeCompanyId}>
+                      {mesTerminalSubmitting ? "Ukladám..." : editingMesTerminalId ? "Uložiť terminál" : "Registrovať terminál"}
+                    </button>
+                    <button type="button" className="clear-btn" onClick={resetMesTerminalForm} disabled={mesTerminalSubmitting}>
+                      Zrušiť
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <div className="mes-terminal-placeholder">
+                  <strong>Registrácia je schovaná, aby dashboard nezaberal miesto.</strong>
+                  <p>Otvoriť ju môžeš iba vtedy, keď potrebuješ pridať nový MES point alebo upraviť existujúci terminál.</p>
+                </div>
+              )}
+            </div>
 
             {mesTerminals.length === 0 ? (
               <p className="hint">Pre túto firmu zatiaľ nie sú registrované žiadne HMI terminály.</p>
             ) : (
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Terminál</th>
-                      <th>UID</th>
-                      <th>Pracovisko</th>
-                      <th>Platforma</th>
-                      <th>Režim</th>
-                      <th>Stav</th>
-                      <th>Naposledy online</th>
-                      <th>Akcie</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {mesTerminals.map((terminal) => {
-                      const workstation = terminal.workstation_id ? mesWorkstationsById[terminal.workstation_id] || null : null;
-                      return (
-                        <tr key={terminal.id}>
-                          <td>
-                            <strong>{terminal.name || "-"}</strong>
-                            <div className="master-user-email">{terminal.terminal_code || "-"}</div>
-                          </td>
-                          <td>{terminal.device_uid || "-"}</td>
-                          <td>{workstation?.name || workstation?.code || "-"}</td>
-                          <td>{formatMesTerminalPlatformLabel(terminal.platform)}</td>
-                          <td>{formatMesTerminalAppModeLabel(terminal.app_mode)}</td>
-                          <td>
-                            <StatusPill status={terminal.is_active ? "active" : "inactive"} />
-                          </td>
-                          <td>{terminal.last_seen_at ? formatDate(terminal.last_seen_at) : "-"}</td>
-                          <td>
-                            <div className="order-card-actions">
-                              <button type="button" className="clear-btn" onClick={() => handleEditMesTerminal(terminal)}>
-                                Upraviť
-                              </button>
-                              <button
-                                type="button"
-                                className="clear-btn"
-                                onClick={() => handleDeleteMesTerminal(terminal)}
-                                disabled={mesTerminalDeletingId === terminal.id}
-                              >
-                                {mesTerminalDeletingId === terminal.id ? "Mažem..." : "Zmazať"}
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+              <div className="orders-list attendance-list mes-terminal-list">
+                {mesTerminals.map((terminal) => {
+                  const workstation = terminal.workstation_id ? mesWorkstationsById[terminal.workstation_id] || null : null;
+                  const isOnline = isMesTerminalOnline(terminal.last_seen_at);
+                  return (
+                    <article key={terminal.id} className="order-card attendance-card mes-terminal-card">
+                      <div className="order-card-head attendance-card-head mes-terminal-card-head">
+                        <div>
+                          <strong>{terminal.name || "-"}</strong>
+                          <p>{terminal.terminal_code || "-"}</p>
+                        </div>
+                        <div className="attendance-card-pills">
+                          <span className={`mes-terminal-connectivity ${isOnline ? "is-online" : "is-offline"}`}>{isOnline ? "online" : "offline"}</span>
+                          <StatusPill status={terminal.is_active ? "active" : "inactive"} />
+                        </div>
+                      </div>
+                      <div className="order-detail attendance-card-body">
+                        <div className="attendance-meta-grid mes-terminal-meta-grid">
+                          <div>
+                            <span className="draft-field-label">{mesSupportsDeviceUid ? "UID zariadenia" : "Kód registrácie"}</span>
+                            <p>{mesSupportsDeviceUid ? terminal.device_uid || "-" : terminal.terminal_code || "-"}</p>
+                          </div>
+                          <div>
+                            <span className="draft-field-label">Pracovisko</span>
+                            <p>{workstation?.name || workstation?.code || "Nepriradené"}</p>
+                          </div>
+                          <div>
+                            <span className="draft-field-label">Platforma / režim</span>
+                            <p>{`${formatMesTerminalPlatformLabel(terminal.platform)} | ${formatMesTerminalAppModeLabel(terminal.app_mode)}`}</p>
+                          </div>
+                          <div>
+                            <span className="draft-field-label">Posledný kontakt</span>
+                            <p>{terminal.last_seen_at ? formatDate(terminal.last_seen_at) : "Zatiaľ bez heartbeat-u"}</p>
+                          </div>
+                          <div className="attendance-meta-grid-wide mes-terminal-meta-wide">
+                            <span className="draft-field-label">Sieť / aplikácia</span>
+                            <p>
+                              {[terminal.last_ip || "", terminal.app_version ? `app ${terminal.app_version}` : ""].filter(Boolean).join(" | ") || "IP ani verzia appky zatiaľ neprišli."}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="order-card-actions">
+                          <button type="button" className="clear-btn" onClick={() => handleEditMesTerminal(terminal)}>
+                            Upraviť
+                          </button>
+                          <button
+                            type="button"
+                            className="clear-btn"
+                            onClick={() => handleDeleteMesTerminal(terminal)}
+                            disabled={mesTerminalDeletingId === terminal.id}
+                          >
+                            {mesTerminalDeletingId === terminal.id ? "Mažem..." : "Zmazať"}
+                          </button>
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })}
               </div>
             )}
           </article>
@@ -17326,6 +17876,18 @@ function App() {
             <article className="card workflow-stat-card mes-kpi-card">
               <p>Scrap Parts</p>
               <strong>{new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.scrapParts)}</strong>
+            </article>
+            <article className="card workflow-stat-card mes-kpi-card">
+              <p>Active Operators</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.activeOperators)}</strong>
+            </article>
+            <article className="card workflow-stat-card mes-kpi-card">
+              <p>Online Terminals</p>
+              <strong>{new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.onlineTerminals)}</strong>
+            </article>
+            <article className="card workflow-stat-card mes-kpi-card">
+              <p>Operator Runtime Avg</p>
+              <strong>{formatPercentValue(mesGlobalKpis.averageOperatorRunPct)}</strong>
             </article>
           </div>
 
@@ -17365,6 +17927,25 @@ function App() {
                   {selectedMesMachineOverview?.currentDowntimeReason && (
                     <p className="mes-focus-note">{`Aktívny prestoj: ${selectedMesMachineOverview.currentDowntimeReason}`}</p>
                   )}
+                  <div className="order-card-actions mes-inline-actions">
+                    {selectedMachineOperator && (
+                      <button type="button" className="clear-btn" onClick={() => setSelectedMesOperatorKey(selectedMachineOperator.key)}>
+                        Otvoriť operátora
+                      </button>
+                    )}
+                    {canAccessAttendanceModule && (selectedMachineOperator?.operatorName || selectedMesMachineOverview?.operatorName) && (
+                      <button
+                        type="button"
+                        className="clear-btn"
+                        onClick={() => {
+                          setAttendanceProfileSearch(selectedMachineOperator?.operatorName || selectedMesMachineOverview?.operatorName || "");
+                          setSelectedTable(ROLE_TABLE);
+                        }}
+                      >
+                        Otvoriť zamestnanca
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div className="mes-detail-stats">
                   <article className="mes-mini-stat">
@@ -17402,6 +17983,22 @@ function App() {
                   <article className="mes-mini-stat">
                     <span>Heartbeat</span>
                     <strong>{selectedMesMachineOverview?.machineLastHeartbeatAt ? formatTimeOnly(selectedMesMachineOverview.machineLastHeartbeatAt) : "-"}</strong>
+                  </article>
+                  <article className="mes-mini-stat mes-mini-stat-highlight">
+                    <span>Run time od session štartu</span>
+                    <strong>{selectedMachineOperator ? formatPercentValue(selectedMachineOperator.sessionRunPct) : "-"}</strong>
+                  </article>
+                  <article className="mes-mini-stat">
+                    <span>Target od session štartu</span>
+                    <strong>{selectedMachineOperator ? formatPercentValue(selectedMachineOperator.sessionPerformancePct) : "-"}</strong>
+                  </article>
+                  <article className="mes-mini-stat">
+                    <span>Kvalita operátora</span>
+                    <strong>{selectedMachineOperator ? formatPercentValue(selectedMachineOperator.sessionQualityPct) : "-"}</strong>
+                  </article>
+                  <article className="mes-mini-stat">
+                    <span>Session od</span>
+                    <strong>{selectedMachineOperator?.sessionStartedAt ? formatDate(selectedMachineOperator.sessionStartedAt) : "-"}</strong>
                   </article>
                 </div>
               </div>
@@ -17488,6 +18085,7 @@ function App() {
                     <th>Target Cycle Time</th>
                     <th>Produced Parts</th>
                     <th>Operator</th>
+                    <th>Detail</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -17520,7 +18118,44 @@ function App() {
                           : "-"}
                       </td>
                       <td>{new Intl.NumberFormat("sk-SK").format(row.producedParts || 0)}</td>
-                      <td>{row.operatorName || "-"}</td>
+                      <td>
+                        {row.operatorName ? (
+                          <button
+                            type="button"
+                            className="clear-btn mes-link-btn"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              const matchingOperator =
+                                mesOperatorRows.find(
+                                  (operator) =>
+                                    operator.currentMachineId === row.machineId &&
+                                    normalizeMesOperatorLookupValue(operator.operatorName) === normalizeMesOperatorLookupValue(row.operatorName)
+                                ) ||
+                                mesOperatorRows.find((operator) => normalizeMesOperatorLookupValue(operator.operatorName) === normalizeMesOperatorLookupValue(row.operatorName)) ||
+                                null;
+                              if (matchingOperator) {
+                                setSelectedMesOperatorKey(matchingOperator.key);
+                              }
+                            }}
+                          >
+                            {row.operatorName}
+                          </button>
+                        ) : (
+                          "-"
+                        )}
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="clear-btn mes-link-btn"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setSelectedMesMachineId(row.machineId);
+                          }}
+                        >
+                          Otvoriť
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -17671,6 +18306,204 @@ function App() {
           </div>
           )}
 
+          {machineDashboardRows.length > 0 && (
+            <div className="orders-layout workflow-grid">
+              <div className="orders-column workflow-editor-column">
+                <article className="orders-panel-card workflow-card workflow-card-list">
+                  <div className="panel-head workflow-section-head">
+                    <div>
+                      <h2>Operátori vo výrobe</h2>
+                      <p className="panel-meta">Klik na operátora otvorí jeho session detail, aktuálny stroj a percentá od začiatku jeho práce na stroji.</p>
+                    </div>
+                    <span className="panel-meta">{`${mesOperatorSummary.activeOperators} aktívnych / ${mesOperatorSummary.totalOperators}`}</span>
+                  </div>
+                  {mesOperatorRows.length === 0 ? (
+                    <p className="hint">V MES eventoch zatiaľ nie sú evidovaní žiadni operátori.</p>
+                  ) : (
+                    <div className="orders-list attendance-list mes-operator-list">
+                      {mesOperatorRows.map((operator) => (
+                        <article
+                          key={operator.key}
+                          className={`order-card attendance-card mes-operator-card ${selectedMesOperatorKey === operator.key ? "mes-operator-card-selected" : ""}`}
+                        >
+                          <button type="button" className="order-card-head attendance-card-head mes-operator-card-head" onClick={() => setSelectedMesOperatorKey(operator.key)}>
+                            <div>
+                              <strong>{operator.operatorName}</strong>
+                              <p>{operator.profile?.employee_code || operator.currentMachineName || "Bez aktívneho stroja"}</p>
+                            </div>
+                            <div className="attendance-card-pills">
+                              <span className="table-badge">{operator.activeRunCount > 0 ? "aktívny" : "bez runu"}</span>
+                              <span className="table-badge">{formatPercentValue(operator.sessionRunPct)}</span>
+                            </div>
+                          </button>
+                          <div className="order-detail attendance-card-body">
+                            <div className="attendance-meta-grid mes-terminal-meta-grid">
+                              <div>
+                                <span className="draft-field-label">Stroj / zákazka</span>
+                                <p>{`${operator.currentMachineName || "-"} | ${operator.currentWorkOrder || "-"}`}</p>
+                              </div>
+                              <div>
+                                <span className="draft-field-label">Výrobný čas od session štartu</span>
+                                <p>{formatPercentValue(operator.sessionRunPct)}</p>
+                              </div>
+                              <div>
+                                <span className="draft-field-label">Plnenie targetu</span>
+                                <p>{formatPercentValue(operator.sessionPerformancePct)}</p>
+                              </div>
+                              <div>
+                                <span className="draft-field-label">Kvalita / kusy</span>
+                                <p>{`${formatPercentValue(operator.sessionQualityPct)} | ${new Intl.NumberFormat("sk-SK").format(operator.sessionProducedParts)}`}</p>
+                              </div>
+                            </div>
+                            <div className="order-card-actions">
+                              {operator.currentMachineId && (
+                                <button type="button" className="clear-btn" onClick={() => setSelectedMesMachineId(operator.currentMachineId)}>
+                                  Otvoriť stroj
+                                </button>
+                              )}
+                              {canAccessAttendanceModule && (
+                                <button
+                                  type="button"
+                                  className="clear-btn"
+                                  onClick={() => {
+                                    setAttendanceProfileSearch(operator.operatorName || "");
+                                    setSelectedTable(ROLE_TABLE);
+                                  }}
+                                >
+                                  Otvoriť zamestnanca
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                </article>
+              </div>
+              <div className="orders-column orders-column-list workflow-feed-column">
+                <article className="orders-panel-card workflow-card workflow-card-list">
+                  <div className="panel-head workflow-section-head">
+                    <div>
+                      <h2>Detail operátora</h2>
+                      <p className="panel-meta">Produkcia, kvalita a využitie stroja od začiatku aktuálnej operátorskej session.</p>
+                    </div>
+                  </div>
+                  {!selectedMesOperatorOverview ? (
+                    <p className="hint">Vyber operátora zo zoznamu vľavo.</p>
+                  ) : (
+                    <>
+                      <div className="mes-operator-detail-head">
+                        <div>
+                          <strong>{selectedMesOperatorOverview.operatorName}</strong>
+                          <p>
+                            {[
+                              selectedMesOperatorOverview.profile?.employee_code || "",
+                              selectedMesOperatorOverview.currentMachineName || "",
+                              selectedMesOperatorOverview.currentWorkOrder || ""
+                            ]
+                              .filter(Boolean)
+                              .join(" | ") || "Bez aktuálnej väzby na stroj"}
+                          </p>
+                        </div>
+                        <div className="attendance-card-pills">
+                          <span className="table-badge">
+                            {selectedMesOperatorOverview.presence
+                              ? selectedMesOperatorOverview.presence.state === "in"
+                                ? "dochádzka IN"
+                                : selectedMesOperatorOverview.presence.state === "pause"
+                                  ? "dochádzka PAUSE"
+                                  : "dochádzka OUT"
+                              : "MES only"}
+                          </span>
+                          <span className="table-badge">{selectedMesOperatorOverview.lastSeenAt ? formatTimeOnly(selectedMesOperatorOverview.lastSeenAt) : "-"}</span>
+                        </div>
+                      </div>
+                      <div className="mes-operator-metrics-grid">
+                        <article className="mes-mini-stat mes-mini-stat-highlight">
+                          <span>Výrobný čas od session štartu</span>
+                          <strong>{formatPercentValue(selectedMesOperatorOverview.sessionRunPct)}</strong>
+                        </article>
+                        <article className="mes-mini-stat">
+                          <span>Stop / prestoj</span>
+                          <strong>{formatPercentValue(selectedMesOperatorOverview.sessionStopPct)}</strong>
+                        </article>
+                        <article className="mes-mini-stat">
+                          <span>Plnenie targetu</span>
+                          <strong>{formatPercentValue(selectedMesOperatorOverview.sessionPerformancePct)}</strong>
+                        </article>
+                        <article className="mes-mini-stat">
+                          <span>Kvalita</span>
+                          <strong>{formatPercentValue(selectedMesOperatorOverview.sessionQualityPct)}</strong>
+                        </article>
+                        <article className="mes-mini-stat">
+                          <span>Session od</span>
+                          <strong>{selectedMesOperatorOverview.sessionStartedAt ? formatDate(selectedMesOperatorOverview.sessionStartedAt) : "-"}</strong>
+                        </article>
+                        <article className="mes-mini-stat">
+                          <span>Vyrobené v session</span>
+                          <strong>{new Intl.NumberFormat("sk-SK").format(selectedMesOperatorOverview.sessionProducedParts)}</strong>
+                        </article>
+                        <article className="mes-mini-stat">
+                          <span>Celkom OK / NOK</span>
+                          <strong>{`${new Intl.NumberFormat("sk-SK").format(selectedMesOperatorOverview.totalGoodParts)} / ${new Intl.NumberFormat("sk-SK").format(selectedMesOperatorOverview.totalScrapParts)}`}</strong>
+                        </article>
+                        <article className="mes-mini-stat">
+                          <span>Stroje / runy</span>
+                          <strong>{`${selectedMesOperatorOverview.machineCount} / ${selectedMesOperatorOverview.jobCount}`}</strong>
+                        </article>
+                      </div>
+                      <div className="order-card-actions mes-inline-actions">
+                        {selectedMesOperatorOverview.currentMachineId && (
+                          <button type="button" className="clear-btn" onClick={() => setSelectedMesMachineId(selectedMesOperatorOverview.currentMachineId)}>
+                            Otvoriť jeho stroj
+                          </button>
+                        )}
+                        {canAccessAttendanceModule && (
+                          <button
+                            type="button"
+                            className="clear-btn"
+                            onClick={() => {
+                              setAttendanceProfileSearch(selectedMesOperatorOverview.operatorName || "");
+                              setSelectedTable(ROLE_TABLE);
+                            }}
+                          >
+                            Otvoriť v Zamestnancoch
+                          </button>
+                        )}
+                      </div>
+                      <div className="mes-timeline">
+                        {selectedMesOperatorEvents.length === 0 ? (
+                          <p className="hint">Pre operátora zatiaľ nie sú dostupné MES eventy.</p>
+                        ) : (
+                          selectedMesOperatorEvents.map((event) => (
+                            <div key={event.id} className="mes-timeline-row">
+                              <div>
+                                <strong>{formatMesEventLabel(event.event_type)}</strong>
+                                <p>
+                                  {[
+                                    machineDashboardRows.find((row) => row.machineId === event.machine_id || row.workstationId === event.machine_id)?.machineName ||
+                                      machineDashboardRows.find((row) => row.workstationId === event.workstation_id)?.machineName ||
+                                      "",
+                                    event.quantity ? `${new Intl.NumberFormat("sk-SK").format(event.quantity)} ks` : "",
+                                    event.note || event.payload?.reason || ""
+                                  ]
+                                    .filter(Boolean)
+                                    .join(" | ") || "-"}
+                                </p>
+                              </div>
+                              <span>{formatDate(event.happened_at)}</span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </>
+                  )}
+                </article>
+              </div>
+            </div>
+          )}
+
           <div className="orders-layout workflow-grid">
             <div className="orders-column workflow-editor-column">
               <article className="orders-panel-card workflow-card workflow-card-list">
@@ -17818,8 +18651,9 @@ function App() {
           )}
         </>
       )}
-    </article>
-  );
+      </article>
+    );
+  };
 
   return (
     <main className="container dashboard-shell">

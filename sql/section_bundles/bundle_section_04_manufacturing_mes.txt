@@ -1,4 +1,4 @@
--- WMS section bundle: MES / manufacturing
+﻿-- WMS section bundle: MES / manufacturing
 -- Use after the earlier prerequisite sections are already installed.
 
 -- >>> BEGIN 28_wms_production_orders_core.txt
@@ -383,8 +383,6 @@ create table if not exists public.mes_hmi_terminals (
   company_id uuid not null references public.companies (id) on delete cascade,
   workstation_id uuid references public.mes_workstations (id) on delete set null,
   terminal_code text not null,
-  device_uid text
-    check (device_uid is null or char_length(btrim(device_uid)) = 10),
   name text not null,
   platform text not null default 'raspberry_pi'
     check (platform in ('raspberry_pi', 'android', 'web_kiosk', 'other')),
@@ -452,13 +450,9 @@ create table if not exists public.mes_job_runs (
 create table if not exists public.mes_job_run_events (
   id uuid primary key default gen_random_uuid(),
   job_run_id uuid not null references public.mes_job_runs (id) on delete cascade,
-  company_id uuid not null references public.companies (id) on delete cascade,
   workstation_id uuid not null references public.mes_workstations (id) on delete restrict,
   machine_id uuid references public.mes_machines (id) on delete set null,
-  terminal_id uuid references public.mes_hmi_terminals (id) on delete set null,
   downtime_reason_id uuid references public.mes_downtime_reasons (id) on delete set null,
-  operator_user_id uuid references auth.users (id) on delete set null,
-  operator_name text not null default '',
   event_type text not null
     check (event_type in (
       'assign',
@@ -504,10 +498,6 @@ create index if not exists idx_mes_machines_workstation_state
 create unique index if not exists idx_mes_hmi_terminals_company_code_unique
   on public.mes_hmi_terminals (company_id, terminal_code);
 
-create unique index if not exists idx_mes_hmi_terminals_device_uid_unique
-  on public.mes_hmi_terminals (upper(device_uid))
-  where device_uid is not null and btrim(device_uid) <> '';
-
 create index if not exists idx_mes_hmi_terminals_company_active
   on public.mes_hmi_terminals (company_id, is_active, last_seen_at desc);
 
@@ -532,17 +522,11 @@ create index if not exists idx_mes_job_runs_production_order
 create index if not exists idx_mes_job_run_events_job_happened
   on public.mes_job_run_events (job_run_id, happened_at desc);
 
-create index if not exists idx_mes_job_run_events_company_happened
-  on public.mes_job_run_events (company_id, happened_at desc);
-
 create index if not exists idx_mes_job_run_events_workstation_happened
   on public.mes_job_run_events (workstation_id, happened_at desc);
 
 create index if not exists idx_mes_job_run_events_machine_happened
   on public.mes_job_run_events (machine_id, happened_at desc);
-
-create index if not exists idx_mes_job_run_events_terminal_happened
-  on public.mes_job_run_events (terminal_id, happened_at desc);
 
 create index if not exists idx_mes_job_run_events_type_happened
   on public.mes_job_run_events (event_type, happened_at desc);
@@ -581,43 +565,6 @@ drop trigger if exists trg_mes_job_runs_touch_updated_at on public.mes_job_runs;
 create trigger trg_mes_job_runs_touch_updated_at
 before update on public.mes_job_runs
 for each row execute function public.mes_touch_updated_at();
-
-create or replace function public.mes_resolve_terminal_by_device_uid(p_device_uid text)
-returns table (
-  terminal_id uuid,
-  company_id uuid,
-  workstation_id uuid,
-  terminal_code text,
-  device_uid text,
-  terminal_name text,
-  platform text,
-  app_mode text,
-  is_active boolean,
-  last_seen_at timestamptz
-)
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select
-    t.id as terminal_id,
-    t.company_id,
-    t.workstation_id,
-    t.terminal_code,
-    t.device_uid,
-    t.name as terminal_name,
-    t.platform,
-    t.app_mode,
-    t.is_active,
-    t.last_seen_at
-  from public.mes_hmi_terminals t
-  where upper(btrim(coalesce(t.device_uid, ''))) = upper(btrim(coalesce(p_device_uid, '')))
-  order by t.is_active desc, t.created_at desc
-  limit 1;
-$$;
-
-grant execute on function public.mes_resolve_terminal_by_device_uid(text) to authenticated;
 
 alter table public.mes_workstations enable row level security;
 alter table public.mes_machines enable row level security;
@@ -916,23 +863,7 @@ with check (
     select 1
     from public.mes_job_runs jr
     where jr.id = mes_job_run_events.job_run_id
-      and jr.company_id = mes_job_run_events.company_id
       and jr.workstation_id = mes_job_run_events.workstation_id
-      and (
-        mes_job_run_events.machine_id is null
-        or jr.machine_id is null
-        or jr.machine_id = mes_job_run_events.machine_id
-      )
-      and (
-        mes_job_run_events.terminal_id is null
-        or exists (
-          select 1
-          from public.mes_hmi_terminals tt
-          where tt.id = mes_job_run_events.terminal_id
-            and tt.company_id = jr.company_id
-            and (tt.workstation_id is null or tt.workstation_id = jr.workstation_id)
-        )
-      )
       and (
         public.is_master(auth.uid())
         or jr.company_id = public.user_company_id(auth.uid())
@@ -960,23 +891,7 @@ with check (
     select 1
     from public.mes_job_runs jr
     where jr.id = mes_job_run_events.job_run_id
-      and jr.company_id = mes_job_run_events.company_id
       and jr.workstation_id = mes_job_run_events.workstation_id
-      and (
-        mes_job_run_events.machine_id is null
-        or jr.machine_id is null
-        or jr.machine_id = mes_job_run_events.machine_id
-      )
-      and (
-        mes_job_run_events.terminal_id is null
-        or exists (
-          select 1
-          from public.mes_hmi_terminals tt
-          where tt.id = mes_job_run_events.terminal_id
-            and tt.company_id = jr.company_id
-            and (tt.workstation_id is null or tt.workstation_id = jr.workstation_id)
-        )
-      )
       and (
         public.is_master(auth.uid())
         or jr.company_id = public.user_company_id(auth.uid())
@@ -1648,23 +1563,7 @@ with check (
     select 1
     from public.mes_job_runs jr
     where jr.id = mes_job_run_events.job_run_id
-      and jr.company_id = mes_job_run_events.company_id
       and jr.workstation_id = mes_job_run_events.workstation_id
-      and (
-        mes_job_run_events.machine_id is null
-        or jr.machine_id is null
-        or jr.machine_id = mes_job_run_events.machine_id
-      )
-      and (
-        mes_job_run_events.terminal_id is null
-        or exists (
-          select 1
-          from public.mes_hmi_terminals tt
-          where tt.id = mes_job_run_events.terminal_id
-            and tt.company_id = jr.company_id
-            and (tt.workstation_id is null or tt.workstation_id = jr.workstation_id)
-        )
-      )
       and (
         public.is_master(auth.uid())
         or (
@@ -1888,3 +1787,42 @@ grant execute on function public.mes_factory_overview(uuid) to authenticated;
 -- select public.set_user_mes_access('YOUR-USER-UUID', true);
 -- select public.can_access_mes(auth.uid());
 -- <<< END 40_wms_mes_access_control.txt
+
+create or replace function public.mes_resolve_terminal_by_device_uid(p_device_uid text)
+returns table (
+  terminal_id uuid,
+  company_id uuid,
+  workstation_id uuid,
+  terminal_code text,
+  terminal_name text,
+  is_active boolean,
+  platform text,
+  app_mode text,
+  app_version text,
+  last_ip text,
+  last_seen_at timestamptz
+)
+language sql
+security definer
+set search_path = public
+as $$
+  select
+    t.id as terminal_id,
+    t.company_id,
+    t.workstation_id,
+    t.terminal_code,
+    t.name as terminal_name,
+    t.is_active,
+    t.platform,
+    t.app_mode,
+    t.app_version,
+    t.last_ip,
+    t.last_seen_at
+  from public.mes_hmi_terminals t
+  where upper(btrim(t.terminal_code)) = upper(btrim(p_device_uid))
+  limit 1;
+$$;
+
+grant execute on function public.mes_resolve_terminal_by_device_uid(text) to authenticated;
+grant execute on function public.mes_resolve_terminal_by_device_uid(text) to anon;
+

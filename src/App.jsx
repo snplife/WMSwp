@@ -5835,7 +5835,7 @@ function App() {
   const [mesTerminalActiveInput, setMesTerminalActiveInput] = useState(true);
   const [mesTerminalSubmitting, setMesTerminalSubmitting] = useState(false);
   const [mesTerminalDeletingId, setMesTerminalDeletingId] = useState("");
-  const [mesSupportsDeviceUid, setMesSupportsDeviceUid] = useState(true);
+  const [mesSupportsDeviceUid, setMesSupportsDeviceUid] = useState(false);
   const [mesLoading, setMesLoading] = useState(false);
   const [mesError, setMesError] = useState("");
   const latestLoadRowsRequestRef = useRef(0);
@@ -10506,7 +10506,7 @@ function App() {
       setMesWorkstations([]);
       setMesMachines([]);
       setMesTerminals([]);
-      setMesSupportsDeviceUid(true);
+      setMesSupportsDeviceUid(false);
       setMesLoading(false);
       setMesError("");
       return;
@@ -10521,7 +10521,7 @@ function App() {
       setMesWorkstations([]);
       setMesMachines([]);
       setMesTerminals([]);
-      setMesSupportsDeviceUid(true);
+      setMesSupportsDeviceUid(false);
       setMesLoading(false);
       setMesError("");
       return;
@@ -10534,9 +10534,9 @@ function App() {
 
     try {
       const sinceIso = new Date(Date.now() - MES_ANALYTICS_LOOKBACK_DAYS * DAY_MS).toISOString();
-      const terminalsQueryWithDeviceUid = supabase
+      const terminalsQuery = supabase
         .from("mes_hmi_terminals")
-        .select("id,company_id,workstation_id,terminal_code,device_uid,name,platform,app_mode,app_version,last_ip,last_seen_at,is_active,created_at,updated_at")
+        .select("id,company_id,workstation_id,terminal_code,name,platform,app_mode,app_version,last_ip,last_seen_at,is_active,created_at,updated_at")
         .eq("company_id", scopedCompanyId)
         .order("created_at", { ascending: true });
 
@@ -10546,7 +10546,7 @@ function App() {
         }),
         supabase
           .from("mes_job_runs")
-          .select("id,workstation_id,machine_id,job_number,item_code,item_name,operator_name,status,planned_quantity,good_quantity,scrap_quantity,started_at,ended_at,created_at,updated_at,note")
+          .select("id,company_id,workstation_id,machine_id,terminal_id,operator_user_id,job_number,item_code,item_name,operator_name,status,planned_quantity,good_quantity,scrap_quantity,started_at,ended_at,created_at,updated_at,note")
           .eq("company_id", scopedCompanyId)
           .gte("created_at", sinceIso)
           .order("created_at", { ascending: false })
@@ -10562,14 +10562,14 @@ function App() {
           .eq("company_id", scopedCompanyId)
           .order("sort_order", { ascending: true })
           .order("name", { ascending: true }),
-        terminalsQueryWithDeviceUid
+        terminalsQuery
       ]);
 
       const { data, error: overviewError } = overviewResult;
       const { data: jobRunsData, error: jobRunsError } = jobRunsResult;
       const { data: downtimeReasonsData, error: downtimeReasonsError } = downtimeReasonsResult;
       const { data: workstationData, error: workstationsError } = workstationsResult;
-      let { data: terminalData, error: terminalsError } = terminalsResult;
+      const { data: terminalData, error: terminalsError } = terminalsResult;
 
       if (overviewError) {
         throw overviewError;
@@ -10583,22 +10583,10 @@ function App() {
       if (workstationsError) {
         throw workstationsError;
       }
-      if (terminalsError && isMissingMesDeviceUidColumnError(terminalsError)) {
-        const fallbackResult = await supabase
-          .from("mes_hmi_terminals")
-          .select("id,company_id,workstation_id,terminal_code,name,platform,app_mode,app_version,last_ip,last_seen_at,is_active,created_at,updated_at")
-          .eq("company_id", scopedCompanyId)
-          .order("created_at", { ascending: true });
-        terminalData = fallbackResult.data || [];
-        terminalsError = fallbackResult.error || null;
-        setMesSupportsDeviceUid(false);
-      } else {
-        setMesSupportsDeviceUid(true);
-      }
-
       if (terminalsError) {
         throw terminalsError;
       }
+      setMesSupportsDeviceUid(false);
       const workstationIds = (workstationData || []).map((row) => row.id).filter(Boolean);
       let machineData = [];
       if (workstationIds.length > 0) {
@@ -10616,39 +10604,28 @@ function App() {
       const jobRunIds = (jobRunsData || []).map((row) => row.id).filter(Boolean);
       let eventRows = [];
       if (jobRunIds.length > 0) {
-        const eventSelectVariants = [
-          "id,job_run_id,company_id,workstation_id,machine_id,terminal_id,downtime_reason_id,event_type,quantity,note,source,payload,happened_at,operator_user_id,operator_name,created_at",
-          "id,job_run_id,workstation_id,machine_id,terminal_id,downtime_reason_id,event_type,quantity,note,source,payload,happened_at,operator_user_id,operator_name,created_at",
-          "id,job_run_id,workstation_id,machine_id,terminal_id,downtime_reason_id,event_type,quantity,note,source,payload,happened_at,operator_name,created_at",
-          "id,job_run_id,workstation_id,machine_id,terminal_id,downtime_reason_id,event_type,quantity,note,source,payload,happened_at,created_at"
-        ];
-        let eventData = [];
-        let eventError = null;
-
-        for (const selectClause of eventSelectVariants) {
-          const result = await supabase
-            .from("mes_job_run_events")
-            .select(selectClause)
-            .in("job_run_id", jobRunIds)
-            .gte("happened_at", sinceIso)
-            .order("happened_at", { ascending: false })
-            .limit(1000);
-
-          if (!result.error) {
-            eventData = result.data || [];
-            eventError = null;
-            break;
-          }
-          if (!isMissingMesJobRunEventsColumnError(result.error)) {
-            throw result.error;
-          }
-          eventError = result.error;
-        }
+        const { data: eventData, error: eventError } = await supabase
+          .from("mes_job_run_events")
+          .select("id,job_run_id,workstation_id,machine_id,downtime_reason_id,event_type,quantity,note,source,payload,happened_at,created_at")
+          .in("job_run_id", jobRunIds)
+          .gte("happened_at", sinceIso)
+          .order("happened_at", { ascending: false })
+          .limit(1000);
 
         if (eventError) {
           throw eventError;
         }
-        eventRows = eventData || [];
+        const jobRunsById = Object.fromEntries((jobRunsData || []).map((row) => [String(row.id || ""), row]));
+        eventRows = (eventData || []).map((row) => {
+          const run = jobRunsById[String(row.job_run_id || "")] || null;
+          return {
+            ...row,
+            company_id: run?.company_id || "",
+            terminal_id: run?.terminal_id || "",
+            operator_user_id: run?.operator_user_id || "",
+            operator_name: run?.operator_name || ""
+          };
+        });
       }
 
       if (latestMesOverviewRequestRef.current !== requestId) {
@@ -17576,10 +17553,10 @@ function App() {
   const renderMesDashboard = () => {
     const mesOnlineTerminalsCount = mesTerminals.filter((terminal) => isMesTerminalOnline(terminal.last_seen_at)).length;
     const mesAssignedTerminalsCount = mesTerminals.filter((terminal) => terminal.workstation_id).length;
-    const mesRegistrationModeLabel = mesSupportsDeviceUid ? "Registrácia podľa UID" : "Registrácia podľa kódu";
+    const mesRegistrationModeLabel = mesSupportsDeviceUid ? "Registrácia podľa UID" : "Registrácia podľa terminal_code";
     const mesRegistrationModeMeta = mesSupportsDeviceUid
       ? "Terminál sa páruje podľa 10-znakového device UID a interný kód sa vytvorí automaticky."
-      : "Aktuálna databáza ešte nemá device_uid, preto registrácia beží cez terminal_code.";
+      : "Aktuálny MES bundle páruje terminál podľa terminal_code. Ten istý kód potom posiela aj MES point.";
     const mesTerminalIdentifierPreview = mesSupportsDeviceUid
       ? buildMesTerminalCodeFromDeviceUid(mesTerminalDeviceUidInput)
       : sanitizeMesTerminalCode(mesTerminalCodeInput);
@@ -17657,7 +17634,7 @@ function App() {
                   <article>
                     <span className="draft-field-label">Preview identifikátora</span>
                     <strong>{mesTerminalIdentifierPreview || "-"}</strong>
-                    <p>{mesSupportsDeviceUid ? "Vznikne automaticky po zadaní UID." : "Použije sa priamo ako terminal_code."}</p>
+                    <p>{mesSupportsDeviceUid ? "Vznikne automaticky po zadaní UID." : "Tento kód sa uloží ako terminal_code a podľa neho sa terminál spáruje s firmou."}</p>
                   </article>
                 </div>
                 <div className="order-card-actions">
@@ -17691,7 +17668,7 @@ function App() {
                   <div className="mes-terminal-form-header">
                     <div>
                       <h3>{editingMesTerminalId ? "Upraviť terminál" : "Nová registrácia terminálu"}</h3>
-                      <p>{mesSupportsDeviceUid ? "Admin registruje zariadenie podľa device UID, terminál sa potom páruje automaticky na firmu." : "Táto firma ešte beží na staršej schéme, preto sa terminál registruje cez interný kód."}</p>
+                      <p>{mesSupportsDeviceUid ? "Admin registruje zariadenie podľa device UID, terminál sa potom páruje automaticky na firmu." : "Admin registruje terminál podľa terminal_code. Rovnaký kód potom používa aj MES point pri resolve a posielaní eventov."}</p>
                     </div>
                     <span className="table-badge">{mesSupportsDeviceUid ? "UID" : "terminal_code"}</span>
                   </div>
@@ -17708,7 +17685,7 @@ function App() {
                       />
                     </label>
                     <label className="workflow-field">
-                      <span className="workflow-field-label">{mesSupportsDeviceUid ? "UID zariadenia" : "Kód terminálu"}</span>
+                      <span className="workflow-field-label">{mesSupportsDeviceUid ? "UID zariadenia" : "Kód zariadenia"}</span>
                       <input
                         type="text"
                         className="search-input"
@@ -17729,7 +17706,7 @@ function App() {
                           ? mesTerminalIdentifierPreview
                             ? `Interný kód sa vytvorí ako ${mesTerminalIdentifierPreview}`
                             : "Zadaj presne 10 znakov, podľa ktorých sa zariadenie spáruje s firmou."
-                          : "Zadaj stabilný interný kód, ktorý bude terminál používať pri registrácii."}
+                          : "Zadaj stabilný terminal_code. Tento istý kód bude používať zariadenie aj backend resolve funkcia."}
                       </p>
                     </label>
                   </div>
@@ -17781,7 +17758,7 @@ function App() {
                     <article>
                       <span className="draft-field-label">Výsledný identifikátor</span>
                       <strong>{mesTerminalIdentifierPreview || "-"}</strong>
-                      <p>{mesSupportsDeviceUid ? "Interný terminal_code vznikne z UID automaticky." : "Tento kód sa uloží priamo do databázy."}</p>
+                      <p>{mesSupportsDeviceUid ? "Interný terminal_code vznikne z UID automaticky." : "Tento kód sa uloží priamo do terminal_code."}</p>
                     </article>
                   </div>
                   <label className="settings-checkbox">
@@ -18050,7 +18027,7 @@ function App() {
                         </p>
                         {(event.operator_name || event.terminal_id) && (
                           <p>
-                            {[event.operator_name ? `operátor ${event.operator_name}` : "", mesTerminalsById[event.terminal_id]?.name || mesTerminalsById[event.terminal_id]?.device_uid || ""]
+                            {[event.operator_name ? `operátor ${event.operator_name}` : "", mesTerminalsById[event.terminal_id]?.name || mesTerminalsById[event.terminal_id]?.terminal_code || ""]
                               .filter(Boolean)
                               .join(" | ")}
                           </p>
@@ -24825,7 +24802,7 @@ function App() {
                                         event.payload?.note ||
                                         JSON.stringify(event.payload || {}),
                                       event.operator_name ? `operátor ${event.operator_name}` : "",
-                                      mesTerminalsById[event.terminal_id]?.name || mesTerminalsById[event.terminal_id]?.device_uid || ""
+                                      mesTerminalsById[event.terminal_id]?.name || mesTerminalsById[event.terminal_id]?.terminal_code || ""
                                     ]
                                       .filter(Boolean)
                                       .join(" | ")}

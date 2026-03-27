@@ -4341,6 +4341,11 @@ function normalizeMesEventRow(row) {
   }
   return {
     ...row,
+    company_id: String(row.company_id || "").trim(),
+    terminal_id: String(row.terminal_id || "").trim(),
+    operator_user_id: String(row.operator_user_id || "").trim(),
+    operator_name: String(row.operator_name || "").trim(),
+    note: String(row.note || "").trim(),
     quantity: Number(row.quantity || 0),
     payload: row.payload && typeof row.payload === "object" ? row.payload : {}
   };
@@ -4375,6 +4380,7 @@ function normalizeMesTerminalRow(row) {
   }
   return {
     ...row,
+    device_uid: String(row.device_uid || "").trim().toUpperCase(),
     terminal_code: String(row.terminal_code || "").trim().toUpperCase(),
     name: String(row.name || "").trim(),
     platform: String(row.platform || "").trim().toLowerCase(),
@@ -4411,6 +4417,14 @@ function formatMesTerminalAppModeLabel(value) {
     return "Maintenance";
   }
   return normalized || "-";
+}
+
+function buildMesTerminalCodeFromDeviceUid(value) {
+  const normalized = String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+  return normalized ? `UID-${normalized}` : "";
 }
 
 function normalizeAttendanceProfileRow(row) {
@@ -5683,7 +5697,7 @@ function App() {
   const [isMesTerminalFormVisible, setIsMesTerminalFormVisible] = useState(false);
   const [editingMesTerminalId, setEditingMesTerminalId] = useState("");
   const [mesTerminalNameInput, setMesTerminalNameInput] = useState("");
-  const [mesTerminalCodeInput, setMesTerminalCodeInput] = useState("");
+  const [mesTerminalDeviceUidInput, setMesTerminalDeviceUidInput] = useState("");
   const [mesTerminalWorkstationIdInput, setMesTerminalWorkstationIdInput] = useState("");
   const [mesTerminalPlatformInput, setMesTerminalPlatformInput] = useState("android");
   const [mesTerminalAppModeInput, setMesTerminalAppModeInput] = useState("hmi");
@@ -10410,7 +10424,7 @@ function App() {
           .order("name", { ascending: true }),
         supabase
           .from("mes_hmi_terminals")
-          .select("id,company_id,workstation_id,terminal_code,name,platform,app_mode,app_version,last_ip,last_seen_at,is_active,created_at,updated_at")
+          .select("id,company_id,workstation_id,terminal_code,device_uid,name,platform,app_mode,app_version,last_ip,last_seen_at,is_active,created_at,updated_at")
           .eq("company_id", scopedCompanyId)
           .order("created_at", { ascending: true })
       ]);
@@ -10455,7 +10469,7 @@ function App() {
       if (jobRunIds.length > 0) {
         const { data: eventData, error: eventError } = await supabase
           .from("mes_job_run_events")
-          .select("id,job_run_id,workstation_id,machine_id,downtime_reason_id,event_type,quantity,note,source,payload,happened_at,created_at")
+          .select("id,job_run_id,company_id,workstation_id,machine_id,terminal_id,downtime_reason_id,event_type,quantity,note,source,payload,happened_at,operator_user_id,operator_name,created_at")
           .in("job_run_id", jobRunIds)
           .gte("happened_at", sinceIso)
           .order("happened_at", { ascending: false })
@@ -10501,7 +10515,7 @@ function App() {
   const resetMesTerminalForm = () => {
     setEditingMesTerminalId("");
     setMesTerminalNameInput("");
-    setMesTerminalCodeInput("");
+    setMesTerminalDeviceUidInput("");
     setMesTerminalWorkstationIdInput("");
     setMesTerminalPlatformInput("android");
     setMesTerminalAppModeInput("hmi");
@@ -10512,7 +10526,7 @@ function App() {
   const handleEditMesTerminal = (terminal) => {
     setEditingMesTerminalId(String(terminal?.id || ""));
     setMesTerminalNameInput(String(terminal?.name || ""));
-    setMesTerminalCodeInput(String(terminal?.terminal_code || ""));
+    setMesTerminalDeviceUidInput(String(terminal?.device_uid || ""));
     setMesTerminalWorkstationIdInput(String(terminal?.workstation_id || ""));
     setMesTerminalPlatformInput(String(terminal?.platform || "android").trim().toLowerCase() || "android");
     setMesTerminalAppModeInput(String(terminal?.app_mode || "hmi").trim().toLowerCase() || "hmi");
@@ -10526,10 +10540,11 @@ function App() {
 
     const companyId = activeCompanyId || userCompanyId || "";
     const name = String(mesTerminalNameInput || "").trim();
-    const terminalCode = String(mesTerminalCodeInput || "")
+    const deviceUid = String(mesTerminalDeviceUidInput || "")
       .trim()
       .toUpperCase()
-      .replace(/[^A-Z0-9_-]/g, "");
+      .replace(/[^A-Z0-9]/g, "");
+    const terminalCode = buildMesTerminalCodeFromDeviceUid(deviceUid);
 
     if (!companyId) {
       setMesError("Vyber firmu, ku ktorej sa má HMI terminál registrovať.");
@@ -10539,8 +10554,12 @@ function App() {
       setMesError("Zadaj názov MES terminálu.");
       return;
     }
-    if (!terminalCode) {
-      setMesError("Zadaj kód MES terminálu.");
+    if (!deviceUid) {
+      setMesError("Zadaj UID zariadenia.");
+      return;
+    }
+    if (deviceUid.length !== 10) {
+      setMesError("UID zariadenia musí mať presne 10 znakov.");
       return;
     }
 
@@ -10552,6 +10571,7 @@ function App() {
         company_id: companyId,
         workstation_id: String(mesTerminalWorkstationIdInput || "").trim() || null,
         terminal_code: terminalCode,
+        device_uid: deviceUid || null,
         name,
         platform: String(mesTerminalPlatformInput || "android").trim().toLowerCase() || "android",
         app_mode: String(mesTerminalAppModeInput || "hmi").trim().toLowerCase() || "hmi",
@@ -14607,6 +14627,10 @@ function App() {
     () => Object.fromEntries((mesWorkstations || []).map((row) => [row.id, row])),
     [mesWorkstations]
   );
+  const mesTerminalsById = useMemo(
+    () => Object.fromEntries((mesTerminals || []).map((row) => [row.id, row])),
+    [mesTerminals]
+  );
   const mesOverviewByWorkstationId = useMemo(
     () => Object.fromEntries((mesOverviewRows || []).map((row) => [row.workstation_id, row])),
     [mesOverviewRows]
@@ -17141,15 +17165,21 @@ function App() {
                     />
                   </label>
                   <label className="workflow-field">
-                    <span className="workflow-field-label">Kód terminálu</span>
+                    <span className="workflow-field-label">UID zariadenia</span>
                     <input
                       type="text"
                       className="search-input"
-                      value={mesTerminalCodeInput}
-                      onChange={(event) => setMesTerminalCodeInput(event.target.value.toUpperCase())}
-                      placeholder="AND-LINKA-01"
+                      value={mesTerminalDeviceUidInput}
+                      onChange={(event) => setMesTerminalDeviceUidInput(event.target.value.toUpperCase())}
+                      placeholder="10 znakov"
+                      maxLength={10}
                       disabled={mesTerminalSubmitting}
                     />
+                    <p className="workflow-helper-text">
+                      {buildMesTerminalCodeFromDeviceUid(mesTerminalDeviceUidInput)
+                        ? `Interný kód sa vytvorí ako ${buildMesTerminalCodeFromDeviceUid(mesTerminalDeviceUidInput)}`
+                        : "Terminál sa zaregistruje priamo podľa device UID."}
+                    </p>
                   </label>
                 </div>
                 <div className="workflow-field-grid">
@@ -17214,6 +17244,7 @@ function App() {
                   <thead>
                     <tr>
                       <th>Terminál</th>
+                      <th>UID</th>
                       <th>Pracovisko</th>
                       <th>Platforma</th>
                       <th>Režim</th>
@@ -17231,6 +17262,7 @@ function App() {
                             <strong>{terminal.name || "-"}</strong>
                             <div className="master-user-email">{terminal.terminal_code || "-"}</div>
                           </td>
+                          <td>{terminal.device_uid || "-"}</td>
                           <td>{workstation?.name || workstation?.code || "-"}</td>
                           <td>{formatMesTerminalPlatformLabel(terminal.platform)}</td>
                           <td>{formatMesTerminalAppModeLabel(terminal.app_mode)}</td>
@@ -17388,6 +17420,13 @@ function App() {
                             event.payload?.note ||
                             "-"}
                         </p>
+                        {(event.operator_name || event.terminal_id) && (
+                          <p>
+                            {[event.operator_name ? `operátor ${event.operator_name}` : "", mesTerminalsById[event.terminal_id]?.name || mesTerminalsById[event.terminal_id]?.device_uid || ""]
+                              .filter(Boolean)
+                              .join(" | ")}
+                          </p>
+                        )}
                       </div>
                       <span>{formatDate(event.happened_at)}</span>
                     </div>
@@ -23915,10 +23954,16 @@ function App() {
                                   <td>{formatDate(event.happened_at)}</td>
                                   <td>{formatMesEventLabel(event.event_type)}</td>
                                   <td>
-                                    {mesDowntimeReasonNameById[event.downtime_reason_id] ||
-                                      event.payload?.reason ||
-                                      event.payload?.note ||
-                                      JSON.stringify(event.payload || {})}
+                                    {[
+                                      mesDowntimeReasonNameById[event.downtime_reason_id] ||
+                                        event.payload?.reason ||
+                                        event.payload?.note ||
+                                        JSON.stringify(event.payload || {}),
+                                      event.operator_name ? `operátor ${event.operator_name}` : "",
+                                      mesTerminalsById[event.terminal_id]?.name || mesTerminalsById[event.terminal_id]?.device_uid || ""
+                                    ]
+                                      .filter(Boolean)
+                                      .join(" | ")}
                                   </td>
                                 </tr>
                               ))}

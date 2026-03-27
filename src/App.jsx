@@ -4397,7 +4397,7 @@ function formatMesTerminalPlatformLabel(value) {
     return "Raspberry Pi";
   }
   if (normalized === "web_kiosk") {
-    return "Web kiosk";
+    return "Webový kiosk";
   }
   if (normalized === "android") {
     return "Android";
@@ -4411,10 +4411,10 @@ function formatMesTerminalAppModeLabel(value) {
     return "HMI";
   }
   if (normalized === "overview") {
-    return "Overview";
+    return "Prehľad";
   }
   if (normalized === "maintenance") {
-    return "Maintenance";
+    return "Údržba";
   }
   return normalized || "-";
 }
@@ -5030,30 +5030,30 @@ function getMesViewRole({ isMaster, canManageOrders, canAccessMes }) {
 }
 
 function getMesViewRoleLabel(role) {
-  if (role === "management") return "Management";
-  if (role === "supervisor") return "Supervisor";
+  if (role === "management") return "Manažment";
+  if (role === "supervisor") return "Supervízor";
   if (role === "operator") return "Operátor";
-  return "Viewer";
+  return "Náhľad";
 }
 
 function getMesStatusMeta(status) {
   const normalized = String(status || "").trim().toLowerCase();
   if (["running", "run"].includes(normalized)) {
-    return { label: "RUNNING", tone: "running" };
+    return { label: "V PREVÁDZKE", tone: "running" };
   }
   if (["setup"].includes(normalized)) {
-    return { label: "SETUP", tone: "setup" };
+    return { label: "NASTAVENIE", tone: "setup" };
   }
   if (["alarm", "error", "down"].includes(normalized)) {
-    return { label: normalized === "down" ? "STOPPED" : normalized.toUpperCase(), tone: "alarm" };
+    return { label: normalized === "down" ? "ZASTAVENÉ" : "ALARM", tone: "alarm" };
   }
   if (["stopped", "stop", "maintenance", "offline"].includes(normalized)) {
-    return { label: normalized === "maintenance" ? "STOPPED" : normalized.toUpperCase(), tone: "stopped" };
+    return { label: normalized === "maintenance" ? "ZASTAVENÉ" : normalized === "offline" ? "OFFLINE" : "ZASTAVENÉ", tone: "stopped" };
   }
   if (["paused"].includes(normalized)) {
-    return { label: "IDLE", tone: "idle" };
+    return { label: "ČAKANIE", tone: "idle" };
   }
-  return { label: "IDLE", tone: "idle" };
+  return { label: "ČAKANIE", tone: "idle" };
 }
 
 function safeRatioPercent(numerator, denominator) {
@@ -10645,7 +10645,7 @@ function App() {
       if (latestMesOverviewRequestRef.current !== requestId) {
         return;
       }
-      setMesError(loadMesError?.message || "Nepodarilo sa načítať MES overview.");
+      setMesError(loadMesError?.message || "Nepodarilo sa načítať MES prehľad.");
       setMesOverviewRows([]);
       setMesRecentJobRuns([]);
       setMesRecentEventRows([]);
@@ -15505,6 +15505,38 @@ function App() {
       averageOperatorRunPct: mesOperatorSummary.averageRunPct
     };
   }, [machineDashboardRows, mesProductionOrderRows.length, mesQualitySummary.goodParts, mesQualitySummary.scrapParts, mesOperatorSummary, mesTerminals]);
+  const handleExportSelectedMesMachineEvents = () => {
+    if (!selectedMesMachineOverview || selectedMesMachineEvents.length === 0) {
+      return;
+    }
+
+    const exportRows = selectedMesMachineEvents.map((event) => ({
+      Cas: formatDate(event.happened_at),
+      Udalost: formatMesEventLabel(event.event_type),
+      Detail:
+        mesDowntimeReasonNameById[event.downtime_reason_id] ||
+        event.payload?.reason ||
+        event.note ||
+        event.payload?.note ||
+        JSON.stringify(event.payload || {}),
+      Mnozstvo: event.quantity ? Number(event.quantity) : "",
+      Operator: event.operator_name || "",
+      Terminal: mesTerminalsById[event.terminal_id]?.name || mesTerminalsById[event.terminal_id]?.terminal_code || "",
+      Zdroj: event.source || ""
+    }));
+
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.json_to_sheet(exportRows);
+    XLSX.utils.book_append_sheet(workbook, worksheet, "MES udalosti");
+
+    const machineSlug = String(selectedMesMachineOverview.machineName || selectedMesMachineOverview.machineCode || "stroj")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "stroj";
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(workbook, `mes-udalosti-${machineSlug}-${dateStamp}.xlsx`);
+  };
   const mesAlerts = useMemo(() => {
     const alerts = [];
     machineDashboardRows.forEach((row) => {
@@ -15522,7 +15554,7 @@ function App() {
           id: `${row.machineId}-scrap`,
           severity: "warning",
           title: `${row.machineName}: zvýšený scrap`,
-          detail: `Reject rate ${formatPercentValue(row.scrapRate)}.`,
+          detail: `Zmetkovitosť ${formatPercentValue(row.scrapRate)}.`,
           at: row.events.find((event) => String(event.event_type || "").toLowerCase() === "scrap_count")?.happened_at || ""
         });
       }
@@ -15541,7 +15573,7 @@ function App() {
           alerts.push({
             id: `${row.machineId}-terminal`,
             severity: "info",
-            title: `${row.machineName}: HMI offline`,
+            title: `${row.machineName}: HMI odpojené`,
             detail: `Terminál sa neozval od ${formatDate(row.terminalLastSeenAt)}.`,
             at: row.terminalLastSeenAt
           });
@@ -17564,9 +17596,9 @@ function App() {
       <div className="panel-head workflow-section-head">
         <div>
           <p className="workflow-section-kicker">MES</p>
-          <h2>Factory operations dashboard</h2>
+          <h2>Prehľad výroby v reálnom čase</h2>
           <p className="panel-meta">
-            Real-time MES rozhranie pre operátora, supervisora aj management. Dáta sa obnovia cez tlačidlo Obnoviť a pri realtime zmenách.
+            MES rozhranie v reálnom čase pre operátora, supervízora aj manažment. Dáta sa obnovia cez tlačidlo Obnoviť a pri zmenách v reálnom čase.
           </p>
         </div>
         <div className="hero-badges">
@@ -17737,7 +17769,7 @@ function App() {
                       <select value={mesTerminalPlatformInput} onChange={(event) => setMesTerminalPlatformInput(event.target.value)} disabled={mesTerminalSubmitting}>
                         <option value="android">Android</option>
                         <option value="raspberry_pi">Raspberry Pi</option>
-                        <option value="web_kiosk">Web kiosk</option>
+                        <option value="web_kiosk">Webový kiosk</option>
                         <option value="other">Iné</option>
                       </select>
                     </label>
@@ -17745,8 +17777,8 @@ function App() {
                       <span className="workflow-field-label">Režim appky</span>
                       <select value={mesTerminalAppModeInput} onChange={(event) => setMesTerminalAppModeInput(event.target.value)} disabled={mesTerminalSubmitting}>
                         <option value="hmi">HMI</option>
-                        <option value="overview">Overview</option>
-                        <option value="maintenance">Maintenance</option>
+                        <option value="overview">Prehľad</option>
+                        <option value="maintenance">Údržba</option>
                       </select>
                     </label>
                   </div>
@@ -17808,7 +17840,7 @@ function App() {
                           <p>{terminal.terminal_code || "-"}</p>
                         </div>
                         <div className="attendance-card-pills">
-                          <span className={`mes-terminal-connectivity ${isOnline ? "is-online" : "is-offline"}`}>{isOnline ? "online" : "offline"}</span>
+                          <span className={`mes-terminal-connectivity ${isOnline ? "is-online" : "is-offline"}`}>{isOnline ? "Pripojený" : "Odpojený"}</span>
                           <StatusPill status={terminal.is_active ? "active" : "inactive"} />
                         </div>
                       </div>
@@ -17865,43 +17897,43 @@ function App() {
             <>
           <div className="mes-kpi-grid">
             <article className="card workflow-stat-card mes-kpi-card">
-              <p>Running Machines</p>
+              <p>Stroje v prevádzke</p>
               <strong>{new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.running)}</strong>
             </article>
             <article className="card workflow-stat-card mes-kpi-card">
-              <p>Stopped Machines</p>
+              <p>Zastavené stroje</p>
               <strong>{new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.stopped + mesGlobalKpis.alarm)}</strong>
             </article>
             <article className="card workflow-stat-card mes-kpi-card">
-              <p>Idle Machines</p>
+              <p>Stroje v čakaní</p>
               <strong>{new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.idle)}</strong>
             </article>
             <article className="card workflow-stat-card mes-kpi-card">
-              <p>Active Production Orders</p>
+              <p>Aktívne výrobné zákazky</p>
               <strong>{new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.activeOrders)}</strong>
             </article>
             <article className="card workflow-stat-card mes-kpi-card">
-              <p>Production Rate</p>
+              <p>Rýchlosť výroby</p>
               <strong>{`${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(mesGlobalKpis.productionRate)} ks/h`}</strong>
             </article>
             <article className="card workflow-stat-card mes-kpi-card">
-              <p>Good Parts Produced</p>
+              <p>Vyrobené OK kusy</p>
               <strong>{new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.goodParts)}</strong>
             </article>
             <article className="card workflow-stat-card mes-kpi-card">
-              <p>Scrap Parts</p>
+              <p>NOK kusy</p>
               <strong>{new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.scrapParts)}</strong>
             </article>
             <article className="card workflow-stat-card mes-kpi-card">
-              <p>Active Operators</p>
+              <p>Aktívni operátori</p>
               <strong>{new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.activeOperators)}</strong>
             </article>
             <article className="card workflow-stat-card mes-kpi-card">
-              <p>Online Terminals</p>
+              <p>Terminály online</p>
               <strong>{new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.onlineTerminals)}</strong>
             </article>
             <article className="card workflow-stat-card mes-kpi-card">
-              <p>Operator Runtime Avg</p>
+              <p>Priemer využitia operátora</p>
               <strong>{formatPercentValue(mesGlobalKpis.averageOperatorRunPct)}</strong>
             </article>
           </div>
@@ -17921,7 +17953,7 @@ function App() {
                 </label>
                 <div className="mes-machine-toolbar-meta">
                   <span className={`mes-status-badge mes-status-badge-${selectedMesMachineOverview?.statusMeta?.tone || "idle"}`}>
-                    {selectedMesMachineOverview?.statusMeta?.label || "IDLE"}
+                    {selectedMesMachineOverview?.statusMeta?.label || "ČAKANIE"}
                   </span>
                   <span className="table-badge">{selectedMesMachineOverview?.workstationName || "-"}</span>
                   <span className="table-badge">{selectedMesMachineOverview?.area || "-"}</span>
@@ -17932,7 +17964,7 @@ function App() {
               </div>
               <div className="mes-detail-grid">
                 <div>
-                  <p className="mes-focus-kicker">Current machine drill-down</p>
+                  <p className="mes-focus-kicker">Detail vybraného stroja</p>
                   <strong>{selectedMesMachineOverview?.machineName || "Nezvolený stroj"}</strong>
                   <p className="mes-focus-meta">
                     {currentMesMachineRun
@@ -17964,11 +17996,11 @@ function App() {
                 </div>
                 <div className="mes-detail-stats">
                   <article className="mes-mini-stat">
-                    <span>Work order</span>
+                    <span>Výrobná zákazka</span>
                     <strong>{selectedMesMachineOverview?.currentWorkOrder || "-"}</strong>
                   </article>
                   <article className="mes-mini-stat">
-                    <span>Actual cycle</span>
+                    <span>Skutočný cyklus</span>
                     <strong>
                       {Number.isFinite(selectedMesMachineOverview?.actualCycleSeconds)
                         ? `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(selectedMesMachineOverview.actualCycleSeconds)} s`
@@ -17976,7 +18008,7 @@ function App() {
                     </strong>
                   </article>
                   <article className="mes-mini-stat">
-                    <span>Target cycle</span>
+                    <span>Cieľový cyklus</span>
                     <strong>
                       {Number.isFinite(selectedMesMachineOverview?.targetCycleSeconds)
                         ? `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(selectedMesMachineOverview.targetCycleSeconds)} s`
@@ -17984,11 +18016,11 @@ function App() {
                     </strong>
                   </article>
                   <article className="mes-mini-stat">
-                    <span>Produced parts</span>
+                    <span>Vyrobené kusy</span>
                     <strong>{new Intl.NumberFormat("sk-SK").format(selectedMesMachineOverview?.producedParts || 0)}</strong>
                   </article>
                   <article className="mes-mini-stat">
-                    <span>Actual rate</span>
+                    <span>Skutočný výkon</span>
                     <strong>
                       {Number.isFinite(selectedMesMachineOverview?.actualRate)
                         ? `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(selectedMesMachineOverview.actualRate)} ks/h`
@@ -17996,7 +18028,7 @@ function App() {
                     </strong>
                   </article>
                   <article className="mes-mini-stat">
-                    <span>Heartbeat</span>
+                    <span>Posledný heartbeat</span>
                     <strong>{selectedMesMachineOverview?.machineLastHeartbeatAt ? formatTimeOnly(selectedMesMachineOverview.machineLastHeartbeatAt) : "-"}</strong>
                   </article>
                   <article className="mes-mini-stat mes-mini-stat-highlight">
@@ -18050,23 +18082,23 @@ function App() {
             <article className="orders-panel-card workflow-card workflow-card-soft mes-oee-panel">
               <div className="panel-head workflow-section-head">
                 <div>
-                  <h2>OEE dashboard</h2>
-                  <p className="panel-meta">Availability, performance, quality a výsledné OEE z dostupných job run + downtime dát.</p>
+                  <h2>OEE prehľad</h2>
+                  <p className="panel-meta">Dostupnosť, výkon, kvalita a výsledné OEE z dostupných job run a downtime dát.</p>
                 </div>
               </div>
               <div className="mes-oee-grid">
                 <article className="mes-oee-card">
-                  <span>Availability</span>
+                  <span>Dostupnosť</span>
                   <strong>{formatPercentValue(mesOeeSummary.availabilityPct)}</strong>
                   <div className="mes-progress-track"><div className="mes-progress-fill" style={{ width: `${clampPercent(mesOeeSummary.availabilityPct)}%` }} /></div>
                 </article>
                 <article className="mes-oee-card">
-                  <span>Performance</span>
+                  <span>Výkon</span>
                   <strong>{formatPercentValue(mesOeeSummary.performancePct)}</strong>
                   <div className="mes-progress-track"><div className="mes-progress-fill" style={{ width: `${clampPercent(mesOeeSummary.performancePct)}%` }} /></div>
                 </article>
                 <article className="mes-oee-card">
-                  <span>Quality</span>
+                  <span>Kvalita</span>
                   <strong>{formatPercentValue(mesOeeSummary.qualityPct)}</strong>
                   <div className="mes-progress-track"><div className="mes-progress-fill" style={{ width: `${clampPercent(mesOeeSummary.qualityPct)}%` }} /></div>
                 </article>
@@ -18084,22 +18116,22 @@ function App() {
           <article className="orders-panel-card workflow-card workflow-card-list">
             <div className="panel-head workflow-section-head">
               <div>
-                <h2>Machine status overview</h2>
-                <p className="panel-meta">Klik na stroj otvorí jeho drill-down. Farba zodpovedá zadaniu RUNNING / IDLE / STOPPED / ALARM / SETUP.</p>
+                <h2>Prehľad strojov</h2>
+                <p className="panel-meta">Klik na stroj otvorí jeho detail. Farba zodpovedá aktuálnemu stavu stroja.</p>
               </div>
             </div>
             <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
-                    <th>Machine Name</th>
-                    <th>Machine ID</th>
-                    <th>Current Work Order</th>
-                    <th>Machine Status</th>
-                    <th>Actual Cycle Time</th>
-                    <th>Target Cycle Time</th>
-                    <th>Produced Parts</th>
-                    <th>Operator</th>
+                    <th>Stroj</th>
+                    <th>ID stroja</th>
+                    <th>Aktuálna zákazka</th>
+                    <th>Stav stroja</th>
+                    <th>Skutočný cyklus</th>
+                    <th>Cieľový cyklus</th>
+                    <th>Vyrobené kusy</th>
+                    <th>Operátor</th>
                     <th>Detail</th>
                   </tr>
                 </thead>
@@ -18183,7 +18215,7 @@ function App() {
           <article className="orders-panel-card workflow-card workflow-card-list">
             <div className="panel-head workflow-section-head">
               <div>
-                <h2>Production order progress</h2>
+                <h2>Postup výrobných zákaziek</h2>
                 <p className="panel-meta">Aktívne job runy s progresom, scrapom a odhadom dokončenia.</p>
               </div>
             </div>
@@ -18194,13 +18226,13 @@ function App() {
                 <table>
                   <thead>
                     <tr>
-                      <th>Order Number</th>
-                      <th>Product Name</th>
-                      <th>Planned Quantity</th>
-                      <th>Produced Quantity</th>
-                      <th>Scrap Quantity</th>
-                      <th>Completion Percentage</th>
-                      <th>Estimated Finish Time</th>
+                      <th>Číslo zákazky</th>
+                      <th>Produkt</th>
+                      <th>Plánované množstvo</th>
+                      <th>Vyrobené množstvo</th>
+                      <th>NOK množstvo</th>
+                      <th>Dokončenie</th>
+                      <th>Odhad dokončenia</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -18241,21 +18273,21 @@ function App() {
               <article className="orders-panel-card workflow-card workflow-card-list">
                 <div className="panel-head workflow-section-head">
                   <div>
-                    <h2>Production throughput</h2>
-                    <p className="panel-meta">Parts per hour, shift a day z eventov `good_count` / `scrap_count`.</p>
+                    <h2>Výrobný výkon</h2>
+                    <p className="panel-meta">Kusy za hodinu, zmenu a deň z eventov `good_count` a `scrap_count`.</p>
                   </div>
                 </div>
                 <div className="mes-throughput-metrics">
                   <article className="mes-mini-stat">
-                    <span>Parts / hour</span>
+                    <span>Kusy / hodina</span>
                     <strong>{new Intl.NumberFormat("sk-SK").format(mesThroughput.partsPerHour)}</strong>
                   </article>
                   <article className="mes-mini-stat">
-                    <span>Parts / shift</span>
+                    <span>Kusy / zmena</span>
                     <strong>{new Intl.NumberFormat("sk-SK").format(mesThroughput.partsPerShift)}</strong>
                   </article>
                   <article className="mes-mini-stat">
-                    <span>Parts / day</span>
+                    <span>Kusy / deň</span>
                     <strong>{new Intl.NumberFormat("sk-SK").format(mesThroughput.partsPerDay)}</strong>
                   </article>
                 </div>
@@ -18276,27 +18308,27 @@ function App() {
               <article className="orders-panel-card workflow-card workflow-card-list">
                 <div className="panel-head workflow-section-head">
                   <div>
-                    <h2>Quality monitoring</h2>
-                    <p className="panel-meta">Good parts, scrap, reject rate a top defect typy z MES eventov.</p>
+                    <h2>Sledovanie kvality</h2>
+                    <p className="panel-meta">OK kusy, NOK kusy, zmetkovitosť a najčastejšie typy chýb z MES eventov.</p>
                   </div>
                 </div>
                 <div className="mes-quality-grid">
                   <article className="mes-mini-stat">
-                    <span>Good parts</span>
+                    <span>OK kusy</span>
                     <strong>{new Intl.NumberFormat("sk-SK").format(mesQualitySummary.goodParts)}</strong>
                   </article>
                   <article className="mes-mini-stat">
-                    <span>Scrap parts</span>
+                    <span>NOK kusy</span>
                     <strong>{new Intl.NumberFormat("sk-SK").format(mesQualitySummary.scrapParts)}</strong>
                   </article>
                   <article className="mes-mini-stat">
-                    <span>Reject rate</span>
+                    <span>Zmetkovitosť</span>
                     <strong>{formatPercentValue(mesQualitySummary.rejectRatePct)}</strong>
                   </article>
                 </div>
                 <div className="mes-bar-list">
                   {mesQualitySummary.defectTypes.length === 0 ? (
-                    <p className="hint">Zatiaľ nie sú evidované defect typy.</p>
+                    <p className="hint">Zatiaľ nie sú evidované typy chýb.</p>
                   ) : (
                     mesQualitySummary.defectTypes.map((item) => (
                       <div key={item.type} className="mes-bar-row">
@@ -18435,7 +18467,7 @@ function App() {
               <article className="orders-panel-card workflow-card workflow-card-list">
                 <div className="panel-head workflow-section-head">
                   <div>
-                    <h2>Downtime tracking</h2>
+                    <h2>Sledovanie prestojov</h2>
                     <p className="panel-meta">Párované downtime úseky podľa eventov a dôvodov prestojov.</p>
                   </div>
                 </div>
@@ -18446,11 +18478,11 @@ function App() {
                     <table>
                       <thead>
                         <tr>
-                          <th>Machine</th>
-                          <th>Start Time</th>
-                          <th>End Time</th>
-                          <th>Duration</th>
-                          <th>Downtime Reason</th>
+                          <th>Stroj</th>
+                          <th>Začiatok</th>
+                          <th>Koniec</th>
+                          <th>Trvanie</th>
+                          <th>Dôvod prestoja</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -18473,8 +18505,8 @@ function App() {
               <article className="orders-panel-card workflow-card workflow-card-list">
                 <div className="panel-head workflow-section-head">
                   <div>
-                    <h2>Alerts and events</h2>
-                    <p className="panel-meta">Machine alarms, production below target, excessive scrap a HMI offline signály.</p>
+                    <h2>Upozornenia</h2>
+                    <p className="panel-meta">Alarmy strojov, výroba pod cieľom, zvýšený scrap a signály odpojeného HMI.</p>
                   </div>
                 </div>
                 {mesAlerts.length === 0 ? (
@@ -18502,8 +18534,8 @@ function App() {
                 <article className="orders-panel-card workflow-card workflow-card-list">
                   <div className="panel-head workflow-section-head">
                     <div>
-                      <h2>Factory map</h2>
-                      <p className="panel-meta">Voliteľný shop-floor pohľad s farebnými tile podľa stavu stroja.</p>
+                    <h2>Mapa výroby</h2>
+                    <p className="panel-meta">Voliteľný prevádzkový pohľad s farebnými dlaždicami podľa stavu stroja.</p>
                     </div>
                   </div>
                   <div className="mes-factory-map">
@@ -18535,40 +18567,31 @@ function App() {
                 <article className="orders-panel-card workflow-card workflow-card-list">
                   <div className="panel-head workflow-section-head">
                     <div>
-                      <h2>Recent machine events</h2>
-                      <p className="panel-meta">Kliknutý stroj, audit trail a detail eventov pre supervisor / management pohľad.</p>
+                      <h2>Export udalostí stroja</h2>
+                      <p className="panel-meta">Vyexportuj udalosti aktuálne vybraného stroja do Excelu.</p>
                     </div>
                   </div>
                   {selectedMesMachineEvents.length === 0 ? (
-                    <p className="hint">Pre vybraný stroj zatiaľ nie sú žiadne eventy.</p>
+                    <p className="hint">Pre vybraný stroj zatiaľ nie sú žiadne udalosti na export.</p>
                   ) : (
-                    <div className="table-wrap">
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>Čas</th>
-                            <th>Udalosť</th>
-                            <th>Detail</th>
-                            <th>Qty</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {selectedMesMachineEvents.slice(0, 12).map((event) => (
-                            <tr key={event.id}>
-                              <td>{formatDate(event.happened_at)}</td>
-                              <td>{formatMesEventLabel(event.event_type)}</td>
-                              <td>
-                                {mesDowntimeReasonNameById[event.downtime_reason_id] ||
-                                  event.payload?.reason ||
-                                  event.note ||
-                                  event.payload?.note ||
-                                  JSON.stringify(event.payload || {})}
-                              </td>
-                              <td>{event.quantity ? new Intl.NumberFormat("sk-SK").format(event.quantity) : "-"}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                    <div className="mes-terminal-summary-card">
+                      <div className="mes-terminal-summary-grid">
+                        <article>
+                          <span className="draft-field-label">Vybraný stroj</span>
+                          <strong>{selectedMesMachineOverview?.machineName || "-"}</strong>
+                          <p>{selectedMesMachineOverview?.currentWorkOrder || "Bez aktívnej zákazky"}</p>
+                        </article>
+                        <article>
+                          <span className="draft-field-label">Počet udalostí</span>
+                          <strong>{new Intl.NumberFormat("sk-SK").format(selectedMesMachineEvents.length)}</strong>
+                          <p>Exportujú sa všetky načítané udalosti pre vybraný stroj.</p>
+                        </article>
+                      </div>
+                      <div className="order-card-actions">
+                        <button type="button" className="settings-btn" onClick={handleExportSelectedMesMachineEvents}>
+                          Exportovať do Excelu
+                        </button>
+                      </div>
                     </div>
                   )}
                 </article>

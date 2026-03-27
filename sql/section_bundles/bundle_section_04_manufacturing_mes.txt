@@ -1,0 +1,1847 @@
+-- WMS section bundle: MES / manufacturing
+-- Use after the earlier prerequisite sections are already installed.
+
+-- >>> BEGIN 28_wms_production_orders_core.txt
+-- 28_wms_production_orders_core.txt
+-- Safe additive migration for internal production orders.
+-- Run after: 27_wms_orders_core.txt
+
+create extension if not exists pgcrypto;
+
+create table if not exists public.production_orders (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies (id) on delete cascade,
+  production_number text not null,
+  title text not null,
+  status text not null default 'draft' check (status in ('draft', 'completed')),
+  note text not null default '',
+  created_by uuid references auth.users (id),
+  completed_by uuid references auth.users (id),
+  completed_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.production_order_inputs (
+  id uuid primary key default gen_random_uuid(),
+  production_order_id uuid not null references public.production_orders (id) on delete cascade,
+  material_code text not null,
+  position text not null,
+  required_quantity integer not null check (required_quantity > 0),
+  stock_quantity_snapshot integer not null default 0,
+  line_note text not null default '',
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.production_order_outputs (
+  id uuid primary key default gen_random_uuid(),
+  production_order_id uuid not null references public.production_orders (id) on delete cascade,
+  material_code text not null,
+  position text not null,
+  output_quantity integer not null check (output_quantity > 0),
+  line_note text not null default '',
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists idx_production_orders_company_number_unique
+  on public.production_orders (company_id, production_number);
+
+create index if not exists idx_production_orders_company_created_at
+  on public.production_orders (company_id, created_at desc);
+
+create index if not exists idx_production_inputs_order
+  on public.production_order_inputs (production_order_id);
+
+create index if not exists idx_production_outputs_order
+  on public.production_order_outputs (production_order_id);
+
+alter table public.production_orders enable row level security;
+alter table public.production_order_inputs enable row level security;
+alter table public.production_order_outputs enable row level security;
+
+drop policy if exists production_orders_select_auth on public.production_orders;
+drop policy if exists production_orders_insert_auth on public.production_orders;
+drop policy if exists production_orders_update_auth on public.production_orders;
+drop policy if exists production_orders_delete_auth on public.production_orders;
+
+create policy production_orders_select_auth
+on public.production_orders
+for select
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy production_orders_insert_auth
+on public.production_orders
+for insert
+to authenticated
+with check (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy production_orders_update_auth
+on public.production_orders
+for update
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+)
+with check (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy production_orders_delete_auth
+on public.production_orders
+for delete
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+drop policy if exists production_order_inputs_select_auth on public.production_order_inputs;
+drop policy if exists production_order_inputs_insert_auth on public.production_order_inputs;
+drop policy if exists production_order_inputs_update_auth on public.production_order_inputs;
+drop policy if exists production_order_inputs_delete_auth on public.production_order_inputs;
+
+create policy production_order_inputs_select_auth
+on public.production_order_inputs
+for select
+to authenticated
+using (
+  exists (
+    select 1
+    from public.production_orders po
+    where po.id = production_order_inputs.production_order_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and po.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+create policy production_order_inputs_insert_auth
+on public.production_order_inputs
+for insert
+to authenticated
+with check (
+  exists (
+    select 1
+    from public.production_orders po
+    where po.id = production_order_inputs.production_order_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and po.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+create policy production_order_inputs_update_auth
+on public.production_order_inputs
+for update
+to authenticated
+using (
+  exists (
+    select 1
+    from public.production_orders po
+    where po.id = production_order_inputs.production_order_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and po.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+)
+with check (
+  exists (
+    select 1
+    from public.production_orders po
+    where po.id = production_order_inputs.production_order_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and po.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+create policy production_order_inputs_delete_auth
+on public.production_order_inputs
+for delete
+to authenticated
+using (
+  exists (
+    select 1
+    from public.production_orders po
+    where po.id = production_order_inputs.production_order_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and po.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+drop policy if exists production_order_outputs_select_auth on public.production_order_outputs;
+drop policy if exists production_order_outputs_insert_auth on public.production_order_outputs;
+drop policy if exists production_order_outputs_update_auth on public.production_order_outputs;
+drop policy if exists production_order_outputs_delete_auth on public.production_order_outputs;
+
+create policy production_order_outputs_select_auth
+on public.production_order_outputs
+for select
+to authenticated
+using (
+  exists (
+    select 1
+    from public.production_orders po
+    where po.id = production_order_outputs.production_order_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and po.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+create policy production_order_outputs_insert_auth
+on public.production_order_outputs
+for insert
+to authenticated
+with check (
+  exists (
+    select 1
+    from public.production_orders po
+    where po.id = production_order_outputs.production_order_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and po.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+create policy production_order_outputs_update_auth
+on public.production_order_outputs
+for update
+to authenticated
+using (
+  exists (
+    select 1
+    from public.production_orders po
+    where po.id = production_order_outputs.production_order_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and po.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+)
+with check (
+  exists (
+    select 1
+    from public.production_orders po
+    where po.id = production_order_outputs.production_order_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and po.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+create policy production_order_outputs_delete_auth
+on public.production_order_outputs
+for delete
+to authenticated
+using (
+  exists (
+    select 1
+    from public.production_orders po
+    where po.id = production_order_outputs.production_order_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and po.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+-- Query examples
+-- select id, production_number, title, status, created_at, completed_at
+-- from public.production_orders
+-- where company_id = 'YOUR-COMPANY-UUID'
+-- order by created_at desc;
+
+-- select material_code, position, required_quantity, stock_quantity_snapshot, line_note
+-- from public.production_order_inputs
+-- where production_order_id = 'YOUR-PRODUCTION-UUID'
+-- order by created_at asc;
+
+-- select material_code, position, output_quantity, line_note
+-- from public.production_order_outputs
+-- where production_order_id = 'YOUR-PRODUCTION-UUID'
+-- order by created_at asc;
+
+-- Runtime note:
+-- frontend completion writes standard ISSUE / RECEIVE events into stock_history
+-- so stock rebuild and analytics stay compatible with current DB model.
+-- <<< END 28_wms_production_orders_core.txt
+
+-- >>> BEGIN 39_wms_mes_core.txt
+-- 39_wms_mes_core.txt
+-- Additive MES foundation for factory overview, Raspberry Pi HMI, and mobile/operator workflows.
+-- Recommended run after:
+--   28_wms_production_orders_core.txt
+--   38_wms_transactions_quantity_support.txt
+
+create extension if not exists pgcrypto;
+
+-- Workstations = logical production workplaces shown on factory overview and bound to HMI terminals.
+create table if not exists public.mes_workstations (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies (id) on delete cascade,
+  code text not null,
+  name text not null,
+  area text not null default '',
+  description text not null default '',
+  target_cycle_seconds integer check (target_cycle_seconds is null or target_cycle_seconds > 0),
+  ideal_units_per_hour numeric(12, 2) check (ideal_units_per_hour is null or ideal_units_per_hour > 0),
+  hmi_enabled boolean not null default true,
+  sort_order integer not null default 0,
+  is_active boolean not null default true,
+  created_by uuid references auth.users (id),
+  updated_by uuid references auth.users (id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint mes_workstations_company_code_unique unique (company_id, code)
+);
+
+-- Machines = physical assets assigned to one workstation.
+create table if not exists public.mes_machines (
+  id uuid primary key default gen_random_uuid(),
+  workstation_id uuid not null references public.mes_workstations (id) on delete cascade,
+  code text not null,
+  name text not null,
+  asset_tag text not null default '',
+  serial_number text not null default '',
+  machine_state text not null default 'idle'
+    check (machine_state in ('idle', 'running', 'setup', 'down', 'maintenance', 'offline')),
+  last_heartbeat_at timestamptz,
+  is_active boolean not null default true,
+  created_by uuid references auth.users (id),
+  updated_by uuid references auth.users (id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint mes_machines_workstation_code_unique unique (workstation_id, code)
+);
+
+-- HMI terminals = Raspberry Pi / Android / kiosk endpoints tied to a workstation.
+create table if not exists public.mes_hmi_terminals (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies (id) on delete cascade,
+  workstation_id uuid references public.mes_workstations (id) on delete set null,
+  terminal_code text not null,
+  name text not null,
+  platform text not null default 'raspberry_pi'
+    check (platform in ('raspberry_pi', 'android', 'web_kiosk', 'other')),
+  app_mode text not null default 'hmi'
+    check (app_mode in ('hmi', 'overview', 'maintenance')),
+  app_version text not null default '',
+  last_ip text not null default '',
+  last_seen_at timestamptz,
+  is_active boolean not null default true,
+  created_by uuid references auth.users (id),
+  updated_by uuid references auth.users (id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint mes_hmi_terminals_company_code_unique unique (company_id, terminal_code)
+);
+
+-- Downtime reasons = master data for pause/stop/andon classification.
+create table if not exists public.mes_downtime_reasons (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies (id) on delete cascade,
+  code text not null,
+  name text not null,
+  category text not null default 'unplanned'
+    check (category in ('planned', 'unplanned', 'material', 'quality', 'maintenance', 'setup', 'other')),
+  is_planned boolean not null default false,
+  sort_order integer not null default 0,
+  is_active boolean not null default true,
+  created_by uuid references auth.users (id),
+  updated_by uuid references auth.users (id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint mes_downtime_reasons_company_code_unique unique (company_id, code)
+);
+
+-- Job runs = one execution instance on a workstation/machine.
+-- Can optionally point to the existing production_orders table.
+create table if not exists public.mes_job_runs (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies (id) on delete cascade,
+  production_order_id uuid references public.production_orders (id) on delete set null,
+  workstation_id uuid not null references public.mes_workstations (id) on delete restrict,
+  machine_id uuid references public.mes_machines (id) on delete set null,
+  terminal_id uuid references public.mes_hmi_terminals (id) on delete set null,
+  operator_user_id uuid references auth.users (id) on delete set null,
+  operator_name text not null default '',
+  job_number text not null default '',
+  item_code text not null default '',
+  item_name text not null default '',
+  status text not null default 'planned'
+    check (status in ('planned', 'queued', 'running', 'paused', 'completed', 'cancelled')),
+  planned_quantity integer not null default 0 check (planned_quantity >= 0),
+  good_quantity integer not null default 0 check (good_quantity >= 0),
+  scrap_quantity integer not null default 0 check (scrap_quantity >= 0),
+  setup_started_at timestamptz,
+  started_at timestamptz,
+  ended_at timestamptz,
+  note text not null default '',
+  created_by uuid references auth.users (id),
+  updated_by uuid references auth.users (id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- Event log = durable MES audit trail for HMI/web/API actions.
+create table if not exists public.mes_job_run_events (
+  id uuid primary key default gen_random_uuid(),
+  job_run_id uuid not null references public.mes_job_runs (id) on delete cascade,
+  company_id uuid not null references public.companies (id) on delete cascade,
+  workstation_id uuid not null references public.mes_workstations (id) on delete restrict,
+  machine_id uuid references public.mes_machines (id) on delete set null,
+  terminal_id uuid references public.mes_hmi_terminals (id) on delete set null,
+  downtime_reason_id uuid references public.mes_downtime_reasons (id) on delete set null,
+  operator_user_id uuid references auth.users (id) on delete set null,
+  operator_name text not null default '',
+  event_type text not null
+    check (event_type in (
+      'assign',
+      'queue',
+      'start',
+      'pause',
+      'resume',
+      'downtime_start',
+      'downtime_end',
+      'good_count',
+      'scrap_count',
+      'setup_start',
+      'setup_end',
+      'complete',
+      'cancel',
+      'note'
+    )),
+  quantity integer not null default 0 check (quantity >= 0),
+  source text not null default 'web'
+    check (source in ('web', 'hmi', 'api', 'system')),
+  note text not null default '',
+  payload jsonb not null default '{}'::jsonb,
+  happened_at timestamptz not null default now(),
+  created_by uuid references auth.users (id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists idx_mes_workstations_company_code_unique
+  on public.mes_workstations (company_id, code);
+
+create index if not exists idx_mes_workstations_company_sort
+  on public.mes_workstations (company_id, sort_order, name);
+
+create index if not exists idx_mes_workstations_company_active
+  on public.mes_workstations (company_id, is_active);
+
+create index if not exists idx_mes_machines_workstation
+  on public.mes_machines (workstation_id);
+
+create index if not exists idx_mes_machines_workstation_state
+  on public.mes_machines (workstation_id, machine_state, is_active);
+
+create unique index if not exists idx_mes_hmi_terminals_company_code_unique
+  on public.mes_hmi_terminals (company_id, terminal_code);
+
+create index if not exists idx_mes_hmi_terminals_company_active
+  on public.mes_hmi_terminals (company_id, is_active, last_seen_at desc);
+
+create unique index if not exists idx_mes_downtime_reasons_company_code_unique
+  on public.mes_downtime_reasons (company_id, code);
+
+create index if not exists idx_mes_downtime_reasons_company_sort
+  on public.mes_downtime_reasons (company_id, sort_order, name);
+
+create index if not exists idx_mes_job_runs_company_status
+  on public.mes_job_runs (company_id, status, created_at desc);
+
+create index if not exists idx_mes_job_runs_workstation_status
+  on public.mes_job_runs (workstation_id, status, created_at desc);
+
+create index if not exists idx_mes_job_runs_machine_status
+  on public.mes_job_runs (machine_id, status, created_at desc);
+
+create index if not exists idx_mes_job_runs_production_order
+  on public.mes_job_runs (production_order_id);
+
+create index if not exists idx_mes_job_run_events_job_happened
+  on public.mes_job_run_events (job_run_id, happened_at desc);
+
+create index if not exists idx_mes_job_run_events_company_happened
+  on public.mes_job_run_events (company_id, happened_at desc);
+
+create index if not exists idx_mes_job_run_events_workstation_happened
+  on public.mes_job_run_events (workstation_id, happened_at desc);
+
+create index if not exists idx_mes_job_run_events_machine_happened
+  on public.mes_job_run_events (machine_id, happened_at desc);
+
+create index if not exists idx_mes_job_run_events_terminal_happened
+  on public.mes_job_run_events (terminal_id, happened_at desc);
+
+create index if not exists idx_mes_job_run_events_type_happened
+  on public.mes_job_run_events (event_type, happened_at desc);
+
+create or replace function public.mes_touch_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at := now();
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_mes_workstations_touch_updated_at on public.mes_workstations;
+create trigger trg_mes_workstations_touch_updated_at
+before update on public.mes_workstations
+for each row execute function public.mes_touch_updated_at();
+
+drop trigger if exists trg_mes_machines_touch_updated_at on public.mes_machines;
+create trigger trg_mes_machines_touch_updated_at
+before update on public.mes_machines
+for each row execute function public.mes_touch_updated_at();
+
+drop trigger if exists trg_mes_hmi_terminals_touch_updated_at on public.mes_hmi_terminals;
+create trigger trg_mes_hmi_terminals_touch_updated_at
+before update on public.mes_hmi_terminals
+for each row execute function public.mes_touch_updated_at();
+
+drop trigger if exists trg_mes_downtime_reasons_touch_updated_at on public.mes_downtime_reasons;
+create trigger trg_mes_downtime_reasons_touch_updated_at
+before update on public.mes_downtime_reasons
+for each row execute function public.mes_touch_updated_at();
+
+drop trigger if exists trg_mes_job_runs_touch_updated_at on public.mes_job_runs;
+create trigger trg_mes_job_runs_touch_updated_at
+before update on public.mes_job_runs
+for each row execute function public.mes_touch_updated_at();
+
+alter table public.mes_workstations enable row level security;
+alter table public.mes_machines enable row level security;
+alter table public.mes_hmi_terminals enable row level security;
+alter table public.mes_downtime_reasons enable row level security;
+alter table public.mes_job_runs enable row level security;
+alter table public.mes_job_run_events enable row level security;
+
+drop policy if exists mes_workstations_select_auth on public.mes_workstations;
+drop policy if exists mes_workstations_insert_auth on public.mes_workstations;
+drop policy if exists mes_workstations_update_auth on public.mes_workstations;
+drop policy if exists mes_workstations_delete_auth on public.mes_workstations;
+
+create policy mes_workstations_select_auth
+on public.mes_workstations
+for select
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or company_id = public.user_company_id(auth.uid())
+);
+
+create policy mes_workstations_insert_auth
+on public.mes_workstations
+for insert
+to authenticated
+with check (
+  public.is_master(auth.uid())
+  or company_id = public.user_company_id(auth.uid())
+);
+
+create policy mes_workstations_update_auth
+on public.mes_workstations
+for update
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or company_id = public.user_company_id(auth.uid())
+)
+with check (
+  public.is_master(auth.uid())
+  or company_id = public.user_company_id(auth.uid())
+);
+
+create policy mes_workstations_delete_auth
+on public.mes_workstations
+for delete
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or company_id = public.user_company_id(auth.uid())
+);
+
+drop policy if exists mes_machines_select_auth on public.mes_machines;
+drop policy if exists mes_machines_insert_auth on public.mes_machines;
+drop policy if exists mes_machines_update_auth on public.mes_machines;
+drop policy if exists mes_machines_delete_auth on public.mes_machines;
+
+create policy mes_machines_select_auth
+on public.mes_machines
+for select
+to authenticated
+using (
+  exists (
+    select 1
+    from public.mes_workstations ws
+    where ws.id = mes_machines.workstation_id
+      and (
+        public.is_master(auth.uid())
+        or ws.company_id = public.user_company_id(auth.uid())
+      )
+  )
+);
+
+create policy mes_machines_insert_auth
+on public.mes_machines
+for insert
+to authenticated
+with check (
+  exists (
+    select 1
+    from public.mes_workstations ws
+    where ws.id = mes_machines.workstation_id
+      and (
+        public.is_master(auth.uid())
+        or ws.company_id = public.user_company_id(auth.uid())
+      )
+  )
+);
+
+create policy mes_machines_update_auth
+on public.mes_machines
+for update
+to authenticated
+using (
+  exists (
+    select 1
+    from public.mes_workstations ws
+    where ws.id = mes_machines.workstation_id
+      and (
+        public.is_master(auth.uid())
+        or ws.company_id = public.user_company_id(auth.uid())
+      )
+  )
+)
+with check (
+  exists (
+    select 1
+    from public.mes_workstations ws
+    where ws.id = mes_machines.workstation_id
+      and (
+        public.is_master(auth.uid())
+        or ws.company_id = public.user_company_id(auth.uid())
+      )
+  )
+);
+
+create policy mes_machines_delete_auth
+on public.mes_machines
+for delete
+to authenticated
+using (
+  exists (
+    select 1
+    from public.mes_workstations ws
+    where ws.id = mes_machines.workstation_id
+      and (
+        public.is_master(auth.uid())
+        or ws.company_id = public.user_company_id(auth.uid())
+      )
+  )
+);
+
+drop policy if exists mes_hmi_terminals_select_auth on public.mes_hmi_terminals;
+drop policy if exists mes_hmi_terminals_insert_auth on public.mes_hmi_terminals;
+drop policy if exists mes_hmi_terminals_update_auth on public.mes_hmi_terminals;
+drop policy if exists mes_hmi_terminals_delete_auth on public.mes_hmi_terminals;
+
+create policy mes_hmi_terminals_select_auth
+on public.mes_hmi_terminals
+for select
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or company_id = public.user_company_id(auth.uid())
+);
+
+create policy mes_hmi_terminals_insert_auth
+on public.mes_hmi_terminals
+for insert
+to authenticated
+with check (
+  public.is_master(auth.uid())
+  or company_id = public.user_company_id(auth.uid())
+);
+
+create policy mes_hmi_terminals_update_auth
+on public.mes_hmi_terminals
+for update
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or company_id = public.user_company_id(auth.uid())
+)
+with check (
+  public.is_master(auth.uid())
+  or company_id = public.user_company_id(auth.uid())
+);
+
+create policy mes_hmi_terminals_delete_auth
+on public.mes_hmi_terminals
+for delete
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or company_id = public.user_company_id(auth.uid())
+);
+
+drop policy if exists mes_downtime_reasons_select_auth on public.mes_downtime_reasons;
+drop policy if exists mes_downtime_reasons_insert_auth on public.mes_downtime_reasons;
+drop policy if exists mes_downtime_reasons_update_auth on public.mes_downtime_reasons;
+drop policy if exists mes_downtime_reasons_delete_auth on public.mes_downtime_reasons;
+
+create policy mes_downtime_reasons_select_auth
+on public.mes_downtime_reasons
+for select
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or company_id = public.user_company_id(auth.uid())
+);
+
+create policy mes_downtime_reasons_insert_auth
+on public.mes_downtime_reasons
+for insert
+to authenticated
+with check (
+  public.is_master(auth.uid())
+  or company_id = public.user_company_id(auth.uid())
+);
+
+create policy mes_downtime_reasons_update_auth
+on public.mes_downtime_reasons
+for update
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or company_id = public.user_company_id(auth.uid())
+)
+with check (
+  public.is_master(auth.uid())
+  or company_id = public.user_company_id(auth.uid())
+);
+
+create policy mes_downtime_reasons_delete_auth
+on public.mes_downtime_reasons
+for delete
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or company_id = public.user_company_id(auth.uid())
+);
+
+drop policy if exists mes_job_runs_select_auth on public.mes_job_runs;
+drop policy if exists mes_job_runs_insert_auth on public.mes_job_runs;
+drop policy if exists mes_job_runs_update_auth on public.mes_job_runs;
+drop policy if exists mes_job_runs_delete_auth on public.mes_job_runs;
+
+create policy mes_job_runs_select_auth
+on public.mes_job_runs
+for select
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or company_id = public.user_company_id(auth.uid())
+);
+
+create policy mes_job_runs_insert_auth
+on public.mes_job_runs
+for insert
+to authenticated
+with check (
+  public.is_master(auth.uid())
+  or company_id = public.user_company_id(auth.uid())
+);
+
+create policy mes_job_runs_update_auth
+on public.mes_job_runs
+for update
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or company_id = public.user_company_id(auth.uid())
+)
+with check (
+  public.is_master(auth.uid())
+  or company_id = public.user_company_id(auth.uid())
+);
+
+create policy mes_job_runs_delete_auth
+on public.mes_job_runs
+for delete
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or company_id = public.user_company_id(auth.uid())
+);
+
+drop policy if exists mes_job_run_events_select_auth on public.mes_job_run_events;
+drop policy if exists mes_job_run_events_insert_auth on public.mes_job_run_events;
+drop policy if exists mes_job_run_events_update_auth on public.mes_job_run_events;
+drop policy if exists mes_job_run_events_delete_auth on public.mes_job_run_events;
+
+create policy mes_job_run_events_select_auth
+on public.mes_job_run_events
+for select
+to authenticated
+using (
+  exists (
+    select 1
+    from public.mes_job_runs jr
+    where jr.id = mes_job_run_events.job_run_id
+      and (
+        public.is_master(auth.uid())
+        or jr.company_id = public.user_company_id(auth.uid())
+      )
+  )
+);
+
+create policy mes_job_run_events_insert_auth
+on public.mes_job_run_events
+for insert
+to authenticated
+with check (
+  exists (
+    select 1
+    from public.mes_job_runs jr
+    where jr.id = mes_job_run_events.job_run_id
+      and jr.company_id = mes_job_run_events.company_id
+      and jr.workstation_id = mes_job_run_events.workstation_id
+      and (
+        mes_job_run_events.machine_id is null
+        or jr.machine_id is null
+        or jr.machine_id = mes_job_run_events.machine_id
+      )
+      and (
+        mes_job_run_events.terminal_id is null
+        or exists (
+          select 1
+          from public.mes_hmi_terminals tt
+          where tt.id = mes_job_run_events.terminal_id
+            and tt.company_id = jr.company_id
+            and (tt.workstation_id is null or tt.workstation_id = jr.workstation_id)
+        )
+      )
+      and (
+        public.is_master(auth.uid())
+        or jr.company_id = public.user_company_id(auth.uid())
+      )
+  )
+);
+
+create policy mes_job_run_events_update_auth
+on public.mes_job_run_events
+for update
+to authenticated
+using (
+  exists (
+    select 1
+    from public.mes_job_runs jr
+    where jr.id = mes_job_run_events.job_run_id
+      and (
+        public.is_master(auth.uid())
+        or jr.company_id = public.user_company_id(auth.uid())
+      )
+  )
+)
+with check (
+  exists (
+    select 1
+    from public.mes_job_runs jr
+    where jr.id = mes_job_run_events.job_run_id
+      and jr.company_id = mes_job_run_events.company_id
+      and jr.workstation_id = mes_job_run_events.workstation_id
+      and (
+        mes_job_run_events.machine_id is null
+        or jr.machine_id is null
+        or jr.machine_id = mes_job_run_events.machine_id
+      )
+      and (
+        mes_job_run_events.terminal_id is null
+        or exists (
+          select 1
+          from public.mes_hmi_terminals tt
+          where tt.id = mes_job_run_events.terminal_id
+            and tt.company_id = jr.company_id
+            and (tt.workstation_id is null or tt.workstation_id = jr.workstation_id)
+        )
+      )
+      and (
+        public.is_master(auth.uid())
+        or jr.company_id = public.user_company_id(auth.uid())
+      )
+  )
+);
+
+create policy mes_job_run_events_delete_auth
+on public.mes_job_run_events
+for delete
+to authenticated
+using (
+  exists (
+    select 1
+    from public.mes_job_runs jr
+    where jr.id = mes_job_run_events.job_run_id
+      and (
+        public.is_master(auth.uid())
+        or jr.company_id = public.user_company_id(auth.uid())
+      )
+  )
+);
+
+create or replace function public.mes_factory_overview(p_company_id uuid default null)
+returns table (
+  workstation_id uuid,
+  workstation_code text,
+  workstation_name text,
+  workstation_area text,
+  workstation_active boolean,
+  hmi_enabled boolean,
+  machine_id uuid,
+  machine_code text,
+  machine_name text,
+  machine_state text,
+  machine_last_heartbeat_at timestamptz,
+  terminal_id uuid,
+  terminal_code text,
+  terminal_name text,
+  terminal_last_seen_at timestamptz,
+  job_run_id uuid,
+  production_order_id uuid,
+  job_number text,
+  item_code text,
+  item_name text,
+  job_status text,
+  operator_name text,
+  planned_quantity integer,
+  good_quantity integer,
+  scrap_quantity integer,
+  started_at timestamptz,
+  current_downtime_reason text,
+  latest_event_at timestamptz
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_company_id uuid;
+begin
+  if p_company_id is null then
+    v_company_id := public.user_company_id(auth.uid());
+  else
+    v_company_id := p_company_id;
+  end if;
+
+  if v_company_id is null then
+    raise exception 'Company scope is required';
+  end if;
+
+  if not public.is_master(auth.uid()) and v_company_id <> public.user_company_id(auth.uid()) then
+    raise exception 'Access denied for company %', v_company_id;
+  end if;
+
+  return query
+  with active_runs as (
+    select distinct on (jr.workstation_id)
+      jr.id,
+      jr.company_id,
+      jr.production_order_id,
+      jr.workstation_id,
+      jr.machine_id,
+      jr.terminal_id,
+      jr.job_number,
+      jr.item_code,
+      jr.item_name,
+      jr.status,
+      jr.operator_name,
+      jr.planned_quantity,
+      jr.good_quantity,
+      jr.scrap_quantity,
+      jr.started_at,
+      jr.created_at
+    from public.mes_job_runs jr
+    where jr.company_id = v_company_id
+      and jr.status in ('queued', 'running', 'paused')
+    order by
+      jr.workstation_id,
+      case jr.status when 'running' then 0 when 'paused' then 1 else 2 end,
+      coalesce(jr.started_at, jr.created_at) desc
+  ),
+  last_events as (
+    select distinct on (e.job_run_id)
+      e.job_run_id,
+      e.event_type,
+      e.happened_at,
+      dr.name as downtime_reason_name
+    from public.mes_job_run_events e
+    left join public.mes_downtime_reasons dr on dr.id = e.downtime_reason_id
+    order by e.job_run_id, e.happened_at desc, e.created_at desc
+  )
+  select
+    ws.id as workstation_id,
+    ws.code as workstation_code,
+    ws.name as workstation_name,
+    ws.area as workstation_area,
+    ws.is_active as workstation_active,
+    ws.hmi_enabled,
+    m.id as machine_id,
+    m.code as machine_code,
+    m.name as machine_name,
+    m.machine_state,
+    m.last_heartbeat_at as machine_last_heartbeat_at,
+    t.id as terminal_id,
+    t.terminal_code,
+    t.name as terminal_name,
+    t.last_seen_at as terminal_last_seen_at,
+    ar.id as job_run_id,
+    ar.production_order_id,
+    ar.job_number,
+    ar.item_code,
+    ar.item_name,
+    ar.status as job_status,
+    ar.operator_name,
+    ar.planned_quantity,
+    ar.good_quantity,
+    ar.scrap_quantity,
+    ar.started_at,
+    case when le.event_type = 'downtime_start' then le.downtime_reason_name else null end as current_downtime_reason,
+    le.happened_at as latest_event_at
+  from public.mes_workstations ws
+  left join lateral (
+    select mm.id, mm.code, mm.name, mm.machine_state, mm.last_heartbeat_at
+    from public.mes_machines mm
+    where mm.workstation_id = ws.id
+      and mm.is_active = true
+    order by mm.created_at asc
+    limit 1
+  ) m on true
+  left join lateral (
+    select tt.id, tt.terminal_code, tt.name, tt.last_seen_at
+    from public.mes_hmi_terminals tt
+    where tt.workstation_id = ws.id
+      and tt.is_active = true
+    order by tt.created_at asc
+    limit 1
+  ) t on true
+  left join active_runs ar
+    on ar.workstation_id = ws.id
+  left join last_events le
+    on le.job_run_id = ar.id
+  where ws.company_id = v_company_id
+  order by ws.sort_order asc, ws.name asc;
+end;
+$$;
+
+grant execute on function public.mes_factory_overview(uuid) to authenticated;
+
+-- Seed suggestion examples
+-- insert into public.mes_workstations (company_id, code, name, area, sort_order)
+-- values ('YOUR-COMPANY-UUID', 'CUT-01', 'Rezanie 01', 'Hala A', 10);
+--
+-- insert into public.mes_machines (workstation_id, code, name, machine_state)
+-- values ('YOUR-WORKSTATION-UUID', 'CUTTER-01', 'Rezacie centrum 01', 'idle');
+--
+-- insert into public.mes_hmi_terminals (company_id, workstation_id, terminal_code, name, platform, app_mode)
+-- values ('YOUR-COMPANY-UUID', 'YOUR-WORKSTATION-UUID', 'RPI-CUT-01', 'Raspberry Pi Rezanie 01', 'raspberry_pi', 'hmi');
+--
+-- insert into public.mes_downtime_reasons (company_id, code, name, category, is_planned, sort_order)
+-- values ('YOUR-COMPANY-UUID', 'MAT', 'Chyba material', 'material', false, 10);
+--
+-- select * from public.mes_factory_overview('YOUR-COMPANY-UUID');
+-- <<< END 39_wms_mes_core.txt
+
+-- >>> BEGIN 40_wms_mes_access_control.txt
+-- 40_wms_mes_access_control.txt
+-- Company-level and user-level MES access control.
+-- Run after:
+--   20_wms_users_core.txt
+--   39_wms_mes_core.txt
+
+alter table public.companies
+add column if not exists mes_enabled boolean not null default false;
+
+alter table public.app_users
+add column if not exists can_access_mes boolean not null default false;
+
+update public.app_users
+set can_access_mes = true
+where role = 'master';
+
+update public.app_users
+set can_access_mes = false
+where can_access_mes is null;
+
+create index if not exists idx_companies_mes_enabled
+  on public.companies (mes_enabled);
+
+create index if not exists idx_app_users_can_access_mes
+  on public.app_users (can_access_mes);
+
+create or replace function public.can_access_mes(uid uuid default auth.uid())
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.app_users au
+    left join public.companies c on c.id = au.company_id
+    where au.user_id = uid
+      and (
+        au.role = 'master'
+        or (
+          au.can_access_mes = true
+          and coalesce(c.mes_enabled, false) = true
+        )
+      )
+  );
+$$;
+
+grant execute on function public.can_access_mes(uuid) to authenticated;
+
+create or replace function public.set_company_mes_enabled(target_company_id uuid, target_enabled boolean)
+returns public.companies
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_company public.companies;
+begin
+  if not public.is_master(auth.uid()) then
+    raise exception 'Only master can change MES company access';
+  end if;
+
+  if target_company_id is null then
+    raise exception 'company_id is required';
+  end if;
+
+  update public.companies
+  set mes_enabled = coalesce(target_enabled, false)
+  where id = target_company_id
+  returning * into v_company;
+
+  if v_company is null then
+    raise exception 'company not found';
+  end if;
+
+  return v_company;
+end;
+$$;
+
+grant execute on function public.set_company_mes_enabled(uuid, boolean) to authenticated;
+
+create or replace function public.set_user_mes_access(target_user_id uuid, target_enabled boolean)
+returns public.app_users
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_row public.app_users;
+begin
+  if not public.is_master(auth.uid()) then
+    raise exception 'Only master can change MES user access';
+  end if;
+
+  if target_user_id is null then
+    raise exception 'user_id is required';
+  end if;
+
+  update public.app_users
+  set can_access_mes = case when role = 'master' then true else coalesce(target_enabled, false) end,
+      updated_at = now()
+  where user_id = target_user_id
+  returning * into v_row;
+
+  if v_row is null then
+    raise exception 'app_user not found';
+  end if;
+
+  return v_row;
+end;
+$$;
+
+grant execute on function public.set_user_mes_access(uuid, boolean) to authenticated;
+
+-- MES tables must now respect company-level and user-level access, while master keeps global access.
+
+drop policy if exists mes_workstations_select_auth on public.mes_workstations;
+drop policy if exists mes_workstations_insert_auth on public.mes_workstations;
+drop policy if exists mes_workstations_update_auth on public.mes_workstations;
+drop policy if exists mes_workstations_delete_auth on public.mes_workstations;
+
+create policy mes_workstations_select_auth
+on public.mes_workstations
+for select
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_access_mes(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy mes_workstations_insert_auth
+on public.mes_workstations
+for insert
+to authenticated
+with check (
+  public.is_master(auth.uid())
+  or (
+    public.can_access_mes(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy mes_workstations_update_auth
+on public.mes_workstations
+for update
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_access_mes(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+)
+with check (
+  public.is_master(auth.uid())
+  or (
+    public.can_access_mes(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy mes_workstations_delete_auth
+on public.mes_workstations
+for delete
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_access_mes(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+drop policy if exists mes_machines_select_auth on public.mes_machines;
+drop policy if exists mes_machines_insert_auth on public.mes_machines;
+drop policy if exists mes_machines_update_auth on public.mes_machines;
+drop policy if exists mes_machines_delete_auth on public.mes_machines;
+
+create policy mes_machines_select_auth
+on public.mes_machines
+for select
+to authenticated
+using (
+  exists (
+    select 1
+    from public.mes_workstations ws
+    where ws.id = mes_machines.workstation_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_access_mes(auth.uid())
+          and ws.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+create policy mes_machines_insert_auth
+on public.mes_machines
+for insert
+to authenticated
+with check (
+  exists (
+    select 1
+    from public.mes_workstations ws
+    where ws.id = mes_machines.workstation_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_access_mes(auth.uid())
+          and ws.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+create policy mes_machines_update_auth
+on public.mes_machines
+for update
+to authenticated
+using (
+  exists (
+    select 1
+    from public.mes_workstations ws
+    where ws.id = mes_machines.workstation_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_access_mes(auth.uid())
+          and ws.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+)
+with check (
+  exists (
+    select 1
+    from public.mes_workstations ws
+    where ws.id = mes_machines.workstation_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_access_mes(auth.uid())
+          and ws.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+create policy mes_machines_delete_auth
+on public.mes_machines
+for delete
+to authenticated
+using (
+  exists (
+    select 1
+    from public.mes_workstations ws
+    where ws.id = mes_machines.workstation_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_access_mes(auth.uid())
+          and ws.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+drop policy if exists mes_hmi_terminals_select_auth on public.mes_hmi_terminals;
+drop policy if exists mes_hmi_terminals_insert_auth on public.mes_hmi_terminals;
+drop policy if exists mes_hmi_terminals_update_auth on public.mes_hmi_terminals;
+drop policy if exists mes_hmi_terminals_delete_auth on public.mes_hmi_terminals;
+
+create policy mes_hmi_terminals_select_auth
+on public.mes_hmi_terminals
+for select
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_access_mes(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy mes_hmi_terminals_insert_auth
+on public.mes_hmi_terminals
+for insert
+to authenticated
+with check (
+  public.is_master(auth.uid())
+  or (
+    public.can_access_mes(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy mes_hmi_terminals_update_auth
+on public.mes_hmi_terminals
+for update
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_access_mes(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+)
+with check (
+  public.is_master(auth.uid())
+  or (
+    public.can_access_mes(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy mes_hmi_terminals_delete_auth
+on public.mes_hmi_terminals
+for delete
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_access_mes(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+drop policy if exists mes_downtime_reasons_select_auth on public.mes_downtime_reasons;
+drop policy if exists mes_downtime_reasons_insert_auth on public.mes_downtime_reasons;
+drop policy if exists mes_downtime_reasons_update_auth on public.mes_downtime_reasons;
+drop policy if exists mes_downtime_reasons_delete_auth on public.mes_downtime_reasons;
+
+create policy mes_downtime_reasons_select_auth
+on public.mes_downtime_reasons
+for select
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_access_mes(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy mes_downtime_reasons_insert_auth
+on public.mes_downtime_reasons
+for insert
+to authenticated
+with check (
+  public.is_master(auth.uid())
+  or (
+    public.can_access_mes(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy mes_downtime_reasons_update_auth
+on public.mes_downtime_reasons
+for update
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_access_mes(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+)
+with check (
+  public.is_master(auth.uid())
+  or (
+    public.can_access_mes(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy mes_downtime_reasons_delete_auth
+on public.mes_downtime_reasons
+for delete
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_access_mes(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+drop policy if exists mes_job_runs_select_auth on public.mes_job_runs;
+drop policy if exists mes_job_runs_insert_auth on public.mes_job_runs;
+drop policy if exists mes_job_runs_update_auth on public.mes_job_runs;
+drop policy if exists mes_job_runs_delete_auth on public.mes_job_runs;
+
+create policy mes_job_runs_select_auth
+on public.mes_job_runs
+for select
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_access_mes(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy mes_job_runs_insert_auth
+on public.mes_job_runs
+for insert
+to authenticated
+with check (
+  public.is_master(auth.uid())
+  or (
+    public.can_access_mes(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy mes_job_runs_update_auth
+on public.mes_job_runs
+for update
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_access_mes(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+)
+with check (
+  public.is_master(auth.uid())
+  or (
+    public.can_access_mes(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy mes_job_runs_delete_auth
+on public.mes_job_runs
+for delete
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_access_mes(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+drop policy if exists mes_job_run_events_select_auth on public.mes_job_run_events;
+drop policy if exists mes_job_run_events_insert_auth on public.mes_job_run_events;
+drop policy if exists mes_job_run_events_update_auth on public.mes_job_run_events;
+drop policy if exists mes_job_run_events_delete_auth on public.mes_job_run_events;
+
+create policy mes_job_run_events_select_auth
+on public.mes_job_run_events
+for select
+to authenticated
+using (
+  exists (
+    select 1
+    from public.mes_job_runs jr
+    where jr.id = mes_job_run_events.job_run_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_access_mes(auth.uid())
+          and jr.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+create policy mes_job_run_events_insert_auth
+on public.mes_job_run_events
+for insert
+to authenticated
+with check (
+  exists (
+    select 1
+    from public.mes_job_runs jr
+    where jr.id = mes_job_run_events.job_run_id
+      and jr.company_id = mes_job_run_events.company_id
+      and jr.workstation_id = mes_job_run_events.workstation_id
+      and (
+        mes_job_run_events.machine_id is null
+        or jr.machine_id is null
+        or jr.machine_id = mes_job_run_events.machine_id
+      )
+      and (
+        mes_job_run_events.terminal_id is null
+        or exists (
+          select 1
+          from public.mes_hmi_terminals tt
+          where tt.id = mes_job_run_events.terminal_id
+            and tt.company_id = jr.company_id
+            and (tt.workstation_id is null or tt.workstation_id = jr.workstation_id)
+        )
+      )
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_access_mes(auth.uid())
+          and jr.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+create policy mes_job_run_events_update_auth
+on public.mes_job_run_events
+for update
+to authenticated
+using (
+  exists (
+    select 1
+    from public.mes_job_runs jr
+    where jr.id = mes_job_run_events.job_run_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_access_mes(auth.uid())
+          and jr.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+)
+with check (
+  exists (
+    select 1
+    from public.mes_job_runs jr
+    where jr.id = mes_job_run_events.job_run_id
+      and jr.workstation_id = mes_job_run_events.workstation_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_access_mes(auth.uid())
+          and jr.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+create policy mes_job_run_events_delete_auth
+on public.mes_job_run_events
+for delete
+to authenticated
+using (
+  exists (
+    select 1
+    from public.mes_job_runs jr
+    where jr.id = mes_job_run_events.job_run_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_access_mes(auth.uid())
+          and jr.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+create or replace function public.mes_factory_overview(p_company_id uuid default null)
+returns table (
+  workstation_id uuid,
+  workstation_code text,
+  workstation_name text,
+  workstation_area text,
+  workstation_active boolean,
+  hmi_enabled boolean,
+  machine_id uuid,
+  machine_code text,
+  machine_name text,
+  machine_state text,
+  machine_last_heartbeat_at timestamptz,
+  terminal_id uuid,
+  terminal_code text,
+  terminal_name text,
+  terminal_last_seen_at timestamptz,
+  job_run_id uuid,
+  production_order_id uuid,
+  job_number text,
+  item_code text,
+  item_name text,
+  job_status text,
+  operator_name text,
+  planned_quantity integer,
+  good_quantity integer,
+  scrap_quantity integer,
+  started_at timestamptz,
+  current_downtime_reason text,
+  latest_event_at timestamptz
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_company_id uuid;
+  v_user_company_id uuid;
+begin
+  v_user_company_id := public.user_company_id(auth.uid());
+
+  if p_company_id is null then
+    v_company_id := v_user_company_id;
+  else
+    v_company_id := p_company_id;
+  end if;
+
+  if v_company_id is null then
+    raise exception 'Company scope is required';
+  end if;
+
+  if not public.is_master(auth.uid()) then
+    if not public.can_access_mes(auth.uid()) then
+      raise exception 'MES access denied';
+    end if;
+
+    if v_company_id <> v_user_company_id then
+      raise exception 'Access denied for company %', v_company_id;
+    end if;
+  end if;
+
+  return query
+  with active_runs as (
+    select distinct on (jr.workstation_id)
+      jr.id,
+      jr.company_id,
+      jr.production_order_id,
+      jr.workstation_id,
+      jr.machine_id,
+      jr.terminal_id,
+      jr.job_number,
+      jr.item_code,
+      jr.item_name,
+      jr.status,
+      jr.operator_name,
+      jr.planned_quantity,
+      jr.good_quantity,
+      jr.scrap_quantity,
+      jr.started_at,
+      jr.created_at
+    from public.mes_job_runs jr
+    where jr.company_id = v_company_id
+      and jr.status in ('queued', 'running', 'paused')
+    order by
+      jr.workstation_id,
+      case jr.status when 'running' then 0 when 'paused' then 1 else 2 end,
+      coalesce(jr.started_at, jr.created_at) desc
+  ),
+  last_events as (
+    select distinct on (e.job_run_id)
+      e.job_run_id,
+      e.event_type,
+      e.happened_at,
+      dr.name as downtime_reason_name
+    from public.mes_job_run_events e
+    left join public.mes_downtime_reasons dr on dr.id = e.downtime_reason_id
+    order by e.job_run_id, e.happened_at desc, e.created_at desc
+  )
+  select
+    ws.id as workstation_id,
+    ws.code as workstation_code,
+    ws.name as workstation_name,
+    ws.area as workstation_area,
+    ws.is_active as workstation_active,
+    ws.hmi_enabled,
+    m.id as machine_id,
+    m.code as machine_code,
+    m.name as machine_name,
+    m.machine_state,
+    m.last_heartbeat_at as machine_last_heartbeat_at,
+    t.id as terminal_id,
+    t.terminal_code,
+    t.name as terminal_name,
+    t.last_seen_at as terminal_last_seen_at,
+    ar.id as job_run_id,
+    ar.production_order_id,
+    ar.job_number,
+    ar.item_code,
+    ar.item_name,
+    ar.status as job_status,
+    ar.operator_name,
+    ar.planned_quantity,
+    ar.good_quantity,
+    ar.scrap_quantity,
+    ar.started_at,
+    case when le.event_type = 'downtime_start' then le.downtime_reason_name else null end as current_downtime_reason,
+    le.happened_at as latest_event_at
+  from public.mes_workstations ws
+  left join lateral (
+    select mm.id, mm.code, mm.name, mm.machine_state, mm.last_heartbeat_at
+    from public.mes_machines mm
+    where mm.workstation_id = ws.id
+      and mm.is_active = true
+    order by mm.created_at asc
+    limit 1
+  ) m on true
+  left join lateral (
+    select tt.id, tt.terminal_code, tt.name, tt.last_seen_at
+    from public.mes_hmi_terminals tt
+    where tt.workstation_id = ws.id
+      and tt.is_active = true
+    order by tt.created_at asc
+    limit 1
+  ) t on true
+  left join active_runs ar
+    on ar.workstation_id = ws.id
+  left join last_events le
+    on le.job_run_id = ar.id
+  where ws.company_id = v_company_id
+  order by ws.sort_order asc, ws.name asc;
+end;
+$$;
+
+grant execute on function public.mes_factory_overview(uuid) to authenticated;
+
+-- Usage examples
+-- select public.set_company_mes_enabled('YOUR-COMPANY-UUID', true);
+-- select public.set_user_mes_access('YOUR-USER-UUID', true);
+-- select public.can_access_mes(auth.uid());
+-- <<< END 40_wms_mes_access_control.txt

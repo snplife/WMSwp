@@ -6,8 +6,8 @@ import {
   getLatestAttendanceEvent,
   requireAttendanceTerminal,
   resolveAttendanceEventType
-} from "../../_lib/attendance.js";
-import { sendJson, sendMethodNotAllowed } from "../../_lib/http.js";
+} from "../../../api/_lib/attendance.js";
+import { sendJson, sendMethodNotAllowed } from "../../../api/_lib/http.js";
 
 function buildSuccessResponse(auth, profile, eventRow, extra = {}) {
   return {

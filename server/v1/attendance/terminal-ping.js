@@ -1,5 +1,5 @@
-import { requireAttendanceTerminal } from "../../_lib/attendance.js";
-import { sendJson, sendMethodNotAllowed } from "../../_lib/http.js";
+import { requireAttendanceTerminal } from "../../../api/_lib/attendance.js";
+import { sendJson, sendMethodNotAllowed } from "../../../api/_lib/http.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {

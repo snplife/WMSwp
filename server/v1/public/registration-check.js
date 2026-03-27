@@ -1,5 +1,5 @@
-import { sendJson, sendMethodNotAllowed } from "../../_lib/http.js";
-import { getSupabaseAdmin } from "../../_lib/supabaseAdmin.js";
+import { sendJson, sendMethodNotAllowed } from "../../../api/_lib/http.js";
+import { getSupabaseAdmin } from "../../../api/_lib/supabaseAdmin.js";
 
 const ROLE_TABLE = String(process.env.VITE_USER_ROLES_TABLE || "app_users").trim() || "app_users";
 

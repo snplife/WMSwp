@@ -1,6 +1,6 @@
-import { sendJson, sendMethodNotAllowed } from "../../_lib/http.js";
-import { submitCompanyInterest } from "../../_lib/billing.js";
-import { requireAuthenticatedCompanyManager } from "../../_lib/userAuth.js";
+import { sendJson, sendMethodNotAllowed } from "../../../api/_lib/http.js";
+import { submitCompanyInterest } from "../../../api/_lib/billing.js";
+import { requireAuthenticatedCompanyManager } from "../../../api/_lib/userAuth.js";
 
 function parseJsonBody(req) {
   if (!req?.body) {

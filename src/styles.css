@@ -2120,24 +2120,9 @@ select {
   width: 100%;
 }
 
-.mes-operator-card-head strong,
-.mes-operator-detail-head strong {
+.mes-operator-card-head strong {
   font-size: 1.02rem;
   color: #17324a;
-}
-
-.mes-operator-detail-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  align-items: flex-start;
-  flex-wrap: wrap;
-}
-
-.mes-operator-detail-head p {
-  margin: 0.2rem 0 0;
-  color: #627689;
-  line-height: 1.45;
 }
 
 .mes-operator-metrics-grid {
@@ -2172,7 +2157,6 @@ select {
   }
 
   .mes-terminal-card-head,
-  .mes-operator-detail-head,
   .mes-operator-card-head {
     flex-direction: column;
   }

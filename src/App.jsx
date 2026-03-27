@@ -4546,6 +4546,16 @@ function isMissingMesDeviceUidColumnError(error) {
   );
 }
 
+function isMissingMesJobRunEventsColumnError(error) {
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    message.includes("mes_job_run_events.") &&
+    (message.includes("does not exist") ||
+      message.includes("schema cache") ||
+      message.includes("could not find"))
+  );
+}
+
 function normalizeAttendanceProfileRow(row) {
   if (!row || typeof row !== "object") {
     return row;
@@ -10606,13 +10616,34 @@ function App() {
       const jobRunIds = (jobRunsData || []).map((row) => row.id).filter(Boolean);
       let eventRows = [];
       if (jobRunIds.length > 0) {
-        const { data: eventData, error: eventError } = await supabase
-          .from("mes_job_run_events")
-          .select("id,job_run_id,company_id,workstation_id,machine_id,terminal_id,downtime_reason_id,event_type,quantity,note,source,payload,happened_at,operator_user_id,operator_name,created_at")
-          .in("job_run_id", jobRunIds)
-          .gte("happened_at", sinceIso)
-          .order("happened_at", { ascending: false })
-          .limit(1000);
+        const eventSelectVariants = [
+          "id,job_run_id,company_id,workstation_id,machine_id,terminal_id,downtime_reason_id,event_type,quantity,note,source,payload,happened_at,operator_user_id,operator_name,created_at",
+          "id,job_run_id,workstation_id,machine_id,terminal_id,downtime_reason_id,event_type,quantity,note,source,payload,happened_at,operator_user_id,operator_name,created_at",
+          "id,job_run_id,workstation_id,machine_id,terminal_id,downtime_reason_id,event_type,quantity,note,source,payload,happened_at,operator_name,created_at",
+          "id,job_run_id,workstation_id,machine_id,terminal_id,downtime_reason_id,event_type,quantity,note,source,payload,happened_at,created_at"
+        ];
+        let eventData = [];
+        let eventError = null;
+
+        for (const selectClause of eventSelectVariants) {
+          const result = await supabase
+            .from("mes_job_run_events")
+            .select(selectClause)
+            .in("job_run_id", jobRunIds)
+            .gte("happened_at", sinceIso)
+            .order("happened_at", { ascending: false })
+            .limit(1000);
+
+          if (!result.error) {
+            eventData = result.data || [];
+            eventError = null;
+            break;
+          }
+          if (!isMissingMesJobRunEventsColumnError(result.error)) {
+            throw result.error;
+          }
+          eventError = result.error;
+        }
 
         if (eventError) {
           throw eventError;

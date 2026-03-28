@@ -10534,7 +10534,58 @@ function App() {
     setMesError("");
 
     try {
-      const sinceIso = new Date(Date.now() - MES_ANALYTICS_LOOKBACK_DAYS * DAY_MS).toISOString();
+      const MES_QUERY_PAGE_SIZE = 1000;
+      const MES_EVENT_JOB_RUN_CHUNK_SIZE = 100;
+      const fetchAllMesJobRuns = async () => {
+        const rows = [];
+        let from = 0;
+
+        while (true) {
+          const { data: pageData, error: pageError } = await supabase
+            .from("mes_job_runs")
+            .select("id,company_id,workstation_id,machine_id,terminal_id,operator_user_id,job_number,item_code,item_name,operator_name,status,planned_quantity,good_quantity,scrap_quantity,started_at,ended_at,created_at,updated_at,note")
+            .eq("company_id", scopedCompanyId)
+            .order("created_at", { ascending: false })
+            .range(from, from + MES_QUERY_PAGE_SIZE - 1);
+
+          if (pageError) {
+            throw pageError;
+          }
+
+          rows.push(...(pageData || []));
+          if (!pageData || pageData.length < MES_QUERY_PAGE_SIZE) {
+            break;
+          }
+          from += MES_QUERY_PAGE_SIZE;
+        }
+
+        return rows;
+      };
+      const fetchMesEventsForJobRunChunk = async (jobRunIdsChunk) => {
+        const rows = [];
+        let from = 0;
+
+        while (true) {
+          const { data: pageData, error: pageError } = await supabase
+            .from("mes_job_run_events")
+            .select("id,job_run_id,workstation_id,machine_id,downtime_reason_id,event_type,quantity,note,source,payload,happened_at,created_at")
+            .in("job_run_id", jobRunIdsChunk)
+            .order("happened_at", { ascending: false })
+            .range(from, from + MES_QUERY_PAGE_SIZE - 1);
+
+          if (pageError) {
+            throw pageError;
+          }
+
+          rows.push(...(pageData || []));
+          if (!pageData || pageData.length < MES_QUERY_PAGE_SIZE) {
+            break;
+          }
+          from += MES_QUERY_PAGE_SIZE;
+        }
+
+        return rows;
+      };
       const terminalsQuery = supabase
         .from("mes_hmi_terminals")
         .select("id,company_id,workstation_id,terminal_code,name,platform,app_mode,app_version,last_ip,last_seen_at,is_active,created_at,updated_at")
@@ -10545,13 +10596,7 @@ function App() {
         supabase.rpc("mes_factory_overview", {
           p_company_id: scopedCompanyId
         }),
-        supabase
-          .from("mes_job_runs")
-          .select("id,company_id,workstation_id,machine_id,terminal_id,operator_user_id,job_number,item_code,item_name,operator_name,status,planned_quantity,good_quantity,scrap_quantity,started_at,ended_at,created_at,updated_at,note")
-          .eq("company_id", scopedCompanyId)
-          .gte("created_at", sinceIso)
-          .order("created_at", { ascending: false })
-          .limit(250),
+        fetchAllMesJobRuns(),
         supabase
           .from("mes_downtime_reasons")
           .select("id,name,code")
@@ -10605,17 +10650,12 @@ function App() {
       const jobRunIds = (jobRunsData || []).map((row) => row.id).filter(Boolean);
       let eventRows = [];
       if (jobRunIds.length > 0) {
-        const { data: eventData, error: eventError } = await supabase
-          .from("mes_job_run_events")
-          .select("id,job_run_id,workstation_id,machine_id,downtime_reason_id,event_type,quantity,note,source,payload,happened_at,created_at")
-          .in("job_run_id", jobRunIds)
-          .gte("happened_at", sinceIso)
-          .order("happened_at", { ascending: false })
-          .limit(1000);
-
-        if (eventError) {
-          throw eventError;
+        const jobRunIdChunks = [];
+        for (let index = 0; index < jobRunIds.length; index += MES_EVENT_JOB_RUN_CHUNK_SIZE) {
+          jobRunIdChunks.push(jobRunIds.slice(index, index + MES_EVENT_JOB_RUN_CHUNK_SIZE));
         }
+        const eventPages = await Promise.all(jobRunIdChunks.map((chunk) => fetchMesEventsForJobRunChunk(chunk)));
+        const eventData = eventPages.flat();
         const jobRunsById = Object.fromEntries((jobRunsData || []).map((row) => [String(row.id || ""), row]));
         eventRows = (eventData || []).map((row) => {
           const run = jobRunsById[String(row.job_run_id || "")] || null;

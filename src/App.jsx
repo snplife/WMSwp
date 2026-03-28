@@ -17789,6 +17789,7 @@ function App() {
     ];
     const selectedMesMachineEventsPreview = selectedMesMachineHistory.slice(0, 4);
     const hasMesMachineHistory = selectedMesMachineHistory.length > 0;
+    const mesTroubleshootingEvents = mesRecentEventRows.slice(0, 20);
 
     return (
       <article className="orders-panel-card workflow-card workflow-card-list mes-dashboard-card">
@@ -18087,6 +18088,56 @@ function App() {
             )}
           </article>
           )}
+
+          <article className="orders-panel-card workflow-card workflow-card-list">
+            <div className="panel-head workflow-section-head">
+              <div>
+                <h2>Posledné MES eventy</h2>
+                <p className="panel-meta">{`${new Intl.NumberFormat("sk-SK").format(mesRecentEventRows.length)} načítaných eventov pre aktuálnu firmu`}</p>
+              </div>
+            </div>
+            {mesTroubleshootingEvents.length === 0 ? (
+              <p className="hint">Web zatiaľ nenačítal žiadne MES eventy pre aktuálnu firmu.</p>
+            ) : (
+              <div className="mes-timeline">
+                {mesTroubleshootingEvents.map((event) => {
+                  const run = mesJobRunsById[String(event.job_run_id || "")] || null;
+                  const workstation = mesWorkstationsById[String(event.workstation_id || "")] || null;
+                  const machine =
+                    machineDashboardRows.find((row) => row.machineId === String(event.machine_id || "")) ||
+                    machineDashboardRows.find((row) => row.workstationId === String(event.workstation_id || "")) ||
+                    null;
+                  const terminal = mesTerminalsById[String(event.terminal_id || "")] || null;
+                  return (
+                    <div key={`troubleshooting-${event.id}`} className="mes-timeline-row">
+                      <div>
+                        <strong>{formatMesEventLabel(event.event_type)}</strong>
+                        <p>
+                          {[
+                            run?.job_number ? `zákazka ${run.job_number}` : "",
+                            machine?.machineName || "",
+                            workstation?.name ? `pracovisko ${workstation.name}` : ""
+                          ]
+                            .filter(Boolean)
+                            .join(" | ") || "-"}
+                        </p>
+                        <p>
+                          {[
+                            event.operator_name ? `operátor ${event.operator_name}` : "",
+                            terminal?.name || terminal?.terminal_code || "",
+                            Number(event.quantity || 0) > 0 ? `množstvo ${new Intl.NumberFormat("sk-SK").format(Number(event.quantity || 0))}` : ""
+                          ]
+                            .filter(Boolean)
+                            .join(" | ") || "Bez doplnkového kontextu"}
+                        </p>
+                      </div>
+                      <span>{formatDate(event.happened_at)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </article>
 
           {machineDashboardRows.length === 0 ? (
             <p className="hint">Pre túto firmu zatiaľ nie sú založené stroje, pracoviská alebo MES job runy.</p>

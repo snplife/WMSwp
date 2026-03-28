@@ -2153,24 +2153,44 @@ select {
 
 .mes-kpi-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.8rem;
 }
 
 .mes-kpi-card {
-  min-height: 118px;
+  display: grid;
+  gap: 0.35rem;
+  min-height: 108px;
+  padding: 1rem 1.05rem;
+  border: 1px solid #d8e1eb;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: none;
+}
+
+.mes-kpi-label {
+  margin: 0;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #627588;
+}
+
+.mes-kpi-meta {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #6d7f91;
 }
 
 .mes-machine-toolbar {
   display: flex;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 0.9rem;
   align-items: end;
   flex-wrap: wrap;
-  padding: 1rem 1.1rem;
-  border: 1px solid #dce6f0;
-  border-radius: 18px;
-  background: linear-gradient(135deg, #f4fbff, #ffffff 60%, #eef6f1);
+  padding: 0 0 0.95rem;
+  border-bottom: 1px solid #e4ebf2;
 }
 
 .mes-machine-picker {
@@ -2196,13 +2216,15 @@ select {
 
 .mes-dashboard-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.95fr);
+  grid-template-columns: minmax(0, 1.6fr) minmax(300px, 0.85fr);
   gap: 1rem;
   align-items: start;
 }
 
 .mes-machine-detail-card {
   min-width: 0;
+  display: grid;
+  gap: 1rem;
 }
 
 .mes-focus-card {
@@ -2242,6 +2264,76 @@ select {
   color: #5e7082;
 }
 
+.mes-machine-summary {
+  display: grid;
+  gap: 1rem;
+}
+
+.mes-machine-summary-main {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.mes-machine-summary-head {
+  display: grid;
+  gap: 0.28rem;
+}
+
+.mes-machine-summary-head strong {
+  font-size: 1.45rem;
+  color: #162e45;
+}
+
+.mes-machine-chip-list {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.mes-machine-alert-note {
+  padding: 0.72rem 0.82rem;
+  border: 1px solid #f0d4a3;
+  border-radius: 12px;
+  background: #fff7e8;
+  color: #8c6114;
+}
+
+.mes-machine-panel-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: 0.85rem;
+}
+
+.mes-data-panel {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.95rem;
+  border: 1px solid #e1e8f0;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+.mes-data-panel-head {
+  display: grid;
+  gap: 0.16rem;
+}
+
+.mes-data-panel-head strong {
+  font-size: 0.95rem;
+  color: #17324a;
+}
+
+.mes-data-panel-head span {
+  font-size: 0.8rem;
+  color: #6a7c8f;
+}
+
+.mes-machine-events {
+  display: grid;
+  gap: 0.75rem;
+  padding-top: 0.1rem;
+}
+
 .mes-focus-stats {
   display: flex;
   gap: 0.5rem;
@@ -2269,7 +2361,7 @@ select {
 
 .mes-timeline {
   display: grid;
-  gap: 0.65rem;
+  gap: 0.6rem;
 }
 
 .mes-timeline-row {
@@ -2277,10 +2369,10 @@ select {
   justify-content: space-between;
   gap: 1rem;
   align-items: start;
-  padding: 0.7rem 0.8rem;
-  border: 1px solid #e1e9f2;
-  border-radius: 14px;
-  background: #fbfdff;
+  padding: 0.82rem 0.9rem;
+  border: 1px solid #e2e8ef;
+  border-radius: 12px;
+  background: #fff;
 }
 
 .mes-timeline-row p,
@@ -2311,17 +2403,21 @@ select {
 .mes-throughput-metrics,
 .mes-quality-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-  gap: 0.65rem;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.7rem;
+}
+
+.mes-detail-stats-compact {
+  grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
 }
 
 .mes-mini-stat {
   display: grid;
-  gap: 0.22rem;
-  padding: 0.82rem 0.88rem;
-  border-radius: 16px;
-  border: 1px solid rgba(221, 233, 245, 0.9);
-  background: rgba(255, 255, 255, 0.86);
+  gap: 0.25rem;
+  padding: 0.85rem 0.9rem;
+  border-radius: 12px;
+  border: 1px solid #dde5ee;
+  background: #fff;
 }
 
 .mes-mini-stat span {
@@ -2389,9 +2485,9 @@ select {
   display: grid;
   gap: 0.42rem;
   padding: 0.9rem;
-  border: 1px solid #dce6f2;
-  border-radius: 18px;
-  background: linear-gradient(180deg, #ffffff, #f6fbff);
+  border: 1px solid #dce5ed;
+  border-radius: 14px;
+  background: #fff;
 }
 
 .mes-oee-card span {
@@ -2408,13 +2504,13 @@ select {
 }
 
 .mes-oee-card-strong {
-  background: linear-gradient(145deg, #14324a, #21506d 58%, #2b6f78);
-  border-color: #173d57;
+  border-color: #bfd2e5;
+  background: #f4f8fc;
 }
 
 .mes-oee-card-strong span,
 .mes-oee-card-strong strong {
-  color: #f4fbf8;
+  color: #163048;
 }
 
 .mes-progress-track {
@@ -2428,11 +2524,11 @@ select {
 .mes-progress-fill {
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #0f8a7f, #0f5f8f);
+  background: #245f99;
 }
 
 .mes-progress-fill-alert {
-  background: linear-gradient(90deg, #ef8d5b, #b34f3d);
+  background: #c4653c;
 }
 
 .mes-progress-cell {
@@ -6908,7 +7004,8 @@ tbody tr:nth-child(even) {
 
   .mes-dashboard-grid,
   .mes-detail-grid,
-  .mes-machine-grid {
+  .mes-machine-grid,
+  .mes-machine-panel-grid {
     grid-template-columns: 1fr;
   }
 
@@ -6917,6 +7014,15 @@ tbody tr:nth-child(even) {
   .mes-quality-grid,
   .mes-detail-stats {
     grid-template-columns: 1fr;
+  }
+
+  .mes-machine-toolbar {
+    align-items: stretch;
+  }
+
+  .mes-machine-toolbar-meta,
+  .mes-machine-chip-list {
+    width: 100%;
   }
 
   .mes-alert-head,

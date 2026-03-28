@@ -10627,6 +10627,39 @@ function App() {
 
         return rows;
       };
+      const fetchAllMesDetailedEvents = async (jobRunIds) => {
+        const rows = [];
+        const uniqueIds = Array.from(new Set((jobRunIds || []).filter(Boolean)));
+        if (uniqueIds.length === 0) {
+          return rows;
+        }
+
+        for (let chunkStart = 0; chunkStart < uniqueIds.length; chunkStart += 100) {
+          const idChunk = uniqueIds.slice(chunkStart, chunkStart + 100);
+          let from = 0;
+
+          while (true) {
+            const { data: pageData, error: pageError } = await supabase
+              .from("mes_job_run_events")
+              .select("id,job_run_id,workstation_id,machine_id,downtime_reason_id,event_type,quantity,source,note,payload,happened_at,created_at")
+              .in("job_run_id", idChunk)
+              .order("happened_at", { ascending: false })
+              .range(from, from + MES_QUERY_PAGE_SIZE - 1);
+
+            if (pageError) {
+              throw pageError;
+            }
+
+            rows.push(...(pageData || []));
+            if (!pageData || pageData.length < MES_QUERY_PAGE_SIZE) {
+              break;
+            }
+            from += MES_QUERY_PAGE_SIZE;
+          }
+        }
+
+        return rows;
+      };
       const terminalsQuery = supabase
         .from("mes_hmi_terminals")
         .select("id,company_id,workstation_id,terminal_code,name,platform,app_mode,app_version,last_ip,last_seen_at,is_active,created_at,updated_at")
@@ -10702,7 +10735,8 @@ function App() {
       }
 
       const jobRunsById = Object.fromEntries((jobRunsData || []).map((row) => [String(row.id || ""), row]));
-      const eventRows = (eventData || []).map((row) => {
+      const downtimeReasonById = Object.fromEntries((downtimeReasonsData || []).map((row) => [String(row.id || ""), row]));
+      let eventRows = (eventData || []).map((row) => {
         const run = jobRunsById[String(row.job_run_id || "")] || null;
         return {
           id: row.id,
@@ -10730,6 +10764,39 @@ function App() {
           downtime_reason_name: String(row.downtime_reason_name || "")
         };
       });
+      if (eventRows.length === 0) {
+        const detailedEventData = await fetchAllMesDetailedEvents((jobRunsData || []).map((row) => row.id));
+        eventRows = detailedEventData.map((row) => {
+          const run = jobRunsById[String(row.job_run_id || "")] || null;
+          const payload = row.payload && typeof row.payload === "object" ? row.payload : {};
+          const reason = downtimeReasonById[String(row.downtime_reason_id || "")] || null;
+          return {
+            id: row.id,
+            company_id: String(run?.company_id || ""),
+            terminal_id: String(run?.terminal_id || ""),
+            workstation_id: String(row.workstation_id || run?.workstation_id || ""),
+            machine_id: String(row.machine_id || run?.machine_id || ""),
+            job_run_id: String(row.job_run_id || ""),
+            operator_user_id: String(run?.operator_user_id || ""),
+            operator_name: String(run?.operator_name || payload.operator_name || payload.operator_name_text || ""),
+            event_type: String(row.event_type || "").toLowerCase(),
+            quantity: Number(row.quantity || 0),
+            note: String(row.note || ""),
+            source: String(row.source || "hmi"),
+            payload,
+            happened_at: row.happened_at || row.created_at || null,
+            created_at: row.created_at || null,
+            duration_seconds: Number(payload.duration_seconds || 0),
+            time_from: payload.time_from || null,
+            time_to: row.happened_at || row.created_at || null,
+            terminal_event_id: String(payload.terminal_event_id || row.id || ""),
+            event_code: String(row.event_type || "").toLowerCase(),
+            job_number: String(run?.job_number || ""),
+            downtime_reason_code: String(reason?.code || ""),
+            downtime_reason_name: String(reason?.name || row.note || "")
+          };
+        });
+      }
 
       if (latestMesOverviewRequestRef.current !== requestId) {
         return;
@@ -25726,4 +25793,5 @@ function App() {
 }
 
 export default App;
+
 

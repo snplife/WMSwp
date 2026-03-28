@@ -1212,6 +1212,13 @@ select {
   background: linear-gradient(135deg, rgba(0, 120, 110, 0.16), rgba(255, 255, 255, 0));
 }
 
+.workflow-shell-production .workflow-card::before,
+.workflow-shell-production .attendance-card::before,
+.workflow-shell-production .mes-terminal-card::before,
+.workflow-shell-production .mes-operator-card::before {
+  display: none;
+}
+
 .workflow-shell-attendance::before {
   background: linear-gradient(135deg, rgba(214, 122, 30, 0.16), rgba(255, 255, 255, 0));
 }
@@ -2221,6 +2228,18 @@ select {
   align-items: start;
 }
 
+.mes-priority-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(320px, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.mes-side-stack {
+  display: grid;
+  gap: 1rem;
+}
+
 .mes-machine-detail-card {
   min-width: 0;
   display: grid;
@@ -2332,6 +2351,22 @@ select {
   display: grid;
   gap: 0.75rem;
   padding-top: 0.1rem;
+}
+
+.mes-machine-events-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.8rem;
+  align-items: start;
+}
+
+.mes-history-panel {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.95rem;
+  border: 1px solid #e1e8f0;
+  border-radius: 14px;
+  background: #f8fafc;
 }
 
 .mes-focus-stats {
@@ -2563,57 +2598,6 @@ select {
 .mes-bar-row-head strong,
 .mes-bar-row-head span {
   font-size: 0.85rem;
-}
-
-.mes-alert-list {
-  display: grid;
-  gap: 0.7rem;
-}
-
-.mes-alert-card {
-  display: grid;
-  gap: 0.35rem;
-  padding: 0.85rem 0.95rem;
-  border-radius: 16px;
-  border: 1px solid #dce6f2;
-  background: #fbfdff;
-}
-
-.mes-alert-card-critical {
-  border-color: #efb2b2;
-  background: #fff3f3;
-}
-
-.mes-alert-card-warning {
-  border-color: #efd49f;
-  background: #fff8ea;
-}
-
-.mes-alert-card-info {
-  border-color: #c7d9ee;
-  background: #f5faff;
-}
-
-.mes-alert-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 0.8rem;
-  align-items: center;
-}
-
-.mes-alert-head strong,
-.mes-alert-head span,
-.mes-alert-card p {
-  margin: 0;
-}
-
-.mes-alert-head span {
-  font-size: 0.78rem;
-  color: #607286;
-}
-
-.mes-alert-card p {
-  color: #4f6478;
 }
 
 .mes-factory-map {
@@ -7003,6 +6987,7 @@ tbody tr:nth-child(even) {
   }
 
   .mes-dashboard-grid,
+  .mes-priority-grid,
   .mes-detail-grid,
   .mes-machine-grid,
   .mes-machine-panel-grid {
@@ -7025,7 +7010,7 @@ tbody tr:nth-child(even) {
     width: 100%;
   }
 
-  .mes-alert-head,
+  .mes-machine-events-head,
   .mes-factory-zone-head {
     flex-direction: column;
     align-items: flex-start;

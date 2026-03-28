@@ -4370,6 +4370,7 @@ function normalizeMesMachineCatalogRow(row) {
   }
   return {
     ...row,
+    automation_mode: String(row.automation_mode || "full_automatic").trim().toLowerCase() || "full_automatic",
     is_active: Boolean(row.is_active)
   };
 }
@@ -4419,6 +4420,17 @@ function formatMesTerminalAppModeLabel(value) {
   return normalized || "-";
 }
 
+function formatMesAutomationModeLabel(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "semi_automatic") {
+    return "Poloautomatický";
+  }
+  if (normalized === "full_automatic") {
+    return "Plne automatický";
+  }
+  return normalized || "-";
+}
+
 function buildMesTerminalCodeFromDeviceUid(value) {
   const normalized = String(value || "")
     .trim()
@@ -4457,10 +4469,10 @@ function buildMesOperatorKey(operatorUserId, operatorName) {
 
 function getMesStateTransitionFromEvent(eventType) {
   const normalized = String(eventType || "").trim().toLowerCase();
-  if (["start", "resume", "good_count", "scrap_count"].includes(normalized)) {
+  if (["start", "resume", "good_count", "scrap_count", "os"].includes(normalized)) {
     return "running";
   }
-  if (["downtime_start", "pause", "stop"].includes(normalized)) {
+  if (["downtime_start", "pause", "stop", "ml"].includes(normalized)) {
     return "stopped";
   }
   return "";
@@ -4550,6 +4562,26 @@ function isMissingMesJobRunEventsColumnError(error) {
   const message = String(error?.message || "").toLowerCase();
   return (
     message.includes("mes_job_run_events.") &&
+    (message.includes("does not exist") ||
+      message.includes("schema cache") ||
+      message.includes("could not find"))
+  );
+}
+
+function isMissingMesMachinesAutomationModeColumnError(error) {
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    message.includes("mes_machines.automation_mode") &&
+    (message.includes("does not exist") ||
+      message.includes("schema cache") ||
+      message.includes("could not find"))
+  );
+}
+
+function isMissingMesEventLogTableError(error) {
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    message.includes("mes_event_log") &&
     (message.includes("does not exist") ||
       message.includes("schema cache") ||
       message.includes("could not find"))
@@ -4994,6 +5026,12 @@ function formatTimeOfDay(value) {
 
 function formatMesEventLabel(eventType) {
   const value = String(eventType || "").toLowerCase();
+  if (value === "ol") return "Prihlásenie operátora";
+  if (value === "oso") return "Odhlásenie operátora";
+  if (value === "os") return "Načítanie zákazky";
+  if (value === "of") return "Ukončenie zákazky";
+  if (value === "ss") return "Odovzdanie zákazky";
+  if (value === "ml") return "Materiál / automatický prestoj";
   if (value === "downtime_start") return "Začiatok prestoja";
   if (value === "downtime_end") return "Koniec prestoja";
   if (value === "pause") return "Pauza";
@@ -5831,6 +5869,7 @@ function App() {
   const [mesTerminalCodeInput, setMesTerminalCodeInput] = useState("");
   const [mesTerminalDeviceUidInput, setMesTerminalDeviceUidInput] = useState("");
   const [mesTerminalWorkstationIdInput, setMesTerminalWorkstationIdInput] = useState("");
+  const [mesMachineAutomationModeInput, setMesMachineAutomationModeInput] = useState("full_automatic");
   const [mesTerminalPlatformInput, setMesTerminalPlatformInput] = useState("android");
   const [mesTerminalAppModeInput, setMesTerminalAppModeInput] = useState("hmi");
   const [mesTerminalActiveInput, setMesTerminalActiveInput] = useState(true);
@@ -10566,13 +10605,16 @@ function App() {
 
         while (true) {
           const { data: pageData, error: pageError } = await supabase
-            .from("mes_job_run_events")
-            .select("id,job_run_id,workstation_id,machine_id,downtime_reason_id,event_type,quantity,note,source,payload,happened_at,created_at,mes_job_runs!inner(id,company_id,terminal_id,operator_user_id,operator_name)")
-            .eq("mes_job_runs.company_id", scopedCompanyId)
-            .order("happened_at", { ascending: false })
+            .from("mes_event_log")
+            .select("id,company_id,terminal_id,workstation_id,job_run_id,terminal_event_id,event_code,job_number,duration_seconds,time_from,time_to,operator_id,downtime_reason_code,downtime_reason_name,payload,created_at")
+            .eq("company_id", scopedCompanyId)
+            .order("created_at", { ascending: false })
             .range(from, from + MES_QUERY_PAGE_SIZE - 1);
 
           if (pageError) {
+            if (isMissingMesEventLogTableError(pageError)) {
+              return [];
+            }
             throw pageError;
           }
 
@@ -10637,25 +10679,55 @@ function App() {
       const workstationIds = (workstationData || []).map((row) => row.id).filter(Boolean);
       let machineData = [];
       if (workstationIds.length > 0) {
-        const { data: fetchedMachines, error: machinesError } = await supabase
-          .from("mes_machines")
-          .select("id,workstation_id,code,name,asset_tag,serial_number,machine_state,last_heartbeat_at,is_active,created_at")
-          .in("workstation_id", workstationIds)
-          .order("name", { ascending: true });
+        let fetchedMachines = [];
+        let machinesError = null;
+        const machineQuery = () =>
+          supabase
+            .from("mes_machines")
+            .select("id,workstation_id,code,name,asset_tag,serial_number,machine_state,automation_mode,last_heartbeat_at,is_active,created_at")
+            .in("workstation_id", workstationIds)
+            .order("name", { ascending: true });
+        ({ data: fetchedMachines, error: machinesError } = await machineQuery());
+        if (machinesError && isMissingMesMachinesAutomationModeColumnError(machinesError)) {
+          ({ data: fetchedMachines, error: machinesError } = await supabase
+            .from("mes_machines")
+            .select("id,workstation_id,code,name,asset_tag,serial_number,machine_state,last_heartbeat_at,is_active,created_at")
+            .in("workstation_id", workstationIds)
+            .order("name", { ascending: true }));
+        }
         if (machinesError) {
           throw machinesError;
         }
         machineData = fetchedMachines || [];
       }
 
+      const jobRunsById = Object.fromEntries((jobRunsData || []).map((row) => [String(row.id || ""), row]));
       const eventRows = (eventData || []).map((row) => {
-        const run = row.mes_job_runs || null;
+        const run = jobRunsById[String(row.job_run_id || "")] || null;
         return {
-          ...row,
-          company_id: run?.company_id || "",
-          terminal_id: run?.terminal_id || "",
-          operator_user_id: run?.operator_user_id || "",
-          operator_name: run?.operator_name || ""
+          id: row.id,
+          company_id: String(row.company_id || ""),
+          terminal_id: String(row.terminal_id || run?.terminal_id || ""),
+          workstation_id: String(row.workstation_id || run?.workstation_id || ""),
+          machine_id: String(run?.machine_id || ""),
+          job_run_id: String(row.job_run_id || ""),
+          operator_user_id: String(run?.operator_user_id || row.operator_id || ""),
+          operator_name: String(run?.operator_name || row.payload?.operator_name || row.payload?.operator_name_text || ""),
+          event_type: String(row.event_code || "").toLowerCase(),
+          quantity: 0,
+          note: String(row.downtime_reason_name || row.payload?.details || row.payload?.title || ""),
+          source: "compact_log",
+          payload: row.payload && typeof row.payload === "object" ? row.payload : {},
+          happened_at: row.time_to || row.time_from || row.created_at || null,
+          created_at: row.created_at || null,
+          duration_seconds: Number(row.duration_seconds || 0),
+          time_from: row.time_from || null,
+          time_to: row.time_to || null,
+          terminal_event_id: String(row.terminal_event_id || ""),
+          event_code: String(row.event_code || "").toLowerCase(),
+          job_number: String(row.job_number || run?.job_number || ""),
+          downtime_reason_code: String(row.downtime_reason_code || ""),
+          downtime_reason_name: String(row.downtime_reason_name || "")
         };
       });
 
@@ -10699,6 +10771,7 @@ function App() {
     setMesTerminalCodeInput("");
     setMesTerminalDeviceUidInput("");
     setMesTerminalWorkstationIdInput("");
+    setMesMachineAutomationModeInput("full_automatic");
     setMesTerminalPlatformInput("android");
     setMesTerminalAppModeInput("hmi");
     setMesTerminalActiveInput(true);
@@ -10706,11 +10779,14 @@ function App() {
   };
 
   const handleEditMesTerminal = (terminal) => {
+    const workstationId = String(terminal?.workstation_id || "");
+    const workstationMachine = mesMachines.find((row) => String(row.workstation_id || "") === workstationId) || null;
     setEditingMesTerminalId(String(terminal?.id || ""));
     setMesTerminalNameInput(String(terminal?.name || ""));
     setMesTerminalCodeInput(String(terminal?.terminal_code || ""));
     setMesTerminalDeviceUidInput(String(terminal?.device_uid || ""));
-    setMesTerminalWorkstationIdInput(String(terminal?.workstation_id || ""));
+    setMesTerminalWorkstationIdInput(workstationId);
+    setMesMachineAutomationModeInput(String(workstationMachine?.automation_mode || "full_automatic"));
     setMesTerminalPlatformInput(String(terminal?.platform || "android").trim().toLowerCase() || "android");
     setMesTerminalAppModeInput(String(terminal?.app_mode || "hmi").trim().toLowerCase() || "hmi");
     setMesTerminalActiveInput(Boolean(terminal?.is_active));
@@ -10756,9 +10832,10 @@ function App() {
     setMesError("");
 
     try {
+      const workstationId = String(mesTerminalWorkstationIdInput || "").trim();
       const payload = {
         company_id: companyId,
-        workstation_id: String(mesTerminalWorkstationIdInput || "").trim() || null,
+        workstation_id: workstationId || null,
         terminal_code: terminalCode,
         ...(mesSupportsDeviceUid ? { device_uid: deviceUid || null } : {}),
         name,
@@ -10782,6 +10859,19 @@ function App() {
         ]);
         if (error) {
           throw error;
+        }
+      }
+
+      if (workstationId) {
+        const workstationMachine = mesMachines.find((row) => String(row.workstation_id || "") === workstationId) || null;
+        if (workstationMachine?.id) {
+          const { error: machineUpdateError } = await supabase
+            .from("mes_machines")
+            .update({ automation_mode: String(mesMachineAutomationModeInput || "full_automatic").trim().toLowerCase() || "full_automatic" })
+            .eq("id", workstationMachine.id);
+          if (machineUpdateError && !isMissingMesMachinesAutomationModeColumnError(machineUpdateError)) {
+            throw machineUpdateError;
+          }
         }
       }
 
@@ -14725,10 +14815,10 @@ function App() {
 
     const downtimeReasonStats = new Map();
     mesRecentEventRows.forEach((row) => {
-      if (row.event_type !== "downtime_start") {
+      if (!["stop", "ml", "downtime_start"].includes(String(row.event_type || "").toLowerCase())) {
         return;
       }
-      const reasonLabel = downtimeReasonById[row.downtime_reason_id] || "Nezadaný dôvod";
+      const reasonLabel = row.downtime_reason_name || row.downtime_reason_code || downtimeReasonById[row.downtime_reason_id] || "Nezadaný dôvod";
       const current = downtimeReasonStats.get(reasonLabel) || { reason: reasonLabel, count: 0, latestAt: "" };
       current.count += 1;
       if (!current.latestAt || String(row.happened_at || "") > current.latestAt) {
@@ -14747,7 +14837,7 @@ function App() {
         if (!Number.isFinite(happenedMs)) {
           return;
         }
-        if (event.event_type === "downtime_start" || event.event_type === "pause" || event.event_type === "stop") {
+        if (["downtime_start", "pause", "stop", "ml"].includes(String(event.event_type || "").toLowerCase())) {
           machine.downtimeEvents += 1;
           if (activeFailureAt === null) {
             if (lastRecoveryAt !== null) {
@@ -14757,7 +14847,7 @@ function App() {
           }
           return;
         }
-        if (event.event_type === "downtime_end" || event.event_type === "resume" || event.event_type === "start") {
+        if (["downtime_end", "resume", "start"].includes(String(event.event_type || "").toLowerCase())) {
           if (activeFailureAt !== null) {
             machine.mttrSamples.push(Math.max(0, happenedMs - activeFailureAt));
             activeFailureAt = null;
@@ -14819,7 +14909,7 @@ function App() {
       trendByKey[dayKey].scrap += Number(row.scrap_quantity || 0);
     });
     mesRecentEventRows.forEach((row) => {
-      if (row.event_type !== "downtime_start") {
+      if (!["stop", "ml", "downtime_start"].includes(String(row.event_type || "").toLowerCase())) {
         return;
       }
       const dayKey = String(row.happened_at || "").slice(0, 10);
@@ -14979,9 +15069,9 @@ function App() {
         entry.latestEvent = row;
         entry.machineState = nextState || entry.machineState;
         entry.currentDowntimeReason =
-          eventType === "downtime_start"
-            ? mesDowntimeReasonNameById[row.downtime_reason_id] || row.payload?.reason || row.note || ""
-            : ["downtime_end", "resume", "start"].includes(eventType)
+          ["downtime_start", "stop", "ml"].includes(eventType)
+            ? row.downtime_reason_name || row.downtime_reason_code || mesDowntimeReasonNameById[row.downtime_reason_id] || row.payload?.reason || row.note || ""
+            : ["downtime_end", "resume", "start", "of", "oso"].includes(eventType)
               ? ""
               : entry.currentDowntimeReason;
         if (String(row.operator_name || "").trim()) {
@@ -15059,6 +15149,7 @@ function App() {
         machineId: machine?.id || overview?.machine_id || workstation?.id || "",
         machineCode: machine?.code || overview?.machine_code || "",
         machineName: machine?.name || overview?.machine_name || workstation?.name || "Neznámy stroj",
+        automationMode: String(machine?.automation_mode || "full_automatic").trim().toLowerCase() || "full_automatic",
         workstationId: workstation?.id || overview?.workstation_id || "",
         workstationCode: workstation?.code || overview?.workstation_code || "",
         workstationName: workstation?.name || overview?.workstation_name || "-",
@@ -15334,11 +15425,20 @@ function App() {
         const sessionScrapParts = sessionProductionEvents
           .filter((row) => String(row.event_type || "").toLowerCase() === "scrap_count")
           .reduce((sum, row) => sum + Number(row.quantity || 0), 0);
-        const sessionProducedParts = sessionGoodParts + sessionScrapParts;
+        const fallbackSessionGoodParts = Number(activeRun?.good_quantity || 0);
+        const fallbackSessionScrapParts = Number(activeRun?.scrap_quantity || 0);
+        const resolvedSessionGoodParts = sessionGoodParts > 0 || sessionScrapParts > 0 ? sessionGoodParts : fallbackSessionGoodParts;
+        const resolvedSessionScrapParts = sessionGoodParts > 0 || sessionScrapParts > 0 ? sessionScrapParts : fallbackSessionScrapParts;
+        const sessionProducedParts = resolvedSessionGoodParts + resolvedSessionScrapParts;
         const sessionTargetParts =
           Number(currentMachineRow?.idealUnitsPerHour || 0) > 0 && sessionWindow.totalMs > 0
             ? (sessionWindow.totalMs / (60 * 60 * 1000)) * Number(currentMachineRow.idealUnitsPerHour)
             : 0;
+        const isSemiAutomaticMachine = String(currentMachineRow?.automationMode || "").toLowerCase() === "semi_automatic";
+        const sessionOperatorCycleSeconds =
+          isSemiAutomaticMachine && sessionProducedParts > 0 && sessionWindow.runMs > 0
+            ? sessionWindow.runMs / 1000 / sessionProducedParts
+            : null;
         const totalGoodPartsFromRuns = entry.runs.reduce((sum, row) => sum + Number(row.good_quantity || 0), 0);
         const totalScrapPartsFromRuns = entry.runs.reduce((sum, row) => sum + Number(row.scrap_quantity || 0), 0);
         const totalGoodPartsFromEvents = entry.events
@@ -15377,13 +15477,15 @@ function App() {
           sessionTotalMs: sessionWindow.totalMs,
           sessionRunPct: sessionWindow.runPct,
           sessionStopPct: sessionWindow.stopPct,
-          sessionGoodParts,
-          sessionScrapParts,
+          sessionGoodParts: resolvedSessionGoodParts,
+          sessionScrapParts: resolvedSessionScrapParts,
           sessionProducedParts,
           sessionPerformancePct: sessionTargetParts > 0 ? safeRatioPercent(sessionProducedParts, sessionTargetParts) : 0,
-          sessionQualityPct: safeRatioPercent(sessionGoodParts, sessionProducedParts),
+          sessionQualityPct: safeRatioPercent(resolvedSessionGoodParts, sessionProducedParts),
+          sessionOperatorCycleSeconds,
           sessionTargetParts,
-          idealUnitsPerHour: Number(currentMachineRow?.idealUnitsPerHour || 0) || null
+          idealUnitsPerHour: Number(currentMachineRow?.idealUnitsPerHour || 0) || null,
+          automationMode: String(currentMachineRow?.automationMode || "full_automatic").trim().toLowerCase() || "full_automatic"
         };
       })
       .sort(
@@ -15478,24 +15580,25 @@ function App() {
     });
     const hourlyByKey = Object.fromEntries(hourlySeries.map((row) => [row.key.slice(0, 13), row]));
     const dailyByKey = Object.fromEntries(dailySeries.map((row) => [row.key, row]));
-    mesRecentEventRows.forEach((row) => {
-      const eventType = String(row.event_type || "").toLowerCase();
-      if (!["good_count", "scrap_count"].includes(eventType)) {
+    mesRecentJobRuns.forEach((row) => {
+      const totalProduced = Number(row.good_quantity || 0) + Number(row.scrap_quantity || 0);
+      if (totalProduced <= 0) {
         return;
       }
-      const quantity = Math.max(1, Number(row.quantity || 0));
-      const happenedAt = String(row.happened_at || "");
+      const happenedAt = String(row.ended_at || row.updated_at || row.created_at || "");
       const hourKey = happenedAt.slice(0, 13);
       const dayKey = happenedAt.slice(0, 10);
       const hourlyBucket = hourlyByKey[hourKey];
       const dailyBucket = dailyByKey[dayKey];
       if (hourlyBucket) {
-        hourlyBucket[eventType === "good_count" ? "good" : "scrap"] += quantity;
-        hourlyBucket.total += quantity;
+        hourlyBucket.good += Number(row.good_quantity || 0);
+        hourlyBucket.scrap += Number(row.scrap_quantity || 0);
+        hourlyBucket.total += totalProduced;
       }
       if (dailyBucket) {
-        dailyBucket[eventType === "good_count" ? "good" : "scrap"] += quantity;
-        dailyBucket.total += quantity;
+        dailyBucket.good += Number(row.good_quantity || 0);
+        dailyBucket.scrap += Number(row.scrap_quantity || 0);
+        dailyBucket.total += totalProduced;
       }
     });
     const partsPerHour = hourlySeries[hourlySeries.length - 1]?.total || 0;
@@ -15513,7 +15616,7 @@ function App() {
       hourlyPolyline: buildSimplePolyline(hourlySeries, "total", maxHourly),
       dailyPolyline: buildSimplePolyline(dailySeries, "total", maxDaily)
     };
-  }, [mesRecentEventRows]);
+  }, [mesRecentJobRuns]);
   const mesQualitySummary = useMemo(() => {
     const defectTypeMap = new Map();
     let goodParts = 0;
@@ -15556,14 +15659,14 @@ function App() {
       let activeDowntime = null;
       ordered.forEach((event) => {
         const eventType = String(event.event_type || "").toLowerCase();
-        if (!["downtime_start", "pause", "stop"].includes(eventType) && !["downtime_end", "resume", "start"].includes(eventType)) {
+        if (!["downtime_start", "pause", "stop", "ml"].includes(eventType) && !["downtime_end", "resume", "start"].includes(eventType)) {
           return;
         }
         const happenedMs = new Date(event.happened_at || 0).getTime();
         if (!Number.isFinite(happenedMs)) {
           return;
         }
-        if (["downtime_start", "pause", "stop"].includes(eventType)) {
+        if (["downtime_start", "pause", "stop", "ml"].includes(eventType)) {
           if (!activeDowntime) {
             activeDowntime = event;
           }
@@ -15581,6 +15684,8 @@ function App() {
             endAt: event.happened_at,
             durationMs: Math.max(0, happenedMs - new Date(activeDowntime.happened_at || 0).getTime()),
             reason:
+              activeDowntime.downtime_reason_name ||
+              activeDowntime.downtime_reason_code ||
               mesDowntimeReasonNameById[activeDowntime.downtime_reason_id] ||
               activeDowntime.payload?.reason ||
               activeDowntime.note ||
@@ -15601,6 +15706,8 @@ function App() {
           endAt: "",
           durationMs: Math.max(0, Date.now() - new Date(activeDowntime.happened_at || 0).getTime()),
           reason:
+            activeDowntime.downtime_reason_name ||
+            activeDowntime.downtime_reason_code ||
             mesDowntimeReasonNameById[activeDowntime.downtime_reason_id] ||
             activeDowntime.payload?.reason ||
             activeDowntime.note ||
@@ -17688,6 +17795,8 @@ function App() {
     const mesTerminalIdentifierPreview = mesSupportsDeviceUid
       ? buildMesTerminalCodeFromDeviceUid(mesTerminalDeviceUidInput)
       : sanitizeMesTerminalCode(mesTerminalCodeInput);
+    const mesTerminalConfiguredMachine =
+      mesMachines.find((row) => String(row.workstation_id || "") === String(mesTerminalWorkstationIdInput || "")) || null;
     const selectedMachineOperator =
       mesOperatorRows.find(
         (row) =>
@@ -17773,6 +17882,15 @@ function App() {
       {
         label: "Využitie operátora",
         value: selectedMachineOperator ? formatPercentValue(selectedMachineOperator.sessionRunPct) : "-"
+      },
+      {
+        label: "Takt operátora",
+        value:
+          selectedMachineOperator && String(selectedMesMachineOverview?.automationMode || "").toLowerCase() === "semi_automatic"
+            ? Number.isFinite(selectedMachineOperator.sessionOperatorCycleSeconds)
+              ? `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(selectedMachineOperator.sessionOperatorCycleSeconds)} s/ks`
+              : "-"
+            : "-"
       },
       {
         label: "Plnenie targetu",
@@ -17951,7 +18069,12 @@ function App() {
                       <span className="workflow-field-label">Pracovisko</span>
                       <select
                         value={mesTerminalWorkstationIdInput}
-                        onChange={(event) => setMesTerminalWorkstationIdInput(event.target.value)}
+                        onChange={(event) => {
+                          const nextWorkstationId = event.target.value;
+                          const workstationMachine = mesMachines.find((row) => String(row.workstation_id || "") === String(nextWorkstationId || "")) || null;
+                          setMesTerminalWorkstationIdInput(nextWorkstationId);
+                          setMesMachineAutomationModeInput(String(workstationMachine?.automation_mode || "full_automatic"));
+                        }}
                         disabled={mesTerminalSubmitting}
                       >
                         <option value="">Bez priradeného pracoviska</option>
@@ -17960,6 +18083,17 @@ function App() {
                             {`${workstation.name || workstation.code || "-"}${workstation.area ? ` | ${workstation.area}` : ""}`}
                           </option>
                         ))}
+                      </select>
+                    </label>
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Režim stroja</span>
+                      <select
+                        value={mesMachineAutomationModeInput}
+                        onChange={(event) => setMesMachineAutomationModeInput(event.target.value)}
+                        disabled={mesTerminalSubmitting || !mesTerminalWorkstationIdInput}
+                      >
+                        <option value="semi_automatic">Poloautomatický</option>
+                        <option value="full_automatic">Plne automatický</option>
                       </select>
                     </label>
                     <label className="workflow-field">
@@ -17990,6 +18124,11 @@ function App() {
                       <span className="draft-field-label">Pracovisko</span>
                       <strong>{mesTerminalWorkstationIdInput ? mesWorkstationsById[mesTerminalWorkstationIdInput]?.name || mesWorkstationsById[mesTerminalWorkstationIdInput]?.code || "-" : "Nepriradené"}</strong>
                       <p>Pracovisko môžeš doplniť aj neskôr.</p>
+                    </article>
+                    <article>
+                      <span className="draft-field-label">Režim stroja</span>
+                      <strong>{formatMesAutomationModeLabel(mesMachineAutomationModeInput)}</strong>
+                      <p>{mesTerminalConfiguredMachine ? `Použije sa pre stroj ${mesTerminalConfiguredMachine.name || mesTerminalConfiguredMachine.code || "-"}.` : "Uloží sa pre hlavný stroj zvoleného pracoviska."}</p>
                     </article>
                     <article>
                       <span className="draft-field-label">Výsledný identifikátor</span>
@@ -18029,6 +18168,9 @@ function App() {
               <div className="orders-list attendance-list mes-terminal-list">
                 {mesTerminals.map((terminal) => {
                   const workstation = terminal.workstation_id ? mesWorkstationsById[terminal.workstation_id] || null : null;
+                  const workstationMachine = terminal.workstation_id
+                    ? mesMachines.find((row) => String(row.workstation_id || "") === String(terminal.workstation_id || "")) || null
+                    : null;
                   const isOnline = isMesTerminalOnline(terminal.last_seen_at);
                   return (
                     <article key={terminal.id} className="order-card attendance-card mes-terminal-card">
@@ -18055,6 +18197,10 @@ function App() {
                           <div>
                             <span className="draft-field-label">Platforma / režim</span>
                             <p>{`${formatMesTerminalPlatformLabel(terminal.platform)} | ${formatMesTerminalAppModeLabel(terminal.app_mode)}`}</p>
+                          </div>
+                          <div>
+                            <span className="draft-field-label">Typ stroja</span>
+                            <p>{formatMesAutomationModeLabel(workstationMachine?.automation_mode || "full_automatic")}</p>
                           </div>
                           <div>
                             <span className="draft-field-label">Posledný kontakt</span>
@@ -18618,6 +18764,14 @@ function App() {
                           <div>
                             <span className="draft-field-label">Využitie</span>
                             <p>{formatPercentValue(operator.sessionRunPct)}</p>
+                          </div>
+                          <div>
+                            <span className="draft-field-label">Takt operátora</span>
+                            <p>
+                              {String(operator.automationMode || "").toLowerCase() === "semi_automatic" && Number.isFinite(operator.sessionOperatorCycleSeconds)
+                                ? `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(operator.sessionOperatorCycleSeconds)} s/ks`
+                                : "-"}
+                            </p>
                           </div>
                           <div>
                             <span className="draft-field-label">Plnenie targetu</span>

@@ -366,6 +366,7 @@ create table if not exists public.mes_machines (
   name text not null,
   asset_tag text not null default '',
   serial_number text not null default '',
+  automation_mode text not null default 'full_automatic',
   machine_state text not null default 'idle'
     check (machine_state in ('idle', 'running', 'setup', 'down', 'maintenance', 'offline')),
   last_heartbeat_at timestamptz,
@@ -376,6 +377,22 @@ create table if not exists public.mes_machines (
   updated_at timestamptz not null default now(),
   constraint mes_machines_workstation_code_unique unique (workstation_id, code)
 );
+
+alter table public.mes_machines
+add column if not exists automation_mode text not null default 'full_automatic';
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'mes_machines_automation_mode_check'
+  ) then
+    alter table public.mes_machines
+    add constraint mes_machines_automation_mode_check
+    check (automation_mode in ('semi_automatic', 'full_automatic'));
+  end if;
+end $$;
 
 -- HMI terminals = Raspberry Pi / Android / kiosk endpoints tied to a workstation.
 create table if not exists public.mes_hmi_terminals (

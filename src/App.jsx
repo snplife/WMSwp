@@ -10535,7 +10535,6 @@ function App() {
 
     try {
       const MES_QUERY_PAGE_SIZE = 1000;
-      const MES_EVENT_JOB_RUN_CHUNK_SIZE = 100;
       const fetchAllMesJobRuns = async () => {
         const rows = [];
         let from = 0;
@@ -10561,15 +10560,15 @@ function App() {
 
         return rows;
       };
-      const fetchMesEventsForJobRunChunk = async (jobRunIdsChunk) => {
+      const fetchAllMesEvents = async () => {
         const rows = [];
         let from = 0;
 
         while (true) {
           const { data: pageData, error: pageError } = await supabase
             .from("mes_job_run_events")
-            .select("id,job_run_id,workstation_id,machine_id,downtime_reason_id,event_type,quantity,note,source,payload,happened_at,created_at")
-            .in("job_run_id", jobRunIdsChunk)
+            .select("id,job_run_id,workstation_id,machine_id,downtime_reason_id,event_type,quantity,note,source,payload,happened_at,created_at,mes_job_runs!inner(id,company_id,terminal_id,operator_user_id,operator_name)")
+            .eq("mes_job_runs.company_id", scopedCompanyId)
             .order("happened_at", { ascending: false })
             .range(from, from + MES_QUERY_PAGE_SIZE - 1);
 
@@ -10592,11 +10591,12 @@ function App() {
         .eq("company_id", scopedCompanyId)
         .order("created_at", { ascending: true });
 
-      const [overviewResult, jobRunsResult, downtimeReasonsResult, workstationsResult, terminalsResult] = await Promise.all([
+      const [overviewResult, jobRunsResult, eventsResult, downtimeReasonsResult, workstationsResult, terminalsResult] = await Promise.all([
         supabase.rpc("mes_factory_overview", {
           p_company_id: scopedCompanyId
         }),
         fetchAllMesJobRuns(),
+        fetchAllMesEvents(),
         supabase
           .from("mes_downtime_reasons")
           .select("id,name,code")
@@ -10613,15 +10613,16 @@ function App() {
 
       const { data, error: overviewError } = overviewResult;
       const { data: jobRunsData, error: jobRunsError } = jobRunsResult;
+      const { data: eventData, error: eventsError } = eventsResult;
       const { data: downtimeReasonsData, error: downtimeReasonsError } = downtimeReasonsResult;
       const { data: workstationData, error: workstationsError } = workstationsResult;
       const { data: terminalData, error: terminalsError } = terminalsResult;
 
-      if (overviewError) {
-        throw overviewError;
-      }
       if (jobRunsError) {
         throw jobRunsError;
+      }
+      if (eventsError) {
+        throw eventsError;
       }
       if (downtimeReasonsError) {
         throw downtimeReasonsError;
@@ -10647,32 +10648,24 @@ function App() {
         machineData = fetchedMachines || [];
       }
 
-      const jobRunIds = (jobRunsData || []).map((row) => row.id).filter(Boolean);
-      let eventRows = [];
-      if (jobRunIds.length > 0) {
-        const jobRunIdChunks = [];
-        for (let index = 0; index < jobRunIds.length; index += MES_EVENT_JOB_RUN_CHUNK_SIZE) {
-          jobRunIdChunks.push(jobRunIds.slice(index, index + MES_EVENT_JOB_RUN_CHUNK_SIZE));
-        }
-        const eventPages = await Promise.all(jobRunIdChunks.map((chunk) => fetchMesEventsForJobRunChunk(chunk)));
-        const eventData = eventPages.flat();
-        const jobRunsById = Object.fromEntries((jobRunsData || []).map((row) => [String(row.id || ""), row]));
-        eventRows = (eventData || []).map((row) => {
-          const run = jobRunsById[String(row.job_run_id || "")] || null;
-          return {
-            ...row,
-            company_id: run?.company_id || "",
-            terminal_id: run?.terminal_id || "",
-            operator_user_id: run?.operator_user_id || "",
-            operator_name: run?.operator_name || ""
-          };
-        });
-      }
+      const eventRows = (eventData || []).map((row) => {
+        const run = row.mes_job_runs || null;
+        return {
+          ...row,
+          company_id: run?.company_id || "",
+          terminal_id: run?.terminal_id || "",
+          operator_user_id: run?.operator_user_id || "",
+          operator_name: run?.operator_name || ""
+        };
+      });
 
       if (latestMesOverviewRequestRef.current !== requestId) {
         return;
       }
 
+      if (overviewError) {
+        console.warn("MES overview fallback", overviewError);
+      }
       setMesOverviewRows((data || []).map((row) => normalizeMesOverviewRow(row)));
       setMesRecentJobRuns((jobRunsData || []).map((row) => normalizeMesJobRunRow(row)));
       setMesRecentEventRows(eventRows.map((row) => normalizeMesEventRow(row)));

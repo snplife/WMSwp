@@ -10712,7 +10712,7 @@ function App() {
           machine_id: String(run?.machine_id || ""),
           job_run_id: String(row.job_run_id || ""),
           operator_user_id: String(run?.operator_user_id || row.operator_id || ""),
-          operator_name: String(run?.operator_name || row.payload?.operator_name || row.payload?.operator_name_text || ""),
+          operator_name: String(run?.operator_name || row.payload?.operator_name || row.payload?.operator_name_text || row.operator_id || ""),
           event_type: String(row.event_code || "").toLowerCase(),
           quantity: 0,
           note: String(row.downtime_reason_name || row.payload?.details || row.payload?.title || ""),
@@ -13424,7 +13424,7 @@ function App() {
         subscriptionTables.push("production_orders", "production_order_inputs", "production_order_outputs", "stock", "stock_history");
       }
       if (canAccessMesModule) {
-        subscriptionTables.push("mes_workstations", "mes_machines", "mes_hmi_terminals", "mes_job_runs", "mes_job_run_events");
+        subscriptionTables.push("mes_workstations", "mes_machines", "mes_hmi_terminals", "mes_job_runs", "mes_job_run_events", "mes_event_log");
       }
 
       let channel = null;
@@ -25726,3 +25726,4 @@ function App() {
 }
 
 export default App;
+

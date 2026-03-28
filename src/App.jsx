@@ -14654,19 +14654,34 @@ function App() {
         totalPlanned: 0
       }
     );
-    const totalProduced = summary.totalGood + summary.totalScrap;
+    let eventGood = 0;
+    let eventScrap = 0;
+    mesRecentEventRows.forEach((row) => {
+      const eventType = String(row.event_type || "").toLowerCase();
+      const quantity = Math.max(1, Number(row.quantity || 0));
+      if (eventType === "good_count") {
+        eventGood += quantity;
+      } else if (eventType === "scrap_count") {
+        eventScrap += quantity;
+      }
+    });
+    const totalGood = eventGood > 0 || eventScrap > 0 ? eventGood : summary.totalGood;
+    const totalScrap = eventGood > 0 || eventScrap > 0 ? eventScrap : summary.totalScrap;
+    const totalProduced = totalGood + totalScrap;
     const machineCount = summary.machineIds.size;
     const availabilityPct = machineCount > 0 ? (summary.runningCount / machineCount) * 100 : 0;
-    const qualityPct = totalProduced > 0 ? (summary.totalGood / totalProduced) * 100 : 0;
-    const performancePct = summary.totalPlanned > 0 ? (summary.totalGood / summary.totalPlanned) * 100 : 0;
+    const qualityPct = totalProduced > 0 ? (totalGood / totalProduced) * 100 : 0;
+    const performancePct = summary.totalPlanned > 0 ? (totalGood / summary.totalPlanned) * 100 : 0;
     return {
       ...summary,
+      totalGood,
+      totalScrap,
       machineCount,
       availabilityPct,
       qualityPct,
       performancePct
     };
-  }, [mesOverviewRows]);
+  }, [mesOverviewRows, mesRecentEventRows]);
   const mesAnalytics = useMemo(() => {
     const machineNameById = Object.fromEntries(
       mesOverviewRows
@@ -14854,6 +14869,10 @@ function App() {
     () => Object.fromEntries((mesOverviewRows || []).filter((row) => row.machine_id).map((row) => [row.machine_id, row])),
     [mesOverviewRows]
   );
+  const mesJobRunsById = useMemo(
+    () => Object.fromEntries((mesRecentJobRuns || []).map((row) => [String(row.id || ""), row])),
+    [mesRecentJobRuns]
+  );
   const mesRunsByMachineId = useMemo(() => {
     const grouped = {};
     for (const row of mesRecentJobRuns) {
@@ -14892,10 +14911,104 @@ function App() {
     });
     return grouped;
   }, [mesRecentEventRows]);
+  const mesEventSummaryByJobRunId = useMemo(() => {
+    const grouped = {};
+    mesRecentEventRows.forEach((row) => {
+      const key = String(row.job_run_id || "").trim();
+      if (!key) {
+        return;
+      }
+      if (!grouped[key]) {
+        grouped[key] = {
+          jobRunId: key,
+          good: 0,
+          scrap: 0,
+          totalProduced: 0,
+          latestEventAt: "",
+          latestEvent: null
+        };
+      }
+      const entry = grouped[key];
+      const eventType = String(row.event_type || "").toLowerCase();
+      const quantity = Math.max(1, Number(row.quantity || 0));
+      if (eventType === "good_count") {
+        entry.good += quantity;
+        entry.totalProduced += quantity;
+      } else if (eventType === "scrap_count") {
+        entry.scrap += quantity;
+        entry.totalProduced += quantity;
+      }
+      const happenedAt = String(row.happened_at || row.created_at || "");
+      if (happenedAt && (!entry.latestEventAt || happenedAt > entry.latestEventAt)) {
+        entry.latestEventAt = happenedAt;
+        entry.latestEvent = row;
+      }
+    });
+    return grouped;
+  }, [mesRecentEventRows]);
+  const mesEventSummaryByMachineId = useMemo(() => {
+    const grouped = {};
+    mesRecentEventRows.forEach((row) => {
+      const key = String(row.machine_id || row.workstation_id || "").trim();
+      if (!key) {
+        return;
+      }
+      if (!grouped[key]) {
+        grouped[key] = {
+          machineId: String(row.machine_id || "").trim(),
+          workstationId: String(row.workstation_id || "").trim(),
+          terminalId: String(row.terminal_id || "").trim(),
+          operatorName: String(row.operator_name || "").trim(),
+          jobRunId: String(row.job_run_id || "").trim(),
+          good: 0,
+          scrap: 0,
+          totalProduced: 0,
+          latestEventAt: "",
+          latestEvent: null,
+          machineState: "",
+          currentDowntimeReason: ""
+        };
+      }
+      const entry = grouped[key];
+      const eventType = String(row.event_type || "").toLowerCase();
+      const quantity = Math.max(1, Number(row.quantity || 0));
+      if (eventType === "good_count") {
+        entry.good += quantity;
+        entry.totalProduced += quantity;
+      } else if (eventType === "scrap_count") {
+        entry.scrap += quantity;
+        entry.totalProduced += quantity;
+      }
+      const happenedAt = String(row.happened_at || row.created_at || "");
+      if (happenedAt && (!entry.latestEventAt || happenedAt > entry.latestEventAt)) {
+        const nextState = getMesStateTransitionFromEvent(eventType);
+        entry.latestEventAt = happenedAt;
+        entry.latestEvent = row;
+        entry.machineState = nextState || entry.machineState;
+        entry.currentDowntimeReason =
+          eventType === "downtime_start"
+            ? mesDowntimeReasonNameById[row.downtime_reason_id] || row.payload?.reason || row.note || ""
+            : ["downtime_end", "resume", "start"].includes(eventType)
+              ? ""
+              : entry.currentDowntimeReason;
+        if (String(row.operator_name || "").trim()) {
+          entry.operatorName = String(row.operator_name || "").trim();
+        }
+        if (String(row.terminal_id || "").trim()) {
+          entry.terminalId = String(row.terminal_id || "").trim();
+        }
+        if (String(row.job_run_id || "").trim()) {
+          entry.jobRunId = String(row.job_run_id || "").trim();
+        }
+      }
+    });
+    return grouped;
+  }, [mesRecentEventRows, mesDowntimeReasonNameById]);
   const machineDashboardRows = useMemo(() => {
     const rows = [];
     const seen = new Set();
     const buildRow = (machine, workstationFallback = null) => {
+      const machineKey = String(machine?.id || "").trim();
       const workstation =
         mesWorkstationsById[machine?.workstation_id] ||
         workstationFallback ||
@@ -14905,18 +15018,23 @@ function App() {
         mesOverviewByMachineId[machine?.id] ||
         (workstation ? mesOverviewByWorkstationId[workstation.id] : null) ||
         null;
-      const runs = mesRunsByMachineId[machine?.id || workstation?.id || ""] || [];
+      const fallbackKey = String(workstation?.id || "").trim();
+      const resolvedKey = machineKey || fallbackKey;
+      const runs = mesRunsByMachineId[resolvedKey] || [];
       const activeRun =
         runs.find((row) => ["running", "paused", "queued"].includes(String(row.status || "").toLowerCase())) ||
         runs[0] ||
         null;
-      const events = mesEventsByMachineId[machine?.id || workstation?.id || ""] || [];
-      const producedParts = Number(activeRun?.good_quantity || overview?.good_quantity || 0) + Number(activeRun?.scrap_quantity || overview?.scrap_quantity || 0);
+      const events = mesEventsByMachineId[resolvedKey] || [];
+      const eventSummary = mesEventSummaryByMachineId[resolvedKey] || null;
+      const fallbackRun = eventSummary?.jobRunId ? mesJobRunsById[eventSummary.jobRunId] || null : null;
       const runtimeSamples = runs
         .map((row) => {
           const startedMs = new Date(row.started_at || row.created_at || 0).getTime();
           const endedMs = new Date(row.ended_at || row.updated_at || Date.now()).getTime();
-          const totalProduced = Number(row.good_quantity || 0) + Number(row.scrap_quantity || 0);
+          const totalProduced =
+            Number(mesEventSummaryByJobRunId[String(row.id || "")]?.totalProduced || 0) ||
+            (Number(row.good_quantity || 0) + Number(row.scrap_quantity || 0));
           if (!Number.isFinite(startedMs) || !Number.isFinite(endedMs) || endedMs <= startedMs || totalProduced <= 0) {
             return null;
           }
@@ -14938,9 +15056,12 @@ function App() {
           : Number.isFinite(targetCycleSeconds) && targetCycleSeconds > 0
             ? 3600 / targetCycleSeconds
             : null;
-      const statusRaw = machine?.machine_state || overview?.machine_state || activeRun?.status || "idle";
-      const totalProduced = Number(activeRun?.good_quantity || 0) + Number(activeRun?.scrap_quantity || 0);
-      const scrapQuantity = Number(activeRun?.scrap_quantity || 0);
+      const eventProduced = Number(eventSummary?.totalProduced || 0);
+      const goodParts = eventProduced > 0 ? Number(eventSummary?.good || 0) : Number(activeRun?.good_quantity || overview?.good_quantity || fallbackRun?.good_quantity || 0);
+      const scrapQuantity = eventProduced > 0 ? Number(eventSummary?.scrap || 0) : Number(activeRun?.scrap_quantity || overview?.scrap_quantity || fallbackRun?.scrap_quantity || 0);
+      const totalProduced = eventProduced || (goodParts + scrapQuantity);
+      const statusRaw = eventSummary?.machineState || machine?.machine_state || overview?.machine_state || activeRun?.status || fallbackRun?.status || "idle";
+      const terminal = mesTerminalsById[eventSummary?.terminalId] || null;
       rows.push({
         machineId: machine?.id || overview?.machine_id || workstation?.id || "",
         machineCode: machine?.code || overview?.machine_code || "",
@@ -14949,28 +15070,28 @@ function App() {
         workstationCode: workstation?.code || overview?.workstation_code || "",
         workstationName: workstation?.name || overview?.workstation_name || "-",
         area: workstation?.area || overview?.workstation_area || "-",
-        currentWorkOrder: activeRun?.job_number || overview?.job_number || "-",
-        productionOrderId: activeRun?.production_order_id || overview?.production_order_id || null,
-        itemName: activeRun?.item_name || overview?.item_name || "",
-        itemCode: activeRun?.item_code || overview?.item_code || "",
+        currentWorkOrder: activeRun?.job_number || overview?.job_number || fallbackRun?.job_number || "-",
+        productionOrderId: activeRun?.production_order_id || overview?.production_order_id || fallbackRun?.production_order_id || null,
+        itemName: activeRun?.item_name || overview?.item_name || fallbackRun?.item_name || "",
+        itemCode: activeRun?.item_code || overview?.item_code || fallbackRun?.item_code || "",
         machineStatus: statusRaw,
         statusMeta: getMesStatusMeta(statusRaw),
         actualCycleSeconds,
         targetCycleSeconds,
         producedParts: totalProduced,
-        goodParts: Number(activeRun?.good_quantity || overview?.good_quantity || 0),
-        scrapParts: scrapQuantity || Number(overview?.scrap_quantity || 0),
-        operatorName: activeRun?.operator_name || overview?.operator_name || "",
+        goodParts,
+        scrapParts: scrapQuantity,
+        operatorName: eventSummary?.operatorName || activeRun?.operator_name || overview?.operator_name || fallbackRun?.operator_name || "",
         actualRate,
         idealUnitsPerHour,
-        terminalName: overview?.terminal_name || "",
-        terminalLastSeenAt: overview?.terminal_last_seen_at || "",
-        machineLastHeartbeatAt: machine?.last_heartbeat_at || overview?.machine_last_heartbeat_at || "",
-        jobStatus: activeRun?.status || overview?.job_status || "",
-        plannedQuantity: Number(activeRun?.planned_quantity || overview?.planned_quantity || 0),
-        currentDowntimeReason: overview?.current_downtime_reason || "",
+        terminalName: terminal?.name || overview?.terminal_name || "",
+        terminalLastSeenAt: terminal?.last_seen_at || overview?.terminal_last_seen_at || "",
+        machineLastHeartbeatAt: machine?.last_heartbeat_at || overview?.machine_last_heartbeat_at || eventSummary?.latestEventAt || "",
+        jobStatus: activeRun?.status || overview?.job_status || fallbackRun?.status || "",
+        plannedQuantity: Number(activeRun?.planned_quantity || overview?.planned_quantity || fallbackRun?.planned_quantity || 0),
+        currentDowntimeReason: eventSummary?.currentDowntimeReason || overview?.current_downtime_reason || "",
         events,
-        activeRun,
+        activeRun: activeRun || fallbackRun,
         scrapRate: safeRatioPercent(scrapQuantity, totalProduced),
         workstation
       });
@@ -14978,11 +15099,12 @@ function App() {
 
     (mesMachines || []).forEach((machine) => {
       buildRow(machine);
-      seen.add(machine.id);
+      seen.add(String(machine.id || ""));
     });
 
     (mesOverviewRows || []).forEach((row) => {
-      if (row.machine_id && seen.has(row.machine_id)) {
+      const rowKey = String(row.machine_id || row.workstation_id || "");
+      if (rowKey && seen.has(rowKey)) {
         return;
       }
       buildRow(
@@ -14996,9 +15118,27 @@ function App() {
         },
         mesWorkstationsById[row.workstation_id] || null
       );
-      if (row.machine_id) {
-        seen.add(row.machine_id);
+      if (rowKey) {
+        seen.add(rowKey);
       }
+    });
+    Object.entries(mesEventSummaryByMachineId).forEach(([machineId, summary]) => {
+      const fallbackEntityId = String(summary.machineId || summary.workstationId || machineId || "");
+      if (!fallbackEntityId || seen.has(fallbackEntityId)) {
+        return;
+      }
+      buildRow(
+        {
+          id: fallbackEntityId,
+          workstation_id: summary.workstationId || fallbackEntityId,
+          code: "",
+          name: "",
+          machine_state: summary.machineState || "idle",
+          last_heartbeat_at: summary.latestEventAt || ""
+        },
+        mesWorkstationsById[summary.workstationId] || null
+      );
+      seen.add(fallbackEntityId);
     });
 
     return rows.sort(
@@ -15006,7 +15146,7 @@ function App() {
         String(a.area || "").localeCompare(String(b.area || ""), "sk-SK", { sensitivity: "base" }) ||
         String(a.machineName || "").localeCompare(String(b.machineName || ""), "sk-SK", { sensitivity: "base" })
     );
-  }, [mesMachines, mesOverviewRows, mesRunsByMachineId, mesEventsByMachineId, mesWorkstationsById, mesOverviewByMachineId, mesOverviewByWorkstationId, mesWorkstations]);
+  }, [mesMachines, mesOverviewRows, mesRunsByMachineId, mesEventsByMachineId, mesEventSummaryByMachineId, mesEventSummaryByJobRunId, mesWorkstationsById, mesOverviewByMachineId, mesOverviewByWorkstationId, mesWorkstations, mesJobRunsById, mesTerminalsById]);
   const mesMachineOptions = useMemo(
     () =>
       machineDashboardRows.map((row) => ({
@@ -15284,7 +15424,9 @@ function App() {
       .map((row) => {
         const machineRow = machineDashboardRows.find((item) => item.machineId === row.machine_id) || null;
         const workstation = mesWorkstationsById[row.workstation_id] || null;
-        const totalProduced = Number(row.good_quantity || 0) + Number(row.scrap_quantity || 0);
+        const eventSummary = mesEventSummaryByJobRunId[String(row.id || "")] || null;
+        const totalProduced = Number(eventSummary?.totalProduced || 0) || (Number(row.good_quantity || 0) + Number(row.scrap_quantity || 0));
+        const scrapQuantity = Number(eventSummary?.scrap || 0) || Number(row.scrap_quantity || 0);
         const completionPct = clampPercent(safeRatioPercent(totalProduced, Number(row.planned_quantity || 0)));
         const runtimeMs = Math.max(
           0,
@@ -15304,7 +15446,7 @@ function App() {
           workstationLabel: workstation?.name || row.workstation_id || "-",
           totalProduced,
           completionPct,
-          rejectRatePct: safeRatioPercent(Number(row.scrap_quantity || 0), totalProduced),
+          rejectRatePct: safeRatioPercent(scrapQuantity, totalProduced),
           actualRate,
           estimatedFinishAt
         };
@@ -15315,7 +15457,7 @@ function App() {
             ["running", "paused", "queued", "planned"].indexOf(String(b.status || "").toLowerCase()) ||
           new Date(b.started_at || b.created_at || 0).getTime() - new Date(a.started_at || a.created_at || 0).getTime()
       );
-  }, [mesRecentJobRuns, machineDashboardRows, mesWorkstationsById]);
+  }, [mesRecentJobRuns, machineDashboardRows, mesWorkstationsById, mesEventSummaryByJobRunId]);
   const mesThroughput = useMemo(() => {
     const hourlySeries = Array.from({ length: 8 }, (_, index) => {
       const start = new Date();
@@ -15381,18 +15523,28 @@ function App() {
   }, [mesRecentEventRows]);
   const mesQualitySummary = useMemo(() => {
     const defectTypeMap = new Map();
+    let goodParts = 0;
+    let scrapParts = 0;
     mesRecentEventRows.forEach((row) => {
-      if (String(row.event_type || "").toLowerCase() !== "scrap_count") {
+      const eventType = String(row.event_type || "").toLowerCase();
+      const quantity = Math.max(1, Number(row.quantity || 0));
+      if (eventType === "good_count") {
+        goodParts += quantity;
         return;
       }
+      if (eventType !== "scrap_count") {
+        return;
+      }
+      scrapParts += quantity;
       const defectType =
         String(row.payload?.defect_type || row.payload?.reason || row.note || mesDowntimeReasonNameById[row.downtime_reason_id] || "Nešpecifikovaný")
           .trim() || "Nešpecifikovaný";
-      const quantity = Math.max(1, Number(row.quantity || 0));
       defectTypeMap.set(defectType, (defectTypeMap.get(defectType) || 0) + quantity);
     });
-    const goodParts = mesOverviewSummary.totalGood;
-    const scrapParts = mesOverviewSummary.totalScrap;
+    if (goodParts === 0 && scrapParts === 0) {
+      goodParts = mesOverviewSummary.totalGood;
+      scrapParts = mesOverviewSummary.totalScrap;
+    }
     const totalParts = goodParts + scrapParts;
     return {
       goodParts,
@@ -15486,10 +15638,12 @@ function App() {
       if (!Number.isFinite(startedMs) || !Number.isFinite(endedMs) || endedMs <= startedMs) {
         return;
       }
-      const produced = Number(row.good_quantity || 0) + Number(row.scrap_quantity || 0);
+      const eventSummary = mesEventSummaryByJobRunId[String(row.id || "")] || null;
+      const produced = Number(eventSummary?.totalProduced || 0) || (Number(row.good_quantity || 0) + Number(row.scrap_quantity || 0));
+      const goodProduced = Number(eventSummary?.good || 0) || Number(row.good_quantity || 0);
       const target = machineTargetsByWorkstationId[row.workstation_id] || null;
       runTimeMs += endedMs - startedMs;
-      totalGood += Number(row.good_quantity || 0);
+      totalGood += goodProduced;
       totalCount += produced;
       if (target?.targetCycleSeconds > 0 && produced > 0) {
         idealRuntimeMs += produced * target.targetCycleSeconds * 1000;
@@ -15510,7 +15664,7 @@ function App() {
       qualityPct,
       oeePct: clampPercent((availabilityPct * performancePct * qualityPct) / 10000)
     };
-  }, [mesRecentJobRuns, mesDowntimeTimeline, mesWorkstationsById]);
+  }, [mesRecentJobRuns, mesDowntimeTimeline, mesWorkstationsById, mesEventSummaryByJobRunId]);
   const mesGlobalKpis = useMemo(() => {
     const counts = machineDashboardRows.reduce(
       (acc, row) => {

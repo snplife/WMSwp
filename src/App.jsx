@@ -10733,7 +10733,7 @@ function App() {
 
       const jobRunsById = Object.fromEntries((jobRunsData || []).map((row) => [String(row.id || ""), row]));
       const downtimeReasonById = Object.fromEntries((downtimeReasonsData || []).map((row) => [String(row.id || ""), row]));
-      let eventRows = (eventData || []).map((row) => {
+      const compactEventRows = (eventData || []).map((row) => {
         const run = jobRunsById[String(row.job_run_id || "")] || null;
         return {
           id: row.id,
@@ -10761,40 +10761,60 @@ function App() {
           downtime_reason_name: String(row.downtime_reason_name || "")
         };
       });
-      if (eventRows.length === 0) {
-        const detailedEventData = await fetchAllMesDetailedEvents((jobRunsData || []).map((row) => row.id));
-        eventRows = detailedEventData.map((row) => {
-          const run = jobRunsById[String(row.job_run_id || "")] || null;
-          const payload = row.payload && typeof row.payload === "object" ? row.payload : {};
-          const reason = downtimeReasonById[String(row.downtime_reason_id || "")] || null;
-          const normalizedEventType = String(payload.compact_event || row.event_type || "").toLowerCase();
-          return {
-            id: row.id,
-            company_id: String(run?.company_id || ""),
-            terminal_id: String(run?.terminal_id || ""),
-            workstation_id: String(row.workstation_id || run?.workstation_id || ""),
-            machine_id: String(row.machine_id || run?.machine_id || ""),
-            job_run_id: String(row.job_run_id || ""),
-            operator_user_id: String(run?.operator_user_id || ""),
-            operator_name: String(run?.operator_name || payload.operator_name || payload.operator_name_text || ""),
-            event_type: normalizedEventType,
-            quantity: Number(row.quantity || 0),
-            note: String(row.note || ""),
-            source: String(row.source || "hmi"),
-            payload,
-            happened_at: row.happened_at || row.created_at || null,
-            created_at: row.created_at || null,
-            duration_seconds: Number(payload.duration_seconds || 0),
-            time_from: payload.time_from || null,
-            time_to: row.happened_at || row.created_at || null,
-            terminal_event_id: String(payload.terminal_event_id || row.id || ""),
-            event_code: normalizedEventType,
-            job_number: String(run?.job_number || ""),
-            downtime_reason_code: String(reason?.code || ""),
-            downtime_reason_name: String(reason?.name || row.note || "")
-          };
-        });
-      }
+      const detailedEventData = await fetchAllMesDetailedEvents((jobRunsData || []).map((row) => row.id));
+      const detailedEventRows = detailedEventData.map((row) => {
+        const run = jobRunsById[String(row.job_run_id || "")] || null;
+        const payload = row.payload && typeof row.payload === "object" ? row.payload : {};
+        const reason = downtimeReasonById[String(row.downtime_reason_id || "")] || null;
+        const normalizedEventType = String(payload.compact_event || row.event_type || "").toLowerCase();
+        return {
+          id: row.id,
+          company_id: String(run?.company_id || ""),
+          terminal_id: String(run?.terminal_id || ""),
+          workstation_id: String(row.workstation_id || run?.workstation_id || ""),
+          machine_id: String(row.machine_id || run?.machine_id || ""),
+          job_run_id: String(row.job_run_id || ""),
+          operator_user_id: String(run?.operator_user_id || ""),
+          operator_name: String(run?.operator_name || payload.operator_name || payload.operator_name_text || ""),
+          event_type: normalizedEventType,
+          quantity: Number(row.quantity || 0),
+          note: String(row.note || ""),
+          source: String(row.source || "hmi"),
+          payload,
+          happened_at: row.happened_at || row.created_at || null,
+          created_at: row.created_at || null,
+          duration_seconds: Number(payload.duration_seconds || 0),
+          time_from: payload.time_from || null,
+          time_to: row.happened_at || row.created_at || null,
+          terminal_event_id: String(payload.terminal_event_id || row.id || ""),
+          event_code: normalizedEventType,
+          job_number: String(run?.job_number || ""),
+          downtime_reason_code: String(reason?.code || ""),
+          downtime_reason_name: String(reason?.name || row.note || "")
+        };
+      });
+      const eventRowsByKey = new Map();
+      compactEventRows.forEach((row) => {
+        const key = String(row.terminal_event_id || row.id || "");
+        if (key) {
+          eventRowsByKey.set(key, row);
+        }
+      });
+      detailedEventRows.forEach((row) => {
+        const key = String(row.terminal_event_id || row.id || "");
+        if (!key) {
+          return;
+        }
+        const existing = eventRowsByKey.get(key);
+        if (!existing || (existing.event_code !== "ml" && row.event_code === "ml")) {
+          eventRowsByKey.set(key, row);
+        }
+      });
+      let eventRows = Array.from(eventRowsByKey.values()).sort((left, right) => {
+        const leftTime = Date.parse(left.happened_at || left.created_at || "") || 0;
+        const rightTime = Date.parse(right.happened_at || right.created_at || "") || 0;
+        return rightTime - leftTime;
+      });
 
       if (latestMesOverviewRequestRef.current !== requestId) {
         return;

@@ -6058,7 +6058,6 @@ function App() {
   const [mesTerminalDeviceUidInput, setMesTerminalDeviceUidInput] = useState("");
   const [mesTerminalWorkstationIdInput, setMesTerminalWorkstationIdInput] = useState("");
   const [mesMachineAutomationModeInput, setMesMachineAutomationModeInput] = useState("full_automatic");
-  const [mesMachineAutomationModeDirty, setMesMachineAutomationModeDirty] = useState(false);
   const [mesTerminalPlatformInput, setMesTerminalPlatformInput] = useState("android");
   const [mesTerminalAppModeInput, setMesTerminalAppModeInput] = useState("hmi");
   const [mesTerminalActiveInput, setMesTerminalActiveInput] = useState(true);
@@ -11066,7 +11065,6 @@ function App() {
     setMesTerminalDeviceUidInput("");
     setMesTerminalWorkstationIdInput("");
     setMesMachineAutomationModeInput("full_automatic");
-    setMesMachineAutomationModeDirty(false);
     setMesTerminalPlatformInput("android");
     setMesTerminalAppModeInput("hmi");
     setMesTerminalActiveInput(true);
@@ -11082,7 +11080,6 @@ function App() {
     setMesTerminalDeviceUidInput(String(terminal?.device_uid || ""));
     setMesTerminalWorkstationIdInput(workstationId);
     setMesMachineAutomationModeInput(String(workstationMachine?.automation_mode || "full_automatic"));
-    setMesMachineAutomationModeDirty(false);
     setMesTerminalPlatformInput(String(terminal?.platform || "android").trim().toLowerCase() || "android");
     setMesTerminalAppModeInput(String(terminal?.app_mode || "hmi").trim().toLowerCase() || "hmi");
     setMesTerminalActiveInput(Boolean(terminal?.is_active));
@@ -11155,19 +11152,6 @@ function App() {
         ]);
         if (error) {
           throw error;
-        }
-      }
-
-      if (workstationId) {
-        const workstationMachine = mesMachines.find((row) => String(row.workstation_id || "") === workstationId) || null;
-        if (workstationMachine?.id && mesMachineAutomationModeDirty) {
-          const { error: machineUpdateError } = await supabase
-            .from("mes_machines")
-            .update({ automation_mode: String(mesMachineAutomationModeInput || "full_automatic").trim().toLowerCase() || "full_automatic" })
-            .eq("id", workstationMachine.id);
-          if (machineUpdateError && !isMissingMesMachinesAutomationModeColumnError(machineUpdateError)) {
-            throw machineUpdateError;
-          }
         }
       }
 
@@ -18961,7 +18945,6 @@ function App() {
                           const workstationMachine = mesMachines.find((row) => String(row.workstation_id || "") === String(nextWorkstationId || "")) || null;
                           setMesTerminalWorkstationIdInput(nextWorkstationId);
                           setMesMachineAutomationModeInput(String(workstationMachine?.automation_mode || "full_automatic"));
-                          setMesMachineAutomationModeDirty(false);
                         }}
                         disabled={mesTerminalSubmitting}
                       >
@@ -18975,17 +18958,14 @@ function App() {
                     </label>
                     <label className="workflow-field">
                       <span className="workflow-field-label">Režim stroja</span>
-                      <select
-                        value={mesMachineAutomationModeInput}
-                        onChange={(event) => {
-                          setMesMachineAutomationModeInput(event.target.value);
-                          setMesMachineAutomationModeDirty(true);
-                        }}
-                        disabled={mesTerminalSubmitting || !mesTerminalWorkstationIdInput}
-                      >
-                        <option value="semi_automatic">Poloautomatický</option>
-                        <option value="full_automatic">Plne automatický</option>
-                      </select>
+                      <input
+                        type="text"
+                        className="search-input"
+                        value={formatMesAutomationModeLabel(mesMachineAutomationModeInput)}
+                        disabled
+                        readOnly
+                      />
+                      <p className="workflow-helper-text">Terminál už režim stroja nemení. Zobrazuje sa tu len aktuálny stav pracoviska.</p>
                     </label>
                     <label className="workflow-field">
                       <span className="workflow-field-label">Platforma</span>

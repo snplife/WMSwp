@@ -17622,41 +17622,60 @@ function App() {
             </div>
           </article>
 
-          <article className="landing-card seo-section">
-            <h2>Čo pre firmy dodávame</h2>
-            <ul className="landing-list seo-list">
-              {LANDING_SERVICE_AREAS.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          </article>
-          <article className="landing-card seo-section">
-            <h2>Komu systém najviac pomáha</h2>
-            <ul className="landing-list seo-list">
-              {LANDING_USE_CASES.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          </article>
-          <article className="landing-card seo-section">
-            <h2>Čo tým firma získa</h2>
-            <ul className="landing-list seo-list">
-              {LANDING_OUTCOMES.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          </article>
-          <article className="landing-card seo-section">
-            <h2>Časté otázky</h2>
-            <div className="faq-list">
-              {LANDING_FAQ.map((item) => (
-                <details key={item.question} className="faq-item">
-                  <summary>{item.question}</summary>
-                  <p>{item.answer}</p>
-                </details>
-              ))}
-            </div>
-          </article>
+          <div className="landing-support-grid">
+            <article className="landing-card seo-section landing-brief-card">
+              <div className="landing-brief-head">
+                <p className="auth-kicker">Dodávka riešenia</p>
+                <h2>Čo pre firmy dodávame</h2>
+              </div>
+              <ul className="landing-list seo-list">
+                {LANDING_SERVICE_AREAS.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </article>
+
+            <article className="landing-card seo-section landing-brief-card">
+              <div className="landing-brief-head">
+                <p className="auth-kicker">Typické prevádzky</p>
+                <h2>Komu systém najviac pomáha</h2>
+              </div>
+              <ul className="landing-list seo-list">
+                {LANDING_USE_CASES.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </article>
+          </div>
+
+          <div className="landing-support-grid landing-support-grid-alt">
+            <article className="landing-card seo-section landing-outcomes-card">
+              <div className="landing-brief-head">
+                <p className="auth-kicker">Výsledok pre firmu</p>
+                <h2>Čo tým firma získa</h2>
+              </div>
+              <ul className="landing-list seo-list">
+                {LANDING_OUTCOMES.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </article>
+
+            <article className="landing-card seo-section landing-faq-card">
+              <div className="landing-brief-head">
+                <p className="auth-kicker">FAQ</p>
+                <h2>Časté otázky</h2>
+              </div>
+              <div className="faq-list">
+                {LANDING_FAQ.map((item) => (
+                  <details key={item.question} className="faq-item">
+                    <summary>{item.question}</summary>
+                    <p>{item.answer}</p>
+                  </details>
+                ))}
+              </div>
+            </article>
+          </div>
         </section>
         <footer className="landing-footer" aria-label="Právne informácie">
           <div className="landing-footer-copy">
@@ -19414,26 +19433,30 @@ function App() {
           </div>
         </div>
 
-        <div className="sidebar-user-card">
-          <span className="table-badge">{authUsername || "user"}</span>
-          <span className="table-badge">{currentCompanyLabel}</span>
-          {isMaster && <span className="table-badge table-badge-master">master</span>}
-          {isCompanyAdmin && <span className="table-badge">firemný admin</span>}
-        </div>
+        <div className="sidebar-meta-card">
+          <span className="sidebar-meta-kicker">Pracovný profil</span>
+          <strong>{authUsername || "user"}</strong>
+          <p>{currentCompanyLabel}</p>
+          <div className="sidebar-user-card">
+            <span className="table-badge">{getTableLabel(selectedTable)}</span>
+            {isMaster && <span className="table-badge table-badge-master">master</span>}
+            {isCompanyAdmin && <span className="table-badge">firemný admin</span>}
+          </div>
 
-        {isMaster && (
-          <label className="sidebar-company-switch">
-            <span>Firma</span>
-            <select value={selectedCompanyId} onChange={(event) => handleCompanyScopeChange(event.target.value)}>
-              <option value="all">Všetky firmy</option>
-              {companies.map((company) => (
-                <option key={company.id} value={company.id}>
-                  {company.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
+          {isMaster && (
+            <label className="sidebar-company-switch">
+              <span>Firma</span>
+              <select value={selectedCompanyId} onChange={(event) => handleCompanyScopeChange(event.target.value)}>
+                <option value="all">Všetky firmy</option>
+                {companies.map((company) => (
+                  <option key={company.id} value={company.id}>
+                    {company.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
 
         <nav className="sidebar-nav" aria-label="Hlavná navigácia">
           {sidebarSections.map((section) => (
@@ -19499,21 +19522,47 @@ function App() {
             </div>
           )}
         </section>
+
+        <div className="sidebar-workspace-card">
+          <span className="sidebar-meta-kicker">Aktívny workspace</span>
+          <strong>{tableConfig.title}</strong>
+          <p>{tableConfig.subtitle}</p>
+        </div>
       </aside>
 
       <div className="dashboard-main">
       <section className="hero dashboard-hero">
         <div className="hero-grid">
           <div className="hero-primary">
-            <p className="hero-kicker">{currentCompanyLabel}</p>
-            <h1>{tableConfig.title}</h1>
-            <p className="subtitle">{tableConfig.subtitle}</p>
+            <div className="hero-title-block">
+              <p className="hero-kicker">{currentCompanyLabel}</p>
+              <h1>{tableConfig.title}</h1>
+              <p className="subtitle">{tableConfig.subtitle}</p>
+            </div>
             <div className="hero-badges">
               <span className="table-badge">{getTableLabel(selectedTable)}</span>
               {canAccessOrdersModule && <span className="table-badge">objednávky + výroba</span>}
               {canAccessMesModule && <span className="table-badge">MES + HMI</span>}
               {isCompanyAdmin && <span className="table-badge">admin firmy</span>}
               {selectedTable === "stock" && <span className="table-badge">sklad</span>}
+            </div>
+
+            <div className="hero-status-grid" aria-label="Kontext pracovného priestoru">
+              <article className="hero-status-card">
+                <span>Workspace</span>
+                <strong>{getTableLabel(selectedTable)}</strong>
+                <p>{tableConfig.subtitle}</p>
+              </article>
+              <article className="hero-status-card">
+                <span>Firma</span>
+                <strong>{currentCompanyLabel}</strong>
+                <p>{isMaster ? "centrálny dohľad nad všetkými firmami" : "aktívny firemný kontext pre dennú operatívu"}</p>
+              </article>
+              <article className="hero-status-card">
+                <span>Používateľ</span>
+                <strong>{authUsername || "user"}</strong>
+                <p>{isCompanyAdmin ? "správa firmy a modulov" : "pracovný prístup do firemného cockpit-u"}</p>
+              </article>
             </div>
           </div>
 
@@ -19525,6 +19574,10 @@ function App() {
             </div>
 
             <div className="hero-actions-panel">
+              <div className="hero-actions-head">
+                <span>Command rail</span>
+                <strong>Rýchle akcie pre aktuálny modul</strong>
+              </div>
               <div className="action-buttons hero-action-stack">
                 {selectedTable === "stock" && (
                   <>

@@ -4548,6 +4548,51 @@ function summarizeMesStateWindow(events, startAt, endAt, fallbackState = "runnin
   };
 }
 
+function collectMesDowntimeDurations(events, options = {}) {
+  const {
+    openEventTypes = ["ml"],
+    closeEventTypes = ["start"],
+    startAt = "",
+    endAt = ""
+  } = options;
+  const startMs = startAt ? new Date(startAt).getTime() : Number.NEGATIVE_INFINITY;
+  const endMs = endAt ? new Date(endAt).getTime() : Number.POSITIVE_INFINITY;
+  const orderedEvents = [...(events || [])]
+    .filter((row) => row?.happened_at)
+    .sort((a, b) => new Date(a.happened_at || 0).getTime() - new Date(b.happened_at || 0).getTime());
+  const durations = [];
+  let activeStartMs = null;
+
+  orderedEvents.forEach((event) => {
+    const eventType = String(event?.event_type || "").trim().toLowerCase();
+    const happenedMs = new Date(event?.happened_at || 0).getTime();
+    if (!Number.isFinite(happenedMs)) {
+      return;
+    }
+    if (openEventTypes.includes(eventType)) {
+      activeStartMs = Math.max(happenedMs, startMs);
+      return;
+    }
+    if (!closeEventTypes.includes(eventType) || activeStartMs === null) {
+      return;
+    }
+    if (happenedMs < startMs) {
+      return;
+    }
+    const resolvedEndMs = Math.min(happenedMs, endMs);
+    if (resolvedEndMs > activeStartMs) {
+      durations.push({
+        startMs: activeStartMs,
+        endMs: resolvedEndMs,
+        durationMs: Math.max(0, resolvedEndMs - activeStartMs)
+      });
+    }
+    activeStartMs = null;
+  });
+
+  return durations;
+}
+
 function isMissingMesDeviceUidColumnError(error) {
   const message = String(error?.message || "").toLowerCase();
   return (
@@ -15216,6 +15261,13 @@ function App() {
       const events = mesEventsByMachineId[resolvedKey] || [];
       const eventSummary = mesEventSummaryByMachineId[resolvedKey] || null;
       const fallbackRun = eventSummary?.jobRunId ? mesJobRunsById[eventSummary.jobRunId] || null : null;
+      const isSemiAutomaticMachine = String(machine?.automation_mode || "full_automatic").trim().toLowerCase() === "semi_automatic";
+      const mlCycleSamples = collectMesDowntimeDurations(events, {
+        openEventTypes: ["ml"],
+        closeEventTypes: ["start"]
+      })
+        .map((row) => row.durationMs / 1000)
+        .filter((value) => Number.isFinite(value) && value > 0);
       const runtimeSamples = runs
         .map((row) => {
           const startedMs = new Date(row.started_at || row.created_at || 0).getTime();
@@ -15230,7 +15282,11 @@ function App() {
         })
         .filter((value) => Number.isFinite(value) && value > 0);
       const actualCycleSeconds =
-        runtimeSamples.length > 0 ? runtimeSamples.reduce((sum, value) => sum + value, 0) / runtimeSamples.length : null;
+        isSemiAutomaticMachine && mlCycleSamples.length > 0
+          ? mlCycleSamples.reduce((sum, value) => sum + value, 0) / mlCycleSamples.length
+          : runtimeSamples.length > 0
+            ? runtimeSamples.reduce((sum, value) => sum + value, 0) / runtimeSamples.length
+            : null;
       const targetCycleSeconds =
         Number(workstation?.target_cycle_seconds || 0) > 0
           ? Number(workstation.target_cycle_seconds)
@@ -15540,9 +15596,19 @@ function App() {
             ? (sessionWindow.totalMs / (60 * 60 * 1000)) * Number(currentMachineRow.idealUnitsPerHour)
             : 0;
         const isSemiAutomaticMachine = String(currentMachineRow?.automationMode || "").toLowerCase() === "semi_automatic";
+        const sessionMlCycles = isSemiAutomaticMachine
+          ? collectMesDowntimeDurations(matchingOperatorEvents, {
+              openEventTypes: ["ml"],
+              closeEventTypes: ["start"],
+              startAt: sessionStartedAt,
+              endAt: sessionEndedAt
+            })
+          : [];
         const sessionOperatorCycleSeconds =
-          isSemiAutomaticMachine && sessionProducedParts > 0 && sessionWindow.runMs > 0
-            ? sessionWindow.runMs / 1000 / sessionProducedParts
+          isSemiAutomaticMachine && sessionMlCycles.length > 0
+            ? sessionMlCycles.reduce((sum, row) => sum + row.durationMs, 0) / 1000 / sessionMlCycles.length
+            : isSemiAutomaticMachine && sessionProducedParts > 0 && sessionWindow.runMs > 0
+              ? sessionWindow.runMs / 1000 / sessionProducedParts
             : null;
         const totalGoodPartsFromRuns = entry.runs.reduce((sum, row) => sum + Number(row.good_quantity || 0), 0);
         const totalScrapPartsFromRuns = entry.runs.reduce((sum, row) => sum + Number(row.scrap_quantity || 0), 0);
@@ -15685,27 +15751,59 @@ function App() {
     });
     const hourlyByKey = Object.fromEntries(hourlySeries.map((row) => [row.key.slice(0, 13), row]));
     const dailyByKey = Object.fromEntries(dailySeries.map((row) => [row.key, row]));
-    mesRecentJobRuns.forEach((row) => {
-      const totalProduced = Number(row.good_quantity || 0) + Number(row.scrap_quantity || 0);
-      if (totalProduced <= 0) {
+    let hasEventCounts = false;
+    mesRecentEventRows.forEach((row) => {
+      const eventType = String(row.event_type || "").toLowerCase();
+      if (!["good_count", "scrap_count"].includes(eventType)) {
         return;
       }
-      const happenedAt = String(row.ended_at || row.updated_at || row.created_at || "");
+      const quantity = Math.max(1, Number(row.quantity || 0));
+      const happenedAt = String(row.happened_at || row.created_at || "");
       const hourKey = happenedAt.slice(0, 13);
       const dayKey = happenedAt.slice(0, 10);
       const hourlyBucket = hourlyByKey[hourKey];
       const dailyBucket = dailyByKey[dayKey];
       if (hourlyBucket) {
-        hourlyBucket.good += Number(row.good_quantity || 0);
-        hourlyBucket.scrap += Number(row.scrap_quantity || 0);
-        hourlyBucket.total += totalProduced;
+        if (eventType === "good_count") {
+          hourlyBucket.good += quantity;
+        } else {
+          hourlyBucket.scrap += quantity;
+        }
+        hourlyBucket.total += quantity;
       }
       if (dailyBucket) {
-        dailyBucket.good += Number(row.good_quantity || 0);
-        dailyBucket.scrap += Number(row.scrap_quantity || 0);
-        dailyBucket.total += totalProduced;
+        if (eventType === "good_count") {
+          dailyBucket.good += quantity;
+        } else {
+          dailyBucket.scrap += quantity;
+        }
+        dailyBucket.total += quantity;
       }
+      hasEventCounts = true;
     });
+    if (!hasEventCounts) {
+      mesRecentJobRuns.forEach((row) => {
+        const totalProduced = Number(row.good_quantity || 0) + Number(row.scrap_quantity || 0);
+        if (totalProduced <= 0) {
+          return;
+        }
+        const happenedAt = String(row.ended_at || row.updated_at || row.created_at || "");
+        const hourKey = happenedAt.slice(0, 13);
+        const dayKey = happenedAt.slice(0, 10);
+        const hourlyBucket = hourlyByKey[hourKey];
+        const dailyBucket = dailyByKey[dayKey];
+        if (hourlyBucket) {
+          hourlyBucket.good += Number(row.good_quantity || 0);
+          hourlyBucket.scrap += Number(row.scrap_quantity || 0);
+          hourlyBucket.total += totalProduced;
+        }
+        if (dailyBucket) {
+          dailyBucket.good += Number(row.good_quantity || 0);
+          dailyBucket.scrap += Number(row.scrap_quantity || 0);
+          dailyBucket.total += totalProduced;
+        }
+      });
+    }
     const partsPerHour = hourlySeries[hourlySeries.length - 1]?.total || 0;
     const partsPerShift = hourlySeries.reduce((sum, row) => sum + row.total, 0);
     const todayKey = new Date().toISOString().slice(0, 10);
@@ -15721,7 +15819,7 @@ function App() {
       hourlyPolyline: buildSimplePolyline(hourlySeries, "total", maxHourly),
       dailyPolyline: buildSimplePolyline(dailySeries, "total", maxDaily)
     };
-  }, [mesRecentJobRuns]);
+  }, [mesRecentJobRuns, mesRecentEventRows]);
   const mesQualitySummary = useMemo(() => {
     const defectTypeMap = new Map();
     let goodParts = 0;
@@ -15837,6 +15935,17 @@ function App() {
     let runTimeMs = 0;
     let downtimeMs = 0;
     let idealRuntimeMs = 0;
+    const eventsByJobRunId = {};
+    mesRecentEventRows.forEach((row) => {
+      const key = String(row.job_run_id || "").trim();
+      if (!key) {
+        return;
+      }
+      if (!eventsByJobRunId[key]) {
+        eventsByJobRunId[key] = [];
+      }
+      eventsByJobRunId[key].push(row);
+    });
     mesRecentJobRuns.forEach((row) => {
       const startedMs = new Date(row.started_at || row.created_at || 0).getTime();
       const endedMs = new Date(row.ended_at || row.updated_at || Date.now()).getTime();
@@ -15847,7 +15956,22 @@ function App() {
       const produced = Number(eventSummary?.totalProduced || 0) || (Number(row.good_quantity || 0) + Number(row.scrap_quantity || 0));
       const goodProduced = Number(eventSummary?.good || 0) || Number(row.good_quantity || 0);
       const target = machineTargetsByWorkstationId[row.workstation_id] || null;
-      runTimeMs += endedMs - startedMs;
+      const runEvents = eventsByJobRunId[String(row.id || "")] || [];
+      const stateWindow =
+        runEvents.length > 0
+          ? summarizeMesStateWindow(
+              runEvents,
+              row.started_at || row.created_at,
+              row.ended_at || row.updated_at || new Date().toISOString(),
+              String(row.status || "").toLowerCase() === "paused" ? "stopped" : "running"
+            )
+          : null;
+      if (stateWindow && stateWindow.totalMs > 0) {
+        runTimeMs += Number(stateWindow.runMs || 0);
+        downtimeMs += Number(stateWindow.stopMs || 0);
+      } else {
+        runTimeMs += endedMs - startedMs;
+      }
       totalGood += goodProduced;
       totalCount += produced;
       if (target?.targetCycleSeconds > 0 && produced > 0) {
@@ -15855,9 +15979,6 @@ function App() {
       } else if (target?.idealUnitsPerHour > 0 && produced > 0) {
         idealRuntimeMs += (produced / target.idealUnitsPerHour) * 60 * 60 * 1000;
       }
-    });
-    mesDowntimeTimeline.forEach((row) => {
-      downtimeMs += Number(row.durationMs || 0);
     });
     const plannedProductionMs = runTimeMs + downtimeMs;
     const availabilityPct = clampPercent(safeRatioPercent(runTimeMs, plannedProductionMs));
@@ -15869,7 +15990,7 @@ function App() {
       qualityPct,
       oeePct: clampPercent((availabilityPct * performancePct * qualityPct) / 10000)
     };
-  }, [mesRecentJobRuns, mesDowntimeTimeline, mesWorkstationsById, mesEventSummaryByJobRunId]);
+  }, [mesRecentJobRuns, mesRecentEventRows, mesWorkstationsById, mesEventSummaryByJobRunId]);
   const mesGlobalKpis = useMemo(() => {
     const counts = machineDashboardRows.reduce(
       (acc, row) => {

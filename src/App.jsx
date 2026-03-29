@@ -4581,7 +4581,7 @@ function isMissingMesMachinesAutomationModeColumnError(error) {
 function isMissingMesEventLogTableError(error) {
   const message = String(error?.message || "").toLowerCase();
   return (
-    message.includes("mes_event_log") &&
+    (message.includes("mes_event_log") || message.includes("mes_event_feed")) &&
     (message.includes("does not exist") ||
       message.includes("schema cache") ||
       message.includes("could not find"))
@@ -10598,12 +10598,12 @@ function App() {
         while (true) {
           const scopedQuery = scopedCompanyId
             ? supabase
-                .from("mes_event_log")
-                .select("id,company_id,terminal_id,workstation_id,job_run_id,terminal_event_id,event_code,job_number,duration_seconds,time_from,time_to,operator_id,downtime_reason_code,downtime_reason_name,payload,created_at")
+                .from("mes_event_feed")
+                .select("id,company_id,terminal_id,workstation_id,machine_id,job_run_id,terminal_event_id,event_code,event_type,job_number,quantity,duration_seconds,time_from,time_to,operator_id,downtime_reason_code,downtime_reason_name,note,source,payload,happened_at,created_at")
                 .eq("company_id", scopedCompanyId)
             : supabase
-                .from("mes_event_log")
-                .select("id,company_id,terminal_id,workstation_id,job_run_id,terminal_event_id,event_code,job_number,duration_seconds,time_from,time_to,operator_id,downtime_reason_code,downtime_reason_name,payload,created_at");
+                .from("mes_event_feed")
+                .select("id,company_id,terminal_id,workstation_id,machine_id,job_run_id,terminal_event_id,event_code,event_type,job_number,quantity,duration_seconds,time_from,time_to,operator_id,downtime_reason_code,downtime_reason_name,note,source,payload,happened_at,created_at");
           const { data: pageData, error: pageError } = await scopedQuery
             .order("created_at", { ascending: false })
             .range(from, from + MES_QUERY_PAGE_SIZE - 1);
@@ -10760,16 +10760,16 @@ function App() {
           company_id: String(row.company_id || ""),
           terminal_id: String(row.terminal_id || run?.terminal_id || ""),
           workstation_id: String(row.workstation_id || run?.workstation_id || ""),
-          machine_id: String(run?.machine_id || ""),
+          machine_id: String(row.machine_id || run?.machine_id || ""),
           job_run_id: String(row.job_run_id || ""),
           operator_user_id: String(run?.operator_user_id || row.operator_id || ""),
           operator_name: String(run?.operator_name || row.payload?.operator_name || row.payload?.operator_name_text || row.operator_id || ""),
-          event_type: String(row.event_code || "").toLowerCase(),
-          quantity: 0,
-          note: String(row.downtime_reason_name || row.payload?.details || row.payload?.title || ""),
-          source: "compact_log",
+          event_type: String(row.event_code || row.event_type || "").toLowerCase(),
+          quantity: Number(row.quantity || 0),
+          note: String(row.note || row.downtime_reason_name || row.payload?.details || row.payload?.title || ""),
+          source: String(row.source || "event_feed"),
           payload: row.payload && typeof row.payload === "object" ? row.payload : {},
-          happened_at: row.time_to || row.time_from || row.created_at || null,
+          happened_at: row.happened_at || row.time_to || row.time_from || row.created_at || null,
           created_at: row.created_at || null,
           duration_seconds: Number(row.duration_seconds || 0),
           time_from: row.time_from || null,
@@ -13529,7 +13529,7 @@ function App() {
         subscriptionTables.push("production_orders", "production_order_inputs", "production_order_outputs", "stock", "stock_history");
       }
       if (canAccessMesModule) {
-        subscriptionTables.push("mes_workstations", "mes_machines", "mes_hmi_terminals", "mes_job_runs", "mes_job_run_events", "mes_event_log");
+        subscriptionTables.push("mes_workstations", "mes_machines", "mes_hmi_terminals", "mes_job_runs", "mes_job_run_events");
       }
 
       let channel = null;

@@ -5938,7 +5938,6 @@ function App() {
   const [mesMachines, setMesMachines] = useState([]);
   const [mesTerminals, setMesTerminals] = useState([]);
   const [selectedMesMachineId, setSelectedMesMachineId] = useState("");
-  const [isMesMachineHistoryVisible, setIsMesMachineHistoryVisible] = useState(false);
   const [isMesTerminalSectionVisible, setIsMesTerminalSectionVisible] = useState(false);
   const [isMesTerminalFormVisible, setIsMesTerminalFormVisible] = useState(false);
   const [editingMesTerminalId, setEditingMesTerminalId] = useState("");
@@ -16577,7 +16576,6 @@ function App() {
   }, [mesMachineOptions, selectedMesMachineId]);
 
   useEffect(() => {
-    setIsMesMachineHistoryVisible(false);
   }, [selectedMesMachineId]);
 
   useEffect(() => {
@@ -18408,10 +18406,6 @@ function App() {
         value: selectedMesMachineOperatorMetrics?.sessionStartedAt ? formatDate(selectedMesMachineOperatorMetrics.sessionStartedAt) : "-"
       }
     ];
-    const selectedMesMachineEventsPreview = selectedMesMachineHistory.slice(0, 4);
-    const hasMesMachineHistory = selectedMesMachineHistory.length > 0;
-    const mesTroubleshootingEvents = mesRecentEventRows.slice(0, 20);
-
     return (
       <article className="orders-panel-card workflow-card workflow-card-list mes-dashboard-card">
       <div className="panel-head workflow-section-head">
@@ -18742,56 +18736,6 @@ function App() {
           </article>
           )}
 
-          <article className="orders-panel-card workflow-card workflow-card-list">
-            <div className="panel-head workflow-section-head">
-              <div>
-                <h2>Posledné MES eventy</h2>
-                <p className="panel-meta">{`${new Intl.NumberFormat("sk-SK").format(mesRecentEventRows.length)} načítaných eventov pre aktuálnu firmu`}</p>
-              </div>
-            </div>
-            {mesTroubleshootingEvents.length === 0 ? (
-              <p className="hint">Web zatiaľ nenačítal žiadne MES eventy pre aktuálnu firmu.</p>
-            ) : (
-              <div className="mes-timeline">
-                {mesTroubleshootingEvents.map((event) => {
-                  const run = mesJobRunsById[String(event.job_run_id || "")] || null;
-                  const workstation = mesWorkstationsById[String(event.workstation_id || "")] || null;
-                  const machine =
-                    machineDashboardRows.find((row) => row.machineId === String(event.machine_id || "")) ||
-                    machineDashboardRows.find((row) => row.workstationId === String(event.workstation_id || "")) ||
-                    null;
-                  const terminal = mesTerminalsById[String(event.terminal_id || "")] || null;
-                  return (
-                    <div key={`troubleshooting-${event.id}`} className="mes-timeline-row">
-                      <div>
-                        <strong>{formatMesEventLabel(event.event_type)}</strong>
-                        <p>
-                          {[
-                            run?.job_number ? `zákazka ${run.job_number}` : "",
-                            machine?.machineName || "",
-                            workstation?.name ? `pracovisko ${workstation.name}` : ""
-                          ]
-                            .filter(Boolean)
-                            .join(" | ") || "-"}
-                        </p>
-                        <p>
-                          {[
-                            event.operator_name ? `operátor ${event.operator_name}` : "",
-                            terminal?.name || terminal?.terminal_code || "",
-                            Number(event.quantity || 0) > 0 ? `množstvo ${new Intl.NumberFormat("sk-SK").format(Number(event.quantity || 0))}` : ""
-                          ]
-                            .filter(Boolean)
-                            .join(" | ") || "Bez doplnkového kontextu"}
-                        </p>
-                      </div>
-                      <span>{formatDate(event.happened_at)}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </article>
-
           {machineDashboardRows.length === 0 ? (
             <p className="hint">Pre túto firmu zatiaľ nie sú založené stroje, pracoviská alebo MES job runy.</p>
           ) : (
@@ -18880,83 +18824,6 @@ function App() {
                     </div>
                   </section>
                 </div>
-              </div>
-              <div className="mes-machine-events">
-                <div className="mes-machine-events-head">
-                  <div className="mes-data-panel-head">
-                    <strong>Posledné udalosti stroja</strong>
-                    <span>Krátky výrez posledných MES záznamov</span>
-                  </div>
-                  {hasMesMachineHistory && (
-                    <button
-                      type="button"
-                      className="clear-btn"
-                      onClick={() => setIsMesMachineHistoryVisible((current) => !current)}
-                    >
-                      {isMesMachineHistoryVisible ? "Skryť históriu" : "Otvoriť históriu"}
-                    </button>
-                  )}
-                </div>
-                <div className="mes-timeline">
-                {selectedMesMachineEventsPreview.length === 0 ? (
-                  <p className="hint">Pre vybraný stroj zatiaľ nie sú žiadne MES udalosti.</p>
-                ) : (
-                  selectedMesMachineEventsPreview.map((event) => (
-                    <div key={event.id} className="mes-timeline-row">
-                      <div>
-                        <strong>{formatMesEventLabel(event.event_type)}</strong>
-                        <p>
-                          {mesDowntimeReasonNameById[event.downtime_reason_id] ||
-                            event.payload?.reason ||
-                            event.note ||
-                            event.payload?.note ||
-                            "-"}
-                        </p>
-                        {(event.operator_name || event.terminal_id) && (
-                          <p>
-                            {[event.operator_name ? `operátor ${event.operator_name}` : "", mesTerminalsById[event.terminal_id]?.name || mesTerminalsById[event.terminal_id]?.terminal_code || ""]
-                              .filter(Boolean)
-                              .join(" | ")}
-                          </p>
-                        )}
-                      </div>
-                      <span>{formatDate(event.happened_at)}</span>
-                    </div>
-                  ))
-                )}
-                </div>
-                {isMesMachineHistoryVisible && hasMesMachineHistory && (
-                  <div className="mes-history-panel">
-                    <div className="mes-data-panel-head">
-                      <strong>História vybraného stroja</strong>
-                      <span>{`${new Intl.NumberFormat("sk-SK").format(selectedMesMachineHistory.length)} udalostí`}</span>
-                    </div>
-                    <div className="mes-timeline">
-                      {selectedMesMachineHistory.map((event) => (
-                        <div key={`history-${event.id}`} className="mes-timeline-row">
-                          <div>
-                            <strong>{formatMesEventLabel(event.event_type)}</strong>
-                            <p>
-                              {mesDowntimeReasonNameById[event.downtime_reason_id] ||
-                                event.payload?.reason ||
-                                event.note ||
-                                event.payload?.note ||
-                                "-"}
-                            </p>
-                            {(event.operator_name || event.terminal_id) && (
-                              <p>
-                                {[event.operator_name ? `operátor ${event.operator_name}` : "", mesTerminalsById[event.terminal_id]?.name || mesTerminalsById[event.terminal_id]?.terminal_code || ""]
-                                  .filter(Boolean)
-                                  .join(" | ")}
-                              </p>
-                            )}
-                          </div>
-                          <span>{formatDate(event.happened_at)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
             </article>
             <div className="mes-side-stack">

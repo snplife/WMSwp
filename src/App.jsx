@@ -18233,6 +18233,7 @@ function App() {
     const selectedMachineLabel = selectedMesMachineOverview?.machineName || "Nezvolený stroj";
     const selectedMachineOperatorName =
       selectedMachineOperator?.operatorName ||
+      selectedMesMachineStats?.operatorName ||
       selectedMachineAuthOperatorName ||
       selectedMesMachineOverview?.operatorName ||
       currentMesMachineRun?.operator_name ||

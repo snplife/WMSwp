@@ -252,6 +252,76 @@ body::before {
   background: linear-gradient(90deg, #174764, #bc652c 58%, #e2d5c4);
 }
 
+.hero-grid {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.78fr);
+  gap: 1.2rem;
+  align-items: start;
+}
+
+.hero-primary {
+  display: grid;
+  gap: 0.9rem;
+  min-width: 0;
+}
+
+.hero-kicker {
+  margin: 0;
+  color: #8d541d;
+  font-size: 0.74rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 800;
+}
+
+.hero-primary .hero-badges {
+  justify-content: flex-start;
+}
+
+.hero-side {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.hero-context-card,
+.hero-actions-panel {
+  display: grid;
+  gap: 0.45rem;
+  padding: 1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(174, 185, 191, 0.72);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(243, 239, 232, 0.92));
+  box-shadow: 0 14px 24px rgba(23, 33, 43, 0.08);
+}
+
+.hero-context-card span {
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #6b7882;
+}
+
+.hero-context-card strong {
+  font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+  font-size: 1.08rem;
+  color: #12324a;
+}
+
+.hero-context-card p {
+  margin: 0;
+  color: #5c6b79;
+  line-height: 1.5;
+  font-size: 0.84rem;
+}
+
+.hero-action-stack {
+  flex-wrap: wrap;
+}
+
 .hero-top {
   display: flex;
   justify-content: space-between;
@@ -5594,17 +5664,71 @@ tbody tr:nth-child(even) {
   align-items: center;
 }
 
-.landing-layout {
+.landing-stage {
   display: grid;
-  grid-template-columns: 1.3fr 1fr;
   gap: 1rem;
+}
+
+.landing-hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(320px, 0.82fr);
+  gap: 1.1rem;
   align-items: start;
 }
 
-.landing-side-column {
+.landing-hero-primary,
+.landing-hero-rail,
+.landing-hero-context {
   display: grid;
   gap: 1rem;
-  align-self: start;
+  min-width: 0;
+}
+
+.landing-hero-lower {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+  gap: 1rem;
+  margin-top: 1.15rem;
+  align-items: start;
+}
+
+.landing-hero-proof {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.landing-hero-proof-card {
+  display: grid;
+  gap: 0.24rem;
+  padding: 0.95rem 1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(170, 180, 185, 0.68);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(244, 241, 235, 0.94)),
+    linear-gradient(135deg, rgba(23, 71, 100, 0.04), transparent 42%);
+  box-shadow: 0 14px 24px rgba(23, 33, 43, 0.06);
+}
+
+.landing-hero-proof-card span {
+  color: #7b857f;
+  font-size: 0.71rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.landing-hero-proof-card strong {
+  color: #12324a;
+  font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+  font-size: 1rem;
+}
+
+.landing-hero-proof-card p {
+  margin: 0;
+  color: #61707d;
+  font-size: 0.81rem;
+  line-height: 1.5;
 }
 
 .landing-supporting {
@@ -6704,6 +6828,13 @@ tbody tr:nth-child(even) {
     linear-gradient(135deg, rgba(23, 71, 100, 0.06), transparent 42%);
 }
 
+.landing-scale-inline {
+  padding: 1rem 1.05rem;
+  border-radius: 16px;
+  border: 1px solid rgba(170, 180, 185, 0.68);
+  box-shadow: 0 18px 28px rgba(23, 33, 43, 0.07);
+}
+
 .landing-scale-head {
   display: grid;
   gap: 0.42rem;
@@ -6876,14 +7007,20 @@ tbody tr:nth-child(even) {
     border-radius: 14px;
   }
 
-  .hero-top {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
   .hero-badges {
     width: 100%;
     justify-content: flex-start;
+  }
+
+  .hero-grid,
+  .landing-hero-grid,
+  .landing-hero-lower {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-side,
+  .landing-hero-proof {
+    grid-template-columns: 1fr;
   }
 
   .dashboard-shell {
@@ -6895,10 +7032,6 @@ tbody tr:nth-child(even) {
   }
 
   .sidebar-tree {
-    grid-template-columns: 1fr;
-  }
-
-  .landing-layout {
     grid-template-columns: 1fr;
   }
 
@@ -7295,5 +7428,21 @@ tbody tr:nth-child(even) {
   .workflow-shell-invoices .workflow-feed-column {
     width: 100%;
     justify-self: stretch;
+  }
+}
+
+@media (max-width: 1100px) {
+  .hero-grid,
+  .landing-hero-grid,
+  .landing-hero-lower {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-side {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .landing-hero-proof {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

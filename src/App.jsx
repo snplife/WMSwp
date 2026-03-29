@@ -17124,57 +17124,56 @@ function App() {
   if (!isLoggedIn) {
     return (
       <main className="container landing-screen">
-        <section className="landing-layout">
+        <section className="landing-stage">
           <article className="landing-card landing-hero-card">
-            <div className="landing-hero-head">
-              <img src={logo} alt="Factory OS" className="landing-logo" />
-              <div className="landing-hero-chip-row">
-                <span className="landing-hero-chip">
-                  <ShieldCheck size={14} strokeWidth={2.1} />
-                  Firemný systém
-                </span>
-                <span className="landing-hero-chip">
-                  <Building2 size={14} strokeWidth={2.1} />
-                  Web + Android
-                </span>
-              </div>
-            </div>
-
-            <div className="landing-hero-copy">
-              <p className="landing-hero-kicker">Sklad, výroba, dochádzka a fakturácia v jednom prostredí</p>
-              <h1>Platforma pre firmy, ktoré chcú zvyšovať efektivitu a nezaspali na inováciách</h1>
-              <p className="subtitle">
-                Factory OS pomáha firmám dostať sklad, dokumenty a operatívu do jedného systému. Namiesto rozbitých
-                evidencií dostaneš prehľadný web, Android terminály a setup podľa reálnej prevádzky.
-              </p>
-            </div>
-
-            <div className="landing-hero-module-grid" aria-label="Pokryté moduly">
-              {COMPANY_ADMIN_MODULE_OPTIONS.map((moduleOption) => {
-                const Icon = getModuleIcon(moduleOption.iconKey);
-                return (
-                  <article key={moduleOption.key} className="landing-hero-module-card">
-                    <span className="landing-hero-module-icon" aria-hidden="true">
-                      <Icon size={18} strokeWidth={2.05} />
+            <div className="landing-hero-grid">
+              <div className="landing-hero-primary">
+                <div className="landing-hero-head">
+                  <img src={logo} alt="Factory OS" className="landing-logo" />
+                  <div className="landing-hero-chip-row">
+                    <span className="landing-hero-chip">
+                      <ShieldCheck size={14} strokeWidth={2.1} />
+                      Firemný systém
                     </span>
-                    <strong>{moduleOption.label}</strong>
-                    <span>{moduleOption.description}</span>
+                    <span className="landing-hero-chip">
+                      <Building2 size={14} strokeWidth={2.1} />
+                      Web + Android
+                    </span>
+                  </div>
+                </div>
+
+                <div className="landing-hero-copy">
+                  <p className="landing-hero-kicker">Sklad, výroba, dochádzka a fakturácia v jednom prostredí</p>
+                  <h1>Platforma pre firmy, ktoré chcú zvyšovať efektivitu a nezaspali na inováciách</h1>
+                  <p className="subtitle">
+                    Factory OS pomáha firmám dostať sklad, dokumenty a operatívu do jedného systému. Namiesto rozbitých
+                    evidencií dostaneš prehľadný web, Android terminály a setup podľa reálnej prevádzky.
+                  </p>
+                </div>
+
+                <div className="landing-hero-proof" aria-label="Kľúčové benefity riešenia">
+                  {publicRegisteredCompaniesCount !== null && publicRegisteredCompaniesCount > 0 && (
+                    <article className="landing-hero-proof-card">
+                      <span>Prevádzky na platforme</span>
+                      <strong>{new Intl.NumberFormat("sk-SK").format(publicRegisteredCompaniesCount)}+</strong>
+                      <p>aktívnych zákazníkov používa Factory OS v dennej operatíve</p>
+                    </article>
+                  )}
+                  <article className="landing-hero-proof-card">
+                    <span>Nasadenie</span>
+                    <strong>Web + terminál</strong>
+                    <p>jedna dátová vrstva pre kanceláriu, výrobu, sklad aj dochádzku</p>
                   </article>
-                );
-              })}
-            </div>
+                  <article className="landing-hero-proof-card">
+                    <span>Rollout</span>
+                    <strong>Na mieru prevádzke</strong>
+                    <p>setup firmy, hardvér a procesy sa neskladajú z generickej šablóny</p>
+                  </article>
+                </div>
+              </div>
 
-            <div className="landing-note">
-              <h2>Čo robíme</h2>
-              <p>
-                Navrhujeme a nasadzujeme Factory OS pre firmy, ktoré chcú mať sklad, pohyby materiálu, objednávky,
-                cenové ponuky, faktúry a budúci order processing v jednom systéme na webe aj v appke.
-              </p>
-            </div>
-          </article>
-
-          <div className="landing-side-column">
-            <section className={`login-card auth-card landing-access-card${landingAuthVisible ? " is-open" : ""}`}>
+              <aside className="landing-hero-rail">
+                <section className={`login-card auth-card landing-access-card${landingAuthVisible ? " is-open" : ""}`}>
               {!landingAuthVisible ? (
                 <>
                   <div className="auth-card-top landing-access-top">
@@ -17459,50 +17458,79 @@ function App() {
                 {authError && <p className="error">{authError}</p>}
                 </>
               )}
-            </section>
+                </section>
+              </aside>
+            </div>
 
-            <article className="landing-card landing-scale-card" aria-label="Škálovanie systému">
-              <div className="landing-scale-head">
-                <p className="auth-kicker">Bez umelých limitov</p>
-                <h2>Neobmedzujeme počet používateľov ani objem prevádzky podľa skenov alebo transakcií</h2>
-                <p className="panel-meta">
-                  Factory OS naceníme podľa toho, ktoré moduly a rollout firma reálne potrebuje. Nie podľa počtu skenov,
-                  terminálových eventov alebo iných umelých stropov, ktoré ti neskôr brzdia rast.
-                </p>
+            <div className="landing-hero-lower">
+              <div className="landing-hero-module-grid" aria-label="Pokryté moduly">
+                {COMPANY_ADMIN_MODULE_OPTIONS.map((moduleOption) => {
+                  const Icon = getModuleIcon(moduleOption.iconKey);
+                  return (
+                    <article key={moduleOption.key} className="landing-hero-module-card">
+                      <span className="landing-hero-module-icon" aria-hidden="true">
+                        <Icon size={18} strokeWidth={2.05} />
+                      </span>
+                      <strong>{moduleOption.label}</strong>
+                      <span>{moduleOption.description}</span>
+                    </article>
+                  );
+                })}
               </div>
 
-              <div className="landing-scale-grid">
-                <article className="landing-scale-item">
-                  <span className="landing-scale-item-icon" aria-hidden="true">
-                    <Users size={17} strokeWidth={2.05} />
-                  </span>
-                  <strong>Bez limitu používateľov</strong>
-                  <p>Nezamkneme firmu na nízky počet účtov len preto, že rastie tím alebo pribúdajú prevádzky.</p>
-                </article>
-                <article className="landing-scale-item">
-                  <span className="landing-scale-item-icon" aria-hidden="true">
-                    <Boxes size={17} strokeWidth={2.05} />
-                  </span>
-                  <strong>Bez stropu transakcií</strong>
-                  <p>Skladové pohyby, výroba aj dochádzkové eventy môžu rásť bez poplatku za každú ďalšiu operáciu.</p>
-                </article>
-                <article className="landing-scale-item">
-                  <span className="landing-scale-item-icon" aria-hidden="true">
-                    <ReceiptText size={17} strokeWidth={2.05} />
-                  </span>
-                  <strong>Žiadne poplatky za skeny</strong>
-                  <p>Neúčtujeme systém podľa počtu skenov, terminálových pípnutí alebo dokumentových akcií v prevádzke.</p>
-                </article>
-                <article className="landing-scale-item">
-                  <span className="landing-scale-item-icon" aria-hidden="true">
-                    <Settings2 size={17} strokeWidth={2.05} />
-                  </span>
-                  <strong>Cena podľa reality firmy</strong>
-                  <p>Rozhoduje výber modulov, hardware, onboarding a reálny rollout, nie umelo nafúknuté usage metriky.</p>
-                </article>
+              <div className="landing-hero-context">
+                <div className="landing-note">
+                  <h2>Čo robíme</h2>
+                  <p>
+                    Navrhujeme a nasadzujeme Factory OS pre firmy, ktoré chcú mať sklad, pohyby materiálu, objednávky,
+                    cenové ponuky, faktúry a budúci order processing v jednom systéme na webe aj v appke.
+                  </p>
+                </div>
+
+                <section className="landing-scale-card landing-scale-inline" aria-label="Škálovanie systému">
+                  <div className="landing-scale-head">
+                    <p className="auth-kicker">Bez umelých limitov</p>
+                    <h2>Neobmedzujeme počet používateľov ani objem prevádzky podľa skenov alebo transakcií</h2>
+                    <p className="panel-meta">
+                      Factory OS naceníme podľa toho, ktoré moduly a rollout firma reálne potrebuje. Nie podľa počtu skenov,
+                      terminálových eventov alebo iných umelých stropov, ktoré ti neskôr brzdia rast.
+                    </p>
+                  </div>
+
+                  <div className="landing-scale-grid">
+                    <article className="landing-scale-item">
+                      <span className="landing-scale-item-icon" aria-hidden="true">
+                        <Users size={17} strokeWidth={2.05} />
+                      </span>
+                      <strong>Bez limitu používateľov</strong>
+                      <p>Nezamkneme firmu na nízky počet účtov len preto, že rastie tím alebo pribúdajú prevádzky.</p>
+                    </article>
+                    <article className="landing-scale-item">
+                      <span className="landing-scale-item-icon" aria-hidden="true">
+                        <Boxes size={17} strokeWidth={2.05} />
+                      </span>
+                      <strong>Bez stropu transakcií</strong>
+                      <p>Skladové pohyby, výroba aj dochádzkové eventy môžu rásť bez poplatku za každú ďalšiu operáciu.</p>
+                    </article>
+                    <article className="landing-scale-item">
+                      <span className="landing-scale-item-icon" aria-hidden="true">
+                        <ReceiptText size={17} strokeWidth={2.05} />
+                      </span>
+                      <strong>Žiadne poplatky za skeny</strong>
+                      <p>Neúčtujeme systém podľa počtu skenov, terminálových pípnutí alebo dokumentových akcií v prevádzke.</p>
+                    </article>
+                    <article className="landing-scale-item">
+                      <span className="landing-scale-item-icon" aria-hidden="true">
+                        <Settings2 size={17} strokeWidth={2.05} />
+                      </span>
+                      <strong>Cena podľa reality firmy</strong>
+                      <p>Rozhoduje výber modulov, hardware, onboarding a reálny rollout, nie umelo nafúknuté usage metriky.</p>
+                    </article>
+                  </div>
+                </section>
               </div>
-            </article>
-          </div>
+            </div>
+          </article>
         </section>
         <section className="landing-supporting" aria-label="Informácie o riešení Factory OS">
           <article className="landing-card landing-flow-section">
@@ -19475,86 +19503,94 @@ function App() {
 
       <div className="dashboard-main">
       <section className="hero dashboard-hero">
-        <div className="hero-top">
-          <div>
-            <p className="panel-meta">{currentCompanyLabel}</p>
+        <div className="hero-grid">
+          <div className="hero-primary">
+            <p className="hero-kicker">{currentCompanyLabel}</p>
             <h1>{tableConfig.title}</h1>
             <p className="subtitle">{tableConfig.subtitle}</p>
+            <div className="hero-badges">
+              <span className="table-badge">{getTableLabel(selectedTable)}</span>
+              {canAccessOrdersModule && <span className="table-badge">objednávky + výroba</span>}
+              {canAccessMesModule && <span className="table-badge">MES + HMI</span>}
+              {isCompanyAdmin && <span className="table-badge">admin firmy</span>}
+              {selectedTable === "stock" && <span className="table-badge">sklad</span>}
+            </div>
           </div>
-          <div className="hero-badges">
-            <span className="table-badge">{getTableLabel(selectedTable)}</span>
-            {canAccessOrdersModule && <span className="table-badge">objednávky + výroba</span>}
-            {canAccessMesModule && <span className="table-badge">MES + HMI</span>}
-            {isCompanyAdmin && <span className="table-badge">admin firmy</span>}
-            {selectedTable === "stock" && <span className="table-badge">sklad</span>}
-          </div>
-        </div>
 
-        <div className="actions-row">
-          <div className="action-buttons">
-            {selectedTable === "stock" && (
-              <>
-                {!isMaster && (
-                  <button
-                    type="button"
-                    className="settings-btn"
-                    onClick={() => setIsMaterialSubscriptionOpen((current) => !current)}
-                  >
-                    {isMaterialSubscriptionOpen ? "Skryť sledovanie" : "Sledovanie materiálu"}
+          <div className="hero-side">
+            <div className="hero-context-card">
+              <span>Aktívna firma</span>
+              <strong>{currentCompanyLabel}</strong>
+              <p>{authUsername || "user"} · pracovný cockpit pre sklad, výrobu, dochádzku a dokumenty</p>
+            </div>
+
+            <div className="hero-actions-panel">
+              <div className="action-buttons hero-action-stack">
+                {selectedTable === "stock" && (
+                  <>
+                    {!isMaster && (
+                      <button
+                        type="button"
+                        className="settings-btn"
+                        onClick={() => setIsMaterialSubscriptionOpen((current) => !current)}
+                      >
+                        {isMaterialSubscriptionOpen ? "Skryť sledovanie" : "Sledovanie materiálu"}
+                      </button>
+                    )}
+                  </>
+                )}
+                {!isWorkflowModule(selectedTable) && (
+                  <button type="button" onClick={exportToExcel} className="export-btn">
+                    Export do Excelu
                   </button>
                 )}
-              </>
-            )}
-            {!isWorkflowModule(selectedTable) && (
-              <button type="button" onClick={exportToExcel} className="export-btn">
-                Export do Excelu
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => {
-                if (isOrdersModule(selectedTable)) {
-                  loadOrdersModuleData();
-                  return;
-                }
-                if (isCustomerModule(selectedTable)) {
-                  loadCustomersModuleData();
-                  return;
-                }
-                if (isCrmModule(selectedTable)) {
-                  loadCrmModuleData();
-                  return;
-                }
-                if (isEmployeesModule(selectedTable) || isAttendanceModule(selectedTable) || isAttendanceGroupsModule(selectedTable) || isAttendanceSettingsModule(selectedTable)) {
-                  loadAttendanceModuleData();
-                  return;
-                }
-                if (isQuoteModule(selectedTable)) {
-                  loadQuotesModuleData();
-                  return;
-                }
-                if (isInvoiceModule(selectedTable)) {
-                  loadInvoicesModuleData();
-                  return;
-                }
-                if (isProductionModule(selectedTable)) {
-                  if (canAccessOrdersModule) {
-                    loadProductionModuleData();
-                  }
-                  if (canAccessMesModule) {
-                    loadMesModuleData();
-                  }
-                  return;
-                }
-                loadRows(selectedTable);
-              }}
-              className="refresh-btn"
-            >
-              Obnoviť
-            </button>
-            <button type="button" onClick={handleSignOut} className="logout-btn" disabled={signOutSubmitting}>
-              Odhlásiť sa
-            </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isOrdersModule(selectedTable)) {
+                      loadOrdersModuleData();
+                      return;
+                    }
+                    if (isCustomerModule(selectedTable)) {
+                      loadCustomersModuleData();
+                      return;
+                    }
+                    if (isCrmModule(selectedTable)) {
+                      loadCrmModuleData();
+                      return;
+                    }
+                    if (isEmployeesModule(selectedTable) || isAttendanceModule(selectedTable) || isAttendanceGroupsModule(selectedTable) || isAttendanceSettingsModule(selectedTable)) {
+                      loadAttendanceModuleData();
+                      return;
+                    }
+                    if (isQuoteModule(selectedTable)) {
+                      loadQuotesModuleData();
+                      return;
+                    }
+                    if (isInvoiceModule(selectedTable)) {
+                      loadInvoicesModuleData();
+                      return;
+                    }
+                    if (isProductionModule(selectedTable)) {
+                      if (canAccessOrdersModule) {
+                        loadProductionModuleData();
+                      }
+                      if (canAccessMesModule) {
+                        loadMesModuleData();
+                      }
+                      return;
+                    }
+                    loadRows(selectedTable);
+                  }}
+                  className="refresh-btn"
+                >
+                  Obnoviť
+                </button>
+                <button type="button" onClick={handleSignOut} className="logout-btn" disabled={signOutSubmitting}>
+                  Odhlásiť sa
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </section>

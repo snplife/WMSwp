@@ -10628,6 +10628,26 @@ function App() {
         const rows = [];
         const uniqueIds = Array.from(new Set((jobRunIds || []).filter(Boolean)));
         if (uniqueIds.length === 0) {
+          let from = 0;
+
+          while (true) {
+            const { data: pageData, error: pageError } = await supabase
+              .from("mes_job_run_events")
+              .select("id,job_run_id,workstation_id,machine_id,downtime_reason_id,event_type,quantity,source,note,payload,happened_at,created_at")
+              .order("happened_at", { ascending: false })
+              .range(from, from + MES_QUERY_PAGE_SIZE - 1);
+
+            if (pageError) {
+              throw pageError;
+            }
+
+            rows.push(...(pageData || []));
+            if (!pageData || pageData.length < MES_QUERY_PAGE_SIZE) {
+              break;
+            }
+            from += MES_QUERY_PAGE_SIZE;
+          }
+
           return rows;
         }
 

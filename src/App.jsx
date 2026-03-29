@@ -4524,10 +4524,16 @@ function getMesStateTransitionFromEvent(eventType) {
   return "";
 }
 
-function summarizeMesStateWindow(events, startAt, endAt, fallbackState = "running") {
+const MES_MAX_DOWNTIME_DURATION_MS = 5 * 60 * 60 * 1000;
+
+function summarizeMesStateWindow(events, startAt, endAt, fallbackState = "running", options = {}) {
   const startMs = new Date(startAt || 0).getTime();
   const resolvedEndAt = endAt || new Date().toISOString();
   const endMs = new Date(resolvedEndAt).getTime();
+  const maxStopSegmentMs =
+    Number.isFinite(options.maxStopSegmentMs) && options.maxStopSegmentMs > 0
+      ? options.maxStopSegmentMs
+      : MES_MAX_DOWNTIME_DURATION_MS;
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
     return {
       totalMs: 0,
@@ -4567,7 +4573,7 @@ function summarizeMesStateWindow(events, startAt, endAt, fallbackState = "runnin
     if (segmentDurationMs > 0) {
       if (currentState === "running") {
         runMs += segmentDurationMs;
-      } else {
+      } else if (segmentDurationMs <= maxStopSegmentMs) {
         stopMs += segmentDurationMs;
       }
     }
@@ -4579,7 +4585,7 @@ function summarizeMesStateWindow(events, startAt, endAt, fallbackState = "runnin
   if (tailDurationMs > 0) {
     if (currentState === "running") {
       runMs += tailDurationMs;
-    } else {
+    } else if (tailDurationMs <= maxStopSegmentMs) {
       stopMs += tailDurationMs;
     }
   }
@@ -4621,6 +4627,7 @@ function collectMesEventDurations(events, eventTypes = [], options = {}) {
   const allowedTypes = new Set((eventTypes || []).map((value) => String(value || "").trim().toLowerCase()).filter(Boolean));
   const startMs = options.startAt ? new Date(options.startAt).getTime() : Number.NEGATIVE_INFINITY;
   const endMs = options.endAt ? new Date(options.endAt).getTime() : Number.POSITIVE_INFINITY;
+  const maxDurationMs = Number.isFinite(options.maxDurationMs) && options.maxDurationMs > 0 ? options.maxDurationMs : Number.POSITIVE_INFINITY;
 
   return [...(events || [])]
     .filter((row) => {
@@ -4636,7 +4643,14 @@ function collectMesEventDurations(events, eventTypes = [], options = {}) {
       };
     })
     .filter(({ happenedMs, durationMs }) => {
-      return Number.isFinite(happenedMs) && happenedMs >= startMs && happenedMs <= endMs && Number.isFinite(durationMs) && durationMs > 0;
+      return (
+        Number.isFinite(happenedMs) &&
+        happenedMs >= startMs &&
+        happenedMs <= endMs &&
+        Number.isFinite(durationMs) &&
+        durationMs > 0 &&
+        durationMs <= maxDurationMs
+      );
     });
 }
 
@@ -4682,7 +4696,8 @@ function collectMesDowntimeDurations(events, options = {}) {
     openEventTypes = ["ml"],
     closeEventTypes = ["start"],
     startAt = "",
-    endAt = ""
+    endAt = "",
+    maxDurationMs = Number.POSITIVE_INFINITY
   } = options;
   const startMs = startAt ? new Date(startAt).getTime() : Number.NEGATIVE_INFINITY;
   const endMs = endAt ? new Date(endAt).getTime() : Number.POSITIVE_INFINITY;
@@ -4709,7 +4724,7 @@ function collectMesDowntimeDurations(events, options = {}) {
       return;
     }
     const resolvedEndMs = Math.min(happenedMs, endMs);
-    if (resolvedEndMs > activeStartMs) {
+    if (resolvedEndMs > activeStartMs && resolvedEndMs - activeStartMs <= maxDurationMs) {
       durations.push({
         startMs: activeStartMs,
         endMs: resolvedEndMs,
@@ -15099,6 +15114,9 @@ function App() {
       if (!["stop", "ml", "downtime_start"].includes(String(row.event_type || "").toLowerCase())) {
         return;
       }
+      if (getMesEventDurationMs(row) > MES_MAX_DOWNTIME_DURATION_MS) {
+        return;
+      }
       const reasonLabel = row.downtime_reason_name || row.downtime_reason_code || downtimeReasonById[row.downtime_reason_id] || "Nezadaný dôvod";
       const current = downtimeReasonStats.get(reasonLabel) || { reason: reasonLabel, count: 0, latestAt: "" };
       current.count += 1;
@@ -15119,6 +15137,9 @@ function App() {
           return;
         }
         if (["downtime_start", "pause", "stop", "ml"].includes(String(event.event_type || "").toLowerCase())) {
+          if (getMesEventDurationMs(event) > MES_MAX_DOWNTIME_DURATION_MS) {
+            return;
+          }
           machine.downtimeEvents += 1;
           if (activeFailureAt === null) {
             if (lastRecoveryAt !== null) {
@@ -15191,6 +15212,9 @@ function App() {
     });
     mesRecentEventRows.forEach((row) => {
       if (!["stop", "ml", "downtime_start"].includes(String(row.event_type || "").toLowerCase())) {
+        return;
+      }
+      if (getMesEventDurationMs(row) > MES_MAX_DOWNTIME_DURATION_MS) {
         return;
       }
       const dayKey = String(row.happened_at || "").slice(0, 10);
@@ -15429,7 +15453,9 @@ function App() {
           .find(Boolean) || null;
       const fallbackRun = eventSummary?.jobRunId ? mesJobRunsById[eventSummary.jobRunId] || null : null;
       const isSemiAutomaticMachine = String(machine?.automation_mode || "full_automatic").trim().toLowerCase() === "semi_automatic";
-      const mlCycleSamples = collectMesEventDurations(events, ["ml"])
+      const mlCycleSamples = collectMesEventDurations(events, ["ml"], {
+        maxDurationMs: MES_MAX_DOWNTIME_DURATION_MS
+      })
         .map((row) => row.durationMs / 1000)
         .filter((value) => Number.isFinite(value) && value > 0);
       const runCycleSamples = collectMesEventDurations(events, ["start", "resume"])
@@ -15756,20 +15782,29 @@ function App() {
             ? (sessionWindow.totalMs / (60 * 60 * 1000)) * Number(currentMachineRow.idealUnitsPerHour)
             : 0;
         const isSemiAutomaticMachine = String(currentMachineRow?.automationMode || "").toLowerCase() === "semi_automatic";
+        const sessionMlDurationSamples = isSemiAutomaticMachine
+          ? collectMesEventDurations(sessionEvents, ["ml"], {
+              startAt: sessionStartedAt,
+              endAt: sessionEndedAt,
+              maxDurationMs: MES_MAX_DOWNTIME_DURATION_MS
+            })
+              .map((row) => row.durationMs / 1000)
+              .filter((value) => Number.isFinite(value) && value > 0)
+          : [];
         const sessionMlCycles = isSemiAutomaticMachine
           ? collectMesDowntimeDurations(sessionEvents, {
               openEventTypes: ["ml"],
-              closeEventTypes: ["start"],
+              closeEventTypes: ["start", "resume"],
               startAt: sessionStartedAt,
-              endAt: sessionEndedAt
+              endAt: sessionEndedAt,
+              maxDurationMs: MES_MAX_DOWNTIME_DURATION_MS
             })
+              .map((row) => row.durationMs / 1000)
           : [];
         const sessionOperatorCycleSeconds =
-          isSemiAutomaticMachine && sessionMlCycles.length > 0
-            ? sessionMlCycles.reduce((sum, row) => sum + row.durationMs, 0) / 1000 / sessionMlCycles.length
-            : isSemiAutomaticMachine && sessionProducedParts > 0 && sessionWindow.runMs > 0
-              ? sessionWindow.runMs / 1000 / sessionProducedParts
-              : null;
+          averageMesNumber(sessionMlDurationSamples) ??
+          averageMesNumber(sessionMlCycles) ??
+          (isSemiAutomaticMachine && sessionProducedParts > 0 && sessionWindow.stopMs > 0 ? sessionWindow.stopMs / 1000 / sessionProducedParts : null);
         const totalGoodParts = sessionEvents
           .filter((row) => String(row.event_type || "").toLowerCase() === "good_count")
           .reduce((sum, row) => sum + Number(row.quantity || 0), 0);
@@ -15983,7 +16018,8 @@ function App() {
     const operatorDurationSamples = isSemiAutomaticMachine
       ? collectMesEventDurations(selectedMesMachineScopedEvents, ["ml"], {
           startAt: analysisStartAt,
-          endAt: analysisEndAt
+          endAt: analysisEndAt,
+          maxDurationMs: MES_MAX_DOWNTIME_DURATION_MS
         })
           .map((row) => row.durationMs / 1000)
           .filter((value) => Number.isFinite(value) && value > 0)
@@ -15999,7 +16035,8 @@ function App() {
           openEventTypes: ["ml"],
           closeEventTypes: ["start", "resume"],
           startAt: analysisStartAt,
-          endAt: analysisEndAt
+          endAt: analysisEndAt,
+          maxDurationMs: MES_MAX_DOWNTIME_DURATION_MS
         }).map((row) => row.durationMs / 1000)
       : [];
     const pairedMachineCycles = isSemiAutomaticMachine
@@ -16090,7 +16127,8 @@ function App() {
     const sessionMlDurationSamples = isSemiAutomaticMachine
       ? collectMesEventDurations(sessionEvents, ["ml"], {
           startAt: sessionStartedAt,
-          endAt: sessionEndedAt
+          endAt: sessionEndedAt,
+          maxDurationMs: MES_MAX_DOWNTIME_DURATION_MS
         })
           .map((row) => row.durationMs / 1000)
           .filter((value) => Number.isFinite(value) && value > 0)
@@ -16106,7 +16144,8 @@ function App() {
           openEventTypes: ["ml"],
           closeEventTypes: ["start", "resume"],
           startAt: sessionStartedAt,
-          endAt: sessionEndedAt
+          endAt: sessionEndedAt,
+          maxDurationMs: MES_MAX_DOWNTIME_DURATION_MS
         }).map((row) => row.durationMs / 1000)
       : [];
     const sessionOperatorCycleSeconds =
@@ -16339,6 +16378,11 @@ function App() {
           return;
         }
         if (activeDowntime) {
+          const durationMs = Math.max(0, happenedMs - new Date(activeDowntime.happened_at || 0).getTime());
+          if (durationMs > MES_MAX_DOWNTIME_DURATION_MS) {
+            activeDowntime = null;
+            return;
+          }
           timeline.push({
             id: `${activeDowntime.id}-${event.id}`,
             machineId,
@@ -16348,7 +16392,7 @@ function App() {
               machineId,
             startAt: activeDowntime.happened_at,
             endAt: event.happened_at,
-            durationMs: Math.max(0, happenedMs - new Date(activeDowntime.happened_at || 0).getTime()),
+            durationMs,
             reason:
               activeDowntime.downtime_reason_name ||
               activeDowntime.downtime_reason_code ||
@@ -16361,6 +16405,10 @@ function App() {
         }
       });
       if (activeDowntime) {
+        const durationMs = Math.max(0, Date.now() - new Date(activeDowntime.happened_at || 0).getTime());
+        if (durationMs > MES_MAX_DOWNTIME_DURATION_MS) {
+          return;
+        }
         timeline.push({
           id: `${activeDowntime.id}-open`,
           machineId,
@@ -16370,7 +16418,7 @@ function App() {
             machineId,
           startAt: activeDowntime.happened_at,
           endAt: "",
-          durationMs: Math.max(0, Date.now() - new Date(activeDowntime.happened_at || 0).getTime()),
+          durationMs,
           reason:
             activeDowntime.downtime_reason_name ||
             activeDowntime.downtime_reason_code ||
@@ -16443,7 +16491,9 @@ function App() {
       ).sort((a, b) => new Date(a.happened_at || a.created_at || 0).getTime() - new Date(b.happened_at || b.created_at || 0).getTime());
 
       const eventRunMs = collectMesEventDurations(machineEvents, ["start", "resume"]).reduce((sum, row) => sum + row.durationMs, 0);
-      const eventStopMs = collectMesEventDurations(machineEvents, ["ml", "stop", "pause", "downtime_start"]).reduce((sum, row) => sum + row.durationMs, 0);
+      const eventStopMs = collectMesEventDurations(machineEvents, ["ml", "stop", "pause", "downtime_start"], {
+        maxDurationMs: MES_MAX_DOWNTIME_DURATION_MS
+      }).reduce((sum, row) => sum + row.durationMs, 0);
 
       let resolvedRunMs = eventRunMs;
       let resolvedStopMs = eventStopMs;

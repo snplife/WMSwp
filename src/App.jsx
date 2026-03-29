@@ -13590,6 +13590,7 @@ function App() {
       }
 
       let reloadTimer = null;
+      let refreshInterval = null;
       const scheduleReload = () => {
         if (reloadTimer) {
           window.clearTimeout(reloadTimer);
@@ -13603,6 +13604,14 @@ function App() {
           }
         }, 350);
       };
+      refreshInterval = window.setInterval(() => {
+        if (canAccessOrdersModule) {
+          loadProductionModuleData();
+        }
+        if (canAccessMesModule) {
+          loadMesModuleData();
+        }
+      }, 5000);
 
       const subscriptionTables = [];
       if (canAccessOrdersModule) {
@@ -13624,6 +13633,9 @@ function App() {
       return () => {
         if (reloadTimer) {
           window.clearTimeout(reloadTimer);
+        }
+        if (refreshInterval) {
+          window.clearInterval(refreshInterval);
         }
         if (channel) {
           supabase.removeChannel(channel);

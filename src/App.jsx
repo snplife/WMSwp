@@ -15862,10 +15862,9 @@ function App() {
     return {
       operatorName: getMesEventOperatorLabel(latestAuthEvent),
       sessionStartedAt,
-      sessionRunPct: sessionWindow.runPct,
-      sessionPerformancePct: sessionTargetParts > 0 ? safeRatioPercent(sessionProducedParts, sessionTargetParts) : 0,
-      sessionQualityPct: safeRatioPercent(resolvedSessionGoodParts, sessionProducedParts),
-      sessionOperatorCycleSeconds
+      sessionProducedParts,
+      sessionGoodParts: resolvedSessionGoodParts,
+      sessionScrapParts: resolvedSessionScrapParts
     };
   }, [selectedMesMachineOverview, currentMesMachineRun, selectedMesMachineEvents, mesEventsByTerminalId]);
   const mesProductionOrderRows = useMemo(() => {
@@ -18383,27 +18382,26 @@ function App() {
         value: selectedMesMachineOverview?.machineLastHeartbeatAt ? formatTimeOnly(selectedMesMachineOverview.machineLastHeartbeatAt) : "-"
       }
     ];
-    const selectedMachineSessionStats = [
+    const selectedMachineOperatorStats = [
       {
-        label: "Využitie operátora",
-        value: selectedMesMachineOperatorMetrics ? formatPercentValue(selectedMesMachineOperatorMetrics.sessionRunPct) : "-"
+        label: "Prihlásený operátor",
+        value: selectedMesMachineOperatorMetrics?.operatorName || selectedMachineOperatorName || "-"
       },
       {
-        label: "Takt operátora",
-        value:
-          selectedMesMachineOperatorMetrics && String(selectedMesMachineOverview?.automationMode || "").toLowerCase() === "semi_automatic"
-            ? Number.isFinite(selectedMesMachineOperatorMetrics.sessionOperatorCycleSeconds)
-              ? `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(selectedMesMachineOperatorMetrics.sessionOperatorCycleSeconds)} s/ks`
-              : "-"
-            : "-"
+        label: "Aktívna zákazka",
+        value: selectedMesMachineOverview?.currentWorkOrder || "-"
       },
       {
-        label: "Plnenie targetu",
-        value: selectedMesMachineOperatorMetrics ? formatPercentValue(selectedMesMachineOperatorMetrics.sessionPerformancePct) : "-"
+        label: "Vyrobené kusy",
+        value: new Intl.NumberFormat("sk-SK").format(Number(selectedMesMachineOperatorMetrics?.sessionProducedParts || 0))
       },
       {
-        label: "Kvalita operátora",
-        value: selectedMesMachineOperatorMetrics ? formatPercentValue(selectedMesMachineOperatorMetrics.sessionQualityPct) : "-"
+        label: "OK kusy",
+        value: new Intl.NumberFormat("sk-SK").format(Number(selectedMesMachineOperatorMetrics?.sessionGoodParts || 0))
+      },
+      {
+        label: "NOK kusy",
+        value: new Intl.NumberFormat("sk-SK").format(Number(selectedMesMachineOperatorMetrics?.sessionScrapParts || 0))
       },
       {
         label: "Session od",
@@ -18870,10 +18868,10 @@ function App() {
                   <section className="mes-data-panel">
                     <div className="mes-data-panel-head">
                       <strong>Operátor</strong>
-                      <span>Session na aktuálnom stroji</span>
+                      <span>Len identifikačné údaje aktívnej session</span>
                     </div>
                     <div className="mes-detail-stats mes-detail-stats-compact">
-                      {selectedMachineSessionStats.map((item) => (
+                      {selectedMachineOperatorStats.map((item) => (
                         <article key={item.label} className="mes-mini-stat">
                           <span>{item.label}</span>
                           <strong>{item.value}</strong>
@@ -19238,10 +19236,10 @@ function App() {
           {machineDashboardRows.length > 0 && (
             <article className="orders-panel-card workflow-card workflow-card-list">
               <div className="panel-head workflow-section-head">
-                <div>
-                  <h2>Operátori vo výrobe</h2>
-                  <p className="panel-meta">Len aktuálny stroj a výkon v prebiehajúcej session.</p>
-                </div>
+              <div>
+                <h2>Operátori vo výrobe</h2>
+                <p className="panel-meta">Len aktuálny stroj, zákazka a základné údaje o aktívnej session.</p>
+              </div>
                 <div className="hero-badges">
                   <span className="panel-meta">{`${mesOperatorSummary.activeOperators} aktívnych / ${mesOperatorSummary.totalOperators}`}</span>
                   <span className="panel-meta">
@@ -19256,51 +19254,46 @@ function App() {
               ) : (
                 <div className="orders-list attendance-list mes-operator-list">
                   {mesOperatorRows.map((operator) => (
-                    <article key={operator.key} className="order-card attendance-card mes-operator-card">
-                      <div className="order-card-head attendance-card-head mes-operator-card-head">
-                        <div>
-                          <strong>{operator.operatorName}</strong>
-                          <p>{operator.profile?.employee_code || operator.currentMachineName || "Bez aktívneho stroja"}</p>
-                        </div>
-                        <div className="attendance-card-pills">
-                          <span className="table-badge">{operator.activeRunCount > 0 ? "aktívny" : "bez runu"}</span>
-                          <span className="table-badge">{formatPercentValue(operator.sessionRunPct)}</span>
-                        </div>
-                      </div>
-                      <div className="order-detail attendance-card-body">
-                        <div className="attendance-meta-grid mes-terminal-meta-grid">
-                          <div>
+              <article key={operator.key} className="order-card attendance-card mes-operator-card">
+                <div className="order-card-head attendance-card-head mes-operator-card-head">
+                  <div>
+                    <strong>{operator.operatorName}</strong>
+                    <p>{operator.profile?.employee_code || operator.currentMachineName || "Bez aktívneho stroja"}</p>
+                  </div>
+                  <div className="attendance-card-pills">
+                    <span className="table-badge">{operator.activeRunCount > 0 ? "aktívny" : "bez runu"}</span>
+                  </div>
+                </div>
+                <div className="order-detail attendance-card-body">
+                  <div className="attendance-meta-grid mes-terminal-meta-grid">
+                    <div>
                             <span className="draft-field-label">Stroj</span>
                             <p>{operator.currentMachineName || "-"}</p>
                           </div>
                           <div>
-                            <span className="draft-field-label">Zákazka</span>
-                            <p>{operator.currentWorkOrder || "-"}</p>
-                          </div>
-                          <div>
-                            <span className="draft-field-label">Využitie</span>
-                            <p>{formatPercentValue(operator.sessionRunPct)}</p>
-                          </div>
-                          <div>
-                            <span className="draft-field-label">Takt operátora</span>
-                            <p>
-                              {String(operator.automationMode || "").toLowerCase() === "semi_automatic" && Number.isFinite(operator.sessionOperatorCycleSeconds)
-                                ? `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(operator.sessionOperatorCycleSeconds)} s/ks`
-                                : "-"}
-                            </p>
-                          </div>
-                          <div>
-                            <span className="draft-field-label">Plnenie targetu</span>
-                            <p>{formatPercentValue(operator.sessionPerformancePct)}</p>
-                          </div>
-                          <div>
-                            <span className="draft-field-label">Kvalita</span>
-                            <p>{formatPercentValue(operator.sessionQualityPct)}</p>
-                          </div>
-                          <div>
-                            <span className="draft-field-label">Vyrobené kusy</span>
-                            <p>{new Intl.NumberFormat("sk-SK").format(operator.sessionProducedParts)}</p>
-                          </div>
+                      <span className="draft-field-label">Zákazka</span>
+                      <p>{operator.currentWorkOrder || "-"}</p>
+                    </div>
+                    <div>
+                      <span className="draft-field-label">Session od</span>
+                      <p>{operator.sessionStartedAt ? formatDate(operator.sessionStartedAt) : "-"}</p>
+                    </div>
+                    <div>
+                      <span className="draft-field-label">Posledná aktivita</span>
+                      <p>{operator.lastSeenAt ? formatDate(operator.lastSeenAt) : "-"}</p>
+                    </div>
+                    <div>
+                      <span className="draft-field-label">OK kusy</span>
+                      <p>{new Intl.NumberFormat("sk-SK").format(operator.sessionGoodParts)}</p>
+                    </div>
+                    <div>
+                      <span className="draft-field-label">NOK kusy</span>
+                      <p>{new Intl.NumberFormat("sk-SK").format(operator.sessionScrapParts)}</p>
+                    </div>
+                    <div>
+                      <span className="draft-field-label">Vyrobené kusy</span>
+                      <p>{new Intl.NumberFormat("sk-SK").format(operator.sessionProducedParts)}</p>
+                    </div>
                         </div>
                         {canAccessAttendanceModule && operator.operatorName && (
                           <div className="order-card-actions">

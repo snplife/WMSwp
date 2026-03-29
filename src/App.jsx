@@ -4467,6 +4467,38 @@ function buildMesOperatorKey(operatorUserId, operatorName) {
   return "";
 }
 
+function isMesLoginEvent(eventType) {
+  const normalized = String(eventType || "").trim().toLowerCase();
+  return ["ol", "login"].includes(normalized);
+}
+
+function isMesLogoutEvent(eventType) {
+  const normalized = String(eventType || "").trim().toLowerCase();
+  return ["oso", "logout"].includes(normalized);
+}
+
+function isMesAuthEvent(eventType) {
+  return isMesLoginEvent(eventType) || isMesLogoutEvent(eventType);
+}
+
+function getMesEventScopeKeys(row) {
+  return Array.from(
+    new Set([String(row?.machine_id || "").trim(), String(row?.workstation_id || "").trim(), String(row?.terminal_id || "").trim()].filter(Boolean))
+  );
+}
+
+function getMesEventOperatorLabel(row) {
+  return String(row?.operator_name || row?.operator_id || row?.operator_user_id || "").trim();
+}
+
+function buildMesEventIdentity(row) {
+  return String(
+    row?.terminal_event_id ||
+      row?.id ||
+      `${row?.terminal_id || ""}:${row?.machine_id || ""}:${row?.workstation_id || ""}:${row?.job_run_id || ""}:${row?.happened_at || row?.created_at || ""}:${row?.event_type || ""}`
+  );
+}
+
 function getMesStateTransitionFromEvent(eventType) {
   const normalized = String(eventType || "").trim().toLowerCase();
   if (["start", "resume", "good_count", "scrap_count", "os"].includes(normalized)) {
@@ -15147,6 +15179,23 @@ function App() {
     });
     return grouped;
   }, [mesRecentEventRows]);
+  const mesEventsByTerminalId = useMemo(() => {
+    const grouped = {};
+    for (const row of mesRecentEventRows) {
+      const key = String(row.terminal_id || "").trim();
+      if (!key) {
+        continue;
+      }
+      if (!grouped[key]) {
+        grouped[key] = [];
+      }
+      grouped[key].push(row);
+    }
+    Object.values(grouped).forEach((items) => {
+      items.sort((a, b) => new Date(b.happened_at || 0).getTime() - new Date(a.happened_at || 0).getTime());
+    });
+    return grouped;
+  }, [mesRecentEventRows]);
   const mesEventSummaryByJobRunId = useMemo(() => {
     const grouped = {};
     mesRecentEventRows.forEach((row) => {
@@ -15482,164 +15531,121 @@ function App() {
     const matchById = mesAnalytics.topMachines.find((row) => row.machineId === selectedMesMachineId);
     return matchById || selectedMesMachineOverview;
   }, [mesAnalytics.topMachines, selectedMesMachineId, selectedMesMachineOverview]);
+  const mesActiveOperatorSessions = useMemo(() => {
+    const authEvents = [...mesRecentEventRows]
+      .filter((row) => isMesAuthEvent(row.event_type))
+      .sort((a, b) => new Date(a.happened_at || a.created_at || 0).getTime() - new Date(b.happened_at || b.created_at || 0).getTime());
+    const openByScopeKey = new Map();
+
+    authEvents.forEach((row) => {
+      const scopeKeys = getMesEventScopeKeys(row);
+      if (scopeKeys.length === 0) {
+        return;
+      }
+      if (isMesLoginEvent(row.event_type)) {
+        scopeKeys.forEach((scopeKey) => {
+          openByScopeKey.set(scopeKey, {
+            scopeKey,
+            machineId: String(row.machine_id || "").trim(),
+            workstationId: String(row.workstation_id || "").trim(),
+            terminalId: String(row.terminal_id || "").trim(),
+            authEvent: row
+          });
+        });
+        return;
+      }
+      if (isMesLogoutEvent(row.event_type)) {
+        scopeKeys.forEach((scopeKey) => {
+          openByScopeKey.delete(scopeKey);
+        });
+      }
+    });
+
+    const sessionsByKey = new Map();
+    Array.from(openByScopeKey.values()).forEach((session) => {
+      const operatorUserId = String(session.authEvent.operator_user_id || "").trim();
+      const operatorName = getMesEventOperatorLabel(session.authEvent);
+      const operatorKey = buildMesOperatorKey(operatorUserId, operatorName);
+      const preferredScopeKey = session.machineId || session.workstationId || session.terminalId || session.scopeKey;
+      if (!operatorKey || !preferredScopeKey) {
+        return;
+      }
+      const sessionKey = `${operatorKey}|${preferredScopeKey}`;
+      if (!sessionsByKey.has(sessionKey)) {
+        sessionsByKey.set(sessionKey, {
+          sessionKey,
+          operatorKey,
+          operatorUserId,
+          operatorName,
+          normalizedNameKey: normalizeMesOperatorLookupValue(operatorName),
+          machineId: session.machineId,
+          workstationId: session.workstationId,
+          terminalId: session.terminalId,
+          authEvent: session.authEvent,
+          startedAt: String(session.authEvent.happened_at || session.authEvent.created_at || "").trim()
+        });
+      }
+    });
+
+    return Array.from(sessionsByKey.values());
+  }, [mesRecentEventRows]);
   const mesOperatorRows = useMemo(() => {
-    const operatorsByKey = new Map();
-    const nameAliasToKey = {};
-
-    const ensureOperator = ({ operatorUserId, operatorName }) => {
-      const normalizedUserId = String(operatorUserId || "").trim();
-      const normalizedName = String(operatorName || "").trim();
-      const normalizedNameKey = normalizeMesOperatorLookupValue(normalizedName);
-      let key = buildMesOperatorKey(normalizedUserId, normalizedName);
-      if (!key && normalizedNameKey && nameAliasToKey[normalizedNameKey]) {
-        key = nameAliasToKey[normalizedNameKey];
-      }
-      if (!key) {
-        return null;
-      }
-
-      if (!operatorsByKey.has(key)) {
-        operatorsByKey.set(key, {
-          key,
-          operatorUserId: normalizedUserId,
-          operatorName: normalizedName,
-          normalizedNameKey,
-          runs: [],
-          events: [],
-          machineIds: new Set(),
-          workstationIds: new Set(),
-          lastSeenAt: "",
-          latestEvent: null,
-          activeRun: null,
-          latestRun: null
-        });
-      }
-
-      const entry = operatorsByKey.get(key);
-      if (!entry.operatorUserId && normalizedUserId) {
-        entry.operatorUserId = normalizedUserId;
-      }
-      if (!entry.operatorName && normalizedName) {
-        entry.operatorName = normalizedName;
-      }
-      if (!entry.normalizedNameKey && normalizedNameKey) {
-        entry.normalizedNameKey = normalizedNameKey;
-      }
-      if (normalizedNameKey) {
-        nameAliasToKey[normalizedNameKey] = key;
-      }
-      return entry;
-    };
-
-    mesRecentEventRows.forEach((event) => {
-      const entry = ensureOperator({
-        operatorUserId: event.operator_user_id,
-        operatorName: event.operator_name || event.operator_id
-      });
-      if (!entry) {
-        return;
-      }
-      entry.events.push(event);
-      if (event.machine_id) {
-        entry.machineIds.add(String(event.machine_id));
-      }
-      if (event.workstation_id) {
-        entry.workstationIds.add(String(event.workstation_id));
-      }
-      const happenedAt = String(event.happened_at || "");
-      if (happenedAt && (!entry.lastSeenAt || happenedAt > entry.lastSeenAt)) {
-        entry.lastSeenAt = happenedAt;
-        entry.latestEvent = event;
-      }
-    });
-
-    mesRecentJobRuns.forEach((run) => {
-      const entry = ensureOperator({
-        operatorUserId: "",
-        operatorName: run.operator_name
-      });
-      if (!entry) {
-        return;
-      }
-      entry.runs.push(run);
-      if (run.machine_id) {
-        entry.machineIds.add(String(run.machine_id));
-      }
-      if (run.workstation_id) {
-        entry.workstationIds.add(String(run.workstation_id));
-      }
-      const runUpdatedAt = String(run.started_at || run.updated_at || run.created_at || "");
-      if (runUpdatedAt && (!entry.lastSeenAt || runUpdatedAt > entry.lastSeenAt)) {
-        entry.lastSeenAt = runUpdatedAt;
-      }
-      if (!entry.latestRun) {
-        entry.latestRun = run;
-      }
-      if (!entry.activeRun && ["running", "paused", "queued"].includes(String(run.status || "").toLowerCase())) {
-        entry.activeRun = run;
-      }
-    });
-
-    return Array.from(operatorsByKey.values())
-      .map((entry) => {
+    return mesActiveOperatorSessions
+      .map((session) => {
         const profile =
-          (entry.operatorUserId ? attendanceProfilesByLinkedUserId[entry.operatorUserId] || null : null) ||
-          (entry.normalizedNameKey ? attendanceProfilesByNameKey[entry.normalizedNameKey] || null : null);
+          (session.operatorUserId ? attendanceProfilesByLinkedUserId[session.operatorUserId] || null : null) ||
+          (session.normalizedNameKey ? attendanceProfilesByNameKey[session.normalizedNameKey] || null : null);
         const presence = profile ? attendancePresenceByProfileId[profile.id] || null : null;
-        const activeRun = entry.activeRun || entry.latestRun || null;
-        const currentMachineId = String(activeRun?.machine_id || activeRun?.workstation_id || entry.latestEvent?.machine_id || entry.latestEvent?.workstation_id || "");
         const currentMachineRow =
-          machineDashboardRows.find((row) => row.machineId === currentMachineId || row.workstationId === currentMachineId) || null;
-        const currentMachineEventsBase = currentMachineId ? mesEventsByMachineId[currentMachineId] || [] : [];
-        const currentMachineEvents = activeRun?.id
-          ? currentMachineEventsBase.filter((row) => !row.job_run_id || String(row.job_run_id) === String(activeRun.id))
-          : currentMachineEventsBase;
-        const matchingOperatorEvents = currentMachineEvents
-          .filter((row) => {
-            const resolvedOperatorName = row.operator_name || row.operator_id || row.operator_user_id;
-            const eventKey = buildMesOperatorKey(row.operator_user_id, resolvedOperatorName);
-            return eventKey === entry.key || normalizeMesOperatorLookupValue(resolvedOperatorName) === entry.normalizedNameKey;
-          })
-          .sort((a, b) => new Date(a.happened_at || 0).getTime() - new Date(b.happened_at || 0).getTime());
-        const activeRunStartAt = String(activeRun?.started_at || activeRun?.created_at || "");
-        const activeRunStartMs = new Date(activeRunStartAt || 0).getTime();
-        const sessionAnchorEvent =
-          matchingOperatorEvents.find((row) => {
-            const happenedMs = new Date(row.happened_at || 0).getTime();
-            if (!Number.isFinite(happenedMs)) {
-              return false;
-            }
-            return !Number.isFinite(activeRunStartMs) || happenedMs >= activeRunStartMs;
-          }) ||
-          matchingOperatorEvents[0] ||
+          machineDashboardRows.find(
+            (row) =>
+              (session.machineId && row.machineId === session.machineId) ||
+              (session.workstationId && row.workstationId === session.workstationId) ||
+              (session.terminalId && row.terminalId === session.terminalId)
+          ) || null;
+        const relevantRuns = mesRecentJobRuns
+          .filter(
+            (row) =>
+              (session.machineId && String(row.machine_id || "") === session.machineId) ||
+              (session.workstationId && String(row.workstation_id || "") === session.workstationId) ||
+              (session.terminalId && String(row.terminal_id || "") === session.terminalId)
+          )
+          .sort(
+            (a, b) =>
+              new Date(b.started_at || b.updated_at || b.created_at || 0).getTime() -
+              new Date(a.started_at || a.updated_at || a.created_at || 0).getTime()
+          );
+        const activeRun =
+          relevantRuns.find((row) => ["running", "paused", "queued"].includes(String(row.status || "").toLowerCase())) ||
+          relevantRuns[0] ||
           null;
-        const sessionStartedAt = String(sessionAnchorEvent?.happened_at || activeRunStartAt || entry.lastSeenAt || "");
-        const activeRunStatus = String(activeRun?.status || "").toLowerCase();
-        const latestOperatorEventType = String(entry.latestEvent?.event_type || "").toLowerCase();
-        const eventOnlyActiveSession =
-          !activeRun &&
-          Boolean(entry.latestEvent) &&
-          !["oso", "logout", "of", "complete", "cancel"].includes(latestOperatorEventType);
-        const sessionEndedAt =
-          ["running", "paused", "queued"].includes(activeRunStatus) || eventOnlyActiveSession || !activeRun
-            ? new Date().toISOString()
-            : String(activeRun?.ended_at || activeRun?.updated_at || entry.latestEvent?.happened_at || entry.lastSeenAt || "");
-        const sessionWindow = summarizeMesStateWindow(
-          currentMachineEvents,
-          sessionStartedAt,
-          sessionEndedAt,
-          activeRunStatus === "paused" ? "stopped" : "running"
+        const scopeKeys = Array.from(
+          new Set([session.machineId, session.workstationId, currentMachineRow?.machineId, currentMachineRow?.workstationId].filter(Boolean))
         );
-        const sessionProductionEvents = matchingOperatorEvents.filter((row) => {
-          const happenedMs = new Date(row.happened_at || 0).getTime();
-          const startMs = new Date(sessionStartedAt || 0).getTime();
-          const endMs = new Date(sessionEndedAt || 0).getTime();
-          return Number.isFinite(happenedMs) && Number.isFinite(startMs) && Number.isFinite(endMs) && happenedMs >= startMs && happenedMs <= endMs;
+        const scopedEvents = Array.from(
+          new Map(
+            [
+              ...scopeKeys.flatMap((key) => mesEventsByMachineId[key] || []),
+              ...(session.terminalId ? mesEventsByTerminalId[session.terminalId] || [] : [])
+            ].map((row) => [buildMesEventIdentity(row), row])
+          ).values()
+        ).sort((a, b) => new Date(a.happened_at || a.created_at || 0).getTime() - new Date(b.happened_at || b.created_at || 0).getTime());
+        const sessionStartedAt = String(session.startedAt || activeRun?.started_at || activeRun?.created_at || "").trim();
+        const sessionEndedAt = new Date().toISOString();
+        const sessionStartMs = new Date(sessionStartedAt || 0).getTime();
+        const sessionEndMs = new Date(sessionEndedAt).getTime();
+        const sessionEvents = scopedEvents.filter((row) => {
+          const happenedMs = new Date(row.happened_at || row.created_at || 0).getTime();
+          return Number.isFinite(happenedMs) && Number.isFinite(sessionStartMs) && Number.isFinite(sessionEndMs) && happenedMs >= sessionStartMs && happenedMs <= sessionEndMs;
         });
-        const sessionGoodParts = sessionProductionEvents
+        const fallbackState = ["paused", "stop", "stopped", "alarm"].includes(String(currentMachineRow?.machineStatus || activeRun?.status || "").toLowerCase())
+          ? "stopped"
+          : "running";
+        const sessionWindow = summarizeMesStateWindow(sessionEvents, sessionStartedAt, sessionEndedAt, fallbackState);
+        const sessionGoodParts = sessionEvents
           .filter((row) => String(row.event_type || "").toLowerCase() === "good_count")
           .reduce((sum, row) => sum + Number(row.quantity || 0), 0);
-        const sessionScrapParts = sessionProductionEvents
+        const sessionScrapParts = sessionEvents
           .filter((row) => String(row.event_type || "").toLowerCase() === "scrap_count")
           .reduce((sum, row) => sum + Number(row.quantity || 0), 0);
         const fallbackSessionGoodParts = Number(activeRun?.good_quantity || 0);
@@ -15653,7 +15659,7 @@ function App() {
             : 0;
         const isSemiAutomaticMachine = String(currentMachineRow?.automationMode || "").toLowerCase() === "semi_automatic";
         const sessionMlCycles = isSemiAutomaticMachine
-          ? collectMesDowntimeDurations(matchingOperatorEvents, {
+          ? collectMesDowntimeDurations(sessionEvents, {
               openEventTypes: ["ml"],
               closeEventTypes: ["start"],
               startAt: sessionStartedAt,
@@ -15665,42 +15671,37 @@ function App() {
             ? sessionMlCycles.reduce((sum, row) => sum + row.durationMs, 0) / 1000 / sessionMlCycles.length
             : isSemiAutomaticMachine && sessionProducedParts > 0 && sessionWindow.runMs > 0
               ? sessionWindow.runMs / 1000 / sessionProducedParts
-            : null;
-        const totalGoodPartsFromRuns = entry.runs.reduce((sum, row) => sum + Number(row.good_quantity || 0), 0);
-        const totalScrapPartsFromRuns = entry.runs.reduce((sum, row) => sum + Number(row.scrap_quantity || 0), 0);
-        const totalGoodPartsFromEvents = entry.events
+              : null;
+        const totalGoodParts = sessionEvents
           .filter((row) => String(row.event_type || "").toLowerCase() === "good_count")
           .reduce((sum, row) => sum + Number(row.quantity || 0), 0);
-        const totalScrapPartsFromEvents = entry.events
+        const totalScrapParts = sessionEvents
           .filter((row) => String(row.event_type || "").toLowerCase() === "scrap_count")
           .reduce((sum, row) => sum + Number(row.quantity || 0), 0);
-        const totalGoodParts = totalGoodPartsFromRuns > 0 ? totalGoodPartsFromRuns : totalGoodPartsFromEvents;
-        const totalScrapParts = totalScrapPartsFromRuns > 0 ? totalScrapPartsFromRuns : totalScrapPartsFromEvents;
-        const activeRunCount =
-          entry.runs.filter((row) => ["running", "paused", "queued"].includes(String(row.status || "").toLowerCase())).length ||
-          (eventOnlyActiveSession ? 1 : 0);
+        const latestEvent = [...sessionEvents].sort((a, b) => new Date(b.happened_at || b.created_at || 0).getTime() - new Date(a.happened_at || a.created_at || 0).getTime())[0] || session.authEvent;
 
         return {
-          key: entry.key,
-          operatorUserId: entry.operatorUserId,
-          operatorName: entry.operatorName || profile?.full_name || entry.operatorUserId || "Neznámy operátor",
+          key: session.sessionKey,
+          operatorUserId: session.operatorUserId,
+          operatorName: session.operatorName || profile?.full_name || session.operatorUserId || "Neznámy operátor",
           profile,
           presence,
           activeRun,
-          currentMachineId,
-          currentMachineName: currentMachineRow?.machineName || entry.latestEvent?.machine_id || activeRun?.machine_id || "-",
+          terminalId: session.terminalId,
+          currentMachineId: String(currentMachineRow?.machineId || session.machineId || session.workstationId || ""),
+          currentMachineName: currentMachineRow?.machineName || currentMachineRow?.machineCode || session.machineId || session.workstationId || "-",
           currentWorkstationName: currentMachineRow?.workstationName || currentMachineRow?.area || "-",
-          currentWorkOrder: activeRun?.job_number || entry.latestEvent?.job_number || currentMachineRow?.currentWorkOrder || "-",
-          machineIds: Array.from(entry.machineIds),
-          workstationIds: Array.from(entry.workstationIds),
-          machineCount: entry.machineIds.size,
-          activeRunCount,
-          jobCount: entry.runs.length,
+          currentWorkOrder: activeRun?.job_number || currentMachineRow?.currentWorkOrder || latestEvent?.job_number || "-",
+          machineIds: Array.from(new Set([session.machineId, currentMachineRow?.machineId].filter(Boolean))),
+          workstationIds: Array.from(new Set([session.workstationId, currentMachineRow?.workstationId].filter(Boolean))),
+          machineCount: Array.from(new Set([session.machineId, currentMachineRow?.machineId].filter(Boolean))).length,
+          activeRunCount: 1,
+          jobCount: relevantRuns.length,
           totalGoodParts,
           totalScrapParts,
           totalProducedParts: totalGoodParts + totalScrapParts,
-          lastSeenAt: entry.lastSeenAt,
-          latestEvent: entry.latestEvent,
+          lastSeenAt: String(latestEvent?.happened_at || latestEvent?.created_at || sessionStartedAt || ""),
+          latestEvent,
           sessionStartedAt,
           sessionRunMs: sessionWindow.runMs,
           sessionStopMs: sessionWindow.stopMs,
@@ -15720,18 +15721,18 @@ function App() {
       })
       .sort(
         (a, b) =>
-          b.activeRunCount - a.activeRunCount ||
           new Date(b.lastSeenAt || 0).getTime() - new Date(a.lastSeenAt || 0).getTime() ||
           String(a.operatorName || "").localeCompare(String(b.operatorName || ""), "sk-SK", { sensitivity: "base" })
       );
   }, [
-    mesRecentEventRows,
-    mesRecentJobRuns,
+    mesActiveOperatorSessions,
     attendanceProfilesByLinkedUserId,
     attendanceProfilesByNameKey,
     attendancePresenceByProfileId,
     machineDashboardRows,
-    mesEventsByMachineId
+    mesRecentJobRuns,
+    mesEventsByMachineId,
+    mesEventsByTerminalId
   ]);
   const mesOperatorSummary = useMemo(() => {
     const activeOperators = mesOperatorRows.filter((row) => row.activeRunCount > 0).length;
@@ -18159,21 +18160,19 @@ function App() {
     const mesTerminalConfiguredMachine =
       mesMachines.find((row) => String(row.workstation_id || "") === String(mesTerminalWorkstationIdInput || "")) || null;
     const selectedMachineWorkstationId = String(selectedMesMachineOverview?.workstationId || "");
-    const selectedMachineOperator =
-      mesOperatorRows.find(
-        (row) =>
-          (row.currentMachineId === selectedMesMachineId || row.currentMachineId === selectedMachineWorkstationId) &&
-          normalizeMesOperatorLookupValue(row.operatorName) === normalizeMesOperatorLookupValue(selectedMesMachineOverview?.operatorName || currentMesMachineRun?.operator_name || "")
-      ) ||
-      mesOperatorRows.find((row) => row.currentMachineId === selectedMesMachineId || row.currentMachineId === selectedMachineWorkstationId) ||
-      mesOperatorRows.find((row) => row.machineIds.includes(selectedMesMachineId) || row.workstationIds.includes(selectedMachineWorkstationId)) ||
-      null;
     const selectedMachineTerminalId = String(
       selectedMesMachineOverview?.terminalId ||
         currentMesMachineRun?.terminal_id ||
         selectedMesMachineEvents.find((row) => String(row.terminal_id || "").trim())?.terminal_id ||
         ""
     ).trim();
+    const selectedMachineOperator =
+      mesOperatorRows.find(
+        (row) =>
+          row.machineIds.includes(selectedMesMachineId) ||
+          row.workstationIds.includes(selectedMachineWorkstationId) ||
+          (selectedMachineTerminalId && String(row.terminalId || "").trim() === selectedMachineTerminalId)
+      ) || null;
     const selectedMachineLatestAuthEvent =
       mesLatestAuthEventByMachineKey[selectedMesMachineId] ||
       mesLatestAuthEventByMachineKey[selectedMachineWorkstationId] ||
@@ -18233,8 +18232,8 @@ function App() {
     ];
     const selectedMachineLabel = selectedMesMachineOverview?.machineName || "Nezvolený stroj";
     const selectedMachineOperatorName =
-      selectedMachineAuthOperatorName ||
       selectedMachineOperator?.operatorName ||
+      selectedMachineAuthOperatorName ||
       selectedMesMachineOverview?.operatorName ||
       currentMesMachineRun?.operator_name ||
       selectedMachineLatestEventOperatorName ||

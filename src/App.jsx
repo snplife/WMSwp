@@ -18166,12 +18166,15 @@ function App() {
         selectedMesMachineEvents.find((row) => String(row.terminal_id || "").trim())?.terminal_id ||
         ""
     ).trim();
+    const selectedMachineOverviewOperatorNameKey = normalizeMesOperatorLookupValue(selectedMesMachineOverview?.operatorName || "");
     const selectedMachineOperator =
       mesOperatorRows.find(
         (row) =>
-          row.machineIds.includes(selectedMesMachineId) ||
-          row.workstationIds.includes(selectedMachineWorkstationId) ||
-          (selectedMachineTerminalId && String(row.terminalId || "").trim() === selectedMachineTerminalId)
+          (row.machineIds.includes(selectedMesMachineId) ||
+            row.workstationIds.includes(selectedMachineWorkstationId) ||
+            (selectedMachineTerminalId && String(row.terminalId || "").trim() === selectedMachineTerminalId)) &&
+          (!selectedMachineOverviewOperatorNameKey ||
+            normalizeMesOperatorLookupValue(row.operatorName) === selectedMachineOverviewOperatorNameKey)
       ) || null;
     const selectedMachineLatestAuthEvent =
       mesLatestAuthEventByMachineKey[selectedMesMachineId] ||
@@ -18232,10 +18235,10 @@ function App() {
     ];
     const selectedMachineLabel = selectedMesMachineOverview?.machineName || "Nezvolený stroj";
     const selectedMachineOperatorName =
-      selectedMachineOperator?.operatorName ||
-      selectedMesMachineStats?.operatorName ||
-      selectedMachineAuthOperatorName ||
       selectedMesMachineOverview?.operatorName ||
+      selectedMesMachineStats?.operatorName ||
+      selectedMachineOperator?.operatorName ||
+      selectedMachineAuthOperatorName ||
       currentMesMachineRun?.operator_name ||
       selectedMachineLatestEventOperatorName ||
       mesLatestLoggedInOperator?.operatorName ||

@@ -15194,7 +15194,7 @@ function App() {
           machineId: String(row.machine_id || "").trim(),
           workstationId: String(row.workstation_id || "").trim(),
           terminalId: String(row.terminal_id || "").trim(),
-          operatorName: String(row.operator_name || "").trim(),
+          operatorName: String(row.operator_name || row.operator_id || row.operator_user_id || "").trim(),
           jobRunId: String(row.job_run_id || "").trim(),
           good: 0,
           scrap: 0,
@@ -15227,8 +15227,8 @@ function App() {
             : ["downtime_end", "resume", "start", "of", "oso"].includes(eventType)
               ? ""
               : entry.currentDowntimeReason;
-        if (String(row.operator_name || "").trim()) {
-          entry.operatorName = String(row.operator_name || "").trim();
+        if (String(row.operator_name || row.operator_id || row.operator_user_id || "").trim()) {
+          entry.operatorName = String(row.operator_name || row.operator_id || row.operator_user_id || "").trim();
         }
         if (String(row.terminal_id || "").trim()) {
           entry.terminalId = String(row.terminal_id || "").trim();
@@ -15487,7 +15487,7 @@ function App() {
     mesRecentEventRows.forEach((event) => {
       const entry = ensureOperator({
         operatorUserId: event.operator_user_id,
-        operatorName: event.operator_name
+        operatorName: event.operator_name || event.operator_id
       });
       if (!entry) {
         return;
@@ -15549,8 +15549,9 @@ function App() {
           : currentMachineEventsBase;
         const matchingOperatorEvents = currentMachineEvents
           .filter((row) => {
-            const eventKey = buildMesOperatorKey(row.operator_user_id, row.operator_name);
-            return eventKey === entry.key || normalizeMesOperatorLookupValue(row.operator_name) === entry.normalizedNameKey;
+            const resolvedOperatorName = row.operator_name || row.operator_id || row.operator_user_id;
+            const eventKey = buildMesOperatorKey(row.operator_user_id, resolvedOperatorName);
+            return eventKey === entry.key || normalizeMesOperatorLookupValue(resolvedOperatorName) === entry.normalizedNameKey;
           })
           .sort((a, b) => new Date(a.happened_at || 0).getTime() - new Date(b.happened_at || 0).getTime());
         const activeRunStartAt = String(activeRun?.started_at || activeRun?.created_at || "");
@@ -15635,7 +15636,7 @@ function App() {
         return {
           key: entry.key,
           operatorUserId: entry.operatorUserId,
-          operatorName: entry.operatorName || profile?.full_name || "Neznámy operátor",
+          operatorName: entry.operatorName || profile?.full_name || entry.operatorUserId || "Neznámy operátor",
           profile,
           presence,
           activeRun,
@@ -18078,13 +18079,15 @@ function App() {
       : sanitizeMesTerminalCode(mesTerminalCodeInput);
     const mesTerminalConfiguredMachine =
       mesMachines.find((row) => String(row.workstation_id || "") === String(mesTerminalWorkstationIdInput || "")) || null;
+    const selectedMachineWorkstationId = String(selectedMesMachineOverview?.workstationId || "");
     const selectedMachineOperator =
       mesOperatorRows.find(
         (row) =>
-          row.currentMachineId === selectedMesMachineId &&
+          (row.currentMachineId === selectedMesMachineId || row.currentMachineId === selectedMachineWorkstationId) &&
           normalizeMesOperatorLookupValue(row.operatorName) === normalizeMesOperatorLookupValue(selectedMesMachineOverview?.operatorName || currentMesMachineRun?.operator_name || "")
       ) ||
-      mesOperatorRows.find((row) => row.currentMachineId === selectedMesMachineId) ||
+      mesOperatorRows.find((row) => row.currentMachineId === selectedMesMachineId || row.currentMachineId === selectedMachineWorkstationId) ||
+      mesOperatorRows.find((row) => row.machineIds.includes(selectedMesMachineId) || row.workstationIds.includes(selectedMachineWorkstationId)) ||
       null;
     const openMesEmployee = (operatorName) => {
       if (!canAccessAttendanceModule || !String(operatorName || "").trim()) {

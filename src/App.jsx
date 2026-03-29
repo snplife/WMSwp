@@ -5915,6 +5915,7 @@ function App() {
   const [mesTerminalDeviceUidInput, setMesTerminalDeviceUidInput] = useState("");
   const [mesTerminalWorkstationIdInput, setMesTerminalWorkstationIdInput] = useState("");
   const [mesMachineAutomationModeInput, setMesMachineAutomationModeInput] = useState("full_automatic");
+  const [mesMachineAutomationModeDirty, setMesMachineAutomationModeDirty] = useState(false);
   const [mesTerminalPlatformInput, setMesTerminalPlatformInput] = useState("android");
   const [mesTerminalAppModeInput, setMesTerminalAppModeInput] = useState("hmi");
   const [mesTerminalActiveInput, setMesTerminalActiveInput] = useState(true);
@@ -10922,6 +10923,7 @@ function App() {
     setMesTerminalDeviceUidInput("");
     setMesTerminalWorkstationIdInput("");
     setMesMachineAutomationModeInput("full_automatic");
+    setMesMachineAutomationModeDirty(false);
     setMesTerminalPlatformInput("android");
     setMesTerminalAppModeInput("hmi");
     setMesTerminalActiveInput(true);
@@ -10937,6 +10939,7 @@ function App() {
     setMesTerminalDeviceUidInput(String(terminal?.device_uid || ""));
     setMesTerminalWorkstationIdInput(workstationId);
     setMesMachineAutomationModeInput(String(workstationMachine?.automation_mode || "full_automatic"));
+    setMesMachineAutomationModeDirty(false);
     setMesTerminalPlatformInput(String(terminal?.platform || "android").trim().toLowerCase() || "android");
     setMesTerminalAppModeInput(String(terminal?.app_mode || "hmi").trim().toLowerCase() || "hmi");
     setMesTerminalActiveInput(Boolean(terminal?.is_active));
@@ -11014,7 +11017,7 @@ function App() {
 
       if (workstationId) {
         const workstationMachine = mesMachines.find((row) => String(row.workstation_id || "") === workstationId) || null;
-        if (workstationMachine?.id) {
+        if (workstationMachine?.id && mesMachineAutomationModeDirty) {
           const { error: machineUpdateError } = await supabase
             .from("mes_machines")
             .update({ automation_mode: String(mesMachineAutomationModeInput || "full_automatic").trim().toLowerCase() || "full_automatic" })
@@ -18300,6 +18303,7 @@ function App() {
                           const workstationMachine = mesMachines.find((row) => String(row.workstation_id || "") === String(nextWorkstationId || "")) || null;
                           setMesTerminalWorkstationIdInput(nextWorkstationId);
                           setMesMachineAutomationModeInput(String(workstationMachine?.automation_mode || "full_automatic"));
+                          setMesMachineAutomationModeDirty(false);
                         }}
                         disabled={mesTerminalSubmitting}
                       >
@@ -18315,7 +18319,10 @@ function App() {
                       <span className="workflow-field-label">Režim stroja</span>
                       <select
                         value={mesMachineAutomationModeInput}
-                        onChange={(event) => setMesMachineAutomationModeInput(event.target.value)}
+                        onChange={(event) => {
+                          setMesMachineAutomationModeInput(event.target.value);
+                          setMesMachineAutomationModeDirty(true);
+                        }}
                         disabled={mesTerminalSubmitting || !mesTerminalWorkstationIdInput}
                       >
                         <option value="semi_automatic">Poloautomatický</option>

@@ -15743,6 +15743,57 @@ function App() {
       averageRunPct
     };
   }, [mesOperatorRows]);
+  const mesActiveOperatorLookup = useMemo(() => {
+    const byProfileId = {};
+    const byLinkedUserId = {};
+    const byNameKey = {};
+    mesOperatorRows.forEach((row) => {
+      const profileId = String(row.profile?.id || "").trim();
+      const linkedUserId = String(row.operatorUserId || "").trim();
+      const nameKey = normalizeMesOperatorLookupValue(row.operatorName);
+      if (profileId && !byProfileId[profileId]) {
+        byProfileId[profileId] = row;
+      }
+      if (linkedUserId && !byLinkedUserId[linkedUserId]) {
+        byLinkedUserId[linkedUserId] = row;
+      }
+      if (nameKey && !byNameKey[nameKey]) {
+        byNameKey[nameKey] = row;
+      }
+    });
+    return { byProfileId, byLinkedUserId, byNameKey };
+  }, [mesOperatorRows]);
+  const mesAvailableOperatorRows = useMemo(() => {
+    return attendanceProfiles
+      .filter((profile) => Boolean(profile?.is_active))
+      .map((profile) => {
+        const linkedUserId = String(profile.linked_user_id || "").trim();
+        const profileId = String(profile.id || "").trim();
+        const nameKey = normalizeMesOperatorLookupValue(profile.full_name);
+        const activeSession =
+          (profileId ? mesActiveOperatorLookup.byProfileId[profileId] || null : null) ||
+          (linkedUserId ? mesActiveOperatorLookup.byLinkedUserId[linkedUserId] || null : null) ||
+          (nameKey ? mesActiveOperatorLookup.byNameKey[nameKey] || null : null);
+
+        return {
+          profileId,
+          fullName: String(profile.full_name || "").trim() || "Neznámy operátor",
+          employeeCode: String(profile.employee_code || "").trim(),
+          linkedUserId,
+          isActiveInMes: Boolean(activeSession),
+          currentMachineName: activeSession?.currentMachineName || "",
+          currentWorkOrder: activeSession?.currentWorkOrder || "",
+          lastSeenAt: activeSession?.lastSeenAt || "",
+          sessionStartedAt: activeSession?.sessionStartedAt || ""
+        };
+      })
+      .sort((a, b) => {
+        if (a.isActiveInMes !== b.isActiveInMes) {
+          return a.isActiveInMes ? -1 : 1;
+        }
+        return String(a.fullName || "").localeCompare(String(b.fullName || ""), "sk-SK", { sensitivity: "base" });
+      });
+  }, [attendanceProfiles, mesActiveOperatorLookup]);
   const mesLatestAuthEventByMachineKey = useMemo(() => {
     const authEvents = [...mesRecentEventRows]
       .filter((row) => ["ol", "oso", "login", "logout"].includes(String(row.event_type || "").toLowerCase()))
@@ -19103,8 +19154,83 @@ function App() {
           {machineDashboardRows.length > 0 && (
             <article className="orders-panel-card workflow-card workflow-card-list">
               <div className="panel-head workflow-section-head">
+                <div>
+                  <h2>Dostupní operátori</h2>
+                  <p className="panel-meta">Aktívni operátori firmy z attendance profilov, obohatení o aktuálny MES stav.</p>
+                </div>
+                <div className="hero-badges">
+                  <span className="panel-meta">{`${mesAvailableOperatorRows.length} evidovaných`}</span>
+                  <span className="panel-meta">
+                    {`${mesAvailableOperatorRows.filter((operator) => operator.isActiveInMes).length} práve vo výrobe`}
+                  </span>
+                  <span className="panel-meta">
+                    {mesLatestLoggedInOperator?.operatorName
+                      ? `Posledné prihlásenie: ${mesLatestLoggedInOperator.operatorName}${mesLatestLoggedInOperator.happenedAt ? ` | ${formatDate(mesLatestLoggedInOperator.happenedAt)}` : ""}`
+                      : "Posledné prihlásenie: -"}
+                  </span>
+                </div>
+              </div>
+              {mesAvailableOperatorRows.length === 0 ? (
+                <p className="hint">Nie sú dostupné žiadne aktívne attendance profily pre operátorov.</p>
+              ) : (
+                <div className="orders-list attendance-list mes-operator-list">
+                  {mesAvailableOperatorRows.map((operator) => (
+                    <article key={operator.profileId || operator.linkedUserId || operator.fullName} className="order-card attendance-card mes-operator-card">
+                      <div className="order-card-head attendance-card-head mes-operator-card-head">
+                        <div>
+                          <strong>{operator.fullName}</strong>
+                          <p>{operator.employeeCode || "Bez evidenčného čísla"}</p>
+                        </div>
+                        <div className="attendance-card-pills">
+                          <span className="table-badge">{operator.isActiveInMes ? "vo výrobe" : "dostupný"}</span>
+                        </div>
+                      </div>
+                      <div className="order-detail attendance-card-body">
+                        <div className="attendance-meta-grid mes-terminal-meta-grid">
+                          <div>
+                            <span className="draft-field-label">Stroj</span>
+                            <p>{operator.currentMachineName || "-"}</p>
+                          </div>
+                          <div>
+                            <span className="draft-field-label">Zákazka</span>
+                            <p>{operator.currentWorkOrder || "-"}</p>
+                          </div>
+                          <div>
+                            <span className="draft-field-label">Session od</span>
+                            <p>{operator.sessionStartedAt ? formatDate(operator.sessionStartedAt) : "-"}</p>
+                          </div>
+                          <div>
+                            <span className="draft-field-label">Posledná aktivita</span>
+                            <p>{operator.lastSeenAt ? formatDate(operator.lastSeenAt) : "-"}</p>
+                          </div>
+                        </div>
+                        {canAccessAttendanceModule && operator.fullName && (
+                          <div className="order-card-actions">
+                            <button
+                              type="button"
+                              className="clear-btn"
+                              onClick={() => {
+                                setAttendanceProfileSearch(operator.fullName || "");
+                                setSelectedTable(ROLE_TABLE);
+                              }}
+                            >
+                              Zamestnanec
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </article>
+          )}
+
+          {machineDashboardRows.length > 0 && (
+            <article className="orders-panel-card workflow-card workflow-card-list">
+              <div className="panel-head workflow-section-head">
               <div>
-                <h2>Operátori vo výrobe</h2>
+                <h2>Aktívni operátori</h2>
                 <p className="panel-meta">Len aktuálny stroj, zákazka a základné údaje o aktívnej session.</p>
               </div>
                 <div className="hero-badges">

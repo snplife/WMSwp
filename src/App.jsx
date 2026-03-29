@@ -15742,16 +15742,35 @@ function App() {
       averageRunPct
     };
   }, [mesOperatorRows]);
+  const mesLatestAuthEventByMachineKey = useMemo(() => {
+    const authEvents = [...mesRecentEventRows]
+      .filter((row) => ["ol", "oso", "login", "logout"].includes(String(row.event_type || "").toLowerCase()))
+      .sort((a, b) => new Date(b.happened_at || b.created_at || 0).getTime() - new Date(a.happened_at || a.created_at || 0).getTime());
+    const byKey = {};
+    authEvents.forEach((row) => {
+      const keys = Array.from(new Set([String(row.machine_id || "").trim(), String(row.workstation_id || "").trim()].filter(Boolean)));
+      keys.forEach((key) => {
+        if (!byKey[key]) {
+          byKey[key] = row;
+        }
+      });
+    });
+    return byKey;
+  }, [mesRecentEventRows]);
   const mesLatestLoggedInOperator = useMemo(() => {
-    const latestLoginEvent = [...mesRecentEventRows]
-      .filter((row) => String(row.event_type || "").toLowerCase() === "ol")
+    const latestAuthEvent = [...mesRecentEventRows]
+      .filter((row) => ["ol", "oso", "login", "logout"].includes(String(row.event_type || "").toLowerCase()))
       .sort((a, b) => new Date(b.happened_at || b.created_at || 0).getTime() - new Date(a.happened_at || a.created_at || 0).getTime())[0] || null;
-    if (!latestLoginEvent) {
+    if (!latestAuthEvent) {
+      return null;
+    }
+    const latestAuthType = String(latestAuthEvent.event_type || "").toLowerCase();
+    if (!["ol", "login"].includes(latestAuthType)) {
       return null;
     }
     return {
-      operatorName: String(latestLoginEvent.operator_name || latestLoginEvent.operator_user_id || latestLoginEvent.operator_id || "").trim(),
-      happenedAt: String(latestLoginEvent.happened_at || latestLoginEvent.created_at || "").trim()
+      operatorName: String(latestAuthEvent.operator_name || latestAuthEvent.operator_user_id || latestAuthEvent.operator_id || "").trim(),
+      happenedAt: String(latestAuthEvent.happened_at || latestAuthEvent.created_at || "").trim()
     };
   }, [mesRecentEventRows]);
   const mesProductionOrderRows = useMemo(() => {
@@ -18135,6 +18154,19 @@ function App() {
       mesOperatorRows.find((row) => row.currentMachineId === selectedMesMachineId || row.currentMachineId === selectedMachineWorkstationId) ||
       mesOperatorRows.find((row) => row.machineIds.includes(selectedMesMachineId) || row.workstationIds.includes(selectedMachineWorkstationId)) ||
       null;
+    const selectedMachineLatestAuthEvent =
+      mesLatestAuthEventByMachineKey[selectedMesMachineId] ||
+      mesLatestAuthEventByMachineKey[selectedMachineWorkstationId] ||
+      null;
+    const selectedMachineAuthOperatorName =
+      selectedMachineLatestAuthEvent && ["ol", "login"].includes(String(selectedMachineLatestAuthEvent.event_type || "").toLowerCase())
+        ? String(
+            selectedMachineLatestAuthEvent.operator_name ||
+              selectedMachineLatestAuthEvent.operator_user_id ||
+              selectedMachineLatestAuthEvent.operator_id ||
+              ""
+          ).trim()
+        : "";
     const selectedMachineLatestEventOperatorName =
       selectedMesMachineEvents
         .map((row) => String(row.operator_name || row.operator_id || row.operator_user_id || "").trim())
@@ -18180,6 +18212,7 @@ function App() {
     ];
     const selectedMachineLabel = selectedMesMachineOverview?.machineName || "Nezvolený stroj";
     const selectedMachineOperatorName =
+      selectedMachineAuthOperatorName ||
       selectedMachineOperator?.operatorName ||
       selectedMesMachineOverview?.operatorName ||
       currentMesMachineRun?.operator_name ||

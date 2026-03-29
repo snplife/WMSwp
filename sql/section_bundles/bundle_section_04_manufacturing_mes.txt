@@ -1843,3 +1843,58 @@ $$;
 grant execute on function public.mes_resolve_terminal_by_device_uid(text) to authenticated;
 grant execute on function public.mes_resolve_terminal_by_device_uid(text) to anon;
 
+do $$
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    if not exists (
+      select 1
+      from pg_publication_tables
+      where pubname = 'supabase_realtime'
+        and schemaname = 'public'
+        and tablename = 'mes_workstations'
+    ) then
+      execute 'alter publication supabase_realtime add table public.mes_workstations';
+    end if;
+
+    if not exists (
+      select 1
+      from pg_publication_tables
+      where pubname = 'supabase_realtime'
+        and schemaname = 'public'
+        and tablename = 'mes_machines'
+    ) then
+      execute 'alter publication supabase_realtime add table public.mes_machines';
+    end if;
+
+    if not exists (
+      select 1
+      from pg_publication_tables
+      where pubname = 'supabase_realtime'
+        and schemaname = 'public'
+        and tablename = 'mes_hmi_terminals'
+    ) then
+      execute 'alter publication supabase_realtime add table public.mes_hmi_terminals';
+    end if;
+
+    if not exists (
+      select 1
+      from pg_publication_tables
+      where pubname = 'supabase_realtime'
+        and schemaname = 'public'
+        and tablename = 'mes_job_runs'
+    ) then
+      execute 'alter publication supabase_realtime add table public.mes_job_runs';
+    end if;
+
+    if not exists (
+      select 1
+      from pg_publication_tables
+      where pubname = 'supabase_realtime'
+        and schemaname = 'public'
+        and tablename = 'mes_job_run_events'
+    ) then
+      execute 'alter publication supabase_realtime add table public.mes_job_run_events';
+    end if;
+  end if;
+end $$;
+

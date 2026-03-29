@@ -13590,7 +13590,6 @@ function App() {
       }
 
       let reloadTimer = null;
-      let refreshInterval = null;
       const scheduleReload = () => {
         if (reloadTimer) {
           window.clearTimeout(reloadTimer);
@@ -13604,21 +13603,13 @@ function App() {
           }
         }, 350);
       };
-      refreshInterval = window.setInterval(() => {
-        if (canAccessOrdersModule) {
-          loadProductionModuleData();
-        }
-        if (canAccessMesModule) {
-          loadMesModuleData();
-        }
-      }, 5000);
 
       const subscriptionTables = [];
       if (canAccessOrdersModule) {
         subscriptionTables.push("production_orders", "production_order_inputs", "production_order_outputs", "stock", "stock_history");
       }
       if (canAccessMesModule) {
-        subscriptionTables.push("mes_workstations", "mes_machines", "mes_hmi_terminals", "mes_job_runs", "mes_job_run_events");
+        subscriptionTables.push("mes_workstations", "mes_machines", "mes_hmi_terminals", "mes_job_runs", "mes_job_run_events", "mes_event_feed");
       }
 
       let channel = null;
@@ -13633,9 +13624,6 @@ function App() {
       return () => {
         if (reloadTimer) {
           window.clearTimeout(reloadTimer);
-        }
-        if (refreshInterval) {
-          window.clearInterval(refreshInterval);
         }
         if (channel) {
           supabase.removeChannel(channel);

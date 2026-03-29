@@ -18591,7 +18591,14 @@ function App() {
             (selectedMachineTerminalId && String(row.terminalId || "").trim() === selectedMachineTerminalId)) &&
           (!selectedMachineOverviewOperatorNameKey ||
             normalizeMesOperatorLookupValue(row.operatorName) === selectedMachineOverviewOperatorNameKey)
-      ) || null;
+      ) ||
+      mesOperatorRows.find(
+        (row) =>
+          row.machineIds.includes(selectedMesMachineId) ||
+          row.workstationIds.includes(selectedMachineWorkstationId) ||
+          (selectedMachineTerminalId && String(row.terminalId || "").trim() === selectedMachineTerminalId)
+      ) ||
+      null;
     const selectedMachineLatestAuthEvent =
       mesLatestAuthEventByMachineKey[selectedMesMachineId] ||
       mesLatestAuthEventByMachineKey[selectedMachineWorkstationId] ||
@@ -18708,24 +18715,35 @@ function App() {
       {
         label: "Takt operátora",
         value: formatMesCycleValue(
-          selectedMesMachineOperatorMetrics?.sessionOperatorCycleSeconds ?? selectedMesMachineCycleMetrics?.operatorCycleSeconds
+          selectedMesMachineOperatorMetrics?.sessionOperatorCycleSeconds ??
+            selectedMachineOperator?.sessionOperatorCycleSeconds ??
+            selectedMesMachineCycleMetrics?.operatorCycleSeconds
         )
       },
       {
         label: "Vyrobené kusy",
-        value: new Intl.NumberFormat("sk-SK").format(Number(selectedMesMachineOperatorMetrics?.sessionProducedParts || 0))
+        value: new Intl.NumberFormat("sk-SK").format(
+          Number(selectedMesMachineOperatorMetrics?.sessionProducedParts ?? selectedMachineOperator?.sessionProducedParts ?? 0)
+        )
       },
       {
         label: "OK kusy",
-        value: new Intl.NumberFormat("sk-SK").format(Number(selectedMesMachineOperatorMetrics?.sessionGoodParts || 0))
+        value: new Intl.NumberFormat("sk-SK").format(
+          Number(selectedMesMachineOperatorMetrics?.sessionGoodParts ?? selectedMachineOperator?.sessionGoodParts ?? 0)
+        )
       },
       {
         label: "NOK kusy",
-        value: new Intl.NumberFormat("sk-SK").format(Number(selectedMesMachineOperatorMetrics?.sessionScrapParts || 0))
+        value: new Intl.NumberFormat("sk-SK").format(
+          Number(selectedMesMachineOperatorMetrics?.sessionScrapParts ?? selectedMachineOperator?.sessionScrapParts ?? 0)
+        )
       },
       {
         label: "Session od",
-        value: selectedMesMachineOperatorMetrics?.sessionStartedAt ? formatDate(selectedMesMachineOperatorMetrics.sessionStartedAt) : "-"
+        value:
+          selectedMesMachineOperatorMetrics?.sessionStartedAt || selectedMachineOperator?.sessionStartedAt
+            ? formatDate(selectedMesMachineOperatorMetrics?.sessionStartedAt || selectedMachineOperator?.sessionStartedAt)
+            : "-"
       }
     ];
     return (

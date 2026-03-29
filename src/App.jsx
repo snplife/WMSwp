@@ -15567,8 +15567,13 @@ function App() {
           null;
         const sessionStartedAt = String(sessionAnchorEvent?.happened_at || activeRunStartAt || entry.lastSeenAt || "");
         const activeRunStatus = String(activeRun?.status || "").toLowerCase();
+        const latestOperatorEventType = String(entry.latestEvent?.event_type || "").toLowerCase();
+        const eventOnlyActiveSession =
+          !activeRun &&
+          Boolean(entry.latestEvent) &&
+          !["oso", "logout", "of", "complete", "cancel"].includes(latestOperatorEventType);
         const sessionEndedAt =
-          ["running", "paused", "queued"].includes(activeRunStatus) || !activeRun
+          ["running", "paused", "queued"].includes(activeRunStatus) || eventOnlyActiveSession || !activeRun
             ? new Date().toISOString()
             : String(activeRun?.ended_at || activeRun?.updated_at || entry.latestEvent?.happened_at || entry.lastSeenAt || "");
         const sessionWindow = summarizeMesStateWindow(
@@ -15623,6 +15628,9 @@ function App() {
           .reduce((sum, row) => sum + Number(row.quantity || 0), 0);
         const totalGoodParts = totalGoodPartsFromRuns > 0 ? totalGoodPartsFromRuns : totalGoodPartsFromEvents;
         const totalScrapParts = totalScrapPartsFromRuns > 0 ? totalScrapPartsFromRuns : totalScrapPartsFromEvents;
+        const activeRunCount =
+          entry.runs.filter((row) => ["running", "paused", "queued"].includes(String(row.status || "").toLowerCase())).length ||
+          (eventOnlyActiveSession ? 1 : 0);
 
         return {
           key: entry.key,
@@ -15634,11 +15642,11 @@ function App() {
           currentMachineId,
           currentMachineName: currentMachineRow?.machineName || entry.latestEvent?.machine_id || activeRun?.machine_id || "-",
           currentWorkstationName: currentMachineRow?.workstationName || currentMachineRow?.area || "-",
-          currentWorkOrder: activeRun?.job_number || currentMachineRow?.currentWorkOrder || "-",
+          currentWorkOrder: activeRun?.job_number || entry.latestEvent?.job_number || currentMachineRow?.currentWorkOrder || "-",
           machineIds: Array.from(entry.machineIds),
           workstationIds: Array.from(entry.workstationIds),
           machineCount: entry.machineIds.size,
-          activeRunCount: entry.runs.filter((row) => ["running", "paused", "queued"].includes(String(row.status || "").toLowerCase())).length,
+          activeRunCount,
           jobCount: entry.runs.length,
           totalGoodParts,
           totalScrapParts,
@@ -15687,6 +15695,18 @@ function App() {
       averageRunPct
     };
   }, [mesOperatorRows]);
+  const mesLatestLoggedInOperator = useMemo(() => {
+    const latestLoginEvent = [...mesRecentEventRows]
+      .filter((row) => String(row.event_type || "").toLowerCase() === "ol")
+      .sort((a, b) => new Date(b.happened_at || b.created_at || 0).getTime() - new Date(a.happened_at || a.created_at || 0).getTime())[0] || null;
+    if (!latestLoginEvent) {
+      return null;
+    }
+    return {
+      operatorName: String(latestLoginEvent.operator_name || latestLoginEvent.operator_user_id || latestLoginEvent.operator_id || "").trim(),
+      happenedAt: String(latestLoginEvent.happened_at || latestLoginEvent.created_at || "").trim()
+    };
+  }, [mesRecentEventRows]);
   const mesProductionOrderRows = useMemo(() => {
     return mesRecentJobRuns
       .filter((row) => ["queued", "running", "paused", "planned"].includes(String(row.status || "").toLowerCase()))
@@ -18998,7 +19018,14 @@ function App() {
                   <h2>Operátori vo výrobe</h2>
                   <p className="panel-meta">Len aktuálny stroj a výkon v prebiehajúcej session.</p>
                 </div>
-                <span className="panel-meta">{`${mesOperatorSummary.activeOperators} aktívnych / ${mesOperatorSummary.totalOperators}`}</span>
+                <div className="hero-badges">
+                  <span className="panel-meta">{`${mesOperatorSummary.activeOperators} aktívnych / ${mesOperatorSummary.totalOperators}`}</span>
+                  <span className="panel-meta">
+                    {mesLatestLoggedInOperator?.operatorName
+                      ? `Posledné prihlásenie: ${mesLatestLoggedInOperator.operatorName}${mesLatestLoggedInOperator.happenedAt ? ` | ${formatDate(mesLatestLoggedInOperator.happenedAt)}` : ""}`
+                      : "Posledné prihlásenie: -"}
+                  </span>
+                </div>
               </div>
               {mesOperatorRows.length === 0 ? (
                 <p className="hint">V MES eventoch zatiaľ nie sú evidovaní žiadni operátori.</p>

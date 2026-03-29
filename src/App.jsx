@@ -15255,14 +15255,33 @@ function App() {
         (workstation ? mesOverviewByWorkstationId[workstation.id] : null) ||
         null;
       const fallbackKey = String(workstation?.id || "").trim();
-      const resolvedKey = machineKey || fallbackKey;
-      const runs = mesRunsByMachineId[resolvedKey] || [];
+      const resolvedKeys = Array.from(new Set([machineKey, fallbackKey].filter(Boolean)));
+      const runs = Array.from(
+        new Map(
+          resolvedKeys
+            .flatMap((key) => mesRunsByMachineId[key] || [])
+            .map((row) => [String(row.id || `${row.machine_id || ""}:${row.workstation_id || ""}:${row.created_at || ""}`), row])
+        ).values()
+      ).sort(
+        (a, b) =>
+          new Date(b.started_at || b.updated_at || b.created_at || 0).getTime() -
+          new Date(a.started_at || a.updated_at || a.created_at || 0).getTime()
+      );
       const activeRun =
         runs.find((row) => ["running", "paused", "queued"].includes(String(row.status || "").toLowerCase())) ||
         runs[0] ||
         null;
-      const events = mesEventsByMachineId[resolvedKey] || [];
-      const eventSummary = mesEventSummaryByMachineId[resolvedKey] || null;
+      const events = Array.from(
+        new Map(
+          resolvedKeys
+            .flatMap((key) => mesEventsByMachineId[key] || [])
+            .map((row) => [String(row.id || row.terminal_event_id || `${row.happened_at || ""}:${row.event_type || ""}`), row])
+        ).values()
+      ).sort((a, b) => new Date(b.happened_at || 0).getTime() - new Date(a.happened_at || 0).getTime());
+      const eventSummary =
+        resolvedKeys
+          .map((key) => mesEventSummaryByMachineId[key] || null)
+          .find(Boolean) || null;
       const fallbackRun = eventSummary?.jobRunId ? mesJobRunsById[eventSummary.jobRunId] || null : null;
       const isSemiAutomaticMachine = String(machine?.automation_mode || "full_automatic").trim().toLowerCase() === "semi_automatic";
       const mlCycleSamples = collectMesDowntimeDurations(events, {
@@ -15329,7 +15348,12 @@ function App() {
         producedParts: totalProduced,
         goodParts,
         scrapParts: scrapQuantity,
-        operatorName: eventSummary?.operatorName || activeRun?.operator_name || overview?.operator_name || fallbackRun?.operator_name || "",
+        operatorName:
+          eventSummary?.operatorName ||
+          activeRun?.operator_name ||
+          overview?.operator_name ||
+          fallbackRun?.operator_name ||
+          String(eventSummary?.latestEvent?.operator_id || eventSummary?.latestEvent?.operator_user_id || "").trim(),
         actualRate,
         idealUnitsPerHour,
         terminalName: terminal?.name || overview?.terminal_name || "",
@@ -15409,8 +15433,21 @@ function App() {
     [machineDashboardRows, selectedMesMachineId]
   );
   const selectedMesMachineRuns = useMemo(
-    () => mesRunsByMachineId[selectedMesMachineId] || [],
-    [mesRunsByMachineId, selectedMesMachineId]
+    () => {
+      const keys = Array.from(new Set([selectedMesMachineId, selectedMesMachineOverview?.workstationId].filter(Boolean)));
+      return Array.from(
+        new Map(
+          keys
+            .flatMap((key) => mesRunsByMachineId[key] || [])
+            .map((row) => [String(row.id || `${row.machine_id || ""}:${row.workstation_id || ""}:${row.created_at || ""}`), row])
+        ).values()
+      ).sort(
+        (a, b) =>
+          new Date(b.started_at || b.updated_at || b.created_at || 0).getTime() -
+          new Date(a.started_at || a.updated_at || a.created_at || 0).getTime()
+      );
+    },
+    [mesRunsByMachineId, selectedMesMachineId, selectedMesMachineOverview?.workstationId]
   );
   const currentMesMachineRun = useMemo(() => {
     return (
@@ -15421,8 +15458,17 @@ function App() {
     );
   }, [selectedMesMachineRuns, selectedMesMachineOverview]);
   const selectedMesMachineEvents = useMemo(
-    () => mesEventsByMachineId[selectedMesMachineId] || [],
-    [mesEventsByMachineId, selectedMesMachineId]
+    () => {
+      const keys = Array.from(new Set([selectedMesMachineId, selectedMesMachineOverview?.workstationId].filter(Boolean)));
+      return Array.from(
+        new Map(
+          keys
+            .flatMap((key) => mesEventsByMachineId[key] || [])
+            .map((row) => [String(row.id || row.terminal_event_id || `${row.happened_at || ""}:${row.event_type || ""}`), row])
+        ).values()
+      ).sort((a, b) => new Date(b.happened_at || 0).getTime() - new Date(a.happened_at || 0).getTime());
+    },
+    [mesEventsByMachineId, selectedMesMachineId, selectedMesMachineOverview?.workstationId]
   );
   const selectedMesMachineHistory = useMemo(
     () => selectedMesMachineEvents.slice(0, 500),
@@ -18089,6 +18135,10 @@ function App() {
       mesOperatorRows.find((row) => row.currentMachineId === selectedMesMachineId || row.currentMachineId === selectedMachineWorkstationId) ||
       mesOperatorRows.find((row) => row.machineIds.includes(selectedMesMachineId) || row.workstationIds.includes(selectedMachineWorkstationId)) ||
       null;
+    const selectedMachineLatestEventOperatorName =
+      selectedMesMachineEvents
+        .map((row) => String(row.operator_name || row.operator_id || row.operator_user_id || "").trim())
+        .find(Boolean) || "";
     const openMesEmployee = (operatorName) => {
       if (!canAccessAttendanceModule || !String(operatorName || "").trim()) {
         return;
@@ -18129,7 +18179,13 @@ function App() {
       }
     ];
     const selectedMachineLabel = selectedMesMachineOverview?.machineName || "Nezvolený stroj";
-    const selectedMachineOperatorName = selectedMachineOperator?.operatorName || selectedMesMachineOverview?.operatorName || currentMesMachineRun?.operator_name || "";
+    const selectedMachineOperatorName =
+      selectedMachineOperator?.operatorName ||
+      selectedMesMachineOverview?.operatorName ||
+      currentMesMachineRun?.operator_name ||
+      selectedMachineLatestEventOperatorName ||
+      mesLatestLoggedInOperator?.operatorName ||
+      "";
     const selectedMachineCoreStats = [
       {
         label: "Výrobná zákazka",

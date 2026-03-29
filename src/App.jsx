@@ -4389,6 +4389,25 @@ function normalizeMesMachineCatalogRow(row) {
   };
 }
 
+function normalizeMesAutomationModeValue(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "semi_automatic") {
+    return "semi_automatic";
+  }
+  if (normalized === "full_automatic" || normalized === "automatic") {
+    return "full_automatic";
+  }
+  return "";
+}
+
+function resolveMesAutomationMode(machineMode, terminalMode) {
+  return (
+    normalizeMesAutomationModeValue(terminalMode) ||
+    normalizeMesAutomationModeValue(machineMode) ||
+    "full_automatic"
+  );
+}
+
 function normalizeMesTerminalRow(row) {
   if (!row || typeof row !== "object") {
     return row;
@@ -4430,6 +4449,12 @@ function formatMesTerminalAppModeLabel(value) {
   }
   if (normalized === "maintenance") {
     return "Údržba";
+  }
+  if (normalized === "semi_automatic") {
+    return "Poloautomatický";
+  }
+  if (normalized === "automatic" || normalized === "full_automatic") {
+    return "Plne automatický";
   }
   return normalized || "-";
 }
@@ -6210,7 +6235,7 @@ function App() {
     loadCompanyInvites(activeCompanyId);
   }, [isLoggedIn, activeCompanyId, isMaster, canManageOrders]);
   const canAccessMesModule =
-    isMaster || (canAccessMes && Boolean(userCompanyId) && (companies.length === 0 ? true : Boolean(activeCompany?.mes_enabled)));
+    isMaster || (canAccessMes && Boolean(activeCompanyId || userCompanyId || activeCompany?.id));
   const visibleTableNames = useMemo(() => {
     if (isMaster) {
       return Array.from(
@@ -11074,6 +11099,8 @@ function App() {
   const handleEditMesTerminal = (terminal) => {
     const workstationId = String(terminal?.workstation_id || "");
     const workstationMachine = mesMachines.find((row) => String(row.workstation_id || "") === workstationId) || null;
+    const terminalAppMode = String(terminal?.app_mode || "").trim().toLowerCase();
+    const editableTerminalAppMode = ["hmi", "overview", "maintenance"].includes(terminalAppMode) ? terminalAppMode : "hmi";
     setEditingMesTerminalId(String(terminal?.id || ""));
     setMesTerminalNameInput(String(terminal?.name || ""));
     setMesTerminalCodeInput(String(terminal?.terminal_code || ""));
@@ -11081,7 +11108,7 @@ function App() {
     setMesTerminalWorkstationIdInput(workstationId);
     setMesMachineAutomationModeInput(String(workstationMachine?.automation_mode || "full_automatic"));
     setMesTerminalPlatformInput(String(terminal?.platform || "android").trim().toLowerCase() || "android");
-    setMesTerminalAppModeInput(String(terminal?.app_mode || "hmi").trim().toLowerCase() || "hmi");
+    setMesTerminalAppModeInput(editableTerminalAppMode);
     setMesTerminalActiveInput(Boolean(terminal?.is_active));
     setIsMesTerminalFormVisible(true);
     setMesError("");
@@ -15233,6 +15260,22 @@ function App() {
     () => Object.fromEntries((mesTerminals || []).map((row) => [row.id, row])),
     [mesTerminals]
   );
+  const mesPreferredTerminalByWorkstationId = useMemo(() => {
+    const byWorkstationId = {};
+    (mesTerminals || []).forEach((row) => {
+      const workstationId = String(row?.workstation_id || "").trim();
+      if (!workstationId) {
+        return;
+      }
+      const current = byWorkstationId[workstationId] || null;
+      const currentSeenAt = new Date(current?.last_seen_at || current?.updated_at || current?.created_at || 0).getTime();
+      const candidateSeenAt = new Date(row?.last_seen_at || row?.updated_at || row?.created_at || 0).getTime();
+      if (!current || candidateSeenAt >= currentSeenAt) {
+        byWorkstationId[workstationId] = row;
+      }
+    });
+    return byWorkstationId;
+  }, [mesTerminals]);
   const mesOverviewByWorkstationId = useMemo(
     () => Object.fromEntries((mesOverviewRows || []).map((row) => [row.workstation_id, row])),
     [mesOverviewRows]
@@ -15436,7 +15479,19 @@ function App() {
           .map((key) => mesEventSummaryByMachineId[key] || null)
           .find(Boolean) || null;
       const fallbackRun = eventSummary?.jobRunId ? mesJobRunsById[eventSummary.jobRunId] || null : null;
-      const isSemiAutomaticMachine = String(machine?.automation_mode || "full_automatic").trim().toLowerCase() === "semi_automatic";
+      const preferredWorkstationTerminal =
+        mesPreferredTerminalByWorkstationId[String(workstation?.id || overview?.workstation_id || fallbackRun?.workstation_id || activeRun?.workstation_id || "").trim()] || null;
+      const resolvedTerminalId = String(
+        eventSummary?.terminalId ||
+          activeRun?.terminal_id ||
+          overview?.terminal_id ||
+          fallbackRun?.terminal_id ||
+          preferredWorkstationTerminal?.id ||
+          ""
+      );
+      const terminal = mesTerminalsById[resolvedTerminalId] || preferredWorkstationTerminal || null;
+      const resolvedAutomationMode = resolveMesAutomationMode(machine?.automation_mode, terminal?.app_mode);
+      const isSemiAutomaticMachine = resolvedAutomationMode === "semi_automatic";
       const mlCycleSamples = collectMesEventDurations(events, ["ml"], {
         maxDurationMs: MES_MAX_DOWNTIME_DURATION_MS
       })
@@ -15484,12 +15539,11 @@ function App() {
       const scrapQuantity = eventProduced > 0 ? Number(eventSummary?.scrap || 0) : Number(activeRun?.scrap_quantity || overview?.scrap_quantity || fallbackRun?.scrap_quantity || 0);
       const totalProduced = eventProduced || (goodParts + scrapQuantity);
       const statusRaw = eventSummary?.machineState || machine?.machine_state || overview?.machine_state || activeRun?.status || fallbackRun?.status || "idle";
-      const terminal = mesTerminalsById[eventSummary?.terminalId] || null;
       rows.push({
         machineId: machine?.id || overview?.machine_id || workstation?.id || "",
         machineCode: machine?.code || overview?.machine_code || "",
         machineName: machine?.name || overview?.machine_name || workstation?.name || "Neznámy stroj",
-        automationMode: String(machine?.automation_mode || "full_automatic").trim().toLowerCase() || "full_automatic",
+        automationMode: resolvedAutomationMode,
         workstationId: workstation?.id || overview?.workstation_id || "",
         workstationCode: workstation?.code || overview?.workstation_code || "",
         workstationName: workstation?.name || overview?.workstation_name || "-",
@@ -15511,7 +15565,7 @@ function App() {
           overview?.operator_name ||
           fallbackRun?.operator_name ||
           String(eventSummary?.latestEvent?.operator_id || eventSummary?.latestEvent?.operator_user_id || "").trim(),
-        terminalId: String(eventSummary?.terminalId || activeRun?.terminal_id || overview?.terminal_id || fallbackRun?.terminal_id || ""),
+        terminalId: resolvedTerminalId,
         actualRate,
         idealUnitsPerHour,
         terminalName: terminal?.name || overview?.terminal_name || "",
@@ -15576,7 +15630,7 @@ function App() {
         String(a.area || "").localeCompare(String(b.area || ""), "sk-SK", { sensitivity: "base" }) ||
         String(a.machineName || "").localeCompare(String(b.machineName || ""), "sk-SK", { sensitivity: "base" })
     );
-  }, [mesMachines, mesOverviewRows, mesRunsByMachineId, mesEventsByMachineId, mesEventSummaryByMachineId, mesEventSummaryByJobRunId, mesWorkstationsById, mesOverviewByMachineId, mesOverviewByWorkstationId, mesWorkstations, mesJobRunsById, mesTerminalsById]);
+  }, [mesMachines, mesOverviewRows, mesRunsByMachineId, mesEventsByMachineId, mesEventSummaryByMachineId, mesEventSummaryByJobRunId, mesWorkstationsById, mesOverviewByMachineId, mesOverviewByWorkstationId, mesWorkstations, mesJobRunsById, mesTerminalsById, mesPreferredTerminalByWorkstationId]);
   const mesMachineOptions = useMemo(
     () =>
       machineDashboardRows.map((row) => ({

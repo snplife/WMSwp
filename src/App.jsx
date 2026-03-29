@@ -15354,6 +15354,7 @@ function App() {
           overview?.operator_name ||
           fallbackRun?.operator_name ||
           String(eventSummary?.latestEvent?.operator_id || eventSummary?.latestEvent?.operator_user_id || "").trim(),
+        terminalId: String(eventSummary?.terminalId || activeRun?.terminal_id || overview?.terminal_id || fallbackRun?.terminal_id || ""),
         actualRate,
         idealUnitsPerHour,
         terminalName: terminal?.name || overview?.terminal_name || "",
@@ -15756,6 +15757,19 @@ function App() {
       });
     });
     return byKey;
+  }, [mesRecentEventRows]);
+  const mesLatestAuthEventByTerminalId = useMemo(() => {
+    const authEvents = [...mesRecentEventRows]
+      .filter((row) => ["ol", "oso", "login", "logout"].includes(String(row.event_type || "").toLowerCase()))
+      .sort((a, b) => new Date(b.happened_at || b.created_at || 0).getTime() - new Date(a.happened_at || a.created_at || 0).getTime());
+    const byTerminalId = {};
+    authEvents.forEach((row) => {
+      const terminalId = String(row.terminal_id || "").trim();
+      if (terminalId && !byTerminalId[terminalId]) {
+        byTerminalId[terminalId] = row;
+      }
+    });
+    return byTerminalId;
   }, [mesRecentEventRows]);
   const mesLatestLoggedInOperator = useMemo(() => {
     const latestAuthEvent = [...mesRecentEventRows]
@@ -18154,9 +18168,16 @@ function App() {
       mesOperatorRows.find((row) => row.currentMachineId === selectedMesMachineId || row.currentMachineId === selectedMachineWorkstationId) ||
       mesOperatorRows.find((row) => row.machineIds.includes(selectedMesMachineId) || row.workstationIds.includes(selectedMachineWorkstationId)) ||
       null;
+    const selectedMachineTerminalId = String(
+      selectedMesMachineOverview?.terminalId ||
+        currentMesMachineRun?.terminal_id ||
+        selectedMesMachineEvents.find((row) => String(row.terminal_id || "").trim())?.terminal_id ||
+        ""
+    ).trim();
     const selectedMachineLatestAuthEvent =
       mesLatestAuthEventByMachineKey[selectedMesMachineId] ||
       mesLatestAuthEventByMachineKey[selectedMachineWorkstationId] ||
+      mesLatestAuthEventByTerminalId[selectedMachineTerminalId] ||
       null;
     const selectedMachineAuthOperatorName =
       selectedMachineLatestAuthEvent && ["ol", "login"].includes(String(selectedMachineLatestAuthEvent.event_type || "").toLowerCase())

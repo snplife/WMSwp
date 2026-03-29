@@ -15983,6 +15983,38 @@ function App() {
         idealRuntimeMs += (produced / target.idealUnitsPerHour) * 60 * 60 * 1000;
       }
     });
+    if (runTimeMs === 0 && totalCount === 0) {
+      Object.entries(mesEventsByMachineId).forEach(([machineKey, events]) => {
+        const orderedEvents = [...(events || [])].sort((a, b) => new Date(a.happened_at || 0).getTime() - new Date(b.happened_at || 0).getTime());
+        if (orderedEvents.length === 0) {
+          return;
+        }
+        const firstEventAt = orderedEvents[0]?.happened_at || orderedEvents[0]?.created_at || "";
+        const lastEventAt = orderedEvents[orderedEvents.length - 1]?.happened_at || orderedEvents[orderedEvents.length - 1]?.created_at || "";
+        if (!firstEventAt || !lastEventAt) {
+          return;
+        }
+        const stateWindow = summarizeMesStateWindow(orderedEvents, firstEventAt, lastEventAt, "running");
+        runTimeMs += Number(stateWindow.runMs || 0);
+        downtimeMs += Number(stateWindow.stopMs || 0);
+
+        const producedSummary = mesEventSummaryByMachineId[machineKey] || null;
+        const produced = Number(producedSummary?.totalProduced || 0);
+        const goodProduced = Number(producedSummary?.good || 0);
+        totalGood += goodProduced;
+        totalCount += produced;
+
+        const workstationId =
+          String(orderedEvents.find((row) => String(row.workstation_id || "").trim())?.workstation_id || "").trim() ||
+          String(machineDashboardRows.find((row) => row.machineId === machineKey || row.workstationId === machineKey)?.workstationId || "").trim();
+        const target = machineTargetsByWorkstationId[workstationId] || null;
+        if (target?.targetCycleSeconds > 0 && produced > 0) {
+          idealRuntimeMs += produced * target.targetCycleSeconds * 1000;
+        } else if (target?.idealUnitsPerHour > 0 && produced > 0) {
+          idealRuntimeMs += (produced / target.idealUnitsPerHour) * 60 * 60 * 1000;
+        }
+      });
+    }
     const plannedProductionMs = runTimeMs + downtimeMs;
     const availabilityPct = clampPercent(safeRatioPercent(runTimeMs, plannedProductionMs));
     const performancePct = clampPercent(safeRatioPercent(idealRuntimeMs, runTimeMs));
@@ -15993,7 +16025,7 @@ function App() {
       qualityPct,
       oeePct: clampPercent((availabilityPct * performancePct * qualityPct) / 10000)
     };
-  }, [mesRecentJobRuns, mesRecentEventRows, mesWorkstationsById, mesEventSummaryByJobRunId]);
+  }, [mesRecentJobRuns, mesRecentEventRows, mesWorkstationsById, mesEventSummaryByJobRunId, mesEventsByMachineId, mesEventSummaryByMachineId, machineDashboardRows]);
   const mesGlobalKpis = useMemo(() => {
     const counts = machineDashboardRows.reduce(
       (acc, row) => {

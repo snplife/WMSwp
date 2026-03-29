@@ -10553,19 +10553,6 @@ function App() {
     }
 
     const scopedCompanyId = activeCompanyId || userCompanyId || null;
-    if (!scopedCompanyId) {
-      setMesOverviewRows([]);
-      setMesRecentJobRuns([]);
-      setMesRecentEventRows([]);
-      setMesDowntimeReasons([]);
-      setMesWorkstations([]);
-      setMesMachines([]);
-      setMesTerminals([]);
-      setMesSupportsDeviceUid(false);
-      setMesLoading(false);
-      setMesError("");
-      return;
-    }
 
     const requestId = latestMesOverviewRequestRef.current + 1;
     latestMesOverviewRequestRef.current = requestId;
@@ -10579,10 +10566,15 @@ function App() {
         let from = 0;
 
         while (true) {
-          const { data: pageData, error: pageError } = await supabase
-            .from("mes_job_runs")
-            .select("id,company_id,workstation_id,machine_id,terminal_id,operator_user_id,job_number,item_code,item_name,operator_name,status,planned_quantity,good_quantity,scrap_quantity,started_at,ended_at,created_at,updated_at,note")
-            .eq("company_id", scopedCompanyId)
+          const scopedQuery = scopedCompanyId
+            ? supabase
+                .from("mes_job_runs")
+                .select("id,company_id,workstation_id,machine_id,terminal_id,operator_user_id,job_number,item_code,item_name,operator_name,status,planned_quantity,good_quantity,scrap_quantity,started_at,ended_at,created_at,updated_at,note")
+                .eq("company_id", scopedCompanyId)
+            : supabase
+                .from("mes_job_runs")
+                .select("id,company_id,workstation_id,machine_id,terminal_id,operator_user_id,job_number,item_code,item_name,operator_name,status,planned_quantity,good_quantity,scrap_quantity,started_at,ended_at,created_at,updated_at,note");
+          const { data: pageData, error: pageError } = await scopedQuery
             .order("created_at", { ascending: false })
             .range(from, from + MES_QUERY_PAGE_SIZE - 1);
 
@@ -10604,10 +10596,15 @@ function App() {
         let from = 0;
 
         while (true) {
-          const { data: pageData, error: pageError } = await supabase
-            .from("mes_event_log")
-            .select("id,company_id,terminal_id,workstation_id,job_run_id,terminal_event_id,event_code,job_number,duration_seconds,time_from,time_to,operator_id,downtime_reason_code,downtime_reason_name,payload,created_at")
-            .eq("company_id", scopedCompanyId)
+          const scopedQuery = scopedCompanyId
+            ? supabase
+                .from("mes_event_log")
+                .select("id,company_id,terminal_id,workstation_id,job_run_id,terminal_event_id,event_code,job_number,duration_seconds,time_from,time_to,operator_id,downtime_reason_code,downtime_reason_name,payload,created_at")
+                .eq("company_id", scopedCompanyId)
+            : supabase
+                .from("mes_event_log")
+                .select("id,company_id,terminal_id,workstation_id,job_run_id,terminal_event_id,event_code,job_number,duration_seconds,time_from,time_to,operator_id,downtime_reason_code,downtime_reason_name,payload,created_at");
+          const { data: pageData, error: pageError } = await scopedQuery
             .order("created_at", { ascending: false })
             .range(from, from + MES_QUERY_PAGE_SIZE - 1);
 
@@ -25793,5 +25790,8 @@ function App() {
 }
 
 export default App;
+
+
+
 
 

@@ -5817,6 +5817,7 @@ function App() {
   const [createCompanySubmitting, setCreateCompanySubmitting] = useState(false);
   const [updateCompanySubmitting, setUpdateCompanySubmitting] = useState(false);
   const [deleteCompanySubmitting, setDeleteCompanySubmitting] = useState(false);
+  const [toggleCompanyMesSubmittingId, setToggleCompanyMesSubmittingId] = useState("");
   const [createUserSubmitting, setCreateUserSubmitting] = useState(false);
   const [repairUsersSubmitting, setRepairUsersSubmitting] = useState(false);
   const [deleteUserSubmitting, setDeleteUserSubmitting] = useState(false);
@@ -8242,6 +8243,45 @@ function App() {
       setNewUserCompanyId("");
     }
     setDeleteCompanySubmitting(false);
+  };
+
+  const handleToggleCompanyMes = async (company, nextEnabled) => {
+    if (!company?.id) {
+      return;
+    }
+
+    setToggleCompanyMesSubmittingId(String(company.id));
+    setCompaniesError("");
+
+    const { data: mesCompanyData, error: mesToggleError } = await supabase.rpc("set_company_mes_enabled", {
+      target_company_id: company.id,
+      target_enabled: Boolean(nextEnabled)
+    });
+
+    if (mesToggleError) {
+      setCompaniesError(mesToggleError.message || "Nepodarilo sa uložiť prístup k MES pre firmu.");
+      setToggleCompanyMesSubmittingId("");
+      return;
+    }
+
+    const updatedCompany = normalizeCompanyRecord(Array.isArray(mesCompanyData) ? mesCompanyData[0] : mesCompanyData);
+    if (!updatedCompany?.id) {
+      setCompaniesError("MES stav firmy sa nevrátil z databázy.");
+      setToggleCompanyMesSubmittingId("");
+      return;
+    }
+
+    setCompanies((prev) =>
+      prev
+        .map((row) => (row.id === updatedCompany.id ? { ...row, ...updatedCompany } : row))
+        .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "sk-SK", { sensitivity: "base" }))
+    );
+
+    if (String(activeCompanyId || "") === String(updatedCompany.id || "")) {
+      setCompanyMesEnabledInput(Boolean(updatedCompany.mes_enabled));
+    }
+
+    setToggleCompanyMesSubmittingId("");
   };
 
   const ensureOwnRoleRow = async (user, resolvedRole) => {
@@ -21687,11 +21727,25 @@ function App() {
                         )}
                       </td>
                       <td>
-                        {company.mes_enabled ? (
-                          <span className="table-badge table-badge-master">zapnuté</span>
-                        ) : (
-                          <span className="master-user-email">vypnuté</span>
-                        )}
+                        <div className="master-role-actions master-billing-actions">
+                          {company.mes_enabled ? (
+                            <span className="table-badge table-badge-master">zapnuté</span>
+                          ) : (
+                            <span className="master-user-email">vypnuté</span>
+                          )}
+                          <button
+                            type="button"
+                            className="clear-btn"
+                            onClick={() => handleToggleCompanyMes(company, !company.mes_enabled)}
+                            disabled={toggleCompanyMesSubmittingId === company.id}
+                          >
+                            {toggleCompanyMesSubmittingId === company.id
+                              ? "Ukladám..."
+                              : company.mes_enabled
+                                ? "Vypnúť MES"
+                                : "Zapnúť MES"}
+                          </button>
+                        </div>
                       </td>
                       <td className="master-billing-cell">
                         {isEditing ? (

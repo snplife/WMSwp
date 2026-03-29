@@ -10767,6 +10767,7 @@ function App() {
           const run = jobRunsById[String(row.job_run_id || "")] || null;
           const payload = row.payload && typeof row.payload === "object" ? row.payload : {};
           const reason = downtimeReasonById[String(row.downtime_reason_id || "")] || null;
+          const normalizedEventType = String(payload.compact_event || row.event_type || "").toLowerCase();
           return {
             id: row.id,
             company_id: String(run?.company_id || ""),
@@ -10776,7 +10777,7 @@ function App() {
             job_run_id: String(row.job_run_id || ""),
             operator_user_id: String(run?.operator_user_id || ""),
             operator_name: String(run?.operator_name || payload.operator_name || payload.operator_name_text || ""),
-            event_type: String(row.event_type || "").toLowerCase(),
+            event_type: normalizedEventType,
             quantity: Number(row.quantity || 0),
             note: String(row.note || ""),
             source: String(row.source || "hmi"),
@@ -10787,7 +10788,7 @@ function App() {
             time_from: payload.time_from || null,
             time_to: row.happened_at || row.created_at || null,
             terminal_event_id: String(payload.terminal_event_id || row.id || ""),
-            event_code: String(row.event_type || "").toLowerCase(),
+            event_code: normalizedEventType,
             job_number: String(run?.job_number || ""),
             downtime_reason_code: String(reason?.code || ""),
             downtime_reason_name: String(reason?.name || row.note || "")
@@ -25790,6 +25791,7 @@ function App() {
 }
 
 export default App;
+
 
 
 

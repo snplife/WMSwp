@@ -15838,9 +15838,9 @@ function App() {
       happenedAt: String(latestAuthEvent.happened_at || latestAuthEvent.created_at || "").trim()
     };
   }, [mesRecentEventRows]);
-  const selectedMesMachineOperatorMetrics = useMemo(() => {
+  const selectedMesMachineScopedEvents = useMemo(() => {
     if (!selectedMesMachineOverview) {
-      return null;
+      return [];
     }
     const selectedMachineTerminalId = String(
       selectedMesMachineOverview?.terminalId ||
@@ -15848,7 +15848,7 @@ function App() {
         selectedMesMachineEvents.find((row) => String(row.terminal_id || "").trim())?.terminal_id ||
         ""
     ).trim();
-    const scopedEvents = Array.from(
+    return Array.from(
       new Map(
         [
           ...selectedMesMachineEvents,
@@ -15856,8 +15856,75 @@ function App() {
         ].map((row) => [buildMesEventIdentity(row), row])
       ).values()
     ).sort((a, b) => new Date(a.happened_at || a.created_at || 0).getTime() - new Date(b.happened_at || b.created_at || 0).getTime());
+  }, [selectedMesMachineOverview, currentMesMachineRun, selectedMesMachineEvents, mesEventsByTerminalId]);
+  const selectedMesMachineCycleMetrics = useMemo(() => {
+    if (!selectedMesMachineOverview) {
+      return null;
+    }
+    const analysisStartAt = String(
+      currentMesMachineRun?.started_at ||
+        currentMesMachineRun?.created_at ||
+        selectedMesMachineScopedEvents.find((row) => String(row.happened_at || row.created_at || "").trim())?.happened_at ||
+        selectedMesMachineScopedEvents.find((row) => String(row.happened_at || row.created_at || "").trim())?.created_at ||
+        ""
+    ).trim();
+    if (!analysisStartAt) {
+      return null;
+    }
+    const analysisEndAt = String(currentMesMachineRun?.ended_at || new Date().toISOString()).trim();
+    const fallbackState = ["paused", "stop", "stopped", "alarm"].includes(String(selectedMesMachineOverview?.machineStatus || currentMesMachineRun?.status || "").toLowerCase())
+      ? "stopped"
+      : "running";
+    const stateWindow = summarizeMesStateWindow(selectedMesMachineScopedEvents, analysisStartAt, analysisEndAt, fallbackState);
+    const producedFromEvents = selectedMesMachineScopedEvents
+      .filter((row) => ["good_count", "scrap_count"].includes(String(row.event_type || "").toLowerCase()))
+      .reduce((sum, row) => sum + Number(row.quantity || 0), 0);
+    const producedParts = producedFromEvents > 0 ? producedFromEvents : Number(currentMesMachineRun?.good_quantity || 0) + Number(currentMesMachineRun?.scrap_quantity || 0);
+    const isSemiAutomaticMachine = String(selectedMesMachineOverview?.automationMode || "").toLowerCase() === "semi_automatic";
+    const operatorCycles = isSemiAutomaticMachine
+      ? collectMesDowntimeDurations(selectedMesMachineScopedEvents, {
+          openEventTypes: ["ml"],
+          closeEventTypes: ["start", "resume"],
+          startAt: analysisStartAt,
+          endAt: analysisEndAt
+        })
+      : [];
+    const machineCycles = isSemiAutomaticMachine
+      ? collectMesDowntimeDurations(selectedMesMachineScopedEvents, {
+          openEventTypes: ["start", "resume"],
+          closeEventTypes: ["ml", "stop", "pause", "downtime_start"],
+          startAt: analysisStartAt,
+          endAt: analysisEndAt
+        })
+      : [];
+    const operatorCycleSeconds =
+      operatorCycles.length > 0 ? operatorCycles.reduce((sum, row) => sum + row.durationMs, 0) / 1000 / operatorCycles.length : null;
+    const machineCycleSeconds =
+      machineCycles.length > 0
+        ? machineCycles.reduce((sum, row) => sum + row.durationMs, 0) / 1000 / machineCycles.length
+        : producedParts > 0 && stateWindow.runMs > 0
+          ? stateWindow.runMs / 1000 / producedParts
+          : null;
+
+    return {
+      isSemiAutomaticMachine,
+      analysisStartAt,
+      analysisEndAt,
+      producedParts,
+      runMs: stateWindow.runMs,
+      stopMs: stateWindow.stopMs,
+      operatorCycleSeconds,
+      operatorCycleCount: operatorCycles.length,
+      machineCycleSeconds,
+      machineCycleCount: machineCycles.length
+    };
+  }, [selectedMesMachineOverview, currentMesMachineRun, selectedMesMachineScopedEvents]);
+  const selectedMesMachineOperatorMetrics = useMemo(() => {
+    if (!selectedMesMachineOverview) {
+      return null;
+    }
     const latestAuthEvent =
-      [...scopedEvents]
+      [...selectedMesMachineScopedEvents]
         .filter((row) => isMesAuthEvent(row.event_type))
         .sort((a, b) => new Date(b.happened_at || b.created_at || 0).getTime() - new Date(a.happened_at || a.created_at || 0).getTime())[0] || null;
     if (!latestAuthEvent || !isMesLoginEvent(latestAuthEvent.event_type)) {
@@ -15870,7 +15937,7 @@ function App() {
     const sessionEndedAt = new Date().toISOString();
     const sessionStartMs = new Date(sessionStartedAt).getTime();
     const sessionEndMs = new Date(sessionEndedAt).getTime();
-    const sessionEvents = scopedEvents.filter((row) => {
+    const sessionEvents = selectedMesMachineScopedEvents.filter((row) => {
       const happenedMs = new Date(row.happened_at || row.created_at || 0).getTime();
       return Number.isFinite(happenedMs) && Number.isFinite(sessionStartMs) && Number.isFinite(sessionEndMs) && happenedMs >= sessionStartMs && happenedMs <= sessionEndMs;
     });
@@ -15908,15 +15975,29 @@ function App() {
         : isSemiAutomaticMachine && sessionProducedParts > 0 && sessionWindow.runMs > 0
           ? sessionWindow.runMs / 1000 / sessionProducedParts
           : null;
+    const sessionMachineCycles = collectMesDowntimeDurations(sessionEvents, {
+      openEventTypes: ["start", "resume"],
+      closeEventTypes: ["ml", "stop", "pause", "downtime_start"],
+      startAt: sessionStartedAt,
+      endAt: sessionEndedAt
+    });
+    const sessionMachineCycleSeconds =
+      sessionMachineCycles.length > 0
+        ? sessionMachineCycles.reduce((sum, row) => sum + row.durationMs, 0) / 1000 / sessionMachineCycles.length
+        : sessionProducedParts > 0 && sessionWindow.runMs > 0
+          ? sessionWindow.runMs / 1000 / sessionProducedParts
+          : null;
 
     return {
       operatorName: getMesEventOperatorLabel(latestAuthEvent),
       sessionStartedAt,
       sessionProducedParts,
       sessionGoodParts: resolvedSessionGoodParts,
-      sessionScrapParts: resolvedSessionScrapParts
+      sessionScrapParts: resolvedSessionScrapParts,
+      sessionOperatorCycleSeconds,
+      sessionMachineCycleSeconds
     };
-  }, [selectedMesMachineOverview, currentMesMachineRun, selectedMesMachineEvents, mesEventsByTerminalId]);
+  }, [selectedMesMachineOverview, currentMesMachineRun, selectedMesMachineScopedEvents]);
   const mesProductionOrderRows = useMemo(() => {
     return mesRecentJobRuns
       .filter((row) => ["queued", "running", "paused", "planned"].includes(String(row.status || "").toLowerCase()))
@@ -18399,16 +18480,18 @@ function App() {
       selectedMachineLatestEventOperatorName ||
       mesLatestLoggedInOperator?.operatorName ||
       "";
+    const formatMesCycleValue = (value) =>
+      Number.isFinite(value) && Number(value) > 0
+        ? `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(Number(value))} s`
+        : "-";
     const selectedMachineCoreStats = [
       {
         label: "Výrobná zákazka",
         value: selectedMesMachineOverview?.currentWorkOrder || "-"
       },
       {
-        label: "Skutočný cyklus",
-        value: Number.isFinite(selectedMesMachineOverview?.actualCycleSeconds)
-          ? `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(selectedMesMachineOverview.actualCycleSeconds)} s`
-          : "-"
+        label: "Takt stroja",
+        value: formatMesCycleValue(selectedMesMachineCycleMetrics?.machineCycleSeconds ?? selectedMesMachineOverview?.actualCycleSeconds)
       },
       {
         label: "Cieľový cyklus",
@@ -18439,6 +18522,13 @@ function App() {
       {
         label: "Aktívna zákazka",
         value: selectedMesMachineOverview?.currentWorkOrder || "-"
+      },
+      {
+        label: "Takt operátora",
+        value:
+          selectedMesMachineCycleMetrics?.isSemiAutomaticMachine || Number.isFinite(selectedMesMachineOperatorMetrics?.sessionOperatorCycleSeconds)
+            ? formatMesCycleValue(selectedMesMachineOperatorMetrics?.sessionOperatorCycleSeconds)
+            : "-"
       },
       {
         label: "Vyrobené kusy",
@@ -18863,7 +18953,7 @@ function App() {
                   <section className="mes-data-panel">
                     <div className="mes-data-panel-head">
                       <strong>Operátor</strong>
-                      <span>Len identifikačné údaje aktívnej session</span>
+                      <span>Aktívna session, takt obsluhy a vyrobené kusy</span>
                     </div>
                     <div className="mes-detail-stats mes-detail-stats-compact">
                       {selectedMachineOperatorStats.map((item) => (

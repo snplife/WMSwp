@@ -17125,54 +17125,103 @@ function App() {
     return (
       <main className="container landing-screen">
         <section className="landing-stage">
-          <article className="landing-card landing-hero-card">
-            <div className="landing-hero-grid">
-              <div className="landing-hero-primary">
-                <div className="landing-hero-head">
+          <section className="landing-surface">
+            <div className="landing-surface-grid">
+              <div className="landing-surface-copy">
+                <div className="landing-surface-topline">
                   <img src={logo} alt="Factory OS" className="landing-logo" />
-                  <div className="landing-hero-chip-row">
-                    <span className="landing-hero-chip">
+                  <div className="landing-surface-chip-row">
+                    <span className="landing-surface-chip">
                       <ShieldCheck size={14} strokeWidth={2.1} />
-                      Firemný systém
+                      prevádzková platforma
                     </span>
-                    <span className="landing-hero-chip">
-                      <Building2 size={14} strokeWidth={2.1} />
-                      Web + Android
+                    <span className="landing-surface-chip">
+                      <MonitorSmartphone size={14} strokeWidth={2.1} />
+                      web + terminály
                     </span>
                   </div>
                 </div>
 
-                <div className="landing-hero-copy">
-                  <p className="landing-hero-kicker">Sklad, výroba, dochádzka a fakturácia v jednom prostredí</p>
-                  <h1>Platforma pre firmy, ktoré chcú zvyšovať efektivitu a nezaspali na inováciách</h1>
+                <div className="landing-surface-headline">
+                  <p className="landing-surface-kicker">Unified operations system pre firmy, ktoré nechcú riadiť prevádzku z Excelu</p>
+                  <h1>Jedno pracovné prostredie pre sklad, výrobu, dochádzku a každodenné riadenie firmy</h1>
                   <p className="subtitle">
-                    Factory OS pomáha firmám dostať sklad, dokumenty a operatívu do jedného systému. Namiesto rozbitých
-                    evidencií dostaneš prehľadný web, Android terminály a setup podľa reálnej prevádzky.
+                    Factory OS spája materiál, dokumenty, dochádzkové udalosti a výrobnú operatívu do jednej prevádzkovej vrstvy.
+                    Nie ako séria samostatných modulov, ale ako jeden systém, ktorý sa dá nasadiť v kancelárii aj pri stroji.
                   </p>
                 </div>
 
-                <div className="landing-hero-proof" aria-label="Kľúčové benefity riešenia">
+                <div className="landing-signal-strip" aria-label="Kľúčové parametre platformy">
                   {publicRegisteredCompaniesCount !== null && publicRegisteredCompaniesCount > 0 && (
-                    <article className="landing-hero-proof-card">
-                      <span>Prevádzky na platforme</span>
+                    <article className="landing-signal-item">
+                      <span>Aktívne firmy</span>
                       <strong>{new Intl.NumberFormat("sk-SK").format(publicRegisteredCompaniesCount)}+</strong>
-                      <p>aktívnych zákazníkov používa Factory OS v dennej operatíve</p>
+                      <p>reálne prevádzky na jednej platforme</p>
                     </article>
                   )}
-                  <article className="landing-hero-proof-card">
-                    <span>Nasadenie</span>
-                    <strong>Web + terminál</strong>
-                    <p>jedna dátová vrstva pre kanceláriu, výrobu, sklad aj dochádzku</p>
+                  <article className="landing-signal-item">
+                    <span>Rozsah</span>
+                    <strong>Web + Android</strong>
+                    <p>rovnaké údaje v office, sklade aj na termináli</p>
                   </article>
-                  <article className="landing-hero-proof-card">
+                  <article className="landing-signal-item">
                     <span>Rollout</span>
-                    <strong>Na mieru prevádzke</strong>
-                    <p>setup firmy, hardvér a procesy sa neskladajú z generickej šablóny</p>
+                    <strong>Na mieru firme</strong>
+                    <p>setup, hardware a oprávnenia podľa reality prevádzky</p>
                   </article>
+                </div>
+
+                <div className="landing-module-ribbon" aria-label="Pokryté oblasti">
+                  {COMPANY_ADMIN_MODULE_OPTIONS.map((moduleOption) => {
+                    const Icon = getModuleIcon(moduleOption.iconKey);
+                    return (
+                      <div key={moduleOption.key} className="landing-module-ribbon-item">
+                        <span className="landing-module-ribbon-icon" aria-hidden="true">
+                          <Icon size={16} strokeWidth={2.05} />
+                        </span>
+                        <div>
+                          <strong>{moduleOption.label}</strong>
+                          <p>{moduleOption.description}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
-              <aside className="landing-hero-rail">
+              <div className="landing-surface-story">
+                <div className="landing-story-panel">
+                  <p className="auth-kicker">Čo robíme</p>
+                  <h2>Nevyrábame ďalší admin panel. Staviame prevádzkový systém.</h2>
+                  <p>
+                    Riešenie prepája sklad, výrobu, dochádzku, dokumenty a reporting do jedného operačného modelu.
+                    Každý vstup z terminálu, skladu alebo kancelárie sa má premietnuť do rovnakého obrazu firmy.
+                  </p>
+                </div>
+
+                <div className="landing-scale-rail" aria-label="Princípy škálovania">
+                  <div className="landing-scale-rail-head">
+                    <p className="auth-kicker">Ako to škáluje</p>
+                    <h2>Bez umelých usage limitov, ktoré neskôr zablokujú rast</h2>
+                  </div>
+                  <div className="landing-scale-rail-list">
+                    <article>
+                      <strong>Bez limitu používateľov</strong>
+                      <p>Tím môže rásť bez toho, aby platforma penalizovala každé nové konto.</p>
+                    </article>
+                    <article>
+                      <strong>Bez stropu transakcií</strong>
+                      <p>Sklad, výroba aj dochádzka sa neúčtujú podľa každého jedného eventu.</p>
+                    </article>
+                    <article>
+                      <strong>Modulárny rollout</strong>
+                      <p>Firma aktivuje len tie vrstvy, ktoré potrebuje dostať do prevádzky práve teraz.</p>
+                    </article>
+                  </div>
+                </div>
+              </div>
+
+              <aside className="landing-surface-entry">
                 <section className={`login-card auth-card landing-access-card${landingAuthVisible ? " is-open" : ""}`}>
               {!landingAuthVisible ? (
                 <>
@@ -17461,79 +17510,11 @@ function App() {
                 </section>
               </aside>
             </div>
-
-            <div className="landing-hero-lower">
-              <div className="landing-hero-module-grid" aria-label="Pokryté moduly">
-                {COMPANY_ADMIN_MODULE_OPTIONS.map((moduleOption) => {
-                  const Icon = getModuleIcon(moduleOption.iconKey);
-                  return (
-                    <article key={moduleOption.key} className="landing-hero-module-card">
-                      <span className="landing-hero-module-icon" aria-hidden="true">
-                        <Icon size={18} strokeWidth={2.05} />
-                      </span>
-                      <strong>{moduleOption.label}</strong>
-                      <span>{moduleOption.description}</span>
-                    </article>
-                  );
-                })}
-              </div>
-
-              <div className="landing-hero-context">
-                <div className="landing-note">
-                  <h2>Čo robíme</h2>
-                  <p>
-                    Navrhujeme a nasadzujeme Factory OS pre firmy, ktoré chcú mať sklad, pohyby materiálu, objednávky,
-                    cenové ponuky, faktúry a budúci order processing v jednom systéme na webe aj v appke.
-                  </p>
-                </div>
-
-                <section className="landing-scale-card landing-scale-inline" aria-label="Škálovanie systému">
-                  <div className="landing-scale-head">
-                    <p className="auth-kicker">Bez umelých limitov</p>
-                    <h2>Neobmedzujeme počet používateľov ani objem prevádzky podľa skenov alebo transakcií</h2>
-                    <p className="panel-meta">
-                      Factory OS naceníme podľa toho, ktoré moduly a rollout firma reálne potrebuje. Nie podľa počtu skenov,
-                      terminálových eventov alebo iných umelých stropov, ktoré ti neskôr brzdia rast.
-                    </p>
-                  </div>
-
-                  <div className="landing-scale-grid">
-                    <article className="landing-scale-item">
-                      <span className="landing-scale-item-icon" aria-hidden="true">
-                        <Users size={17} strokeWidth={2.05} />
-                      </span>
-                      <strong>Bez limitu používateľov</strong>
-                      <p>Nezamkneme firmu na nízky počet účtov len preto, že rastie tím alebo pribúdajú prevádzky.</p>
-                    </article>
-                    <article className="landing-scale-item">
-                      <span className="landing-scale-item-icon" aria-hidden="true">
-                        <Boxes size={17} strokeWidth={2.05} />
-                      </span>
-                      <strong>Bez stropu transakcií</strong>
-                      <p>Skladové pohyby, výroba aj dochádzkové eventy môžu rásť bez poplatku za každú ďalšiu operáciu.</p>
-                    </article>
-                    <article className="landing-scale-item">
-                      <span className="landing-scale-item-icon" aria-hidden="true">
-                        <ReceiptText size={17} strokeWidth={2.05} />
-                      </span>
-                      <strong>Žiadne poplatky za skeny</strong>
-                      <p>Neúčtujeme systém podľa počtu skenov, terminálových pípnutí alebo dokumentových akcií v prevádzke.</p>
-                    </article>
-                    <article className="landing-scale-item">
-                      <span className="landing-scale-item-icon" aria-hidden="true">
-                        <Settings2 size={17} strokeWidth={2.05} />
-                      </span>
-                      <strong>Cena podľa reality firmy</strong>
-                      <p>Rozhoduje výber modulov, hardware, onboarding a reálny rollout, nie umelo nafúknuté usage metriky.</p>
-                    </article>
-                  </div>
-                </section>
-              </div>
-            </div>
-          </article>
+          </section>
         </section>
         <section className="landing-supporting" aria-label="Informácie o riešení Factory OS">
-          <article className="landing-card landing-flow-section">
+          <section className="landing-process-band">
+            <article className="landing-card landing-flow-section">
             <div className="landing-flow-head">
               <div>
                 <p className="auth-kicker">Ako sa dáta prepájajú</p>
@@ -17620,10 +17601,11 @@ function App() {
                 </div>
               </div>
             </div>
-          </article>
+            </article>
+          </section>
 
-          <div className="landing-support-grid">
-            <article className="landing-card seo-section landing-brief-card">
+          <section className="landing-dossier-band">
+            <article className="landing-card seo-section landing-brief-card landing-dossier-primary">
               <div className="landing-brief-head">
                 <p className="auth-kicker">Dodávka riešenia</p>
                 <h2>Čo pre firmy dodávame</h2>
@@ -17635,10 +17617,10 @@ function App() {
               </ul>
             </article>
 
-            <article className="landing-card seo-section landing-brief-card">
+            <article className="landing-card seo-section landing-brief-card landing-dossier-secondary">
               <div className="landing-brief-head">
                 <p className="auth-kicker">Typické prevádzky</p>
-                <h2>Komu systém najviac pomáha</h2>
+                <h2>Kde systém najviac pomáha</h2>
               </div>
               <ul className="landing-list seo-list">
                 {LANDING_USE_CASES.map((item) => (
@@ -17646,10 +17628,8 @@ function App() {
                 ))}
               </ul>
             </article>
-          </div>
 
-          <div className="landing-support-grid landing-support-grid-alt">
-            <article className="landing-card seo-section landing-outcomes-card">
+            <article className="landing-card seo-section landing-outcomes-card landing-dossier-outcomes">
               <div className="landing-brief-head">
                 <p className="auth-kicker">Výsledok pre firmu</p>
                 <h2>Čo tým firma získa</h2>
@@ -17661,7 +17641,7 @@ function App() {
               </ul>
             </article>
 
-            <article className="landing-card seo-section landing-faq-card">
+            <article className="landing-card seo-section landing-faq-card landing-dossier-faq">
               <div className="landing-brief-head">
                 <p className="auth-kicker">FAQ</p>
                 <h2>Časté otázky</h2>
@@ -17675,7 +17655,7 @@ function App() {
                 ))}
               </div>
             </article>
-          </div>
+          </section>
         </section>
         <footer className="landing-footer" aria-label="Právne informácie">
           <div className="landing-footer-copy">

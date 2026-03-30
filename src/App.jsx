@@ -15353,6 +15353,10 @@ function App() {
       }))
       .sort((a, b) => b.totalDowntimeMs - a.totalDowntimeMs || b.longestDowntimeMs - a.longestDowntimeMs || b.downtimeEvents - a.downtimeEvents)
       .slice(0, 12);
+    const operatorDowntimeTotalMs = operatorDowntimeStats.reduce((sum, row) => sum + Number(row.totalDowntimeMs || 0), 0);
+    const operatorDowntimeCount = operatorDowntimeStats.reduce((sum, row) => sum + Number(row.downtimeEvents || 0), 0);
+    const operatorDowntimeAverageMs = operatorDowntimeCount > 0 ? operatorDowntimeTotalMs / operatorDowntimeCount : 0;
+    const operatorDowntimeLongestMs = operatorDowntimeStats.reduce((max, row) => Math.max(max, Number(row.longestDowntimeMs || 0)), 0);
 
     const topMachines = Array.from(machineStatsMap.values())
       .map((row) => {
@@ -15425,6 +15429,10 @@ function App() {
       avgMttrMs,
       topMachines,
       operatorDowntimeStats,
+      operatorDowntimeTotalMs,
+      operatorDowntimeAverageMs,
+      operatorDowntimeLongestMs,
+      operatorDowntimeCount,
       downtimeReasons: Array.from(downtimeReasonStats.values()).sort((a, b) => b.count - a.count).slice(0, 6),
       trendDays
     };
@@ -26013,6 +26021,18 @@ function App() {
                       <article className="card workflow-stat-card">
                         <p>Prestoje / stop</p>
                         <strong>{new Intl.NumberFormat("sk-SK").format(mesOverviewSummary.downtimeCount)}</strong>
+                      </article>
+                      <article className="card workflow-stat-card">
+                        <p>Prestoje operátorov celkom</p>
+                        <strong>{formatDurationShort(mesAnalytics.operatorDowntimeTotalMs)}</strong>
+                      </article>
+                      <article className="card workflow-stat-card">
+                        <p>Prestoj operátora priemer</p>
+                        <strong>{formatDurationShort(mesAnalytics.operatorDowntimeAverageMs)}</strong>
+                      </article>
+                      <article className="card workflow-stat-card">
+                        <p>Najdlhší prestoj operátora</p>
+                        <strong>{formatDurationShort(mesAnalytics.operatorDowntimeLongestMs)}</strong>
                       </article>
                       <article className="card workflow-stat-card">
                         <p>Online HMI</p>

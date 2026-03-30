@@ -15239,6 +15239,50 @@ function App() {
       }
       eventsByMachine.get(machineKey).push(row);
     });
+    const operatorDowntimeStatsMap = new Map();
+    const ensureOperatorDowntimeStats = (operatorUserId, operatorName) => {
+      const key = buildMesOperatorKey(operatorUserId, operatorName) || "unknown";
+      if (!operatorDowntimeStatsMap.has(key)) {
+        operatorDowntimeStatsMap.set(key, {
+          key,
+          operatorUserId: String(operatorUserId || "").trim(),
+          operatorName: String(operatorName || "").trim() || "Neznámy operátor",
+          downtimeEvents: 0,
+          totalDowntimeMs: 0,
+          longestDowntimeMs: 0,
+          latestAt: ""
+        });
+      }
+      const row = operatorDowntimeStatsMap.get(key);
+      if (!row.operatorName || row.operatorName === "Neznámy operátor") {
+        row.operatorName = String(operatorName || "").trim() || row.operatorName || "Neznámy operátor";
+      }
+      if (!row.operatorUserId) {
+        row.operatorUserId = String(operatorUserId || "").trim();
+      }
+      return row;
+    };
+    const pushOperatorDowntimeSample = (event, durationMs, fallbackHappenedMs = null) => {
+      if (!Number.isFinite(durationMs) || durationMs <= 0 || durationMs > MES_MAX_DOWNTIME_DURATION_MS) {
+        return;
+      }
+      const operatorUserId = String(event?.operator_user_id || event?.operator_id || "").trim();
+      const operatorName = getMesEventOperatorLabel(event) || operatorUserId || "Neznámy operátor";
+      const row = ensureOperatorDowntimeStats(operatorUserId, operatorName);
+      row.downtimeEvents += 1;
+      row.totalDowntimeMs += durationMs;
+      row.longestDowntimeMs = Math.max(row.longestDowntimeMs, durationMs);
+      const happenedMs =
+        Number.isFinite(fallbackHappenedMs) && fallbackHappenedMs > 0
+          ? fallbackHappenedMs
+          : new Date(event?.happened_at || event?.created_at || 0).getTime();
+      if (Number.isFinite(happenedMs)) {
+        const happenedAt = new Date(happenedMs).toISOString();
+        if (!row.latestAt || happenedAt > row.latestAt) {
+          row.latestAt = happenedAt;
+        }
+      }
+    };
 
     const downtimeReasonStats = new Map();
     mesRecentEventRows.forEach((row) => {
@@ -15262,16 +15306,23 @@ function App() {
       const machine = ensureMachineStats(machineKey, machineKey || "Bez stroja");
       let lastRecoveryAt = null;
       let activeFailureAt = null;
+      let activeDowntimeEvent = null;
       ordered.forEach((event) => {
         const happenedMs = new Date(event.happened_at).getTime();
         if (!Number.isFinite(happenedMs)) {
           return;
         }
         if (["downtime_start", "pause", "stop", "ml"].includes(String(event.event_type || "").toLowerCase())) {
-          if (getMesEventDurationMs(event) > MES_MAX_DOWNTIME_DURATION_MS) {
+          const explicitDurationMs = getMesEventDurationMs(event);
+          if (explicitDurationMs > MES_MAX_DOWNTIME_DURATION_MS) {
             return;
           }
           machine.downtimeEvents += 1;
+          if (explicitDurationMs > 0) {
+            pushOperatorDowntimeSample(event, explicitDurationMs, happenedMs);
+          } else {
+            activeDowntimeEvent = event;
+          }
           if (activeFailureAt === null) {
             if (lastRecoveryAt !== null) {
               machine.mtbfSamples.push(Math.max(0, happenedMs - lastRecoveryAt));
@@ -15285,10 +15336,23 @@ function App() {
             machine.mttrSamples.push(Math.max(0, happenedMs - activeFailureAt));
             activeFailureAt = null;
           }
+          if (activeDowntimeEvent) {
+            const downtimeStartMs = new Date(activeDowntimeEvent.happened_at || activeDowntimeEvent.created_at || 0).getTime();
+            const downtimeDurationMs = Number.isFinite(downtimeStartMs) ? Math.max(0, happenedMs - downtimeStartMs) : 0;
+            pushOperatorDowntimeSample(activeDowntimeEvent, downtimeDurationMs, happenedMs);
+            activeDowntimeEvent = null;
+          }
           lastRecoveryAt = happenedMs;
         }
       });
     });
+    const operatorDowntimeStats = Array.from(operatorDowntimeStatsMap.values())
+      .map((row) => ({
+        ...row,
+        averageDowntimeMs: row.downtimeEvents > 0 ? row.totalDowntimeMs / row.downtimeEvents : 0
+      }))
+      .sort((a, b) => b.totalDowntimeMs - a.totalDowntimeMs || b.longestDowntimeMs - a.longestDowntimeMs || b.downtimeEvents - a.downtimeEvents)
+      .slice(0, 12);
 
     const topMachines = Array.from(machineStatsMap.values())
       .map((row) => {
@@ -15360,6 +15424,7 @@ function App() {
       avgMtbfMs,
       avgMttrMs,
       topMachines,
+      operatorDowntimeStats,
       downtimeReasons: Array.from(downtimeReasonStats.values()).sort((a, b) => b.count - a.count).slice(0, 6),
       trendDays
     };
@@ -26086,6 +26151,47 @@ function App() {
                                       <td>{reason.reason}</td>
                                       <td>{new Intl.NumberFormat("sk-SK").format(reason.count)}</td>
                                       <td>{formatDate(reason.latestAt)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </article>
+                        <article className="orders-panel-card workflow-card workflow-card-list">
+                          <div className="panel-head workflow-section-head">
+                            <div>
+                              <h2>Prestoje operátorov</h2>
+                              <p className="panel-meta">Celková, priemerná a najdlhšia dĺžka prestoja podľa operátora.</p>
+                            </div>
+                          </div>
+                          {mesAnalytics.operatorDowntimeStats.length === 0 ? (
+                            <p className="hint">Zatiaľ nie sú dostupné downtime štatistiky operátorov.</p>
+                          ) : (
+                            <div className="table-wrap">
+                              <table>
+                                <thead>
+                                  <tr>
+                                    <th>Operátor</th>
+                                    <th>Počet</th>
+                                    <th>Celkom</th>
+                                    <th>Priemer</th>
+                                    <th>Najdlhší</th>
+                                    <th>Naposledy</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {mesAnalytics.operatorDowntimeStats.map((row) => (
+                                    <tr key={row.key}>
+                                      <td>
+                                        <strong>{row.operatorName || "-"}</strong>
+                                        <div className="master-user-email">{row.operatorUserId || "-"}</div>
+                                      </td>
+                                      <td>{new Intl.NumberFormat("sk-SK").format(row.downtimeEvents)}</td>
+                                      <td>{formatDurationShort(row.totalDowntimeMs)}</td>
+                                      <td>{formatDurationShort(row.averageDowntimeMs)}</td>
+                                      <td>{formatDurationShort(row.longestDowntimeMs)}</td>
+                                      <td>{formatDate(row.latestAt)}</td>
                                     </tr>
                                   ))}
                                 </tbody>

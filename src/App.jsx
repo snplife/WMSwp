@@ -11008,6 +11008,7 @@ function App() {
       const downtimeReasonById = Object.fromEntries((downtimeReasonsData || []).map((row) => [String(row.id || ""), row]));
       const compactEventRows = (eventData || []).map((row) => {
         const run = jobRunsById[String(row.job_run_id || "")] || null;
+        const payload = row.payload && typeof row.payload === "object" ? row.payload : {};
         return {
           id: row.id,
           company_id: String(row.company_id || ""),
@@ -11016,12 +11017,12 @@ function App() {
           machine_id: String(run?.machine_id || ""),
           job_run_id: String(row.job_run_id || ""),
           operator_user_id: String(run?.operator_user_id || row.operator_id || ""),
-          operator_name: String(run?.operator_name || row.payload?.operator_name || row.payload?.operator_name_text || row.operator_id || ""),
+          operator_name: String(run?.operator_name || payload.operator_name || payload.operator_name_text || row.operator_id || ""),
           event_type: String(row.event_code || row.event_type || "").toLowerCase(),
-          quantity: Number(row.payload?.quantity || 0),
-          note: String(row.downtime_reason_name || row.payload?.details || row.payload?.title || ""),
+          quantity: Number(payload.quantity || payload.qty || payload.count || 0),
+          note: String(row.downtime_reason_name || payload.details || payload.title || payload.reason || ""),
           source: "event_log",
-          payload: row.payload && typeof row.payload === "object" ? row.payload : {},
+          payload,
           happened_at: row.time_to || row.time_from || row.created_at || null,
           created_at: row.created_at || null,
           duration_seconds: Number(row.duration_seconds || 0),
@@ -11066,6 +11067,11 @@ function App() {
           downtime_reason_name: String(reason?.name || row.note || "")
         };
       });
+      const isCountEventType = (value) => ["good_count", "scrap_count"].includes(String(value || "").toLowerCase());
+      const hasPositiveQuantity = (value) => {
+        const numeric = Number(value || 0);
+        return Number.isFinite(numeric) && numeric > 0;
+      };
       const eventRowsByKey = new Map();
       compactEventRows.forEach((row) => {
         const key = String(row.terminal_event_id || row.id || "");
@@ -11079,9 +11085,42 @@ function App() {
           return;
         }
         const existing = eventRowsByKey.get(key);
-        if (!existing || (existing.event_code !== "ml" && row.event_code === "ml")) {
+        if (!existing) {
           eventRowsByKey.set(key, row);
+          return;
         }
+        const normalizedType = String(existing.event_type || row.event_type || "").toLowerCase();
+        const preferDetailedRow =
+          (existing.event_code !== "ml" && row.event_code === "ml") ||
+          (isCountEventType(normalizedType) && !hasPositiveQuantity(existing.quantity) && hasPositiveQuantity(row.quantity));
+        if (preferDetailedRow) {
+          eventRowsByKey.set(key, {
+            ...existing,
+            ...row,
+            source: String(existing.source || row.source || "event_log")
+          });
+          return;
+        }
+        eventRowsByKey.set(key, {
+          ...row,
+          ...existing,
+          machine_id: String(existing.machine_id || row.machine_id || ""),
+          operator_user_id: String(existing.operator_user_id || row.operator_user_id || ""),
+          operator_name: String(existing.operator_name || row.operator_name || ""),
+          quantity: hasPositiveQuantity(existing.quantity) ? Number(existing.quantity || 0) : Number(row.quantity || 0),
+          note: String(existing.note || row.note || ""),
+          downtime_reason_code: String(existing.downtime_reason_code || row.downtime_reason_code || ""),
+          downtime_reason_name: String(existing.downtime_reason_name || row.downtime_reason_name || ""),
+          payload:
+            existing.payload && Object.keys(existing.payload).length > 0
+              ? existing.payload
+              : row.payload && typeof row.payload === "object"
+                ? row.payload
+                : {},
+          happened_at: existing.happened_at || row.happened_at || null,
+          created_at: existing.created_at || row.created_at || null,
+          source: String(existing.source || row.source || "event_log")
+        });
       });
       let eventRows = Array.from(eventRowsByKey.values()).sort((left, right) => {
         const leftTime = Date.parse(left.happened_at || left.created_at || "") || 0;
@@ -15050,6 +15089,10 @@ function App() {
         const jobStatus = String(row.job_status || "").toLowerCase();
         const machineState = String(row.machine_state || "").toLowerCase();
         const terminalLastSeenMs = Date.parse(row.terminal_last_seen_at || "");
+        const machineKey = String(row.machine_id || row.workstation_id || "").trim();
+        if (machineKey) {
+          acc.machineKeys.add(machineKey);
+        }
         if (row.machine_id) {
           acc.machineIds.add(row.machine_id);
         }
@@ -15076,6 +15119,7 @@ function App() {
       },
       {
         machineIds: new Set(),
+        machineKeys: new Set(),
         runningCount: 0,
         downtimeCount: 0,
         onlineTerminals: 0,
@@ -15098,12 +15142,48 @@ function App() {
     const totalGood = eventGood > 0 || eventScrap > 0 ? eventGood : summary.totalGood;
     const totalScrap = eventGood > 0 || eventScrap > 0 ? eventScrap : summary.totalScrap;
     const totalProduced = totalGood + totalScrap;
-    const machineCount = summary.machineIds.size;
-    const availabilityPct = machineCount > 0 ? (summary.runningCount / machineCount) * 100 : 0;
+    const latestEventByMachineKey = new Map();
+    mesRecentEventRows.forEach((row) => {
+      const key = String(row.machine_id || row.workstation_id || "").trim();
+      if (!key) {
+        return;
+      }
+      const happenedMs = new Date(row.happened_at || row.created_at || 0).getTime();
+      if (!Number.isFinite(happenedMs)) {
+        return;
+      }
+      const existing = latestEventByMachineKey.get(key);
+      const existingMs = existing ? new Date(existing.happened_at || existing.created_at || 0).getTime() : -Infinity;
+      if (!existing || happenedMs >= existingMs) {
+        latestEventByMachineKey.set(key, row);
+      }
+    });
+    let eventRunningCount = 0;
+    let eventDowntimeCount = 0;
+    let eventTrackedMachineCount = 0;
+    summary.machineKeys.forEach((key) => {
+      const event = latestEventByMachineKey.get(key);
+      if (!event) {
+        return;
+      }
+      eventTrackedMachineCount += 1;
+      const eventState = getMesStateTransitionFromEvent(event.event_type);
+      if (eventState === "running") {
+        eventRunningCount += 1;
+      } else if (eventState === "stopped") {
+        eventDowntimeCount += 1;
+      }
+    });
+    const resolvedRunningCount = eventTrackedMachineCount > 0 ? eventRunningCount : summary.runningCount;
+    const resolvedDowntimeCount = eventTrackedMachineCount > 0 ? eventDowntimeCount : summary.downtimeCount;
+    const machineCount = summary.machineIds.size || summary.machineKeys.size;
+    const availabilityPct = machineCount > 0 ? (resolvedRunningCount / machineCount) * 100 : 0;
     const qualityPct = totalProduced > 0 ? (totalGood / totalProduced) * 100 : 0;
     const performancePct = summary.totalPlanned > 0 ? (totalGood / summary.totalPlanned) * 100 : 0;
     return {
       ...summary,
+      runningCount: resolvedRunningCount,
+      downtimeCount: resolvedDowntimeCount,
       totalGood,
       totalScrap,
       machineCount,

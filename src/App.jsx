@@ -6214,16 +6214,6 @@ function App() {
       !activeCompany?.lead_contacted_at,
     [isMaster, isCompanyAdminOnboardingActive, isActiveCompanyBasicFree, activeCompanyBillingStatus, activeCompany?.lead_contacted_at]
   );
-  useEffect(() => {
-    if (!canAccessMesModule || !isProductionModule(selectedTable)) {
-      return undefined;
-    }
-    const intervalId = window.setInterval(() => {
-      setMesNowTs(Date.now());
-    }, 1000);
-    return () => window.clearInterval(intervalId);
-  }, [canAccessMesModule, selectedTable]);
-
   const activateCompanyAdminOnboarding = (targetCompanyId, overrides = {}) => {
     const normalizedCompanyId = String(targetCompanyId || "").trim();
     if (!normalizedCompanyId) {
@@ -6294,6 +6284,15 @@ function App() {
   }, [isLoggedIn, activeCompanyId, isMaster, canManageOrders]);
   const canAccessMesModule =
     isMaster || (canAccessMes && Boolean(activeCompanyId || userCompanyId || activeCompany?.id));
+  useEffect(() => {
+    if (!canAccessMesModule || !isProductionModule(selectedTable)) {
+      return undefined;
+    }
+    const intervalId = window.setInterval(() => {
+      setMesNowTs(Date.now());
+    }, 1000);
+    return () => window.clearInterval(intervalId);
+  }, [canAccessMesModule, selectedTable]);
   const visibleTableNames = useMemo(() => {
     if (isMaster) {
       return Array.from(

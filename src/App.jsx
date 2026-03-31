@@ -16745,6 +16745,19 @@ function App() {
     const analysisEndAt = new Date(shiftWindow.rangeEndMs).toISOString();
     const analysisStartMs = shiftWindow.shiftStartMs;
     const analysisEndMs = shiftWindow.rangeEndMs;
+    const shiftDowntimeMsFromDurationColumn = (mesRecentEventRows || [])
+      .filter((row) => {
+        const eventType = String(row.event_type || "").toLowerCase();
+        if (!["ml", "stop", "pause", "downtime_start"].includes(eventType)) {
+          return false;
+        }
+        const happenedMs = new Date(row.happened_at || row.created_at || 0).getTime();
+        return Number.isFinite(happenedMs) && happenedMs >= analysisStartMs && happenedMs <= analysisEndMs;
+      })
+      .reduce((sum, row) => {
+        const seconds = Number(row.duration_seconds || 0);
+        return sum + (Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 0);
+      }, 0);
     const machineTargetsByWorkstationId = Object.fromEntries(
       Object.values(mesWorkstationsById).map((row) => [
         row.id,
@@ -16840,7 +16853,8 @@ function App() {
       }
     });
 
-    const plannedProductionMs = runTimeMs + downtimeMs;
+    const resolvedShiftDowntimeMs = shiftDowntimeMsFromDurationColumn > 0 ? shiftDowntimeMsFromDurationColumn : downtimeMs;
+    const plannedProductionMs = runTimeMs + resolvedShiftDowntimeMs;
     const availabilityPct =
       plannedProductionMs > 0
         ? clampPercent(safeRatioPercent(runTimeMs, plannedProductionMs))
@@ -16860,14 +16874,14 @@ function App() {
       shiftStartAt: shiftWindow.shiftStartAt,
       shiftEndAt: shiftWindow.shiftEndAt,
       shiftElapsedMs: Math.max(0, analysisEndMs - analysisStartMs),
-      shiftDowntimeMs: downtimeMs,
-      shiftDowntimeMinutes: downtimeMs / (60 * 1000),
+      shiftDowntimeMs: resolvedShiftDowntimeMs,
+      shiftDowntimeMinutes: resolvedShiftDowntimeMs / (60 * 1000),
       availabilityPct,
       performancePct,
       qualityPct,
       oeePct: clampPercent((availabilityPct * performancePct * qualityPct) / 10000)
     };
-  }, [mesEventsByMachineId, mesWorkstationsById, machineDashboardRows, mesNowTs]);
+  }, [mesEventsByMachineId, mesWorkstationsById, machineDashboardRows, mesNowTs, mesRecentEventRows]);
   const mesGlobalKpis = useMemo(() => {
     const counts = machineDashboardRows.reduce(
       (acc, row) => {

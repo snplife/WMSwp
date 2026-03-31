@@ -15731,6 +15731,9 @@ function App() {
   const machineDashboardRows = useMemo(() => {
     const rows = [];
     const seen = new Set();
+    const cycleWindow = getMesShiftWindow(mesNowTs);
+    const cycleStartMs = cycleWindow.shiftStartMs;
+    const cycleEndMs = Math.max(cycleStartMs, Math.min(mesNowTs, cycleWindow.shiftEndMs));
     const buildRow = (machine, workstationFallback = null) => {
       const machineKey = String(machine?.id || "").trim();
       const workstation =
@@ -15784,20 +15787,29 @@ function App() {
       const terminal = mesTerminalsById[resolvedTerminalId] || preferredWorkstationTerminal || null;
       const resolvedAutomationMode = resolveMesAutomationMode(machine?.automation_mode, terminal?.app_mode);
       const isSemiAutomaticMachine = resolvedAutomationMode === "semi_automatic";
-      const mlCycleSamples = collectMesEventDurations(events, ["ml"], {
+      const eventsForCycles = events.filter((row) => {
+        const happenedMs = new Date(row.happened_at || row.created_at || 0).getTime();
+        return Number.isFinite(happenedMs) && happenedMs >= cycleStartMs && happenedMs <= cycleEndMs;
+      });
+      const runsForCycles = runs.filter((row) => {
+        const startedMs = new Date(row.started_at || row.created_at || 0).getTime();
+        const endedMs = new Date(row.ended_at || row.updated_at || Date.now()).getTime();
+        return Number.isFinite(startedMs) && Number.isFinite(endedMs) && endedMs >= cycleStartMs && startedMs <= cycleEndMs;
+      });
+      const mlCycleSamples = collectMesEventDurations(eventsForCycles, ["ml"], {
         maxDurationMs: MES_MAX_DOWNTIME_DURATION_MS
       })
         .map((row) => row.durationMs / 1000)
         .filter((value) => Number.isFinite(value) && value > 0);
-      const runCycleSamples = collectMesEventDurations(events, ["start", "resume"])
+      const runCycleSamples = collectMesEventDurations(eventsForCycles, ["start", "resume"])
         .map((row) => row.durationMs / 1000)
         .filter((value) => Number.isFinite(value) && value > 0);
-      const automaticPieceCycleSamples = collectMesEventDeltaDurations(events, ["good_count", "scrap_count"], {
+      const automaticPieceCycleSamples = collectMesEventDeltaDurations(eventsForCycles, ["good_count", "scrap_count"], {
         maxGapMs: 30 * 60 * 1000
       })
         .map((row) => row.durationMs / 1000)
         .filter((value) => Number.isFinite(value) && value > 0);
-      const runtimeSamples = runs
+      const runtimeSamples = runsForCycles
         .map((row) => {
           const startedMs = new Date(row.started_at || row.created_at || 0).getTime();
           const endedMs = new Date(row.ended_at || row.updated_at || Date.now()).getTime();
@@ -15807,12 +15819,21 @@ function App() {
           if (!Number.isFinite(startedMs) || !Number.isFinite(endedMs) || endedMs <= startedMs || totalProduced <= 0) {
             return null;
           }
-          return (endedMs - startedMs) / 1000 / totalProduced;
+          const clippedStartMs = Math.max(startedMs, cycleStartMs);
+          const clippedEndMs = Math.min(endedMs, cycleEndMs);
+          if (clippedEndMs <= clippedStartMs) {
+            return null;
+          }
+          return (clippedEndMs - clippedStartMs) / 1000 / totalProduced;
         })
         .filter((value) => Number.isFinite(value) && value > 0);
-      const actualCycleSeconds = isSemiAutomaticMachine
+      const actualCycleSecondsRaw = isSemiAutomaticMachine
         ? averageMesNumber(runCycleSamples) ?? averageMesNumber(mlCycleSamples) ?? averageMesNumber(runtimeSamples)
         : averageMesNumber(automaticPieceCycleSamples) ?? averageMesNumber(runCycleSamples) ?? averageMesNumber(runtimeSamples);
+      const actualCycleSeconds =
+        Number.isFinite(actualCycleSecondsRaw) && Number(actualCycleSecondsRaw) > 0 && Number(actualCycleSecondsRaw) <= 7200
+          ? Number(actualCycleSecondsRaw)
+          : null;
       const targetCycleSeconds =
         Number(workstation?.target_cycle_seconds || 0) > 0
           ? Number(workstation.target_cycle_seconds)
@@ -15922,7 +15943,7 @@ function App() {
         String(a.area || "").localeCompare(String(b.area || ""), "sk-SK", { sensitivity: "base" }) ||
         String(a.machineName || "").localeCompare(String(b.machineName || ""), "sk-SK", { sensitivity: "base" })
     );
-  }, [mesMachines, mesOverviewRows, mesRunsByMachineId, mesEventsByMachineId, mesEventSummaryByMachineId, mesEventSummaryByJobRunId, mesWorkstationsById, mesOverviewByMachineId, mesOverviewByWorkstationId, mesWorkstations, mesJobRunsById, mesTerminalsById, mesPreferredTerminalByWorkstationId]);
+  }, [mesMachines, mesOverviewRows, mesRunsByMachineId, mesEventsByMachineId, mesEventSummaryByMachineId, mesEventSummaryByJobRunId, mesWorkstationsById, mesOverviewByMachineId, mesOverviewByWorkstationId, mesWorkstations, mesJobRunsById, mesTerminalsById, mesPreferredTerminalByWorkstationId, mesNowTs]);
   const mesMachineOptions = useMemo(
     () =>
       machineDashboardRows.map((row) => ({

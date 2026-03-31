@@ -4595,6 +4595,47 @@ function getMesShiftWindow(nowValue = Date.now()) {
   };
 }
 
+function getMesOeeRangeWindow(rangeKey, nowValue = Date.now()) {
+  const now = new Date(nowValue);
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (rangeKey === "yesterday") {
+    const start = new Date(startOfToday.getTime() - 24 * 60 * 60 * 1000);
+    const end = startOfToday;
+    return {
+      label: "Včera",
+      startAt: start.toISOString(),
+      endAt: end.toISOString(),
+      startMs: start.getTime(),
+      endMs: end.getTime(),
+      rangeEndMs: end.getTime(),
+      isActive: false
+    };
+  }
+  if (rangeKey === "last_5_days") {
+    const start = new Date(startOfToday.getTime() - 4 * 24 * 60 * 60 * 1000);
+    const end = now;
+    return {
+      label: "Posledných 5 dní",
+      startAt: start.toISOString(),
+      endAt: end.toISOString(),
+      startMs: start.getTime(),
+      endMs: end.getTime(),
+      rangeEndMs: end.getTime(),
+      isActive: true
+    };
+  }
+  const shiftWindow = getMesShiftWindow(nowValue);
+  return {
+    label: `Zmena ${shiftWindow.shiftLabel}`,
+    startAt: shiftWindow.shiftStartAt,
+    endAt: shiftWindow.shiftEndAt,
+    startMs: shiftWindow.shiftStartMs,
+    endMs: shiftWindow.shiftEndMs,
+    rangeEndMs: shiftWindow.rangeEndMs,
+    isActive: shiftWindow.isActive
+  };
+}
+
 const MES_MAX_DOWNTIME_DURATION_MS = 5 * 60 * 60 * 1000;
 
 function summarizeMesStateWindow(events, startAt, endAt, fallbackState = "running", options = {}) {
@@ -6139,6 +6180,7 @@ function App() {
   const [mesLoading, setMesLoading] = useState(false);
   const [mesError, setMesError] = useState("");
   const [mesNowTs, setMesNowTs] = useState(() => Date.now());
+  const [mesOeeRangeKey, setMesOeeRangeKey] = useState("current_shift");
   const latestLoadRowsRequestRef = useRef(0);
   const latestMesOverviewRequestRef = useRef(0);
   const lastDataRefreshAtRef = useRef({});
@@ -16739,11 +16781,11 @@ function App() {
     return timeline.sort((a, b) => new Date(b.startAt || 0).getTime() - new Date(a.startAt || 0).getTime());
   }, [mesEventsByMachineId, mesDowntimeReasonNameById, machineDashboardRows]);
   const mesOeeSummary = useMemo(() => {
-    const shiftWindow = getMesShiftWindow(mesNowTs);
-    const analysisStartAt = shiftWindow.shiftStartAt;
-    const analysisEndAt = new Date(shiftWindow.rangeEndMs).toISOString();
-    const analysisStartMs = shiftWindow.shiftStartMs;
-    const analysisEndMs = shiftWindow.rangeEndMs;
+    const oeeWindow = getMesOeeRangeWindow(mesOeeRangeKey, mesNowTs);
+    const analysisStartAt = oeeWindow.startAt;
+    const analysisEndAt = new Date(oeeWindow.rangeEndMs).toISOString();
+    const analysisStartMs = oeeWindow.startMs;
+    const analysisEndMs = oeeWindow.rangeEndMs;
     const shiftDowntimeMsFromDurationColumn = (mesRecentEventRows || [])
       .filter((row) => {
         const eventType = String(row.event_type || "").toLowerCase();
@@ -16857,7 +16899,7 @@ function App() {
     const availabilityPct =
       plannedProductionMs > 0
         ? clampPercent(safeRatioPercent(runTimeMs, plannedProductionMs))
-        : shiftWindow.isActive && machineDashboardRows.some((row) => row.statusMeta?.tone === "running")
+        : oeeWindow.isActive && machineDashboardRows.some((row) => row.statusMeta?.tone === "running")
           ? 100
           : 0;
     const performancePct =
@@ -16869,9 +16911,10 @@ function App() {
         ? clampPercent(safeRatioPercent(totalGood, totalCount))
         : 0;
     return {
-      shiftLabel: shiftWindow.shiftLabel,
-      shiftStartAt: shiftWindow.shiftStartAt,
-      shiftEndAt: shiftWindow.shiftEndAt,
+      rangeLabel: oeeWindow.label,
+      shiftLabel: oeeWindow.label,
+      shiftStartAt: oeeWindow.startAt,
+      shiftEndAt: oeeWindow.endAt,
       shiftElapsedMs: Math.max(0, analysisEndMs - analysisStartMs),
       shiftDowntimeMs: resolvedShiftDowntimeMs,
       shiftDowntimeMinutes: resolvedShiftDowntimeMs / (60 * 1000),
@@ -16880,7 +16923,7 @@ function App() {
       qualityPct,
       oeePct: clampPercent((availabilityPct * performancePct * qualityPct) / 10000)
     };
-  }, [mesEventsByMachineId, mesWorkstationsById, machineDashboardRows, mesNowTs, mesRecentEventRows]);
+  }, [mesEventsByMachineId, mesWorkstationsById, machineDashboardRows, mesNowTs, mesRecentEventRows, mesOeeRangeKey]);
   const mesGlobalKpis = useMemo(() => {
     const counts = machineDashboardRows.reduce(
       (acc, row) => {
@@ -19581,7 +19624,30 @@ function App() {
                 <div className="panel-head workflow-section-head">
                   <div>
                     <h2>OEE prehľad</h2>
-                    <p className="panel-meta">{`Dostupnosť, výkon a kvalita pre zmenu ${mesOeeSummary.shiftLabel} (live prepočet každú sekundu).`}</p>
+                    <p className="panel-meta">{`Dostupnosť, výkon a kvalita pre obdobie: ${mesOeeSummary.rangeLabel}.`}</p>
+                  </div>
+                  <div className="stock-view-switch">
+                    <button
+                      type="button"
+                      className={`clear-btn ${mesOeeRangeKey === "current_shift" ? "stock-view-btn-active" : ""}`}
+                      onClick={() => setMesOeeRangeKey("current_shift")}
+                    >
+                      Aktuálna zmena
+                    </button>
+                    <button
+                      type="button"
+                      className={`clear-btn ${mesOeeRangeKey === "yesterday" ? "stock-view-btn-active" : ""}`}
+                      onClick={() => setMesOeeRangeKey("yesterday")}
+                    >
+                      Včera
+                    </button>
+                    <button
+                      type="button"
+                      className={`clear-btn ${mesOeeRangeKey === "last_5_days" ? "stock-view-btn-active" : ""}`}
+                      onClick={() => setMesOeeRangeKey("last_5_days")}
+                    >
+                      Posledných 5 dní
+                    </button>
                   </div>
                 </div>
                 <div className="mes-oee-grid">
@@ -19606,7 +19672,7 @@ function App() {
                     <div className="mes-progress-track"><div className="mes-progress-fill" style={{ width: `${clampPercent(mesOeeSummary.oeePct)}%` }} /></div>
                   </article>
                   <article className="mes-oee-card">
-                    <span>Odstavenie za zmenu (min)</span>
+                    <span>Odstavenie (min)</span>
                     <strong>{new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(Math.max(0, Number(mesOeeSummary.shiftDowntimeMinutes || 0)))}</strong>
                     <div className="mes-progress-track"><div className="mes-progress-fill" style={{ width: `${clampPercent(safeRatioPercent(mesOeeSummary.shiftDowntimeMs || 0, mesOeeSummary.shiftElapsedMs || 1))}%` }} /></div>
                   </article>

@@ -16786,7 +16786,7 @@ function App() {
     const analysisEndAt = new Date(oeeWindow.rangeEndMs).toISOString();
     const analysisStartMs = oeeWindow.startMs;
     const analysisEndMs = oeeWindow.rangeEndMs;
-    const shiftDowntimeMsFromDurationColumn = (mesRecentEventRows || [])
+    const downtimeMsFromRangeEvents = (mesRecentEventRows || [])
       .filter((row) => {
         const eventType = String(row.event_type || "").toLowerCase();
         if (!["ml", "stop", "pause", "downtime_start"].includes(eventType)) {
@@ -16796,8 +16796,8 @@ function App() {
         return Number.isFinite(happenedMs) && happenedMs >= analysisStartMs && happenedMs <= analysisEndMs;
       })
       .reduce((sum, row) => {
-        const seconds = Number(row.duration_seconds || 0);
-        return sum + (Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 0);
+        const durationMs = getMesEventDurationMs(row);
+        return sum + (Number.isFinite(durationMs) && durationMs > 0 && durationMs <= MES_MAX_DOWNTIME_DURATION_MS ? durationMs : 0);
       }, 0);
     const machineTargetsByWorkstationId = Object.fromEntries(
       Object.values(mesWorkstationsById).map((row) => [
@@ -16894,7 +16894,7 @@ function App() {
       }
     });
 
-    const resolvedShiftDowntimeMs = shiftDowntimeMsFromDurationColumn > 0 ? shiftDowntimeMsFromDurationColumn : downtimeMs;
+    const resolvedShiftDowntimeMs = Math.max(downtimeMsFromRangeEvents, downtimeMs);
     const plannedProductionMs = runTimeMs + resolvedShiftDowntimeMs;
     const availabilityPct =
       plannedProductionMs > 0

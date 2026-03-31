@@ -16334,25 +16334,32 @@ function App() {
     if (!selectedMesMachineOverview) {
       return null;
     }
-    const analysisStartAt = String(
-      currentMesMachineRun?.started_at ||
-        currentMesMachineRun?.created_at ||
-        selectedMesMachineScopedEvents.find((row) => String(row.happened_at || row.created_at || "").trim())?.happened_at ||
-        selectedMesMachineScopedEvents.find((row) => String(row.happened_at || row.created_at || "").trim())?.created_at ||
-        ""
-    ).trim();
+    const shiftFallbackStartAt = getMesShiftWindow(mesNowTs).shiftStartAt;
+    const candidateRunStartAt = String(currentMesMachineRun?.started_at || currentMesMachineRun?.created_at || "").trim();
+    const shiftStartMs = new Date(shiftFallbackStartAt).getTime();
+    const candidateRunStartMs = new Date(candidateRunStartAt || 0).getTime();
+    const analysisStartAt =
+      Number.isFinite(candidateRunStartMs) && candidateRunStartMs > shiftStartMs
+        ? candidateRunStartAt
+        : shiftFallbackStartAt;
     if (!analysisStartAt) {
       return null;
     }
     const analysisEndAt = String(currentMesMachineRun?.ended_at || new Date().toISOString()).trim();
+    const analysisStartMs = new Date(analysisStartAt).getTime();
+    const analysisEndMs = new Date(analysisEndAt).getTime();
+    const scopedEventsInWindow = selectedMesMachineScopedEvents.filter((row) => {
+      const happenedMs = new Date(row.happened_at || row.created_at || 0).getTime();
+      return Number.isFinite(happenedMs) && happenedMs >= analysisStartMs && happenedMs <= analysisEndMs;
+    });
     const fallbackState = ["paused", "stop", "stopped", "alarm"].includes(String(selectedMesMachineOverview?.machineStatus || currentMesMachineRun?.status || "").toLowerCase())
       ? "stopped"
       : "running";
     const stateWindow = summarizeMesStateWindow(selectedMesMachineScopedEvents, analysisStartAt, analysisEndAt, fallbackState);
-    const producedFromCountEvents = selectedMesMachineScopedEvents
+    const producedFromCountEvents = scopedEventsInWindow
       .filter((row) => ["good_count", "scrap_count"].includes(String(row.event_type || "").toLowerCase()))
       .length;
-    const producedFromMlEvents = selectedMesMachineScopedEvents
+    const producedFromMlEvents = scopedEventsInWindow
       .filter((row) => String(row.event_type || "").toLowerCase() === "ml")
       .length;
     const producedFromEvents = producedFromCountEvents > 0 ? producedFromCountEvents : producedFromMlEvents;
@@ -16424,7 +16431,7 @@ function App() {
       machineCycleSeconds,
       machineCycleCount: runDurationSamples.length || pairedMachineCycles.length || automaticPieceCycleSamples.length
     };
-  }, [selectedMesMachineOverview, currentMesMachineRun, selectedMesMachineScopedEvents]);
+  }, [selectedMesMachineOverview, currentMesMachineRun, selectedMesMachineScopedEvents, mesNowTs]);
   const selectedMesMachineOperatorMetrics = useMemo(() => {
     if (!selectedMesMachineOverview) {
       return null;

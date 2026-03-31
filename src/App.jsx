@@ -4549,6 +4549,52 @@ function getMesStateTransitionFromEvent(eventType) {
   return "";
 }
 
+function getMesShiftWindow(nowValue = Date.now()) {
+  const now = new Date(nowValue);
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const day = now.getDate();
+  const hour = now.getHours();
+  const buildPoint = (dayOffset, hours) => new Date(year, month, day + dayOffset, hours, 0, 0, 0);
+
+  let shiftStart = null;
+  let shiftEnd = null;
+  let shiftLabel = "";
+
+  if (hour >= 6 && hour < 14) {
+    shiftStart = buildPoint(0, 6);
+    shiftEnd = buildPoint(0, 14);
+    shiftLabel = "06:00 - 14:00";
+  } else if (hour >= 14 && hour < 22) {
+    shiftStart = buildPoint(0, 14);
+    shiftEnd = buildPoint(0, 22);
+    shiftLabel = "14:00 - 22:00";
+  } else if (hour >= 22) {
+    shiftStart = buildPoint(0, 14);
+    shiftEnd = buildPoint(0, 22);
+    shiftLabel = "14:00 - 22:00";
+  } else {
+    shiftStart = buildPoint(-1, 14);
+    shiftEnd = buildPoint(-1, 22);
+    shiftLabel = "14:00 - 22:00";
+  }
+
+  const nowMs = now.getTime();
+  const shiftStartMs = shiftStart.getTime();
+  const shiftEndMs = shiftEnd.getTime();
+  const rangeEndMs = Math.max(shiftStartMs, Math.min(nowMs, shiftEndMs));
+  return {
+    shiftLabel,
+    shiftStartAt: shiftStart.toISOString(),
+    shiftEndAt: shiftEnd.toISOString(),
+    shiftStartMs,
+    shiftEndMs,
+    nowMs,
+    rangeEndMs,
+    isActive: nowMs >= shiftStartMs && nowMs < shiftEndMs
+  };
+}
+
 const MES_MAX_DOWNTIME_DURATION_MS = 5 * 60 * 60 * 1000;
 
 function summarizeMesStateWindow(events, startAt, endAt, fallbackState = "running", options = {}) {
@@ -6092,6 +6138,7 @@ function App() {
   const [mesSupportsDeviceUid, setMesSupportsDeviceUid] = useState(false);
   const [mesLoading, setMesLoading] = useState(false);
   const [mesError, setMesError] = useState("");
+  const [mesNowTs, setMesNowTs] = useState(() => Date.now());
   const latestLoadRowsRequestRef = useRef(0);
   const latestMesOverviewRequestRef = useRef(0);
   const lastDataRefreshAtRef = useRef({});
@@ -6167,6 +6214,16 @@ function App() {
       !activeCompany?.lead_contacted_at,
     [isMaster, isCompanyAdminOnboardingActive, isActiveCompanyBasicFree, activeCompanyBillingStatus, activeCompany?.lead_contacted_at]
   );
+  useEffect(() => {
+    if (!canAccessMesModule || !isProductionModule(selectedTable)) {
+      return undefined;
+    }
+    const intervalId = window.setInterval(() => {
+      setMesNowTs(Date.now());
+    }, 1000);
+    return () => window.clearInterval(intervalId);
+  }, [canAccessMesModule, selectedTable]);
+
   const activateCompanyAdminOnboarding = (targetCompanyId, overrides = {}) => {
     const normalizedCompanyId = String(targetCompanyId || "").trim();
     if (!normalizedCompanyId) {
@@ -16683,6 +16740,11 @@ function App() {
     return timeline.sort((a, b) => new Date(b.startAt || 0).getTime() - new Date(a.startAt || 0).getTime());
   }, [mesEventsByMachineId, mesDowntimeReasonNameById, machineDashboardRows]);
   const mesOeeSummary = useMemo(() => {
+    const shiftWindow = getMesShiftWindow(mesNowTs);
+    const analysisStartAt = shiftWindow.shiftStartAt;
+    const analysisEndAt = new Date(shiftWindow.rangeEndMs).toISOString();
+    const analysisStartMs = shiftWindow.shiftStartMs;
+    const analysisEndMs = shiftWindow.rangeEndMs;
     const machineTargetsByWorkstationId = Object.fromEntries(
       Object.values(mesWorkstationsById).map((row) => [
         row.id,
@@ -16740,40 +16802,23 @@ function App() {
             .map((row) => [buildMesEventIdentity(row), row])
         ).values()
       ).sort((a, b) => new Date(a.happened_at || a.created_at || 0).getTime() - new Date(b.happened_at || b.created_at || 0).getTime());
-
-      const eventRunMs = collectMesEventDurations(machineEvents, ["start", "resume"]).reduce((sum, row) => sum + row.durationMs, 0);
-      const eventStopMs = collectMesEventDurations(machineEvents, ["ml", "stop", "pause", "downtime_start"], {
-        maxDurationMs: MES_MAX_DOWNTIME_DURATION_MS
-      }).reduce((sum, row) => sum + row.durationMs, 0);
-
-      let resolvedRunMs = eventRunMs;
-      let resolvedStopMs = eventStopMs;
-
-      if (resolvedRunMs === 0 && resolvedStopMs === 0 && machineEvents.length > 0) {
-        const firstEventAt = machineEvents[0]?.time_from || machineEvents[0]?.happened_at || machineEvents[0]?.created_at || "";
-        const lastEventAt =
-          machineEvents[machineEvents.length - 1]?.time_to ||
-          machineEvents[machineEvents.length - 1]?.happened_at ||
-          machineEvents[machineEvents.length - 1]?.created_at ||
-          "";
-        if (firstEventAt && lastEventAt) {
-          const fallbackState = ["paused", "stop", "stopped", "alarm"].includes(String(machineRow?.machineStatus || "").toLowerCase())
-            ? "stopped"
-            : "running";
-          const stateWindow = summarizeMesStateWindow(machineEvents, firstEventAt, lastEventAt, fallbackState);
-          resolvedRunMs = Number(stateWindow.runMs || 0);
-          resolvedStopMs = Number(stateWindow.stopMs || 0);
-        }
-      }
-
-      const producedSummary =
-        scopeKeys
-          .map((key) => mesEventSummaryByMachineId[key] || null)
-          .find(Boolean) || null;
-      const produced = Number(producedSummary?.totalProduced || machineRow?.producedParts || 0);
-      const explicitGoodProduced = Number(producedSummary?.good || machineRow?.goodParts || 0);
-      const scrapProduced = Number(producedSummary?.scrap || machineRow?.scrapParts || 0);
-      const goodProduced = explicitGoodProduced > 0 || scrapProduced > 0 ? explicitGoodProduced : produced;
+      const fallbackState = ["paused", "stop", "stopped", "alarm"].includes(String(machineRow?.machineStatus || "").toLowerCase())
+        ? "stopped"
+        : "running";
+      const stateWindow = summarizeMesStateWindow(machineEvents, analysisStartAt, analysisEndAt, fallbackState, {
+        maxStopSegmentMs: MES_MAX_DOWNTIME_DURATION_MS
+      });
+      let resolvedRunMs = Number(stateWindow.runMs || 0);
+      let resolvedStopMs = Number(stateWindow.stopMs || 0);
+      const machineEventsInShift = machineEvents.filter((row) => {
+        const happenedMs = new Date(row.happened_at || row.created_at || 0).getTime();
+        return Number.isFinite(happenedMs) && happenedMs >= analysisStartMs && happenedMs <= analysisEndMs;
+      });
+      const explicitGoodProduced = machineEventsInShift.filter((row) => String(row.event_type || "").toLowerCase() === "good_count").length;
+      const scrapProduced = machineEventsInShift.filter((row) => String(row.event_type || "").toLowerCase() === "scrap_count").length;
+      const mlProduced = machineEventsInShift.filter((row) => String(row.event_type || "").toLowerCase() === "ml").length;
+      const produced = explicitGoodProduced + scrapProduced > 0 ? explicitGoodProduced + scrapProduced : mlProduced;
+      const goodProduced = explicitGoodProduced + scrapProduced > 0 ? explicitGoodProduced : produced;
 
       if (resolvedRunMs === 0 && produced > 0 && Number(machineRow?.actualCycleSeconds || 0) > 0) {
         resolvedRunMs = produced * Number(machineRow.actualCycleSeconds) * 1000;
@@ -16799,7 +16844,7 @@ function App() {
     const availabilityPct =
       plannedProductionMs > 0
         ? clampPercent(safeRatioPercent(runTimeMs, plannedProductionMs))
-        : machineDashboardRows.some((row) => row.statusMeta?.tone === "running")
+        : shiftWindow.isActive && machineDashboardRows.some((row) => row.statusMeta?.tone === "running")
           ? 100
           : 0;
     const performancePct =
@@ -16809,16 +16854,20 @@ function App() {
     const qualityPct =
       totalCount > 0
         ? clampPercent(safeRatioPercent(totalGood, totalCount))
-        : plannedProductionMs > 0
-          ? 100
-          : 0;
+        : 0;
     return {
+      shiftLabel: shiftWindow.shiftLabel,
+      shiftStartAt: shiftWindow.shiftStartAt,
+      shiftEndAt: shiftWindow.shiftEndAt,
+      shiftElapsedMs: Math.max(0, analysisEndMs - analysisStartMs),
+      shiftDowntimeMs: downtimeMs,
+      shiftDowntimeMinutes: downtimeMs / (60 * 1000),
       availabilityPct,
       performancePct,
       qualityPct,
       oeePct: clampPercent((availabilityPct * performancePct * qualityPct) / 10000)
     };
-  }, [mesEventsByMachineId, mesEventSummaryByMachineId, mesWorkstationsById, machineDashboardRows]);
+  }, [mesEventsByMachineId, mesWorkstationsById, machineDashboardRows, mesNowTs]);
   const mesGlobalKpis = useMemo(() => {
     const counts = machineDashboardRows.reduce(
       (acc, row) => {
@@ -19519,7 +19568,7 @@ function App() {
                 <div className="panel-head workflow-section-head">
                   <div>
                     <h2>OEE prehľad</h2>
-                    <p className="panel-meta">Dostupnosť, výkon a kvalita z aktuálnych MES dát.</p>
+                    <p className="panel-meta">{`Dostupnosť, výkon a kvalita pre zmenu ${mesOeeSummary.shiftLabel} (live prepočet každú sekundu).`}</p>
                   </div>
                 </div>
                 <div className="mes-oee-grid">
@@ -19542,6 +19591,11 @@ function App() {
                     <span>OEE</span>
                     <strong>{formatPercentValue(mesOeeSummary.oeePct)}</strong>
                     <div className="mes-progress-track"><div className="mes-progress-fill" style={{ width: `${clampPercent(mesOeeSummary.oeePct)}%` }} /></div>
+                  </article>
+                  <article className="mes-oee-card">
+                    <span>Odstavenie za zmenu (min)</span>
+                    <strong>{new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(Math.max(0, Number(mesOeeSummary.shiftDowntimeMinutes || 0)))}</strong>
+                    <div className="mes-progress-track"><div className="mes-progress-fill" style={{ width: `${clampPercent(safeRatioPercent(mesOeeSummary.shiftDowntimeMs || 0, mesOeeSummary.shiftElapsedMs || 1))}%` }} /></div>
                   </article>
                 </div>
               </article>

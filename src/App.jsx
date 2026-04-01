@@ -19896,69 +19896,69 @@ function App() {
                 </div>
               </article>
 
-              <article className="orders-panel-card workflow-card workflow-card-list">
-                <div className="panel-head workflow-section-head">
-                  <div>
-                    <h2>Prestoje po hodinách</h2>
-                    <p className="panel-meta">
-                      {`Rozpis prestojov vybraného stroja pre zmenu: ${selectedMesMachineHourlyDowntime?.label || "-"}.`}
-                    </p>
-                  </div>
-                  <div className="stock-view-switch">
-                    <button
-                      type="button"
-                      className={`clear-btn ${mesHourlyDowntimeShiftKey === "shift_06_14" ? "stock-view-btn-active" : ""}`}
-                      onClick={() => setMesHourlyDowntimeShiftKey("shift_06_14")}
-                    >
-                      Ranná
-                    </button>
-                    <button
-                      type="button"
-                      className={`clear-btn ${mesHourlyDowntimeShiftKey === "shift_14_22" ? "stock-view-btn-active" : ""}`}
-                      onClick={() => setMesHourlyDowntimeShiftKey("shift_14_22")}
-                    >
-                      Poobedná
-                    </button>
-                  </div>
-                </div>
-                {selectedMesMachineHourlyDowntime ? (
-                  <div className="table-wrap">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Hodina</th>
-                          <th>Prestoj (min)</th>
-                          <th>Podiel prestoja</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {selectedMesMachineHourlyDowntime.rows.map((row) => (
-                          <tr key={row.key}>
-                            <td>{row.hourLabel}</td>
-                            <td>{new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(Math.max(0, Number(row.downtimeMinutes || 0)))}</td>
-                            <td>{formatPercentValue(row.downtimePct)}</td>
-                          </tr>
-                        ))}
-                        <tr>
-                          <td><strong>Spolu</strong></td>
-                          <td>
-                            <strong>
-                              {new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(
-                                Math.max(0, Number(selectedMesMachineHourlyDowntime.totalDowntimeMinutes || 0))
-                              )}
-                            </strong>
-                          </td>
-                          <td><strong>{formatPercentValue(selectedMesMachineHourlyDowntime.totalDowntimePct)}</strong></td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <p className="hint">Vyber stroj pre rozpis hodinových prestojov.</p>
-                )}
-              </article>
             </div>
           </div>
+          <article className="orders-panel-card workflow-card workflow-card-list">
+            <div className="panel-head workflow-section-head">
+              <div>
+                <h2>Prestoje po hodinách</h2>
+                <p className="panel-meta">
+                  {`Rozpis prestojov vybraného stroja pre zmenu: ${selectedMesMachineHourlyDowntime?.label || "-"}.`}
+                </p>
+              </div>
+              <div className="stock-view-switch">
+                <button
+                  type="button"
+                  className={`clear-btn ${mesHourlyDowntimeShiftKey === "shift_06_14" ? "stock-view-btn-active" : ""}`}
+                  onClick={() => setMesHourlyDowntimeShiftKey("shift_06_14")}
+                >
+                  Ranná
+                </button>
+                <button
+                  type="button"
+                  className={`clear-btn ${mesHourlyDowntimeShiftKey === "shift_14_22" ? "stock-view-btn-active" : ""}`}
+                  onClick={() => setMesHourlyDowntimeShiftKey("shift_14_22")}
+                >
+                  Poobedná
+                </button>
+              </div>
+            </div>
+            {selectedMesMachineHourlyDowntime ? (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Hodina</th>
+                      <th>Prestoj (min)</th>
+                      <th>Podiel prestoja</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedMesMachineHourlyDowntime.rows.map((row) => (
+                      <tr key={row.key}>
+                        <td>{row.hourLabel}</td>
+                        <td>{new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(Math.max(0, Number(row.downtimeMinutes || 0)))}</td>
+                        <td>{formatPercentValue(row.downtimePct)}</td>
+                      </tr>
+                    ))}
+                    <tr>
+                      <td><strong>Spolu</strong></td>
+                      <td>
+                        <strong>
+                          {new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(
+                            Math.max(0, Number(selectedMesMachineHourlyDowntime.totalDowntimeMinutes || 0))
+                          )}
+                        </strong>
+                      </td>
+                      <td><strong>{formatPercentValue(selectedMesMachineHourlyDowntime.totalDowntimePct)}</strong></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="hint">Vyber stroj pre rozpis hodinových prestojov.</p>
+            )}
+          </article>
 
           <div className="mes-kpi-grid">
             {mesPrimaryKpis.map((item) => (

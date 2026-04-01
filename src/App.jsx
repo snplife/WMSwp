@@ -4636,8 +4636,12 @@ function getMesOeeRangeWindow(rangeKey, nowValue = Date.now()) {
   };
 }
 
-function getMesDailyShiftWindow(shiftKey, nowValue = Date.now()) {
-  const now = new Date(nowValue);
+function getMesDailyShiftWindow(shiftKey, nowValue = Date.now(), dayOffset = 0, rangeNowValue = nowValue) {
+  const baseNow = new Date(nowValue);
+  const now = new Date(baseNow);
+  if (Number.isFinite(dayOffset) && dayOffset !== 0) {
+    now.setDate(now.getDate() + Number(dayOffset));
+  }
   const year = now.getFullYear();
   const month = now.getMonth();
   const day = now.getDate();
@@ -4647,11 +4651,12 @@ function getMesDailyShiftWindow(shiftKey, nowValue = Date.now()) {
   const end = new Date(year, month, day, endHour, 0, 0, 0);
   const startMs = start.getTime();
   const endMs = end.getTime();
-  const nowMs = now.getTime();
+  const nowMs = new Date(rangeNowValue).getTime();
   const rangeEndMs = Math.max(startMs, Math.min(nowMs, endMs));
   return {
     key: shiftKey === "shift_14_22" ? "shift_14_22" : "shift_06_14",
     label: shiftKey === "shift_14_22" ? "14:00 - 22:00" : "06:00 - 14:00",
+    dayLabel: start.toLocaleDateString("sk-SK", { day: "2-digit", month: "2-digit", year: "numeric" }),
     startAt: start.toISOString(),
     endAt: end.toISOString(),
     startMs,
@@ -6210,6 +6215,7 @@ function App() {
     const hour = new Date().getHours();
     return hour >= 14 ? "shift_14_22" : "shift_06_14";
   });
+  const [mesHourlyDowntimeDayOffset, setMesHourlyDowntimeDayOffset] = useState(0);
   const latestLoadRowsRequestRef = useRef(0);
   const latestMesOverviewRequestRef = useRef(0);
   const lastDataRefreshAtRef = useRef({});
@@ -16596,7 +16602,7 @@ function App() {
     if (!selectedMesMachineOverview) {
       return null;
     }
-    const shiftWindow = getMesDailyShiftWindow(mesHourlyDowntimeShiftKey, mesNowTs);
+    const shiftWindow = getMesDailyShiftWindow(mesHourlyDowntimeShiftKey, mesNowTs, mesHourlyDowntimeDayOffset, mesNowTs);
     const shiftStartMs = Number(shiftWindow.startMs || 0);
     const shiftEndMs = Number(shiftWindow.endMs || 0);
     const shiftRangeEndMs = Number(shiftWindow.rangeEndMs || shiftStartMs);
@@ -16633,13 +16639,14 @@ function App() {
     return {
       key: shiftWindow.key,
       label: shiftWindow.key === "shift_14_22" ? "Poobedná (14:00 - 22:00)" : "Ranná (06:00 - 14:00)",
+      dayLabel: shiftWindow.dayLabel,
       rows: hourRows,
       totalDowntimeMs,
       totalElapsedMs,
       totalDowntimeMinutes: totalDowntimeMs / (60 * 1000),
       totalDowntimePct: totalElapsedMs > 0 ? clampPercent(safeRatioPercent(totalDowntimeMs, totalElapsedMs)) : 0
     };
-  }, [selectedMesMachineOverview, currentMesMachineRun, selectedMesMachineScopedEvents, mesHourlyDowntimeShiftKey, mesNowTs]);
+  }, [selectedMesMachineOverview, currentMesMachineRun, selectedMesMachineScopedEvents, mesHourlyDowntimeShiftKey, mesHourlyDowntimeDayOffset, mesNowTs]);
   const mesProductionOrderRows = useMemo(() => {
     return mesRecentJobRuns
       .filter((row) => ["queued", "running", "paused", "planned"].includes(String(row.status || "").toLowerCase()))
@@ -19903,10 +19910,32 @@ function App() {
               <div>
                 <h2>Prestoje po hodinách</h2>
                 <p className="panel-meta">
-                  {`Rozpis prestojov vybraného stroja pre zmenu: ${selectedMesMachineHourlyDowntime?.label || "-"}.`}
+                  {`Rozpis prestojov vybraného stroja pre zmenu: ${selectedMesMachineHourlyDowntime?.label || "-"} | deň: ${selectedMesMachineHourlyDowntime?.dayLabel || "-"}.`}
                 </p>
               </div>
               <div className="stock-view-switch">
+                <button
+                  type="button"
+                  className="clear-btn"
+                  onClick={() => setMesHourlyDowntimeDayOffset((current) => current - 1)}
+                >
+                  Deň -1
+                </button>
+                <button
+                  type="button"
+                  className={`clear-btn ${mesHourlyDowntimeDayOffset === 0 ? "stock-view-btn-active" : ""}`}
+                  onClick={() => setMesHourlyDowntimeDayOffset(0)}
+                >
+                  Dnes
+                </button>
+                <button
+                  type="button"
+                  className="clear-btn"
+                  onClick={() => setMesHourlyDowntimeDayOffset((current) => Math.min(0, current + 1))}
+                  disabled={mesHourlyDowntimeDayOffset >= 0}
+                >
+                  Deň +1
+                </button>
                 <button
                   type="button"
                   className={`clear-btn ${mesHourlyDowntimeShiftKey === "shift_06_14" ? "stock-view-btn-active" : ""}`}

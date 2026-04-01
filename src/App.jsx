@@ -4636,6 +4636,31 @@ function getMesOeeRangeWindow(rangeKey, nowValue = Date.now()) {
   };
 }
 
+function getMesDailyShiftWindow(shiftKey, nowValue = Date.now()) {
+  const now = new Date(nowValue);
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const day = now.getDate();
+  const startHour = shiftKey === "shift_14_22" ? 14 : 6;
+  const endHour = shiftKey === "shift_14_22" ? 22 : 14;
+  const start = new Date(year, month, day, startHour, 0, 0, 0);
+  const end = new Date(year, month, day, endHour, 0, 0, 0);
+  const startMs = start.getTime();
+  const endMs = end.getTime();
+  const nowMs = now.getTime();
+  const rangeEndMs = Math.max(startMs, Math.min(nowMs, endMs));
+  return {
+    key: shiftKey === "shift_14_22" ? "shift_14_22" : "shift_06_14",
+    label: shiftKey === "shift_14_22" ? "14:00 - 22:00" : "06:00 - 14:00",
+    startAt: start.toISOString(),
+    endAt: end.toISOString(),
+    startMs,
+    endMs,
+    rangeEndMs,
+    isActive: nowMs >= startMs && nowMs < endMs
+  };
+}
+
 const MES_MAX_DOWNTIME_DURATION_MS = 5 * 60 * 60 * 1000;
 
 function summarizeMesStateWindow(events, startAt, endAt, fallbackState = "running", options = {}) {
@@ -6181,6 +6206,10 @@ function App() {
   const [mesError, setMesError] = useState("");
   const [mesNowTs, setMesNowTs] = useState(() => Date.now());
   const [mesOeeRangeKey, setMesOeeRangeKey] = useState("current_shift");
+  const [mesHourlyDowntimeShiftKey, setMesHourlyDowntimeShiftKey] = useState(() => {
+    const hour = new Date().getHours();
+    return hour >= 14 ? "shift_14_22" : "shift_06_14";
+  });
   const latestLoadRowsRequestRef = useRef(0);
   const latestMesOverviewRequestRef = useRef(0);
   const lastDataRefreshAtRef = useRef({});
@@ -16563,6 +16592,54 @@ function App() {
       sessionMachineCycleSeconds
     };
   }, [selectedMesMachineOverview, currentMesMachineRun, selectedMesMachineScopedEvents]);
+  const selectedMesMachineHourlyDowntime = useMemo(() => {
+    if (!selectedMesMachineOverview) {
+      return null;
+    }
+    const shiftWindow = getMesDailyShiftWindow(mesHourlyDowntimeShiftKey, mesNowTs);
+    const shiftStartMs = Number(shiftWindow.startMs || 0);
+    const shiftEndMs = Number(shiftWindow.endMs || 0);
+    const shiftRangeEndMs = Number(shiftWindow.rangeEndMs || shiftStartMs);
+    const fallbackState = ["paused", "stop", "stopped", "alarm"].includes(String(selectedMesMachineOverview?.machineStatus || currentMesMachineRun?.status || "").toLowerCase())
+      ? "stopped"
+      : "running";
+    const hourRows = Array.from({ length: 8 }, (_, index) => {
+      const bucketStartMs = shiftStartMs + index * 60 * 60 * 1000;
+      const bucketEndMsRaw = Math.min(shiftEndMs, bucketStartMs + 60 * 60 * 1000);
+      const bucketEndMsForState = Math.min(bucketEndMsRaw, shiftRangeEndMs);
+      const hasElapsedWindow = bucketEndMsForState > bucketStartMs;
+      const bucketStartAt = new Date(bucketStartMs).toISOString();
+      const bucketEndAt = new Date(bucketEndMsForState).toISOString();
+      const stateWindow = hasElapsedWindow
+        ? summarizeMesStateWindow(selectedMesMachineScopedEvents, bucketStartAt, bucketEndAt, fallbackState, {
+            maxStopSegmentMs: MES_MAX_DOWNTIME_DURATION_MS
+          })
+        : { stopMs: 0 };
+      const downtimeMs = Math.max(0, Number(stateWindow.stopMs || 0));
+      const elapsedMs = Math.max(0, bucketEndMsForState - bucketStartMs);
+      const plannedMs = Math.max(0, bucketEndMsRaw - bucketStartMs);
+      return {
+        key: `${shiftWindow.key}-${index}`,
+        hourLabel: `${new Date(bucketStartMs).toLocaleTimeString("sk-SK", { hour: "2-digit", minute: "2-digit" })} - ${new Date(bucketEndMsRaw).toLocaleTimeString("sk-SK", { hour: "2-digit", minute: "2-digit" })}`,
+        downtimeMs,
+        elapsedMs,
+        plannedMs,
+        downtimeMinutes: downtimeMs / (60 * 1000),
+        downtimePct: elapsedMs > 0 ? clampPercent(safeRatioPercent(downtimeMs, elapsedMs)) : 0
+      };
+    });
+    const totalDowntimeMs = hourRows.reduce((sum, row) => sum + Number(row.downtimeMs || 0), 0);
+    const totalElapsedMs = hourRows.reduce((sum, row) => sum + Number(row.elapsedMs || 0), 0);
+    return {
+      key: shiftWindow.key,
+      label: shiftWindow.key === "shift_14_22" ? "Poobedná (14:00 - 22:00)" : "Ranná (06:00 - 14:00)",
+      rows: hourRows,
+      totalDowntimeMs,
+      totalElapsedMs,
+      totalDowntimeMinutes: totalDowntimeMs / (60 * 1000),
+      totalDowntimePct: totalElapsedMs > 0 ? clampPercent(safeRatioPercent(totalDowntimeMs, totalElapsedMs)) : 0
+    };
+  }, [selectedMesMachineOverview, currentMesMachineRun, selectedMesMachineScopedEvents, mesHourlyDowntimeShiftKey, mesNowTs]);
   const mesProductionOrderRows = useMemo(() => {
     return mesRecentJobRuns
       .filter((row) => ["queued", "running", "paused", "planned"].includes(String(row.status || "").toLowerCase()))
@@ -19817,6 +19894,68 @@ function App() {
                     <div className="mes-progress-track"><div className="mes-progress-fill" style={{ width: `${clampPercent(safeRatioPercent(mesOeeSummary.shiftDowntimeMs || 0, mesOeeSummary.shiftElapsedMs || 1))}%` }} /></div>
                   </article>
                 </div>
+              </article>
+
+              <article className="orders-panel-card workflow-card workflow-card-list">
+                <div className="panel-head workflow-section-head">
+                  <div>
+                    <h2>Prestoje po hodinách</h2>
+                    <p className="panel-meta">
+                      {`Rozpis prestojov vybraného stroja pre zmenu: ${selectedMesMachineHourlyDowntime?.label || "-"}.`}
+                    </p>
+                  </div>
+                  <div className="stock-view-switch">
+                    <button
+                      type="button"
+                      className={`clear-btn ${mesHourlyDowntimeShiftKey === "shift_06_14" ? "stock-view-btn-active" : ""}`}
+                      onClick={() => setMesHourlyDowntimeShiftKey("shift_06_14")}
+                    >
+                      Ranná
+                    </button>
+                    <button
+                      type="button"
+                      className={`clear-btn ${mesHourlyDowntimeShiftKey === "shift_14_22" ? "stock-view-btn-active" : ""}`}
+                      onClick={() => setMesHourlyDowntimeShiftKey("shift_14_22")}
+                    >
+                      Poobedná
+                    </button>
+                  </div>
+                </div>
+                {selectedMesMachineHourlyDowntime ? (
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Hodina</th>
+                          <th>Prestoj (min)</th>
+                          <th>Podiel prestoja</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedMesMachineHourlyDowntime.rows.map((row) => (
+                          <tr key={row.key}>
+                            <td>{row.hourLabel}</td>
+                            <td>{new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(Math.max(0, Number(row.downtimeMinutes || 0)))}</td>
+                            <td>{formatPercentValue(row.downtimePct)}</td>
+                          </tr>
+                        ))}
+                        <tr>
+                          <td><strong>Spolu</strong></td>
+                          <td>
+                            <strong>
+                              {new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(
+                                Math.max(0, Number(selectedMesMachineHourlyDowntime.totalDowntimeMinutes || 0))
+                              )}
+                            </strong>
+                          </td>
+                          <td><strong>{formatPercentValue(selectedMesMachineHourlyDowntime.totalDowntimePct)}</strong></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="hint">Vyber stroj pre rozpis hodinových prestojov.</p>
+                )}
               </article>
             </div>
           </div>

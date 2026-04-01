@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Source+Code+Pro:wght@400;500&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@300;400;500&display=swap");
 
 :root {
   --bg-a: #0f0f0f;
@@ -8123,4 +8123,219 @@ tbody tr:nth-child(even) {
 
 .mes-progress-fill-alert {
   background: linear-gradient(90deg, #ff7a7a, #ff5757);
+}
+
+/* xAI-inspired light brutalist override */
+:root {
+  --bg-a: #f6f7f9;
+  --bg-b: #f6f7f9;
+  --bg-c: #f6f7f9;
+  --ink: #1f2228;
+  --muted: rgba(31, 34, 40, 0.72);
+  --panel: #ffffff;
+  --panel-strong: #ffffff;
+  --line: rgba(31, 34, 40, 0.14);
+  --line-strong: rgba(31, 34, 40, 0.24);
+  --accent: #1f2228;
+  --accent-strong: #1f2228;
+  --accent-soft: rgba(31, 34, 40, 0.06);
+  --chip: rgba(31, 34, 40, 0.05);
+  --shadow: none;
+  --shadow-strong: none;
+  font-family: "Geist", "Segoe UI", sans-serif;
+}
+
+body {
+  background: #f6f7f9;
+  color: #1f2228;
+  font-family: "Geist", "Segoe UI", sans-serif;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+.sidebar-brand strong,
+.sidebar-meta-card strong,
+.sidebar-workspace-card strong {
+  font-family: "Geist", "Segoe UI", sans-serif;
+  font-weight: 400;
+  color: #1f2228;
+}
+
+.hero,
+.panel,
+.orders-panel-card,
+.card,
+.workflow-form-section,
+.mes-data-panel,
+.mes-history-panel,
+.mes-mini-stat,
+.mes-oee-card,
+.order-card,
+.attendance-card,
+.dashboard-sidebar,
+.sidebar-meta-card,
+.sidebar-workspace-card {
+  background: #ffffff;
+  border: 1px solid rgba(31, 34, 40, 0.14);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.workflow-card::before,
+.workflow-card-soft::before,
+.workflow-card-strong::before,
+.workflow-card-list::before,
+.panel::before {
+  background: rgba(31, 34, 40, 0.2);
+  height: 1px;
+}
+
+.sidebar-link,
+.sidebar-link:hover,
+.sidebar-link-active {
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  color: #1f2228;
+}
+
+.sidebar-link:hover {
+  color: rgba(31, 34, 40, 0.5);
+  border-color: rgba(31, 34, 40, 0.2);
+}
+
+.table-badge,
+.table-badge-master {
+  background: transparent;
+  color: #1f2228;
+  border: 1px solid rgba(31, 34, 40, 0.2);
+  border-radius: 0;
+  font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, "Courier New", monospace;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.settings-btn,
+.refresh-btn,
+.export-btn,
+.clear-btn,
+.logout-btn,
+.table-btn {
+  border-radius: 0;
+  text-transform: uppercase;
+  letter-spacing: 1.4px;
+  font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, "Courier New", monospace;
+  font-weight: 400;
+  box-shadow: none;
+  min-height: 44px;
+}
+
+.settings-btn,
+.export-btn,
+.clear-btn,
+.logout-btn,
+.table-btn {
+  border: 1px solid rgba(31, 34, 40, 0.2);
+  background: transparent;
+  color: #1f2228;
+}
+
+.refresh-btn,
+.table-btn-active,
+.stock-view-btn-active,
+.dead-stock-btn-active {
+  border: 1px solid #1f2228;
+  background: #1f2228;
+  color: #ffffff;
+}
+
+.settings-btn:hover,
+.clear-btn:hover,
+.logout-btn:hover,
+.table-btn:hover,
+.refresh-btn:hover,
+.export-btn:hover {
+  transform: none;
+  box-shadow: none;
+  opacity: 0.5;
+}
+
+.search-input,
+select,
+.dead-stock-days-input {
+  background: transparent;
+  border: 1px solid rgba(31, 34, 40, 0.2);
+  border-radius: 0;
+  color: #1f2228;
+  font-family: "Geist", "Segoe UI", sans-serif;
+}
+
+.search-input::placeholder {
+  color: rgba(31, 34, 40, 0.3);
+}
+
+.table-wrap {
+  border: 1px solid rgba(31, 34, 40, 0.14);
+  border-radius: 0;
+}
+
+th,
+td {
+  color: #1f2228;
+  border-bottom: 1px solid rgba(31, 34, 40, 0.12);
+}
+
+th {
+  font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, "Courier New", monospace;
+  font-weight: 400;
+  letter-spacing: 1px;
+  background: #f6f7f9;
+  color: rgba(31, 34, 40, 0.65);
+}
+
+tbody tr:hover {
+  background: rgba(31, 34, 40, 0.08);
+}
+
+tbody tr:nth-child(even) {
+  background: rgba(31, 34, 40, 0.03);
+}
+
+.mes-mini-stat span,
+.mes-oee-card span,
+.workflow-section-kicker,
+.panel-meta,
+.subtitle {
+  color: rgba(31, 34, 40, 0.7);
+}
+
+.mes-mini-stat strong,
+.mes-oee-card strong,
+.mes-oee-card-strong strong,
+.mes-oee-card-strong span {
+  color: #1f2228;
+}
+
+.mes-oee-card-strong,
+.mes-status-badge-running,
+.mes-status-badge-idle,
+.mes-status-badge-stopped,
+.mes-status-badge-alarm,
+.mes-status-badge-setup {
+  background: rgba(31, 34, 40, 0.05);
+  border-color: rgba(31, 34, 40, 0.2);
+  color: #1f2228;
+}
+
+.mes-progress-track {
+  background: rgba(31, 34, 40, 0.12);
+}
+
+.mes-progress-fill,
+.mes-progress-fill-alert {
+  background: #1f2228;
 }

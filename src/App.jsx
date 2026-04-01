@@ -16981,8 +16981,16 @@ function App() {
       return;
     }
 
-    const exportRows = selectedMesMachineEvents.map((event) => ({
-      Cas: formatDate(event.happened_at),
+    const exportRows = selectedMesMachineEvents
+      .filter((event) => Number(event.duration_seconds || 0) <= 1000)
+      .map((event) => {
+        const eventAt = String(event.happened_at || event.created_at || "").trim();
+        const parsedEventAt = new Date(eventAt || 0);
+        const isValidEventAt = Number.isFinite(parsedEventAt.getTime());
+        return {
+      Datum: isValidEventAt ? parsedEventAt.toLocaleDateString("sk-SK") : "",
+      Cas: isValidEventAt ? parsedEventAt.toLocaleTimeString("sk-SK") : "",
+      Timestamp_ISO: eventAt || "",
       Udalost: formatMesEventLabel(event.event_type),
       Detail:
         mesDowntimeReasonNameById[event.downtime_reason_id] ||
@@ -16991,10 +16999,12 @@ function App() {
         event.payload?.note ||
         JSON.stringify(event.payload || {}),
       Mnozstvo: event.quantity ? Number(event.quantity) : "",
+      Doba_s: Number(event.duration_seconds || 0),
       Operator: event.operator_name || "",
       Terminal: mesTerminalsById[event.terminal_id]?.name || mesTerminalsById[event.terminal_id]?.terminal_code || "",
       Zdroj: event.source || ""
-    }));
+    };
+      });
 
     const workbook = XLSX.utils.book_new();
     const worksheet = XLSX.utils.json_to_sheet(exportRows);
@@ -17079,8 +17089,16 @@ function App() {
     }));
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(operatorDowntimeRows), "Prestoje operatorov");
 
-    const selectedMachineEventRows = (selectedMesMachineEvents || []).map((event) => ({
-      Cas: formatDate(event.happened_at || event.created_at || ""),
+    const selectedMachineEventRows = (selectedMesMachineEvents || [])
+      .filter((event) => Number(event.duration_seconds || 0) <= 1000)
+      .map((event) => {
+      const eventAt = String(event.happened_at || event.created_at || "").trim();
+      const parsedEventAt = new Date(eventAt || 0);
+      const isValidEventAt = Number.isFinite(parsedEventAt.getTime());
+      return {
+      Datum: isValidEventAt ? parsedEventAt.toLocaleDateString("sk-SK") : "",
+      Cas: isValidEventAt ? parsedEventAt.toLocaleTimeString("sk-SK") : "",
+      Timestamp_ISO: eventAt || "",
       Udalost: formatMesEventLabel(event.event_type),
       Event_kod: String(event.event_code || event.event_type || ""),
       Doba_s: Number(event.duration_seconds || 0),
@@ -17088,7 +17106,8 @@ function App() {
       Operator: event.operator_name || event.operator_id || event.operator_user_id || "",
       Terminal: mesTerminalsById[event.terminal_id]?.name || mesTerminalsById[event.terminal_id]?.terminal_code || "",
       Job: event.job_number || ""
-    }));
+    };
+      });
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(selectedMachineEventRows), "Vybrany stroj eventy");
 
     const companySlug = String(currentCompanyLabel || "firma")

@@ -8339,3 +8339,51 @@ tbody tr:nth-child(even) {
 .mes-progress-fill-alert {
   background: #1f2228;
 }
+
+/* Hero grid fit tuning for current light brutalist layout */
+.hero-grid {
+  grid-template-columns: minmax(0, 1.28fr) minmax(340px, 0.92fr);
+  gap: 24px;
+  align-items: stretch;
+}
+
+.hero-primary,
+.hero-side {
+  min-width: 0;
+}
+
+.hero-side {
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+
+.hero-context-card,
+.hero-actions-panel,
+.hero-status-card {
+  border-radius: 0;
+  padding: 16px;
+  background: #ffffff;
+  border: 1px solid rgba(31, 34, 40, 0.14);
+  box-shadow: none;
+}
+
+.hero-status-grid {
+  gap: 16px;
+}
+
+@media (max-width: 1500px) {
+  .hero-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-side {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1200px) {
+  .hero-side,
+  .hero-status-grid {
+    grid-template-columns: 1fr;
+  }
+}

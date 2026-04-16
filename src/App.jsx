@@ -1,7 +1,6 @@
 ﻿import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { useRef } from "react";
-import { CurrencyCode, encode as encodePayBySquare, PaymentOptions } from "bysquare/pay";
 import { Activity, ArrowDownLeft, ArrowRight, ArrowRightLeft, ArrowUpRight, BarChart3, Boxes, Building2, CheckCircle2, ClipboardList, Clock3, Factory, FileText, History, LogIn, MapPin, MonitorSmartphone, Package, ReceiptText, RotateCcw, Settings2, ShieldCheck, Users, X } from "lucide-react";
 import * as XLSX from "xlsx";
 import { installHotjar, uninstallHotjar } from "./hotjar";
@@ -2770,8 +2769,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile, languag
     iban: isEnglish ? "IBAN / Account:" : "IBAN / Číslo účtu:",
     variableSymbol: isEnglish ? "Variable symbol:" : "Variabilný symbol:",
     constantSymbol: isEnglish ? "Constant symbol:" : "Konštantný symbol:",
-    specificSymbol: isEnglish ? "Specific symbol:" : "Špecifický symbol:",
-    qrAlt: isEnglish ? "PayBySquare QR code" : "PayBySquare QR kod"
+    specificSymbol: isEnglish ? "Specific symbol:" : "Špecifický symbol:"
   };
   const normalizedCompany =
     companyProfile && typeof companyProfile === "object" ? companyProfile : { name: String(companyProfile || "").trim() };
@@ -2783,7 +2781,6 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile, languag
   const dueDateLabel = invoice?.due_date ? formatDocumentDate(invoice.due_date) : "-";
   const issuedAtLabel = invoice?.created_at ? formatDocumentDate(invoice.created_at) : "-";
   const bankingDetails = buildInvoiceBankingDetails(invoice, items, companyProfile);
-  const payBySquareData = buildInvoicePayBySquareData(invoice, items, companyProfile);
   const invoiceDocument = resolveInvoiceDocumentFields(invoice);
   const financials = computeInvoiceFinancials(invoice, items);
   const documentTitle = invoiceDocument.documentKind === "proforma" ? copy.documentProforma : copy.documentInvoice;
@@ -2892,21 +2889,6 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile, languag
         </section>
       `
     : "";
-  const payBySquareHtml = payBySquareData?.isAvailable
-    ? `
-        <aside class="qr-card">
-          <span class="qr-label">PayBySquare</span>
-          <div class="pay-card-inner">
-            <img src="${escapeHtml(buildQrImageUrl(payBySquareData.qrPayload, 220))}" alt="${escapeHtml(copy.qrAlt)}" />
-          </div>
-        </aside>
-      `
-    : `
-        <aside class="qr-card qr-card--muted">
-          <span class="qr-label">PayBySquare</span>
-          <p class="qr-note">${escapeHtml(String(payBySquareData?.reason || "PayBySquare sa nepodarilo pripraviť."))}</p>
-        </aside>
-      `;
   const totalsRowsHtml = `
     <div class="total-row"><span>${escapeHtml(copy.totalExVat)}</span><strong>${escapeHtml(formatCurrencyValue(financials.total))}</strong></div>
     <div class="total-row"><span>${escapeHtml(copy.vat)}</span><strong>${escapeHtml(formatCurrencyValue(financials.vat))}</strong></div>
@@ -3380,7 +3362,6 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile, languag
             <div class="payment-bank">
               <dl class="bank-list">${buildBankDetailFieldsHtml(bankDetailFields)}</dl>
             </div>
-            ${payBySquareHtml}
           </article>
         </section>
 
@@ -3883,66 +3864,6 @@ function resolveSwiftCodeFromIban(value) {
   }
   const bankCode = iban.slice(4, 8);
   return SLOVAK_BANK_SWIFT_BY_CODE[bankCode] || "";
-}
-
-function buildInvoicePayBySquareData(invoice, items, companyProfile) {
-  const iban = normalizeIbanValue(companyProfile?.bank_account);
-  const beneficiaryName = String(companyProfile?.name || "").trim();
-  const dueDate = String(invoice?.due_date || "")
-    .trim()
-    .replace(/-/g, "");
-  const financials = computeInvoiceFinancials(invoice, items);
-  const document = resolveInvoiceDocumentFields(invoice);
-  if (financials.amountDue <= 0) {
-    return { isAvailable: false, reason: "PayBySquare sa vytvorí až pri faktúre so sumou väčšou ako 0 €." };
-  }
-  if (!beneficiaryName) {
-    return { isAvailable: false, reason: "Chýba názov firmy v profile dodávateľa." };
-  }
-  if (!iban) {
-    return { isAvailable: false, reason: "Chýba IBAN v profile firmy." };
-  }
-
-  const variableSymbolCandidate = String(invoice?.invoice_number || "")
-    .replace(/\D/g, "")
-    .trim();
-
-  try {
-    const qrPayload = encodePayBySquare({
-      payments: [
-        {
-          type: PaymentOptions.PaymentOrder,
-          amount: Number(financials.amountDue.toFixed(2)),
-          currencyCode: CurrencyCode.EUR,
-          paymentDueDate: /^\d{8}$/.test(dueDate) ? dueDate : undefined,
-          variableSymbol:
-            variableSymbolCandidate && variableSymbolCandidate.length <= 10 ? variableSymbolCandidate : undefined,
-          paymentNote:
-            String(invoice?.invoice_number || "").trim()
-              ? `${document.documentKind === "proforma" ? "Predfaktura" : "Faktura"} ${String(invoice.invoice_number).trim()}`
-              : undefined,
-          beneficiary: { name: beneficiaryName },
-          bankAccounts: [{ iban }]
-        }
-      ]
-    });
-
-    return {
-      isAvailable: true,
-      amount: financials.amountDue,
-      amountLabel: formatCurrencyValue(financials.amountDue),
-      beneficiaryName,
-      variableSymbol:
-        variableSymbolCandidate && variableSymbolCandidate.length <= 10 ? variableSymbolCandidate : "-",
-      iban: formatIbanInput(iban),
-      qrPayload
-    };
-  } catch {
-    return {
-      isAvailable: false,
-      reason: "IBAN nie je validný pre PayBySquare. Pre SK účet musí mať tvar SK.. a prejsť IBAN kontrolou."
-    };
-  }
 }
 
 function buildInvoiceBankingDetails(invoice, items, companyProfile) {

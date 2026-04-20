@@ -12032,6 +12032,29 @@ function App() {
     setQuotesError("");
   };
 
+  const handleDuplicateQuote = (quote) => {
+    const quoteId = String(quote?.id || "").trim();
+    if (!quoteId) {
+      return;
+    }
+
+    const items = quoteItemsByQuoteId[quoteId] || [];
+    setEditingQuoteId("");
+    setSelectedQuoteCustomerId(String(quote?.customer_id || ""));
+    setQuoteNumberInput(buildQuoteNumber());
+    setQuoteStoredNoteText(String(quote?.note || ""));
+    setQuoteDraftItems(
+      items.length > 0
+        ? items.map((item) => ({
+            ...createQuoteDraftItemFromRow(item),
+            quoteItemId: ""
+          }))
+        : [createEmptyQuoteDraftItem()]
+    );
+    setQuotesError("");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   const handleCancelQuoteEdit = () => {
     resetQuoteDraft();
     setQuotesError("");
@@ -12294,6 +12317,44 @@ function App() {
     setInvoiceDraftItems(items.length > 0 ? items.map((item) => createInvoiceDraftItemFromRow(item)) : [createEmptyInvoiceDraftItem()]);
     setExpandedInvoices((prev) => ({ ...prev, [invoiceId]: true }));
     setInvoicesError("");
+  };
+
+  const handleDuplicateInvoice = (invoice) => {
+    const invoiceId = String(invoice?.id || "").trim();
+    if (!invoiceId) {
+      return;
+    }
+
+    const items = invoiceItemsByInvoiceId[invoiceId] || [];
+    const invoiceDocument = resolveInvoiceDocumentFields(invoice);
+    const duplicateMeta = createDefaultInvoiceDocumentMeta({
+      ...invoiceDocument,
+      sourceProformaId: "",
+      sourceProformaNumber: "",
+      advanceAppliedGross: 0,
+      linkedInvoiceId: "",
+      linkedInvoiceNumber: ""
+    });
+    setEditingInvoiceId("");
+    setSelectedInvoiceCustomerId(String(invoice?.customer_id || ""));
+    setInvoiceNumberInput(buildInvoiceNumber());
+    setInvoiceDueDate(getDefaultInvoiceDueDate(activeCompanyProfile?.invoice_due_days ?? 14));
+    setInvoiceDocumentKindInput(duplicateMeta.documentKind);
+    setInvoiceLinkedProformaMeta(duplicateMeta);
+    setInvoiceOrderNumberInput(duplicateMeta.orderNumber);
+    setInvoiceIntroTextInput(duplicateMeta.introText);
+    setInvoiceOutroTextInput(duplicateMeta.outroText);
+    setInvoiceStoredNoteText(duplicateMeta.noteText);
+    setInvoiceDraftItems(
+      items.length > 0
+        ? items.map((item) => ({
+            ...createInvoiceDraftItemFromRow(item),
+            invoiceItemId: ""
+          }))
+        : [createEmptyInvoiceDraftItem()]
+    );
+    setInvoicesError("");
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const syncSourceProformaForInvoice = async ({ sourceProformaId, linkedInvoiceId, linkedInvoiceNumber }) => {
@@ -25189,6 +25250,9 @@ function App() {
                                 <button type="button" className="clear-btn" onClick={() => handleEditQuote(quote)}>
                                   Upraviť
                                 </button>
+                                <button type="button" className="clear-btn" onClick={() => handleDuplicateQuote(quote)}>
+                                  Duplikovať
+                                </button>
                                 <button type="button" className="clear-btn" onClick={() => handlePrintQuote(quote)}>
                                   PDF
                                 </button>
@@ -25721,6 +25785,14 @@ function App() {
                                   disabled={invoiceDeletingId === invoice.id}
                                 >
                                   Upraviť
+                                </button>
+                                <button
+                                  type="button"
+                                  className="clear-btn"
+                                  onClick={() => handleDuplicateInvoice(invoice)}
+                                  disabled={invoiceDeletingId === invoice.id}
+                                >
+                                  Duplikovať
                                 </button>
                                 <button
                                   type="button"

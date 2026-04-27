@@ -2970,6 +2970,10 @@ select {
   gap: 0.45rem;
 }
 
+.mes-tab-switch {
+  flex-wrap: nowrap;
+}
+
 .mes-terminal-cell {
   min-height: 66px;
   border: 1px dashed #c4d3e4;
@@ -3005,6 +3009,10 @@ select {
   border: 1px solid #c2d4e8;
   background: #ffffff;
   cursor: default;
+}
+
+.mes-terminal-cell.is-editable .mes-terminal-chip {
+  cursor: grab;
 }
 
 .mes-terminal-chip strong {

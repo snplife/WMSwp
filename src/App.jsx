@@ -6203,6 +6203,8 @@ function App() {
   const [mesError, setMesError] = useState("");
   const [isMesSettingsModalOpen, setIsMesSettingsModalOpen] = useState(false);
   const [isMesMapEditMode, setIsMesMapEditMode] = useState(false);
+  const [mesDashboardTab, setMesDashboardTab] = useState("live");
+  const [mesOperatorPresenceFilter, setMesOperatorPresenceFilter] = useState("all");
   const [mesDashboardCustomization, setMesDashboardCustomization] = useState(() => ({ ...DEFAULT_MES_DASHBOARD_CUSTOMIZATION }));
   const [mesNowTs, setMesNowTs] = useState(() => Date.now());
   const [mesOeeRangeKey, setMesOeeRangeKey] = useState("current_shift");
@@ -6440,6 +6442,11 @@ function App() {
       setIsMesMapEditMode(false);
     }
   }, [selectedTable, isMesMapEditMode]);
+  useEffect(() => {
+    if (mesDashboardTab !== "map" && isMesMapEditMode) {
+      setIsMesMapEditMode(false);
+    }
+  }, [mesDashboardTab, isMesMapEditMode]);
   const visibleTableNames = useMemo(() => {
     if (isMaster) {
       return Array.from(
@@ -19558,6 +19565,144 @@ function App() {
       { key: "rejectRate", label: "Zmetkovitosť" },
       { key: "activeOperators", label: "Aktívni operátori" }
     ];
+    const mesDashboardTabs = [
+      { key: "live", label: "Live" },
+      { key: "map", label: "Mapa" },
+      { key: "analytics", label: "Analytika" }
+    ];
+    const mesUnifiedOperators = (() => {
+      const merged = {};
+      (mesAvailableOperatorRows || []).forEach((operator) => {
+        const name = String(operator?.fullName || "").trim();
+        const key = normalizeMesOperatorLookupValue(name || operator?.employeeCode || operator?.linkedUserId || operator?.profileId || "");
+        if (!key) {
+          return;
+        }
+        merged[key] = {
+          key,
+          operatorName: name || "Operátor",
+          employeeCode: String(operator?.employeeCode || "").trim(),
+          currentMachineName: String(operator?.currentMachineName || "").trim(),
+          currentWorkOrder: String(operator?.currentWorkOrder || "").trim(),
+          sessionStartedAt: operator?.sessionStartedAt || null,
+          lastSeenAt: operator?.lastSeenAt || null,
+          sessionGoodParts: Number(operator?.sessionGoodParts || 0),
+          sessionScrapParts: Number(operator?.sessionScrapParts || 0),
+          sessionProducedParts: Number(operator?.sessionProducedParts || 0),
+          isActiveInMes: Boolean(operator?.isActiveInMes),
+          source: "attendance"
+        };
+      });
+      (mesOperatorRows || []).forEach((operator) => {
+        const name = String(operator?.operatorName || "").trim();
+        const key = normalizeMesOperatorLookupValue(name || operator?.operatorUserId || operator?.key || "");
+        if (!key) {
+          return;
+        }
+        const existing = merged[key] || {
+          key,
+          operatorName: name || "Operátor",
+          employeeCode: "",
+          currentMachineName: "",
+          currentWorkOrder: "",
+          sessionStartedAt: null,
+          lastSeenAt: null,
+          sessionGoodParts: 0,
+          sessionScrapParts: 0,
+          sessionProducedParts: 0,
+          isActiveInMes: false,
+          source: "mes"
+        };
+        merged[key] = {
+          ...existing,
+          operatorName: name || existing.operatorName,
+          employeeCode: String(operator?.profile?.employee_code || existing.employeeCode || "").trim(),
+          currentMachineName: String(operator?.currentMachineName || existing.currentMachineName || "").trim(),
+          currentWorkOrder: String(operator?.currentWorkOrder || existing.currentWorkOrder || "").trim(),
+          sessionStartedAt: operator?.sessionStartedAt || existing.sessionStartedAt,
+          lastSeenAt: operator?.lastSeenAt || existing.lastSeenAt,
+          sessionGoodParts: Number(operator?.sessionGoodParts ?? existing.sessionGoodParts ?? 0),
+          sessionScrapParts: Number(operator?.sessionScrapParts ?? existing.sessionScrapParts ?? 0),
+          sessionProducedParts: Number(operator?.sessionProducedParts ?? existing.sessionProducedParts ?? 0),
+          isActiveInMes: Boolean(existing.isActiveInMes || Number(operator?.activeRunCount || 0) > 0),
+          source: existing.source === "attendance" ? "attendance+mes" : "mes"
+        };
+      });
+      return Object.values(merged).sort((a, b) => String(a.operatorName).localeCompare(String(b.operatorName), "sk-SK", { sensitivity: "base" }));
+    })();
+    const filteredMesUnifiedOperators = mesUnifiedOperators.filter((operator) => {
+      if (mesOperatorPresenceFilter === "active") {
+        return operator.isActiveInMes;
+      }
+      if (mesOperatorPresenceFilter === "available") {
+        return !operator.isActiveInMes;
+      }
+      return true;
+    });
+    const mesRecurringEventRows = (() => {
+      const grouped = {};
+      (mesRecentEventRows || []).forEach((event) => {
+        const happenedAt = String(event?.happened_at || event?.created_at || "").trim();
+        const timestamp = Date.parse(happenedAt);
+        if (!Number.isFinite(timestamp)) {
+          return;
+        }
+        const eventType = formatMesEventLabel(event?.event_type || event?.event_code || "-");
+        const reason = String(event?.downtime_reason_name || event?.downtime_reason_code || event?.note || "").trim() || "-";
+        const machineLabel =
+          machineDashboardRows.find((row) => String(row.machineId || "").trim() === String(event?.machine_id || "").trim())?.machineName ||
+          machineDashboardRows.find((row) => String(row.workstationId || "").trim() === String(event?.workstation_id || "").trim())?.machineName ||
+          String(event?.machine_id || event?.workstation_id || "-").trim() ||
+          "-";
+        const signature = [
+          String(event?.event_type || event?.event_code || "").trim().toLowerCase(),
+          reason.toLowerCase(),
+          machineLabel.toLowerCase()
+        ].join("|");
+        if (!grouped[signature]) {
+          grouped[signature] = {
+            signature,
+            eventType,
+            reason,
+            machineLabel,
+            timestamps: []
+          };
+        }
+        grouped[signature].timestamps.push(timestamp);
+      });
+      return Object.values(grouped)
+        .map((group) => {
+          const sorted = [...group.timestamps].sort((a, b) => a - b);
+          const deltas = [];
+          for (let index = 1; index < sorted.length; index += 1) {
+            deltas.push(sorted[index] - sorted[index - 1]);
+          }
+          const averageMs = deltas.length > 0 ? deltas.reduce((sum, value) => sum + value, 0) / deltas.length : 0;
+          const frequencyLabel =
+            averageMs > 0
+              ? averageMs < 60 * 60 * 1000
+                ? `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(averageMs / 60000)} min`
+                : `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(averageMs / (60 * 60 * 1000))} h`
+              : "-";
+          return {
+            key: group.signature,
+            eventType: group.eventType,
+            reason: group.reason,
+            machineLabel: group.machineLabel,
+            count: sorted.length,
+            frequencyLabel,
+            lastSeenAt: sorted.length > 0 ? new Date(sorted[sorted.length - 1]).toISOString() : null
+          };
+        })
+        .filter((row) => row.count >= 2)
+        .sort((a, b) => {
+          if (b.count !== a.count) {
+            return b.count - a.count;
+          }
+          return String(b.lastSeenAt || "").localeCompare(String(a.lastSeenAt || ""));
+        })
+        .slice(0, 12);
+    })();
     const handleMesTerminalDragStart = (event, terminalId) => {
       if (!isMesMapEditMode) {
         return;
@@ -19680,6 +19825,18 @@ function App() {
           <span className="table-badge">{`${machineDashboardRows.length} strojov`}</span>
           <span className="table-badge">{`${mesTerminals.length} HMI terminálov`}</span>
           <span className="table-badge">{`${mesProductionOrderRows.length} aktívnych zákaziek`}</span>
+          <div className="stock-view-switch mes-tab-switch">
+            {mesDashboardTabs.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                className={`clear-btn ${mesDashboardTab === tab.key ? "stock-view-btn-active" : ""}`}
+                onClick={() => setMesDashboardTab(tab.key)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
           <button type="button" className="clear-btn" onClick={handleExportMesDashboardExcel}>
             Export MES Excel
           </button>
@@ -20073,7 +20230,7 @@ function App() {
           </article>
           )}
 
-          {!mesDashboardCustomization.showMachineFocus ? null : machineDashboardRows.length === 0 ? (
+          {mesDashboardTab === "live" && (!mesDashboardCustomization.showMachineFocus ? null : machineDashboardRows.length === 0 ? (
             <p className="hint">Pre túto firmu zatiaľ nie sú založené stroje, pracoviská alebo MES job runy.</p>
           ) : (
             <>
@@ -20369,8 +20526,8 @@ function App() {
             ))}
           </div>
             </>
-          )}
-          {mesDashboardCustomization.showMachineTable && machineDashboardRows.length > 0 && (
+          ))}
+          {mesDashboardTab === "live" && mesDashboardCustomization.showMachineTable && machineDashboardRows.length > 0 && (
           <article className="orders-panel-card workflow-card workflow-card-list">
             <div className="panel-head workflow-section-head">
               <div>
@@ -20463,7 +20620,7 @@ function App() {
             </article>
           )}
 
-          {mesDashboardCustomization.showThroughputQuality && machineDashboardRows.length > 0 && (
+          {mesDashboardTab === "analytics" && mesDashboardCustomization.showThroughputQuality && machineDashboardRows.length > 0 && (
           <div className="orders-layout workflow-grid">
             <div className="orders-column workflow-editor-column">
               <article className="orders-panel-card workflow-card workflow-card-list">
@@ -20549,18 +20706,40 @@ function App() {
           </div>
           )}
 
-          {mesDashboardCustomization.showAvailableOperators && machineDashboardRows.length > 0 && (
+          {mesDashboardTab === "live" &&
+            (mesDashboardCustomization.showAvailableOperators || mesDashboardCustomization.showActiveOperators) &&
+            machineDashboardRows.length > 0 && (
             <article className="orders-panel-card workflow-card workflow-card-list">
               <div className="panel-head workflow-section-head">
                 <div>
-                  <h2>Dostupní operátori</h2>
-                  <p className="panel-meta">Aktívni operátori firmy z attendance profilov, obohatení o aktuálny MES stav.</p>
+                  <h2>Operátori</h2>
+                  <p className="panel-meta">Jednotný prehľad operátorov z attendance a MES session.</p>
                 </div>
                 <div className="hero-badges">
-                  <span className="panel-meta">{`${mesAvailableOperatorRows.length} evidovaných`}</span>
-                  <span className="panel-meta">
-                    {`${mesAvailableOperatorRows.filter((operator) => operator.isActiveInMes).length} práve vo výrobe`}
-                  </span>
+                  <div className="stock-view-switch">
+                    <button
+                      type="button"
+                      className={`clear-btn ${mesOperatorPresenceFilter === "all" ? "stock-view-btn-active" : ""}`}
+                      onClick={() => setMesOperatorPresenceFilter("all")}
+                    >
+                      Všetci
+                    </button>
+                    <button
+                      type="button"
+                      className={`clear-btn ${mesOperatorPresenceFilter === "active" ? "stock-view-btn-active" : ""}`}
+                      onClick={() => setMesOperatorPresenceFilter("active")}
+                    >
+                      Aktívni
+                    </button>
+                    <button
+                      type="button"
+                      className={`clear-btn ${mesOperatorPresenceFilter === "available" ? "stock-view-btn-active" : ""}`}
+                      onClick={() => setMesOperatorPresenceFilter("available")}
+                    >
+                      Dostupní
+                    </button>
+                  </div>
+                  <span className="panel-meta">{`${filteredMesUnifiedOperators.filter((operator) => operator.isActiveInMes).length} aktívnych / ${filteredMesUnifiedOperators.length}`}</span>
                   <span className="panel-meta">
                     {mesLatestLoggedInOperator?.operatorName
                       ? `Posledné prihlásenie: ${mesLatestLoggedInOperator.operatorName}${mesLatestLoggedInOperator.happenedAt ? ` | ${formatDate(mesLatestLoggedInOperator.happenedAt)}` : ""}`
@@ -20568,19 +20747,19 @@ function App() {
                   </span>
                 </div>
               </div>
-              {mesAvailableOperatorRows.length === 0 ? (
-                <p className="hint">Nie sú dostupné žiadne aktívne attendance profily pre operátorov.</p>
+              {filteredMesUnifiedOperators.length === 0 ? (
+                <p className="hint">Pre zvolený filter zatiaľ nie sú dostupní žiadni operátori.</p>
               ) : (
                 <div className="orders-list attendance-list mes-operator-list">
-                  {mesAvailableOperatorRows.map((operator) => (
-                    <article key={operator.profileId || operator.linkedUserId || operator.fullName} className="order-card attendance-card mes-operator-card">
+                  {filteredMesUnifiedOperators.map((operator) => (
+                    <article key={operator.key} className="order-card attendance-card mes-operator-card">
                       <div className="order-card-head attendance-card-head mes-operator-card-head">
                         <div>
-                          <strong>{operator.fullName}</strong>
-                          <p>{operator.employeeCode || "Bez evidenčného čísla"}</p>
+                          <strong>{operator.operatorName}</strong>
+                          <p>{operator.employeeCode || operator.currentMachineName || "Bez aktívneho stroja"}</p>
                         </div>
                         <div className="attendance-card-pills">
-                          <span className="table-badge">{operator.isActiveInMes ? "vo výrobe" : "dostupný"}</span>
+                          <span className="table-badge">{operator.isActiveInMes ? "aktívny" : "dostupný"}</span>
                         </div>
                       </div>
                       <div className="order-detail attendance-card-body">
@@ -20601,90 +20780,14 @@ function App() {
                             <span className="draft-field-label">Posledná aktivita</span>
                             <p>{operator.lastSeenAt ? formatDate(operator.lastSeenAt) : "-"}</p>
                           </div>
-                        </div>
-                        {canAccessAttendanceModule && operator.fullName && (
-                          <div className="order-card-actions">
-                            <button
-                              type="button"
-                              className="clear-btn"
-                              onClick={() => {
-                                setAttendanceProfileSearch(operator.fullName || "");
-                                setSelectedTable(ROLE_TABLE);
-                              }}
-                            >
-                              Zamestnanec
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </article>
-          )}
-
-          {mesDashboardCustomization.showActiveOperators && machineDashboardRows.length > 0 && (
-            <article className="orders-panel-card workflow-card workflow-card-list">
-              <div className="panel-head workflow-section-head">
-              <div>
-                <h2>Aktívni operátori</h2>
-                <p className="panel-meta">Len aktuálny stroj, zákazka a základné údaje o aktívnej session.</p>
-              </div>
-                <div className="hero-badges">
-                  <span className="panel-meta">{`${mesOperatorSummary.activeOperators} aktívnych / ${mesOperatorSummary.totalOperators}`}</span>
-                  <span className="panel-meta">
-                    {mesLatestLoggedInOperator?.operatorName
-                      ? `Posledné prihlásenie: ${mesLatestLoggedInOperator.operatorName}${mesLatestLoggedInOperator.happenedAt ? ` | ${formatDate(mesLatestLoggedInOperator.happenedAt)}` : ""}`
-                      : "Posledné prihlásenie: -"}
-                  </span>
-                </div>
-              </div>
-              {mesOperatorRows.length === 0 ? (
-                <p className="hint">V MES eventoch zatiaľ nie sú evidovaní žiadni operátori.</p>
-              ) : (
-                <div className="orders-list attendance-list mes-operator-list">
-                  {mesOperatorRows.map((operator) => (
-              <article key={operator.key} className="order-card attendance-card mes-operator-card">
-                <div className="order-card-head attendance-card-head mes-operator-card-head">
-                  <div>
-                    <strong>{operator.operatorName}</strong>
-                    <p>{operator.profile?.employee_code || operator.currentMachineName || "Bez aktívneho stroja"}</p>
-                  </div>
-                  <div className="attendance-card-pills">
-                    <span className="table-badge">{operator.activeRunCount > 0 ? "aktívny" : "bez runu"}</span>
-                  </div>
-                </div>
-                <div className="order-detail attendance-card-body">
-                  <div className="attendance-meta-grid mes-terminal-meta-grid">
-                    <div>
-                            <span className="draft-field-label">Stroj</span>
-                            <p>{operator.currentMachineName || "-"}</p>
+                          <div>
+                            <span className="draft-field-label">OK kusy</span>
+                            <p>{new Intl.NumberFormat("sk-SK").format(operator.sessionGoodParts)}</p>
                           </div>
                           <div>
-                      <span className="draft-field-label">Zákazka</span>
-                      <p>{operator.currentWorkOrder || "-"}</p>
-                    </div>
-                    <div>
-                      <span className="draft-field-label">Session od</span>
-                      <p>{operator.sessionStartedAt ? formatDate(operator.sessionStartedAt) : "-"}</p>
-                    </div>
-                    <div>
-                      <span className="draft-field-label">Posledná aktivita</span>
-                      <p>{operator.lastSeenAt ? formatDate(operator.lastSeenAt) : "-"}</p>
-                    </div>
-                    <div>
-                      <span className="draft-field-label">OK kusy</span>
-                      <p>{new Intl.NumberFormat("sk-SK").format(operator.sessionGoodParts)}</p>
-                    </div>
-                    <div>
-                      <span className="draft-field-label">NOK kusy</span>
-                      <p>{new Intl.NumberFormat("sk-SK").format(operator.sessionScrapParts)}</p>
-                    </div>
-                    <div>
-                      <span className="draft-field-label">Vyrobené kusy</span>
-                      <p>{new Intl.NumberFormat("sk-SK").format(operator.sessionProducedParts)}</p>
-                    </div>
+                            <span className="draft-field-label">NOK kusy</span>
+                            <p>{new Intl.NumberFormat("sk-SK").format(operator.sessionScrapParts)}</p>
+                          </div>
                         </div>
                         {canAccessAttendanceModule && operator.operatorName && (
                           <div className="order-card-actions">
@@ -20708,7 +20811,48 @@ function App() {
             </article>
           )}
 
-          {mesDashboardCustomization.showFactoryMap && mesViewRole !== "operator" && (
+          {mesDashboardTab === "analytics" && (
+            <article className="orders-panel-card workflow-card workflow-card-list">
+              <div className="panel-head workflow-section-head">
+                <div>
+                  <h2>Opakujúce sa eventy</h2>
+                  <p className="panel-meta">Najčastejšie opakovania podľa typu eventu, dôvodu a stroja, vrátane priemernej frekvencie.</p>
+                </div>
+              </div>
+              {mesRecurringEventRows.length === 0 ? (
+                <p className="hint">Zatiaľ nie sú zachytené opakujúce sa eventy (min. 2 výskyty).</p>
+              ) : (
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Event</th>
+                        <th>Stroj</th>
+                        <th>Dôvod</th>
+                        <th>Počet</th>
+                        <th>Frekvencia</th>
+                        <th>Naposledy</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {mesRecurringEventRows.map((row) => (
+                        <tr key={row.key}>
+                          <td>{row.eventType}</td>
+                          <td>{row.machineLabel}</td>
+                          <td>{row.reason}</td>
+                          <td>{new Intl.NumberFormat("sk-SK").format(row.count)}</td>
+                          <td>{row.frequencyLabel}</td>
+                          <td>{row.lastSeenAt ? formatDate(row.lastSeenAt) : "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </article>
+          )}
+
+          {mesDashboardTab === "map" && mesDashboardCustomization.showFactoryMap && mesViewRole !== "operator" && (
             <div className="orders-layout workflow-grid">
               <div className="orders-column workflow-editor-column">
                 <article className="orders-panel-card workflow-card workflow-card-list">
@@ -20892,7 +21036,7 @@ function App() {
             {isCompanyAdmin && <span className="table-badge">firemný admin</span>}
           </div>
 
-          {isMaster && (
+          {isMaster && !isProductionModule(selectedTable) && (
             <label className="sidebar-company-switch">
               <span>Firma</span>
               <select value={selectedCompanyId} onChange={(event) => handleCompanyScopeChange(event.target.value)}>

@@ -2937,6 +2937,117 @@ select {
   gap: 0.6rem;
 }
 
+.mes-terminal-grid-shell {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 0.25rem;
+  padding: 0.7rem;
+  border: 1px dashed #cbd7e4;
+  border-radius: 12px;
+  background: rgba(250, 252, 255, 0.88);
+}
+
+.mes-terminal-grid-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.mes-terminal-grid-head strong {
+  color: #17324a;
+  font-size: 0.9rem;
+}
+
+.mes-terminal-grid-head span {
+  color: #5f7184;
+  font-size: 0.78rem;
+}
+
+.mes-terminal-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.mes-terminal-cell {
+  min-height: 66px;
+  border: 1px dashed #c4d3e4;
+  border-radius: 10px;
+  padding: 0.22rem;
+  display: grid;
+  place-items: center;
+  background: #f7fbff;
+}
+
+.mes-terminal-cell small {
+  color: #90a0b0;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.mes-terminal-cell.has-terminal {
+  border-style: solid;
+  border-color: #b8cbe0;
+  background: #eef6ff;
+}
+
+.mes-terminal-cell.is-editable {
+  background: #f2f8ff;
+}
+
+.mes-terminal-chip {
+  width: 100%;
+  display: grid;
+  gap: 0.12rem;
+  padding: 0.38rem 0.44rem;
+  border-radius: 8px;
+  border: 1px solid #c2d4e8;
+  background: #ffffff;
+  cursor: default;
+}
+
+.mes-terminal-chip strong {
+  font-size: 0.76rem;
+  color: #17324a;
+}
+
+.mes-terminal-chip span {
+  font-size: 0.7rem;
+  color: #5f7184;
+}
+
+.mes-terminal-chip.is-online {
+  border-color: #b4e1c4;
+  background: #e9f9ef;
+}
+
+.mes-terminal-chip.is-offline {
+  border-color: #e6d0b4;
+  background: #fff3e6;
+}
+
+.mes-terminal-chip.is-readonly {
+  opacity: 0.9;
+}
+
+.mes-terminal-unpin-btn {
+  justify-self: end;
+  padding: 0.18rem 0.4rem;
+  font-size: 0.68rem;
+}
+
+.mes-terminal-pool {
+  display: grid;
+  gap: 0.38rem;
+}
+
+.mes-terminal-pool-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.45rem;
+}
+
 .mes-factory-tile {
   display: grid;
   gap: 0.2rem;
@@ -7721,6 +7832,14 @@ tbody tr:nth-child(even) {
 
   .clear-btn {
     width: 100%;
+  }
+
+  .mes-terminal-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .mes-terminal-cell {
+    min-height: 74px;
   }
 
   table {

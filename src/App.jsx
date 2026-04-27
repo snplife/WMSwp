@@ -459,7 +459,6 @@ const PENDING_COMPANY_INVITE_STORAGE_KEY = "wms_pending_company_invite";
 const PENDING_COMPANY_ADMIN_SETUP_STORAGE_KEY = "wms_pending_company_admin_setup";
 const COMPANY_ADMIN_SETUP_STORAGE_KEY = "wms_company_admin_setup";
 const COMPANY_HARDWARE_PRICE_CATALOG_STORAGE_KEY = "wms_company_hardware_price_catalog";
-const MES_DASHBOARD_CUSTOMIZATION_STORAGE_KEY_PREFIX = "wms_mes_dashboard_customization";
 const MES_DASHBOARD_DEFAULT_KPI_KEYS = [
   "running",
   "stopped",
@@ -471,6 +470,8 @@ const MES_DASHBOARD_DEFAULT_KPI_KEYS = [
   "oee",
   "rejectRate"
 ];
+const MES_FACTORY_TERMINAL_GRID_ROWS = 4;
+const MES_FACTORY_TERMINAL_GRID_COLS = 6;
 const DEFAULT_MES_DASHBOARD_CUSTOMIZATION = {
   showMachineFocus: true,
   showMachineTable: true,
@@ -478,7 +479,8 @@ const DEFAULT_MES_DASHBOARD_CUSTOMIZATION = {
   showAvailableOperators: true,
   showActiveOperators: true,
   showFactoryMap: true,
-  visibleKpis: MES_DASHBOARD_DEFAULT_KPI_KEYS
+  visibleKpis: MES_DASHBOARD_DEFAULT_KPI_KEYS,
+  terminalMapLayout: {}
 };
 const COMPANY_WAREHOUSES_TABLE = "company_warehouses";
 const INVOICE_STYLE_OPTIONS = [
@@ -1216,6 +1218,21 @@ function normalizeMesDashboardCustomization(value) {
   const visibleKpis = Array.from(new Set(rawKpis.map((item) => String(item || "").trim()).filter(Boolean))).filter((key) =>
     MES_DASHBOARD_DEFAULT_KPI_KEYS.includes(key)
   );
+  const rawTerminalMapLayout = source.terminalMapLayout && typeof source.terminalMapLayout === "object" ? source.terminalMapLayout : {};
+  const terminalMapLayout = {};
+  Object.entries(rawTerminalMapLayout).forEach(([terminalId, placement]) => {
+    const normalizedTerminalId = String(terminalId || "").trim();
+    const area = String(placement?.area || "").trim();
+    const row = Number.parseInt(String(placement?.row ?? ""), 10);
+    const col = Number.parseInt(String(placement?.col ?? ""), 10);
+    if (!normalizedTerminalId || !area || !Number.isFinite(row) || !Number.isFinite(col)) {
+      return;
+    }
+    if (row < 1 || row > MES_FACTORY_TERMINAL_GRID_ROWS || col < 1 || col > MES_FACTORY_TERMINAL_GRID_COLS) {
+      return;
+    }
+    terminalMapLayout[normalizedTerminalId] = { area, row, col };
+  });
   return {
     showMachineFocus: source.showMachineFocus !== false,
     showMachineTable: source.showMachineTable !== false,
@@ -1223,7 +1240,8 @@ function normalizeMesDashboardCustomization(value) {
     showAvailableOperators: source.showAvailableOperators !== false,
     showActiveOperators: source.showActiveOperators !== false,
     showFactoryMap: source.showFactoryMap !== false,
-    visibleKpis: visibleKpis.length > 0 ? visibleKpis : [...MES_DASHBOARD_DEFAULT_KPI_KEYS]
+    visibleKpis: visibleKpis.length > 0 ? visibleKpis : [...MES_DASHBOARD_DEFAULT_KPI_KEYS],
+    terminalMapLayout
   };
 }
 
@@ -6184,6 +6202,7 @@ function App() {
   const [mesLoading, setMesLoading] = useState(false);
   const [mesError, setMesError] = useState("");
   const [isMesSettingsModalOpen, setIsMesSettingsModalOpen] = useState(false);
+  const [isMesMapEditMode, setIsMesMapEditMode] = useState(false);
   const [mesDashboardCustomization, setMesDashboardCustomization] = useState(() => ({ ...DEFAULT_MES_DASHBOARD_CUSTOMIZATION }));
   const [mesNowTs, setMesNowTs] = useState(() => Date.now());
   const [mesOeeRangeKey, setMesOeeRangeKey] = useState("current_shift");
@@ -6338,11 +6357,6 @@ function App() {
   }, [isLoggedIn, activeCompanyId, isMaster, canManageOrders]);
   const canAccessMesModule =
     isMaster || (canAccessMes && Boolean(activeCompanyId || userCompanyId || activeCompany?.id));
-  const mesDashboardCustomizationStorageKey = useMemo(() => {
-    const normalizedUserId = String(authUser?.id || "guest").trim() || "guest";
-    const normalizedCompanyId = String(activeCompanyId || userCompanyId || "all").trim() || "all";
-    return `${MES_DASHBOARD_CUSTOMIZATION_STORAGE_KEY_PREFIX}:${normalizedUserId}:${normalizedCompanyId}`;
-  }, [authUser?.id, activeCompanyId, userCompanyId]);
   useEffect(() => {
     if (!canAccessMesModule || !isProductionModule(selectedTable)) {
       return undefined;
@@ -6353,15 +6367,11 @@ function App() {
     return () => window.clearInterval(intervalId);
   }, [canAccessMesModule, selectedTable]);
   useEffect(() => {
-    const stored = readStoredJson(mesDashboardCustomizationStorageKey);
     const remoteLayout = activeCompanyProfile?.mes_dashboard_layout;
-    const nextLayout = hasMesDashboardCustomizationValue(remoteLayout) ? remoteLayout : stored;
+    const nextLayout = hasMesDashboardCustomizationValue(remoteLayout) ? remoteLayout : DEFAULT_MES_DASHBOARD_CUSTOMIZATION;
     setMesDashboardCustomization(normalizeMesDashboardCustomization(nextLayout));
     mesDashboardCustomizationHydratedRef.current = true;
-  }, [mesDashboardCustomizationStorageKey, activeCompanyProfile?.mes_dashboard_layout]);
-  useEffect(() => {
-    writeStoredJson(mesDashboardCustomizationStorageKey, mesDashboardCustomization);
-  }, [mesDashboardCustomizationStorageKey, mesDashboardCustomization]);
+  }, [activeCompanyProfile?.mes_dashboard_layout]);
   useEffect(() => {
     if (!mesDashboardCustomizationHydratedRef.current || !authReady || !isLoggedIn || !activeCompanyId || !canAccessMesModule) {
       return undefined;
@@ -6425,6 +6435,11 @@ function App() {
       setIsMesSettingsModalOpen(false);
     }
   }, [selectedTable, isMesSettingsModalOpen]);
+  useEffect(() => {
+    if (!isProductionModule(selectedTable) && isMesMapEditMode) {
+      setIsMesMapEditMode(false);
+    }
+  }, [selectedTable, isMesMapEditMode]);
   const visibleTableNames = useMemo(() => {
     if (isMaster) {
       return Array.from(
@@ -19543,6 +19558,115 @@ function App() {
       { key: "rejectRate", label: "Zmetkovitosť" },
       { key: "activeOperators", label: "Aktívni operátori" }
     ];
+    const handleMesTerminalDragStart = (event, terminalId) => {
+      if (!isMesMapEditMode) {
+        return;
+      }
+      const normalizedTerminalId = String(terminalId || "").trim();
+      if (!normalizedTerminalId) {
+        return;
+      }
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/mes-terminal-id", normalizedTerminalId);
+    };
+    const handleMesTerminalDrop = (event, area, row, col) => {
+      if (!isMesMapEditMode) {
+        return;
+      }
+      event.preventDefault();
+      const terminalId = String(event.dataTransfer.getData("text/mes-terminal-id") || "").trim();
+      if (!terminalId || !String(area || "").trim()) {
+        return;
+      }
+      setMesDashboardCustomization((current) => ({
+        ...current,
+        terminalMapLayout: {
+          ...(current.terminalMapLayout || {}),
+          [terminalId]: {
+            area: String(area || "").trim(),
+            row: Math.min(MES_FACTORY_TERMINAL_GRID_ROWS, Math.max(1, Number(row || 1))),
+            col: Math.min(MES_FACTORY_TERMINAL_GRID_COLS, Math.max(1, Number(col || 1)))
+          }
+        }
+      }));
+    };
+    const handleMesTerminalPlacementReset = (terminalId) => {
+      const normalizedTerminalId = String(terminalId || "").trim();
+      if (!normalizedTerminalId) {
+        return;
+      }
+      setMesDashboardCustomization((current) => {
+        const nextLayout = { ...(current.terminalMapLayout || {}) };
+        delete nextLayout[normalizedTerminalId];
+        return {
+          ...current,
+          terminalMapLayout: nextLayout
+        };
+      });
+    };
+    const mesFactoryMapZones = (() => {
+      const zonesByArea = {};
+      mesFactoryMap.forEach((zone) => {
+        const areaKey = String(zone.area || "Výroba").trim() || "Výroba";
+        zonesByArea[areaKey] = {
+          area: areaKey,
+          machines: Array.isArray(zone.machines) ? zone.machines : [],
+          terminals: [],
+          placedTerminalByCell: {},
+          unplacedTerminals: []
+        };
+      });
+      (mesTerminals || []).forEach((terminal) => {
+        const terminalId = String(terminal?.id || "").trim();
+        if (!terminalId) {
+          return;
+        }
+        const placement = mesDashboardCustomization.terminalMapLayout?.[terminalId] || null;
+        const workstation = terminal?.workstation_id ? mesWorkstationsById[terminal.workstation_id] || null : null;
+        const area = String(placement?.area || workstation?.area || "Bez zóny").trim() || "Bez zóny";
+        if (!zonesByArea[area]) {
+          zonesByArea[area] = {
+            area,
+            machines: [],
+            terminals: [],
+            placedTerminalByCell: {},
+            unplacedTerminals: []
+          };
+        }
+        const zone = zonesByArea[area];
+        const normalizedTerminal = {
+          ...terminal,
+          terminalId,
+          workstationLabel: workstation?.name || workstation?.code || "Nepriradené pracovisko",
+          isOnline: isMesTerminalOnline(terminal.last_seen_at)
+        };
+        zone.terminals.push(normalizedTerminal);
+      });
+      Object.values(zonesByArea).forEach((zone) => {
+        (zone.terminals || []).forEach((terminal) => {
+          const placement = mesDashboardCustomization.terminalMapLayout?.[terminal.terminalId] || null;
+          const row = Number.parseInt(String(placement?.row ?? ""), 10);
+          const col = Number.parseInt(String(placement?.col ?? ""), 10);
+          const cellKey = `${row}:${col}`;
+          if (
+            placement &&
+            String(placement.area || "").trim() === zone.area &&
+            Number.isFinite(row) &&
+            Number.isFinite(col) &&
+            row >= 1 &&
+            row <= MES_FACTORY_TERMINAL_GRID_ROWS &&
+            col >= 1 &&
+            col <= MES_FACTORY_TERMINAL_GRID_COLS &&
+            !zone.placedTerminalByCell[cellKey]
+          ) {
+            zone.placedTerminalByCell[cellKey] = terminal;
+          } else {
+            zone.unplacedTerminals.push(terminal);
+          }
+        });
+      });
+      return Object.values(zonesByArea).sort((a, b) => String(a.area).localeCompare(String(b.area), "sk-SK", { sensitivity: "base" }));
+    })();
     return (
       <article className="orders-panel-card workflow-card workflow-card-list mes-dashboard-card">
       <div className="panel-head workflow-section-head">
@@ -20591,15 +20715,32 @@ function App() {
                   <div className="panel-head workflow-section-head">
                     <div>
                     <h2>Mapa výroby</h2>
-                    <p className="panel-meta">Voliteľný prevádzkový pohľad s farebnými dlaždicami podľa stavu stroja.</p>
+                    <p className="panel-meta">Voliteľný prevádzkový pohľad s farebnými dlaždicami strojov a mapou terminálov na mriežke.</p>
+                    </div>
+                    <div className="order-card-actions">
+                      <button type="button" className="clear-btn" onClick={() => setIsMesMapEditMode((current) => !current)}>
+                        {isMesMapEditMode ? "Ukončiť úpravy mapy" : "Upraviť mapu"}
+                      </button>
+                      <button
+                        type="button"
+                        className="clear-btn"
+                        onClick={() =>
+                          setMesDashboardCustomization((current) => ({
+                            ...current,
+                            terminalMapLayout: {}
+                          }))
+                        }
+                      >
+                        Reset mapy terminálov
+                      </button>
                     </div>
                   </div>
                   <div className="mes-factory-map">
-                    {mesFactoryMap.map((zone) => (
+                    {mesFactoryMapZones.map((zone) => (
                       <section key={zone.area} className="mes-factory-zone">
                         <div className="mes-factory-zone-head">
                           <strong>{zone.area}</strong>
-                          <span>{`${zone.machines.length} strojov`}</span>
+                          <span>{`${zone.machines.length} strojov | ${zone.terminals.length} terminálov`}</span>
                         </div>
                         <div className="mes-factory-zone-grid">
                           {zone.machines.map((machine) => (
@@ -20613,6 +20754,74 @@ function App() {
                               <span>{machine.currentWorkOrder || machine.statusMeta.label}</span>
                             </button>
                           ))}
+                        </div>
+                        <div className="mes-terminal-grid-shell">
+                          <div className="mes-terminal-grid-head">
+                            <strong>Mapa terminálov</strong>
+                            <span>{isMesMapEditMode ? "Drag & drop režim je zapnutý" : "Zapni úpravy mapy pre presun terminálov"}</span>
+                          </div>
+                          <div className="mes-terminal-grid">
+                            {Array.from({ length: MES_FACTORY_TERMINAL_GRID_ROWS * MES_FACTORY_TERMINAL_GRID_COLS }, (_, index) => {
+                              const row = Math.floor(index / MES_FACTORY_TERMINAL_GRID_COLS) + 1;
+                              const col = (index % MES_FACTORY_TERMINAL_GRID_COLS) + 1;
+                              const cellKey = `${row}:${col}`;
+                              const placedTerminal = zone.placedTerminalByCell[cellKey] || null;
+                              return (
+                                <div
+                                  key={`${zone.area}-${cellKey}`}
+                                  className={`mes-terminal-cell${placedTerminal ? " has-terminal" : ""}${isMesMapEditMode ? " is-editable" : ""}`}
+                                  onDragOver={(event) => {
+                                    if (!isMesMapEditMode) {
+                                      return;
+                                    }
+                                    event.preventDefault();
+                                    event.dataTransfer.dropEffect = "move";
+                                  }}
+                                  onDrop={(event) => handleMesTerminalDrop(event, zone.area, row, col)}
+                                >
+                                  {placedTerminal ? (
+                                    <div
+                                      className={`mes-terminal-chip ${placedTerminal.isOnline ? "is-online" : "is-offline"}`}
+                                      draggable={isMesMapEditMode}
+                                      onDragStart={(event) => handleMesTerminalDragStart(event, placedTerminal.terminalId)}
+                                    >
+                                      <strong>{placedTerminal.name || placedTerminal.terminal_code || "Terminál"}</strong>
+                                      <span>{placedTerminal.workstationLabel}</span>
+                                      {isMesMapEditMode && (
+                                        <button
+                                          type="button"
+                                          className="clear-btn mes-terminal-unpin-btn"
+                                          onClick={() => handleMesTerminalPlacementReset(placedTerminal.terminalId)}
+                                        >
+                                          Odopnúť
+                                        </button>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <small>{`${row}:${col}`}</small>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                          {zone.unplacedTerminals.length > 0 && (
+                            <div className="mes-terminal-pool">
+                              <p className="panel-meta">Neumiestnené terminály</p>
+                              <div className="mes-terminal-pool-list">
+                                {zone.unplacedTerminals.map((terminal) => (
+                                  <div
+                                    key={`${zone.area}-${terminal.terminalId}`}
+                                    className={`mes-terminal-chip ${terminal.isOnline ? "is-online" : "is-offline"}${isMesMapEditMode ? "" : " is-readonly"}`}
+                                    draggable={isMesMapEditMode}
+                                    onDragStart={(event) => handleMesTerminalDragStart(event, terminal.terminalId)}
+                                  >
+                                    <strong>{terminal.name || terminal.terminal_code || "Terminál"}</strong>
+                                    <span>{terminal.workstationLabel}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </section>
                     ))}
@@ -20771,6 +20980,7 @@ function App() {
       </aside>
 
       <div className="dashboard-main">
+      {!isProductionModule(selectedTable) && (
       <section className="hero dashboard-hero">
         <div className="hero-grid">
           <div className="hero-primary">
@@ -20887,6 +21097,7 @@ function App() {
           </div>
         </div>
       </section>
+      )}
 
       {shouldShowLeadContactNotice && (
         <section className="panel">

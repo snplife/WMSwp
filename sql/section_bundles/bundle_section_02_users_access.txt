@@ -16,6 +16,7 @@ create table if not exists public.app_users (
   username text not null,
   role text not null check (role in ('master', 'user')),
   can_manage_orders boolean not null default false,
+  can_access_attendance boolean not null default false,
   company_id uuid references public.companies (id),
   created_by uuid references auth.users (id),
   db_url text,
@@ -28,6 +29,7 @@ alter table public.app_users add column if not exists email text;
 alter table public.app_users add column if not exists username text;
 alter table public.app_users add column if not exists role text;
 alter table public.app_users add column if not exists can_manage_orders boolean not null default false;
+alter table public.app_users add column if not exists can_access_attendance boolean not null default false;
 alter table public.app_users add column if not exists company_id uuid references public.companies (id);
 alter table public.app_users add column if not exists created_by uuid references auth.users (id);
 alter table public.app_users add column if not exists db_url text;
@@ -55,8 +57,16 @@ set can_manage_orders = true
 where role = 'master';
 
 update public.app_users
+set can_access_attendance = true
+where role = 'master';
+
+update public.app_users
 set can_manage_orders = false
 where can_manage_orders is null;
+
+update public.app_users
+set can_access_attendance = false
+where can_access_attendance is null;
 
 alter table public.app_users
   drop constraint if exists app_users_role_check;
@@ -87,6 +97,9 @@ create index if not exists idx_app_users_company
 
 create index if not exists idx_app_users_can_manage_orders
   on public.app_users (can_manage_orders);
+
+create index if not exists idx_app_users_can_access_attendance
+  on public.app_users (can_access_attendance);
 
 create or replace function public.touch_app_users_updated_at()
 returns trigger
@@ -146,6 +159,21 @@ as $$
   );
 $$;
 
+create or replace function public.can_access_attendance(uid uuid default auth.uid())
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.app_users
+    where user_id = uid
+      and (role = 'master' or can_access_attendance = true)
+  );
+$$;
+
 create or replace function public.can_bootstrap_master(target_user_id uuid, target_role text)
 returns boolean
 language sql
@@ -166,6 +194,7 @@ $$;
 grant execute on function public.is_master(uuid) to authenticated;
 grant execute on function public.user_company_id(uuid) to authenticated;
 grant execute on function public.can_manage_orders(uuid) to authenticated;
+grant execute on function public.can_access_attendance(uuid) to authenticated;
 grant execute on function public.can_bootstrap_master(uuid, text) to authenticated;
 
 alter table public.app_users enable row level security;
@@ -405,7 +434,7 @@ grant execute on function public.wms_repair_users_without_company(uuid) to authe
 -- 23_wms_users_checks.txt
 
 -- user rows
-select user_id, email, username, role, can_manage_orders, company_id, created_at, updated_at
+select user_id, email, username, role, can_manage_orders, can_access_attendance, company_id, created_at, updated_at
 from public.app_users
 order by created_at desc;
 
@@ -429,6 +458,7 @@ having count(*) > 1;
 select public.is_master(auth.uid()) as is_master_now;
 select public.user_company_id(auth.uid()) as user_company_now;
 select public.can_manage_orders(auth.uid()) as can_manage_orders_now;
+select public.can_access_attendance(auth.uid()) as can_access_attendance_now;
 
 -- company capacity sanity
 select id, name, max_positions, tracks_expiry_date
@@ -445,6 +475,9 @@ where role = 'user' and company_id is null;
 alter table if exists public.app_users
   add column if not exists can_access_mes boolean not null default false;
 
+alter table if exists public.app_users
+  add column if not exists can_access_attendance boolean not null default false;
+
 alter table if exists public.company_profiles
   add column if not exists invoice_due_days integer not null default 14;
 
@@ -457,6 +490,9 @@ alter table if exists public.company_profiles
 alter table if exists public.company_profiles
   add column if not exists invoice_style text not null default 'clean';
 
+alter table if exists public.company_profiles
+  add column if not exists mes_dashboard_layout jsonb not null default '{}'::jsonb;
+
 create table if not exists public.company_invites (
   id uuid primary key default gen_random_uuid(),
   company_id uuid not null references public.companies (id) on delete cascade,
@@ -465,6 +501,7 @@ create table if not exists public.company_invites (
   role text not null default 'user' check (role in ('user')),
   can_manage_orders boolean not null default false,
   can_access_mes boolean not null default false,
+  can_access_attendance boolean not null default false,
   status text not null default 'pending' check (status in ('pending', 'accepted', 'revoked')),
   expires_at timestamptz not null default (now() + interval '7 days'),
   accepted_at timestamptz,
@@ -473,6 +510,9 @@ create table if not exists public.company_invites (
   created_by uuid references auth.users (id) on delete set null,
   created_at timestamptz not null default now()
 );
+
+alter table if exists public.company_invites
+  add column if not exists can_access_attendance boolean not null default false;
 
 create unique index if not exists idx_company_invites_token_unique
   on public.company_invites (token);
@@ -641,6 +681,7 @@ begin
     role,
     can_manage_orders,
     can_access_mes,
+    can_access_attendance,
     company_id,
     created_by
   )
@@ -651,6 +692,7 @@ begin
     'user',
     true,
     false,
+    false,
     v_company_id,
     v_user_id
   )
@@ -659,7 +701,8 @@ begin
         username = excluded.username,
         company_id = excluded.company_id,
         can_manage_orders = true,
-        can_access_mes = false;
+        can_access_mes = false,
+        can_access_attendance = false;
 
   return jsonb_build_object(
     'company_id', v_company_id,
@@ -755,6 +798,7 @@ begin
     role,
     can_manage_orders,
     can_access_mes,
+    can_access_attendance,
     company_id,
     created_by
   )
@@ -765,6 +809,7 @@ begin
     'user',
     v_invite.can_manage_orders,
     v_invite.can_access_mes,
+    v_invite.can_access_attendance,
     v_invite.company_id,
     coalesce(v_invite.created_by, v_user_id)
   )
@@ -773,7 +818,8 @@ begin
         username = excluded.username,
         company_id = excluded.company_id,
         can_manage_orders = excluded.can_manage_orders,
-        can_access_mes = excluded.can_access_mes;
+        can_access_mes = excluded.can_access_mes,
+        can_access_attendance = excluded.can_access_attendance;
 
   update public.company_invites
   set status = 'accepted',

@@ -1287,6 +1287,34 @@ select {
   align-items: end;
 }
 
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.7rem;
+}
+
+.settings-checkbox {
+  display: grid;
+  gap: 0.22rem;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #dbe6f2;
+  border-radius: 12px;
+  background: #f8fbff;
+}
+
+.settings-checkbox input {
+  margin-top: 0.15rem;
+}
+
+.settings-checkbox span {
+  display: grid;
+  gap: 0.12rem;
+  color: #1a3550;
+  font-weight: 700;
+}
+
 .stock-twin-layout-nudge {
   display: grid;
   gap: 0.35rem;
@@ -3232,6 +3260,12 @@ select {
   padding: 1rem;
   position: relative;
   overflow: hidden;
+}
+
+.mes-settings-modal {
+  width: min(920px, 100%);
+  max-height: 88vh;
+  overflow: auto;
 }
 
 .settings-modal::before {

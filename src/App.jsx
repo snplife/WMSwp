@@ -459,6 +459,27 @@ const PENDING_COMPANY_INVITE_STORAGE_KEY = "wms_pending_company_invite";
 const PENDING_COMPANY_ADMIN_SETUP_STORAGE_KEY = "wms_pending_company_admin_setup";
 const COMPANY_ADMIN_SETUP_STORAGE_KEY = "wms_company_admin_setup";
 const COMPANY_HARDWARE_PRICE_CATALOG_STORAGE_KEY = "wms_company_hardware_price_catalog";
+const MES_DASHBOARD_CUSTOMIZATION_STORAGE_KEY_PREFIX = "wms_mes_dashboard_customization";
+const MES_DASHBOARD_DEFAULT_KPI_KEYS = [
+  "running",
+  "stopped",
+  "activeOrders",
+  "productionRate",
+  "goodParts",
+  "scrapParts",
+  "onlineTerminals",
+  "oee",
+  "rejectRate"
+];
+const DEFAULT_MES_DASHBOARD_CUSTOMIZATION = {
+  showMachineFocus: true,
+  showMachineTable: true,
+  showThroughputQuality: true,
+  showAvailableOperators: true,
+  showActiveOperators: true,
+  showFactoryMap: true,
+  visibleKpis: MES_DASHBOARD_DEFAULT_KPI_KEYS
+};
 const COMPANY_WAREHOUSES_TABLE = "company_warehouses";
 const INVOICE_STYLE_OPTIONS = [
   { value: "clean", label: "Čistá" },
@@ -1187,6 +1208,36 @@ function removeStoredJson(key) {
   } catch {
     // Ignore storage failures.
   }
+}
+
+function normalizeMesDashboardCustomization(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const rawKpis = Array.isArray(source.visibleKpis) ? source.visibleKpis : [];
+  const visibleKpis = Array.from(new Set(rawKpis.map((item) => String(item || "").trim()).filter(Boolean))).filter((key) =>
+    MES_DASHBOARD_DEFAULT_KPI_KEYS.includes(key)
+  );
+  return {
+    showMachineFocus: source.showMachineFocus !== false,
+    showMachineTable: source.showMachineTable !== false,
+    showThroughputQuality: source.showThroughputQuality !== false,
+    showAvailableOperators: source.showAvailableOperators !== false,
+    showActiveOperators: source.showActiveOperators !== false,
+    showFactoryMap: source.showFactoryMap !== false,
+    visibleKpis: visibleKpis.length > 0 ? visibleKpis : [...MES_DASHBOARD_DEFAULT_KPI_KEYS]
+  };
+}
+
+function hasMesDashboardCustomizationValue(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function serializeMesDashboardCustomization(value) {
+  return JSON.stringify(normalizeMesDashboardCustomization(value));
+}
+
+function isMissingMesDashboardLayoutColumnError(error) {
+  const message = String(error?.message || "").toLowerCase();
+  return message.includes("mes_dashboard_layout") && (message.includes("does not exist") || message.includes("could not find"));
 }
 
 function normalizeInviteToken(value) {
@@ -4191,7 +4242,8 @@ function normalizeCompanyProfileRecord(row) {
     invoice_due_days: normalizeInvoiceDueDays(row.invoice_due_days ?? 14),
     invoice_style: normalizeInvoiceStyle(row.invoice_style),
     invoice_intro_text: String(row.invoice_intro_text || "").trim(),
-    invoice_outro_text: String(row.invoice_outro_text || "").trim()
+    invoice_outro_text: String(row.invoice_outro_text || "").trim(),
+    mes_dashboard_layout: normalizeMesDashboardCustomization(row.mes_dashboard_layout)
   };
 }
 
@@ -4212,7 +4264,8 @@ function buildEffectiveCompanyProfile(company, profile) {
     invoice_due_days: normalizeInvoiceDueDays(normalizedProfile?.invoice_due_days ?? 14),
     invoice_style: normalizeInvoiceStyle(normalizedProfile?.invoice_style),
     invoice_intro_text: String(normalizedProfile?.invoice_intro_text || "").trim(),
-    invoice_outro_text: String(normalizedProfile?.invoice_outro_text || "").trim()
+    invoice_outro_text: String(normalizedProfile?.invoice_outro_text || "").trim(),
+    mes_dashboard_layout: normalizeMesDashboardCustomization(normalizedProfile?.mes_dashboard_layout)
   };
 }
 
@@ -6130,6 +6183,8 @@ function App() {
   const [mesSupportsDeviceUid, setMesSupportsDeviceUid] = useState(false);
   const [mesLoading, setMesLoading] = useState(false);
   const [mesError, setMesError] = useState("");
+  const [isMesSettingsModalOpen, setIsMesSettingsModalOpen] = useState(false);
+  const [mesDashboardCustomization, setMesDashboardCustomization] = useState(() => ({ ...DEFAULT_MES_DASHBOARD_CUSTOMIZATION }));
   const [mesNowTs, setMesNowTs] = useState(() => Date.now());
   const [mesOeeRangeKey, setMesOeeRangeKey] = useState("current_shift");
   const [mesHourlyDowntimeShiftKey, setMesHourlyDowntimeShiftKey] = useState(() => {
@@ -6140,6 +6195,7 @@ function App() {
   const latestLoadRowsRequestRef = useRef(0);
   const latestMesOverviewRequestRef = useRef(0);
   const lastDataRefreshAtRef = useRef({});
+  const mesDashboardCustomizationHydratedRef = useRef(false);
   const companyLookupRequestRef = useRef(0);
   const companyProfileLookupRequestRef = useRef(0);
   const priceListImportInputRef = useRef(null);
@@ -6282,6 +6338,11 @@ function App() {
   }, [isLoggedIn, activeCompanyId, isMaster, canManageOrders]);
   const canAccessMesModule =
     isMaster || (canAccessMes && Boolean(activeCompanyId || userCompanyId || activeCompany?.id));
+  const mesDashboardCustomizationStorageKey = useMemo(() => {
+    const normalizedUserId = String(authUser?.id || "guest").trim() || "guest";
+    const normalizedCompanyId = String(activeCompanyId || userCompanyId || "all").trim() || "all";
+    return `${MES_DASHBOARD_CUSTOMIZATION_STORAGE_KEY_PREFIX}:${normalizedUserId}:${normalizedCompanyId}`;
+  }, [authUser?.id, activeCompanyId, userCompanyId]);
   useEffect(() => {
     if (!canAccessMesModule || !isProductionModule(selectedTable)) {
       return undefined;
@@ -6291,6 +6352,79 @@ function App() {
     }, 1000);
     return () => window.clearInterval(intervalId);
   }, [canAccessMesModule, selectedTable]);
+  useEffect(() => {
+    const stored = readStoredJson(mesDashboardCustomizationStorageKey);
+    const remoteLayout = activeCompanyProfile?.mes_dashboard_layout;
+    const nextLayout = hasMesDashboardCustomizationValue(remoteLayout) ? remoteLayout : stored;
+    setMesDashboardCustomization(normalizeMesDashboardCustomization(nextLayout));
+    mesDashboardCustomizationHydratedRef.current = true;
+  }, [mesDashboardCustomizationStorageKey, activeCompanyProfile?.mes_dashboard_layout]);
+  useEffect(() => {
+    writeStoredJson(mesDashboardCustomizationStorageKey, mesDashboardCustomization);
+  }, [mesDashboardCustomizationStorageKey, mesDashboardCustomization]);
+  useEffect(() => {
+    if (!mesDashboardCustomizationHydratedRef.current || !authReady || !isLoggedIn || !activeCompanyId || !canAccessMesModule) {
+      return undefined;
+    }
+    if (serializeMesDashboardCustomization(activeCompanyProfile?.mes_dashboard_layout) === serializeMesDashboardCustomization(mesDashboardCustomization)) {
+      return undefined;
+    }
+    const persistTimerId = window.setTimeout(async () => {
+      const { data, error } = await supabase
+        .from("company_profiles")
+        .upsert(
+          {
+            company_id: activeCompanyId,
+            mes_dashboard_layout: normalizeMesDashboardCustomization(mesDashboardCustomization),
+            updated_at: new Date().toISOString(),
+            updated_by: authUser?.id || null
+          },
+          { onConflict: "company_id" }
+        )
+        .select("*");
+      if (error) {
+        if (isMissingMesDashboardLayoutColumnError(error)) {
+          return;
+        }
+        console.warn("MES dashboard layout save failed:", error.message || error);
+        return;
+      }
+      const savedRow = normalizeCompanyProfileRecord(Array.isArray(data) ? data[0] : data);
+      if (!savedRow?.company_id) {
+        return;
+      }
+      setCompanyProfiles((prev) => {
+        const next = prev.filter((profile) => profile.company_id !== savedRow.company_id);
+        return [...next, savedRow];
+      });
+    }, 450);
+    return () => window.clearTimeout(persistTimerId);
+  }, [
+    mesDashboardCustomization,
+    activeCompanyProfile?.mes_dashboard_layout,
+    authReady,
+    isLoggedIn,
+    activeCompanyId,
+    canAccessMesModule,
+    authUser?.id
+  ]);
+  useEffect(() => {
+    if (!isMesSettingsModalOpen) {
+      return undefined;
+    }
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setIsMesSettingsModalOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isMesSettingsModalOpen]);
+  useEffect(() => {
+    if (!isProductionModule(selectedTable) && isMesSettingsModalOpen) {
+      setIsMesSettingsModalOpen(false);
+    }
+  }, [selectedTable, isMesSettingsModalOpen]);
   const visibleTableNames = useMemo(() => {
     if (isMaster) {
       return Array.from(
@@ -7240,6 +7374,7 @@ function App() {
       invoice_style: normalizeInvoiceStyle(activeCompanyProfile?.invoice_style || companyInvoiceStyleInput || "clean"),
       invoice_intro_text: String(activeCompanyProfile?.invoice_intro_text || companyInvoiceIntroTextInput || "").trim(),
       invoice_outro_text: String(activeCompanyProfile?.invoice_outro_text || companyInvoiceOutroTextInput || "").trim(),
+      mes_dashboard_layout: normalizeMesDashboardCustomization(activeCompanyProfile?.mes_dashboard_layout),
       updated_at: new Date().toISOString(),
       updated_by: authUser?.id || null
     };
@@ -9155,6 +9290,7 @@ function App() {
       invoice_style: normalizeInvoiceStyle(companyInvoiceStyleInput),
       invoice_intro_text: String(companyInvoiceIntroTextInput || "").trim(),
       invoice_outro_text: String(companyInvoiceOutroTextInput || "").trim(),
+      mes_dashboard_layout: normalizeMesDashboardCustomization(activeCompanyProfile?.mes_dashboard_layout),
       updated_at: new Date().toISOString(),
       updated_by: authUser?.id || null
     };
@@ -19234,38 +19370,69 @@ function App() {
       setAttendanceProfileSearch(String(operatorName || "").trim());
       setSelectedTable(ROLE_TABLE);
     };
-    const mesPrimaryKpis = [
+    const mesKpiCatalog = [
       {
+        key: "running",
         label: "Stroje v prevádzke",
         value: new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.running),
         meta: "Aktívne vyrábajú"
       },
       {
+        key: "stopped",
         label: "Zastavené stroje",
         value: new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.stopped + mesGlobalKpis.alarm),
         meta: "Stop alebo alarm"
       },
       {
+        key: "activeOrders",
         label: "Aktívne zákazky",
         value: new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.activeOrders),
         meta: "Bežiace job runy"
       },
       {
+        key: "productionRate",
         label: "Rýchlosť výroby",
         value: `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(mesGlobalKpis.productionRate)} ks/h`,
         meta: "Súčet aktuálneho výkonu"
       },
       {
+        key: "goodParts",
         label: "OK kusy",
         value: new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.goodParts),
         meta: "Doteraz vyrobené"
       },
       {
+        key: "scrapParts",
         label: "NOK kusy",
         value: new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.scrapParts),
         meta: "Zmetky"
+      },
+      {
+        key: "onlineTerminals",
+        label: "Online terminály",
+        value: new Intl.NumberFormat("sk-SK").format(mesOnlineTerminalsCount),
+        meta: "HMI online v posledných 5 minútach"
+      },
+      {
+        key: "oee",
+        label: "OEE",
+        value: formatPercentValue(mesOeeSummary.oeePct),
+        meta: `Aktuálne obdobie: ${mesOeeSummary.rangeLabel}`
+      },
+      {
+        key: "rejectRate",
+        label: "Zmetkovitosť",
+        value: formatPercentValue(mesQualitySummary.rejectRatePct),
+        meta: "Podiel NOK kusov"
+      },
+      {
+        key: "activeOperators",
+        label: "Aktívni operátori",
+        value: `${new Intl.NumberFormat("sk-SK").format(mesOperatorSummary.activeOperators)} / ${new Intl.NumberFormat("sk-SK").format(mesOperatorSummary.totalOperators)}`,
+        meta: "Aktívni vs. všetci operátori v MES"
       }
     ];
+    const mesPrimaryKpis = mesKpiCatalog.filter((item) => mesDashboardCustomization.visibleKpis.includes(item.key));
     const selectedMachineLabel = selectedMesMachineOverview?.machineName || "Nezvolený stroj";
     const selectedMachineOperatorName =
       selectedMesMachineOverview?.operatorName ||
@@ -19356,6 +19523,26 @@ function App() {
             : "-"
       }
     ];
+    const mesCustomizationOptions = [
+      { key: "showMachineFocus", label: "Detail stroja + OEE + KPI", description: "Hlavný operatívny blok pre vybraný stroj." },
+      { key: "showMachineTable", label: "Tabuľka strojov", description: "Prehľad všetkých strojov v jednej tabuľke." },
+      { key: "showThroughputQuality", label: "Výkon a kvalita", description: "Kusy/h, trend a kvalita výroby." },
+      { key: "showAvailableOperators", label: "Dostupní operátori", description: "Operátori z attendance s MES stavom." },
+      { key: "showActiveOperators", label: "Aktívni operátori", description: "Operátori priamo z MES eventov." },
+      { key: "showFactoryMap", label: "Mapa výroby", description: "Zóny, dlaždice a export udalostí stroja." }
+    ];
+    const mesKpiOptions = [
+      { key: "running", label: "Stroje v prevádzke" },
+      { key: "stopped", label: "Zastavené stroje" },
+      { key: "activeOrders", label: "Aktívne zákazky" },
+      { key: "productionRate", label: "Rýchlosť výroby" },
+      { key: "goodParts", label: "OK kusy" },
+      { key: "scrapParts", label: "NOK kusy" },
+      { key: "onlineTerminals", label: "Online terminály" },
+      { key: "oee", label: "OEE" },
+      { key: "rejectRate", label: "Zmetkovitosť" },
+      { key: "activeOperators", label: "Aktívni operátori" }
+    ];
     return (
       <article className="orders-panel-card workflow-card workflow-card-list mes-dashboard-card">
       <div className="panel-head workflow-section-head">
@@ -19371,6 +19558,9 @@ function App() {
           <span className="table-badge">{`${mesProductionOrderRows.length} aktívnych zákaziek`}</span>
           <button type="button" className="clear-btn" onClick={handleExportMesDashboardExcel}>
             Export MES Excel
+          </button>
+          <button type="button" className="clear-btn" onClick={() => setIsMesSettingsModalOpen(true)}>
+            Nastavenia MES
           </button>
           <button
             type="button"
@@ -19395,6 +19585,80 @@ function App() {
         <p className="hint">Načítavam MES dashboard...</p>
       ) : (
         <>
+          {isMesSettingsModalOpen && (
+            <div className="settings-backdrop" onClick={() => setIsMesSettingsModalOpen(false)}>
+              <div className="settings-modal mes-settings-modal" onClick={(event) => event.stopPropagation()}>
+                <div className="settings-head">
+                  <strong>Nastavenia MES dashboardu</strong>
+                  <button type="button" className="clear-btn" onClick={() => setIsMesSettingsModalOpen(false)}>
+                    Zavrieť
+                  </button>
+                </div>
+                <p className="settings-hint">Nastavenie sa uloží pre celú firmu a bude rovnaké na všetkých zariadeniach.</p>
+                <div className="settings-field">
+                  <span>Sekcie dashboardu</span>
+                  <div className="settings-grid">
+                    {mesCustomizationOptions.map((option) => (
+                      <label key={option.key} className="settings-checkbox">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(mesDashboardCustomization[option.key])}
+                          onChange={(event) =>
+                            setMesDashboardCustomization((current) => ({
+                              ...current,
+                              [option.key]: event.target.checked
+                            }))
+                          }
+                        />
+                        <span>
+                          {option.label}
+                          <small className="panel-meta">{option.description}</small>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div className="settings-field">
+                  <span>Metriky (KPI karty)</span>
+                  <div className="settings-grid">
+                    {mesKpiOptions.map((option) => {
+                      const isChecked = mesDashboardCustomization.visibleKpis.includes(option.key);
+                      return (
+                        <label key={option.key} className="settings-checkbox">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(event) =>
+                              setMesDashboardCustomization((current) => {
+                                const currentKpis = Array.isArray(current.visibleKpis) ? current.visibleKpis : [];
+                                const nextKpis = event.target.checked
+                                  ? Array.from(new Set([...currentKpis, option.key]))
+                                  : currentKpis.filter((item) => item !== option.key);
+                                return {
+                                  ...current,
+                                  visibleKpis: nextKpis.length > 0 ? nextKpis : currentKpis
+                                };
+                              })
+                            }
+                          />
+                          <span>{option.label}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="order-card-actions">
+                  <button
+                    type="button"
+                    className="clear-btn"
+                    onClick={() => setMesDashboardCustomization({ ...DEFAULT_MES_DASHBOARD_CUSTOMIZATION })}
+                  >
+                    Obnoviť predvolené
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           {isMesTerminalSectionVisible && (
           <article className="orders-panel-card workflow-card workflow-card-list mes-terminal-admin-card">
             <div className="panel-head workflow-section-head">
@@ -19685,7 +19949,7 @@ function App() {
           </article>
           )}
 
-          {machineDashboardRows.length === 0 ? (
+          {!mesDashboardCustomization.showMachineFocus ? null : machineDashboardRows.length === 0 ? (
             <p className="hint">Pre túto firmu zatiaľ nie sú založené stroje, pracoviská alebo MES job runy.</p>
           ) : (
             <>
@@ -19982,7 +20246,7 @@ function App() {
           </div>
             </>
           )}
-          {machineDashboardRows.length > 0 && (
+          {mesDashboardCustomization.showMachineTable && machineDashboardRows.length > 0 && (
           <article className="orders-panel-card workflow-card workflow-card-list">
             <div className="panel-head workflow-section-head">
               <div>
@@ -20075,7 +20339,7 @@ function App() {
             </article>
           )}
 
-          {machineDashboardRows.length > 0 && (
+          {mesDashboardCustomization.showThroughputQuality && machineDashboardRows.length > 0 && (
           <div className="orders-layout workflow-grid">
             <div className="orders-column workflow-editor-column">
               <article className="orders-panel-card workflow-card workflow-card-list">
@@ -20161,7 +20425,7 @@ function App() {
           </div>
           )}
 
-          {machineDashboardRows.length > 0 && (
+          {mesDashboardCustomization.showAvailableOperators && machineDashboardRows.length > 0 && (
             <article className="orders-panel-card workflow-card workflow-card-list">
               <div className="panel-head workflow-section-head">
                 <div>
@@ -20236,7 +20500,7 @@ function App() {
             </article>
           )}
 
-          {machineDashboardRows.length > 0 && (
+          {mesDashboardCustomization.showActiveOperators && machineDashboardRows.length > 0 && (
             <article className="orders-panel-card workflow-card workflow-card-list">
               <div className="panel-head workflow-section-head">
               <div>
@@ -20320,7 +20584,7 @@ function App() {
             </article>
           )}
 
-          {mesViewRole !== "operator" && (
+          {mesDashboardCustomization.showFactoryMap && mesViewRole !== "operator" && (
             <div className="orders-layout workflow-grid">
               <div className="orders-column workflow-editor-column">
                 <article className="orders-panel-card workflow-card workflow-card-list">

@@ -1,0 +1,1291 @@
+-- WMS section bundle: workflow
+-- Use after the earlier prerequisite sections are already installed.
+
+-- >>> BEGIN 27_wms_orders_core.txt
+-- 27_wms_orders_core.txt
+-- Safe additive migration for order list + order item detail.
+-- Run after: 20_wms_users_core.txt
+
+create extension if not exists pgcrypto;
+
+alter table public.app_users
+add column if not exists can_manage_orders boolean not null default false;
+
+update public.app_users
+set can_manage_orders = false
+where can_manage_orders is null;
+
+create index if not exists idx_app_users_can_manage_orders
+  on public.app_users (can_manage_orders);
+
+create or replace function public.can_manage_orders(uid uuid default auth.uid())
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.app_users
+    where user_id = uid
+      and can_manage_orders = true
+  );
+$$;
+
+grant execute on function public.can_manage_orders(uuid) to authenticated;
+
+create table if not exists public.customers (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies (id) on delete cascade,
+  name text not null,
+  email text,
+  phone text,
+  address text,
+  note text not null default '',
+  created_by uuid references auth.users (id),
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.orders (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies (id) on delete cascade,
+  customer_id uuid references public.customers (id) on delete set null,
+  customer_name text not null,
+  order_number text not null,
+  note text not null default '',
+  created_by uuid references auth.users (id),
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.order_items (
+  id uuid primary key default gen_random_uuid(),
+  order_id uuid not null references public.orders (id) on delete cascade,
+  material_code text not null,
+  position text not null,
+  ordered_quantity integer not null check (ordered_quantity > 0),
+  stock_quantity_snapshot integer not null default 0,
+  line_note text not null default '',
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists idx_customers_company_name_unique
+  on public.customers (company_id, lower(name));
+
+create index if not exists idx_customers_company
+  on public.customers (company_id);
+
+create unique index if not exists idx_orders_company_number_unique
+  on public.orders (company_id, order_number);
+
+create index if not exists idx_orders_company_created_at
+  on public.orders (company_id, created_at desc);
+
+create index if not exists idx_orders_customer
+  on public.orders (customer_id);
+
+create index if not exists idx_order_items_order
+  on public.order_items (order_id);
+
+alter table public.customers enable row level security;
+alter table public.orders enable row level security;
+alter table public.order_items enable row level security;
+
+drop policy if exists customers_select_auth on public.customers;
+drop policy if exists customers_insert_auth on public.customers;
+drop policy if exists customers_update_auth on public.customers;
+drop policy if exists customers_delete_auth on public.customers;
+
+create policy customers_select_auth
+on public.customers
+for select
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy customers_insert_auth
+on public.customers
+for insert
+to authenticated
+with check (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy customers_update_auth
+on public.customers
+for update
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+)
+with check (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy customers_delete_auth
+on public.customers
+for delete
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+drop policy if exists orders_select_auth on public.orders;
+drop policy if exists orders_insert_auth on public.orders;
+drop policy if exists orders_update_auth on public.orders;
+drop policy if exists orders_delete_auth on public.orders;
+
+create policy orders_select_auth
+on public.orders
+for select
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy orders_insert_auth
+on public.orders
+for insert
+to authenticated
+with check (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy orders_update_auth
+on public.orders
+for update
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+)
+with check (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy orders_delete_auth
+on public.orders
+for delete
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+drop policy if exists order_items_select_auth on public.order_items;
+drop policy if exists order_items_insert_auth on public.order_items;
+drop policy if exists order_items_update_auth on public.order_items;
+drop policy if exists order_items_delete_auth on public.order_items;
+
+create policy order_items_select_auth
+on public.order_items
+for select
+to authenticated
+using (
+  exists (
+    select 1
+    from public.orders o
+    where o.id = order_items.order_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and o.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+create policy order_items_insert_auth
+on public.order_items
+for insert
+to authenticated
+with check (
+  exists (
+    select 1
+    from public.orders o
+    where o.id = order_items.order_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and o.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+create policy order_items_update_auth
+on public.order_items
+for update
+to authenticated
+using (
+  exists (
+    select 1
+    from public.orders o
+    where o.id = order_items.order_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and o.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+)
+with check (
+  exists (
+    select 1
+    from public.orders o
+    where o.id = order_items.order_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and o.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+create policy order_items_delete_auth
+on public.order_items
+for delete
+to authenticated
+using (
+  exists (
+    select 1
+    from public.orders o
+    where o.id = order_items.order_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and o.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+-- Example: order list for a grid / collapsed rows
+-- Shows customer + order number + item count.
+--
+-- select
+--   o.id,
+--   o.customer_name,
+--   o.order_number,
+--   o.created_at,
+--   count(oi.id)::int as item_count
+-- from public.orders o
+-- left join public.order_items oi on oi.order_id = o.id
+-- where o.company_id = public.user_company_id(auth.uid())
+-- group by o.id, o.customer_name, o.order_number, o.created_at
+-- order by o.created_at desc;
+
+-- Example: expanded detail after clicking one order
+--
+-- select
+--   oi.id,
+--   oi.material_code,
+--   oi.position,
+--   oi.ordered_quantity,
+--   oi.stock_quantity_snapshot,
+--   oi.line_note,
+--   oi.created_at
+-- from public.order_items oi
+-- where oi.order_id = 'YOUR-ORDER-UUID'
+-- order by oi.created_at asc;
+-- <<< END 27_wms_orders_core.txt
+
+-- >>> BEGIN 29_wms_price_list_core.txt
+-- WMS price list (cennik)
+-- Safe/idempotent migration for existing multi-tenant schema
+-- Prerequisites:
+--   - public.companies
+--   - public.app_users
+--   - public.is_master(uuid)
+--   - public.user_company_id(uuid)
+--   - public.fill_company_id_from_auth_user()
+
+create extension if not exists pgcrypto;
+
+create table if not exists public.price_list (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies (id) on delete cascade,
+  material_code text not null,
+  unit text not null default 'ks',
+  unit_price numeric(12,2) not null default 0,
+  purchase_price numeric(12,2) not null default 0,
+  note text not null default '',
+  created_by uuid references auth.users (id),
+  updated_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
+alter table public.price_list add column if not exists purchase_price numeric(12,2) not null default 0;
+
+create unique index if not exists idx_price_list_company_material_unique
+  on public.price_list (company_id, material_code);
+
+create index if not exists idx_price_list_company
+  on public.price_list (company_id);
+
+create index if not exists idx_price_list_material
+  on public.price_list (material_code);
+
+create or replace function public.touch_price_list_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_touch_price_list_updated_at on public.price_list;
+create trigger trg_touch_price_list_updated_at
+before update on public.price_list
+for each row execute function public.touch_price_list_updated_at();
+
+drop trigger if exists trg_fill_price_list_company_id on public.price_list;
+create trigger trg_fill_price_list_company_id
+before insert on public.price_list
+for each row execute function public.fill_company_id_from_auth_user();
+
+alter table public.price_list enable row level security;
+
+drop policy if exists "price_list_select_auth" on public.price_list;
+drop policy if exists "price_list_insert_master" on public.price_list;
+drop policy if exists "price_list_update_master" on public.price_list;
+drop policy if exists "price_list_delete_master" on public.price_list;
+drop policy if exists "price_list_insert_user_company" on public.price_list;
+drop policy if exists "price_list_update_user_company" on public.price_list;
+drop policy if exists "price_list_delete_user_company" on public.price_list;
+
+create policy "price_list_select_auth"
+on public.price_list
+for select
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or company_id = public.user_company_id(auth.uid())
+);
+
+create policy "price_list_insert_master"
+on public.price_list
+for insert
+to authenticated
+with check (public.is_master(auth.uid()));
+
+create policy "price_list_update_master"
+on public.price_list
+for update
+to authenticated
+using (public.is_master(auth.uid()))
+with check (public.is_master(auth.uid()));
+
+create policy "price_list_delete_master"
+on public.price_list
+for delete
+to authenticated
+using (public.is_master(auth.uid()));
+
+create policy "price_list_insert_user_company"
+on public.price_list
+for insert
+to authenticated
+with check (company_id = public.user_company_id(auth.uid()));
+
+create policy "price_list_update_user_company"
+on public.price_list
+for update
+to authenticated
+using (company_id = public.user_company_id(auth.uid()))
+with check (company_id = public.user_company_id(auth.uid()));
+
+create policy "price_list_delete_user_company"
+on public.price_list
+for delete
+to authenticated
+using (company_id = public.user_company_id(auth.uid()));
+
+-- Example:
+-- select material_code, unit, unit_price, purchase_price, note, updated_at
+-- from public.price_list
+-- where company_id = 'YOUR-COMPANY-UUID'
+-- order by material_code asc;
+-- <<< END 29_wms_price_list_core.txt
+
+-- >>> BEGIN 30_wms_price_list_margin_update.txt
+-- Add purchase price to existing price_list table
+-- Safe/idempotent update for installations that already applied 29_wms_price_list_core.txt
+
+alter table public.price_list
+  add column if not exists purchase_price numeric(12,2) not null default 0;
+
+-- Optional check:
+-- select material_code, unit_price, purchase_price
+-- from public.price_list
+-- order by material_code asc;
+-- <<< END 30_wms_price_list_margin_update.txt
+
+-- >>> BEGIN 31_wms_quotes_core.txt
+-- WMS quotes (cenove ponuky)
+-- Safe/idempotent migration for existing multi-tenant schema
+-- Prerequisites:
+--   - public.companies
+--   - public.customers
+--   - public.app_users
+--   - public.is_master(uuid)
+--   - public.user_company_id(uuid)
+--   - public.can_manage_orders(uuid)
+
+create extension if not exists pgcrypto;
+
+create table if not exists public.quotes (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies (id) on delete cascade,
+  customer_id uuid references public.customers (id) on delete set null,
+  customer_name text not null,
+  quote_number text not null,
+  status text not null default 'draft' check (status in ('draft', 'sent', 'accepted', 'rejected')),
+  note text not null default '',
+  created_by uuid references auth.users (id),
+  updated_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.quote_items (
+  id uuid primary key default gen_random_uuid(),
+  quote_id uuid not null references public.quotes (id) on delete cascade,
+  material_code text not null,
+  unit text not null default 'ks',
+  quantity numeric(12,2) not null check (quantity > 0),
+  unit_price numeric(12,2) not null default 0,
+  purchase_price numeric(12,2) not null default 0,
+  discount_percent numeric(5,2) not null default 0,
+  final_unit_price numeric(12,2) not null default 0,
+  line_total numeric(12,2) not null default 0,
+  line_margin_total numeric(12,2) not null default 0,
+  line_note text not null default '',
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists idx_quotes_company_number_unique
+  on public.quotes (company_id, quote_number);
+
+create index if not exists idx_quotes_company_created_at
+  on public.quotes (company_id, created_at desc);
+
+create index if not exists idx_quote_items_quote
+  on public.quote_items (quote_id);
+
+create or replace function public.touch_quotes_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_touch_quotes_updated_at on public.quotes;
+create trigger trg_touch_quotes_updated_at
+before update on public.quotes
+for each row execute function public.touch_quotes_updated_at();
+
+alter table public.quotes enable row level security;
+alter table public.quote_items enable row level security;
+
+drop policy if exists "quotes_select_auth" on public.quotes;
+drop policy if exists "quotes_insert_auth" on public.quotes;
+drop policy if exists "quotes_update_auth" on public.quotes;
+drop policy if exists "quotes_delete_auth" on public.quotes;
+
+create policy "quotes_select_auth"
+on public.quotes
+for select
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy "quotes_insert_auth"
+on public.quotes
+for insert
+to authenticated
+with check (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy "quotes_update_auth"
+on public.quotes
+for update
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+)
+with check (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy "quotes_delete_auth"
+on public.quotes
+for delete
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+drop policy if exists "quote_items_select_auth" on public.quote_items;
+drop policy if exists "quote_items_insert_auth" on public.quote_items;
+drop policy if exists "quote_items_update_auth" on public.quote_items;
+drop policy if exists "quote_items_delete_auth" on public.quote_items;
+
+create policy "quote_items_select_auth"
+on public.quote_items
+for select
+to authenticated
+using (
+  exists (
+    select 1
+    from public.quotes q
+    where q.id = quote_items.quote_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and q.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+create policy "quote_items_insert_auth"
+on public.quote_items
+for insert
+to authenticated
+with check (
+  exists (
+    select 1
+    from public.quotes q
+    where q.id = quote_items.quote_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and q.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+create policy "quote_items_update_auth"
+on public.quote_items
+for update
+to authenticated
+using (
+  exists (
+    select 1
+    from public.quotes q
+    where q.id = quote_items.quote_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and q.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+)
+with check (
+  exists (
+    select 1
+    from public.quotes q
+    where q.id = quote_items.quote_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and q.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+create policy "quote_items_delete_auth"
+on public.quote_items
+for delete
+to authenticated
+using (
+  exists (
+    select 1
+    from public.quotes q
+    where q.id = quote_items.quote_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and q.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+-- Example:
+-- select id, customer_name, quote_number, status, created_at
+-- from public.quotes
+-- where company_id = 'YOUR-COMPANY-UUID'
+-- order by created_at desc;
+-- <<< END 31_wms_quotes_core.txt
+
+-- >>> BEGIN 32_wms_customers_registry_fields.txt
+-- 32_wms_customers_registry_fields.txt
+-- Add structured company registry fields to public.customers.
+-- Safe additive migration. Run after 27_wms_orders_core.txt.
+
+alter table public.customers
+add column if not exists ico text,
+add column if not exists dic text,
+add column if not exists ic_dph text;
+
+create index if not exists idx_customers_company_ico
+  on public.customers (company_id, ico);
+
+create index if not exists idx_customers_company_dic
+  on public.customers (company_id, dic);
+
+create index if not exists idx_customers_company_ic_dph
+  on public.customers (company_id, ic_dph);
+
+update public.customers
+set
+  ico = coalesce(
+    nullif(ico, ''),
+    nullif((regexp_match(note, '(?im)(?:^|\|)\s*ICO:\s*([^|\r\n]+)'))[1], '')
+  ),
+  dic = coalesce(
+    nullif(dic, ''),
+    nullif((regexp_match(note, '(?im)(?:^|\|)\s*DIC:\s*([^|\r\n]+)'))[1], '')
+  ),
+  ic_dph = coalesce(
+    nullif(ic_dph, ''),
+    nullif((regexp_match(note, '(?im)(?:^|\|)\s*IC DPH:\s*([^|\r\n]+)'))[1], '')
+  )
+where
+  coalesce(nullif(ico, ''), nullif(dic, ''), nullif(ic_dph, '')) is null
+  and note is not null
+  and note <> '';
+-- <<< END 32_wms_customers_registry_fields.txt
+
+-- >>> BEGIN 33_wms_quotes_vat_update.txt
+-- 33_wms_quotes_vat_update.txt
+-- Add VAT support to quote items.
+-- Run after 31_wms_quotes_core.txt.
+
+alter table public.quote_items
+add column if not exists vat_percent numeric(5,2) not null default 23;
+
+update public.quote_items
+set vat_percent = 23
+where vat_percent is null;
+-- <<< END 33_wms_quotes_vat_update.txt
+
+-- >>> BEGIN 34_wms_company_profile_fields.txt
+-- 34_wms_company_profile_fields.txt
+-- Add company profile fields for workflow PDFs and global settings.
+-- Safe additive migration.
+
+alter table public.companies
+add column if not exists ico text,
+add column if not exists dic text,
+add column if not exists ic_dph text,
+add column if not exists address text,
+add column if not exists bank_account text;
+
+create index if not exists idx_companies_ico
+  on public.companies (ico);
+
+create index if not exists idx_companies_dic
+  on public.companies (dic);
+
+create index if not exists idx_companies_ic_dph
+  on public.companies (ic_dph);
+-- <<< END 34_wms_company_profile_fields.txt
+
+-- >>> BEGIN 35_wms_invoices_core.txt
+-- WMS invoices (fakturacia)
+-- Safe/idempotent migration for existing multi-tenant schema
+-- Prerequisites:
+--   - public.companies
+--   - public.customers
+--   - public.app_users
+--   - public.is_master(uuid)
+--   - public.user_company_id(uuid)
+--   - public.can_manage_orders(uuid)
+
+create extension if not exists pgcrypto;
+
+create table if not exists public.invoices (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies (id) on delete cascade,
+  customer_id uuid references public.customers (id) on delete set null,
+  customer_name text not null,
+  invoice_number text not null,
+  status text not null default 'draft' check (status in ('draft', 'issued', 'paid', 'cancelled')),
+  note text not null default '',
+  archived_at timestamptz,
+  created_by uuid references auth.users (id),
+  updated_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.invoice_items (
+  id uuid primary key default gen_random_uuid(),
+  invoice_id uuid not null references public.invoices (id) on delete cascade,
+  material_code text not null,
+  unit text not null default 'ks',
+  quantity numeric(12,2) not null check (quantity > 0),
+  unit_price numeric(12,2) not null default 0,
+  purchase_price numeric(12,2) not null default 0,
+  discount_percent numeric(5,2) not null default 0,
+  vat_percent numeric(5,2) not null default 23,
+  final_unit_price numeric(12,2) not null default 0,
+  line_total numeric(12,2) not null default 0,
+  line_margin_total numeric(12,2) not null default 0,
+  line_note text not null default '',
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists idx_invoices_company_number_unique
+  on public.invoices (company_id, invoice_number);
+
+create index if not exists idx_invoices_company_created_at
+  on public.invoices (company_id, created_at desc);
+
+create index if not exists idx_invoice_items_invoice
+  on public.invoice_items (invoice_id);
+
+create or replace function public.touch_invoices_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_touch_invoices_updated_at on public.invoices;
+create trigger trg_touch_invoices_updated_at
+before update on public.invoices
+for each row execute function public.touch_invoices_updated_at();
+
+alter table public.invoices enable row level security;
+alter table public.invoice_items enable row level security;
+
+drop policy if exists "invoices_select_auth" on public.invoices;
+drop policy if exists "invoices_insert_auth" on public.invoices;
+drop policy if exists "invoices_update_auth" on public.invoices;
+drop policy if exists "invoices_delete_auth" on public.invoices;
+
+create policy "invoices_select_auth"
+on public.invoices
+for select
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy "invoices_insert_auth"
+on public.invoices
+for insert
+to authenticated
+with check (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy "invoices_update_auth"
+on public.invoices
+for update
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+)
+with check (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+create policy "invoices_delete_auth"
+on public.invoices
+for delete
+to authenticated
+using (
+  public.is_master(auth.uid())
+  or (
+    public.can_manage_orders(auth.uid())
+    and company_id = public.user_company_id(auth.uid())
+  )
+);
+
+drop policy if exists "invoice_items_select_auth" on public.invoice_items;
+drop policy if exists "invoice_items_insert_auth" on public.invoice_items;
+drop policy if exists "invoice_items_update_auth" on public.invoice_items;
+drop policy if exists "invoice_items_delete_auth" on public.invoice_items;
+
+create policy "invoice_items_select_auth"
+on public.invoice_items
+for select
+to authenticated
+using (
+  exists (
+    select 1
+    from public.invoices i
+    where i.id = invoice_items.invoice_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and i.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+create policy "invoice_items_insert_auth"
+on public.invoice_items
+for insert
+to authenticated
+with check (
+  exists (
+    select 1
+    from public.invoices i
+    where i.id = invoice_items.invoice_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and i.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+create policy "invoice_items_update_auth"
+on public.invoice_items
+for update
+to authenticated
+using (
+  exists (
+    select 1
+    from public.invoices i
+    where i.id = invoice_items.invoice_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and i.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+)
+with check (
+  exists (
+    select 1
+    from public.invoices i
+    where i.id = invoice_items.invoice_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and i.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+create policy "invoice_items_delete_auth"
+on public.invoice_items
+for delete
+to authenticated
+using (
+  exists (
+    select 1
+    from public.invoices i
+    where i.id = invoice_items.invoice_id
+      and (
+        public.is_master(auth.uid())
+        or (
+          public.can_manage_orders(auth.uid())
+          and i.company_id = public.user_company_id(auth.uid())
+        )
+      )
+  )
+);
+
+-- Example:
+-- select id, customer_name, invoice_number, status, created_at
+-- from public.invoices
+-- where company_id = 'YOUR-COMPANY-UUID'
+-- order by created_at desc;
+-- <<< END 35_wms_invoices_core.txt
+
+-- >>> BEGIN 36_wms_invoices_due_date_update.txt
+-- WMS invoices due date update
+-- Safe/idempotent update for existing invoicing module
+
+alter table public.invoices
+  add column if not exists due_date date;
+
+alter table public.invoices
+  add column if not exists archived_at timestamptz;
+
+alter table public.invoices
+  alter column due_date set default (current_date + 14);
+
+update public.invoices
+set due_date = ((created_at at time zone 'UTC')::date + 14)
+where due_date is null;
+
+alter table public.invoices
+  alter column due_date set not null;
+
+comment on column public.invoices.archived_at is 'Soft archive timestamp for hiding invoices from the active list without changing their business status.';
+
+-- Quick check
+select id, invoice_number, due_date, status, created_at
+from public.invoices
+order by created_at desc
+limit 20;
+-- <<< END 36_wms_invoices_due_date_update.txt
+
+-- >>> BEGIN 41_wms_company_profiles_core.txt
+-- 41_wms_company_profiles_core.txt
+-- Separate editable company profile data from tenant identity in public.companies.
+-- Run after:
+--   20_wms_users_core.txt
+--   22_wms_users_admin_ops.txt
+--   34_wms_company_profile_fields.txt
+
+create table if not exists public.company_profiles (
+  company_id uuid primary key references public.companies (id) on delete cascade,
+  name text not null default '',
+  ico text not null default '',
+  dic text not null default '',
+  ic_dph text not null default '',
+  address text not null default '',
+  bank_account text not null default '',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  created_by uuid references auth.users (id) on delete set null,
+  updated_by uuid references auth.users (id) on delete set null
+);
+
+insert into public.company_profiles (company_id, name, ico, dic, ic_dph, address, bank_account)
+select
+  c.id,
+  coalesce(c.name, ''),
+  coalesce(c.ico, ''),
+  coalesce(c.dic, ''),
+  coalesce(c.ic_dph, ''),
+  coalesce(c.address, ''),
+  coalesce(c.bank_account, '')
+from public.companies c
+on conflict (company_id) do nothing;
+
+create or replace function public.touch_company_profiles_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at := now();
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_touch_company_profiles_updated_at on public.company_profiles;
+create trigger trg_touch_company_profiles_updated_at
+before update on public.company_profiles
+for each row execute function public.touch_company_profiles_updated_at();
+
+alter table public.company_profiles enable row level security;
+
+drop policy if exists "company_profiles_select_master" on public.company_profiles;
+drop policy if exists "company_profiles_select_user" on public.company_profiles;
+drop policy if exists "company_profiles_insert_master" on public.company_profiles;
+drop policy if exists "company_profiles_insert_user" on public.company_profiles;
+drop policy if exists "company_profiles_update_master" on public.company_profiles;
+drop policy if exists "company_profiles_update_user" on public.company_profiles;
+drop policy if exists "company_profiles_delete_master" on public.company_profiles;
+
+create policy "company_profiles_select_master"
+on public.company_profiles
+for select
+to authenticated
+using (public.is_master(auth.uid()));
+
+create policy "company_profiles_select_user"
+on public.company_profiles
+for select
+to authenticated
+using (company_id = public.user_company_id(auth.uid()));
+
+create policy "company_profiles_insert_master"
+on public.company_profiles
+for insert
+to authenticated
+with check (public.is_master(auth.uid()));
+
+create policy "company_profiles_insert_user"
+on public.company_profiles
+for insert
+to authenticated
+with check (company_id = public.user_company_id(auth.uid()));
+
+create policy "company_profiles_update_master"
+on public.company_profiles
+for update
+to authenticated
+using (public.is_master(auth.uid()))
+with check (public.is_master(auth.uid()));
+
+create policy "company_profiles_update_user"
+on public.company_profiles
+for update
+to authenticated
+using (company_id = public.user_company_id(auth.uid()))
+with check (company_id = public.user_company_id(auth.uid()));
+
+create policy "company_profiles_delete_master"
+on public.company_profiles
+for delete
+to authenticated
+using (public.is_master(auth.uid()));
+-- <<< END 41_wms_company_profiles_core.txt
+
+-- >>> BEGIN 42_wms_invoices_document_fields.txt
+-- WMS invoices document fields
+-- Adds permanent invoice-level fields for linked order number and printable intro/outro text.
+-- Safe/idempotent upgrade for existing schema.
+
+alter table public.invoices
+  add column if not exists order_number text not null default '';
+
+alter table public.invoices
+  add column if not exists intro_text text not null default '';
+
+alter table public.invoices
+  add column if not exists outro_text text not null default '';
+
+create or replace function public.wms_try_parse_invoice_meta(payload text)
+returns jsonb
+language plpgsql
+as $$
+begin
+  return payload::jsonb;
+exception
+  when others then
+    return null;
+end;
+$$;
+
+with legacy as (
+  select
+    id,
+    public.wms_try_parse_invoice_meta(substring(note from length('[[WMS_INVOICE_META]]') + 1)) as meta
+  from public.invoices
+  where note like '[[WMS_INVOICE_META]]%'
+)
+update public.invoices as i
+set
+  order_number = case
+    when coalesce(i.order_number, '') = '' then coalesce(legacy.meta ->> 'orderNumber', '')
+    else i.order_number
+  end,
+  intro_text = case
+    when coalesce(i.intro_text, '') = '' then coalesce(legacy.meta ->> 'introText', '')
+    else i.intro_text
+  end,
+  outro_text = case
+    when coalesce(i.outro_text, '') = '' then coalesce(legacy.meta ->> 'outroText', '')
+    else i.outro_text
+  end,
+  note = case
+    when legacy.meta is not null then coalesce(legacy.meta ->> 'noteText', '')
+    else i.note
+  end
+from legacy
+where i.id = legacy.id;
+
+drop function if exists public.wms_try_parse_invoice_meta(text);
+
+-- Optional check:
+-- select id, invoice_number, order_number, intro_text, outro_text, note
+-- from public.invoices
+-- order by created_at desc
+-- limit 20;
+-- <<< END 42_wms_invoices_document_fields.txt
+
+-- >>> BEGIN 43_wms_company_profiles_invoice_defaults.txt
+-- 43_wms_company_profiles_invoice_defaults.txt
+-- Adds invoice default settings to editable company profile.
+-- Run after:
+--   41_wms_company_profiles_core.txt
+
+alter table public.company_profiles
+  add column if not exists invoice_due_days integer not null default 14;
+
+alter table public.company_profiles
+  add column if not exists invoice_intro_text text not null default '';
+
+alter table public.company_profiles
+  add column if not exists invoice_outro_text text not null default '';
+
+update public.company_profiles
+set invoice_due_days = 14
+where invoice_due_days is null or invoice_due_days < 1;
+
+alter table public.company_profiles
+  drop constraint if exists company_profiles_invoice_due_days_check;
+
+alter table public.company_profiles
+  add constraint company_profiles_invoice_due_days_check
+  check (invoice_due_days between 1 and 365);
+
+-- Optional check:
+-- select company_id, name, invoice_due_days, invoice_intro_text, invoice_outro_text
+-- from public.company_profiles
+-- order by updated_at desc;
+-- <<< END 43_wms_company_profiles_invoice_defaults.txt
+
+-- >>> BEGIN 44_wms_company_profiles_invoice_style.txt
+alter table if exists public.company_profiles
+  add column if not exists invoice_style text;
+
+update public.company_profiles
+set invoice_style = 'clean'
+where coalesce(trim(invoice_style), '') = '';
+
+alter table if exists public.company_profiles
+  alter column invoice_style set default 'clean';
+
+alter table if exists public.company_profiles
+  alter column invoice_style set not null;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'company_profiles_invoice_style_check'
+  ) then
+    alter table public.company_profiles
+      add constraint company_profiles_invoice_style_check
+      check (invoice_style in ('clean', 'classic', 'modern', 'typewriter'));
+  end if;
+end $$;
+-- <<< END 44_wms_company_profiles_invoice_style.txt
+
+-- >>> BEGIN 45_wms_company_profiles_invoice_style_typewriter.txt
+alter table if exists public.company_profiles
+  add column if not exists invoice_style text;
+
+update public.company_profiles
+set invoice_style = 'clean'
+where coalesce(trim(invoice_style), '') = '';
+
+alter table if exists public.company_profiles
+  alter column invoice_style set default 'clean';
+
+alter table if exists public.company_profiles
+  alter column invoice_style set not null;
+
+alter table if exists public.company_profiles
+  drop constraint if exists company_profiles_invoice_style_check;
+
+alter table if exists public.company_profiles
+  add constraint company_profiles_invoice_style_check
+  check (invoice_style in ('clean', 'classic', 'modern', 'typewriter'));
+-- <<< END 45_wms_company_profiles_invoice_style_typewriter.txt
+
+-- >>> BEGIN 47_wms_company_profiles_mes_dashboard_layout.txt
+alter table if exists public.company_profiles
+  add column if not exists mes_dashboard_layout jsonb not null default '{}'::jsonb;
+-- <<< END 47_wms_company_profiles_mes_dashboard_layout.txt

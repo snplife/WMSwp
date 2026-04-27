@@ -19639,6 +19639,46 @@ function App() {
       }
       return true;
     });
+    const mesOperatorPerformanceRows = (() => {
+      const nowTs = Number.isFinite(Number(mesNowTs)) ? Number(mesNowTs) : Date.now();
+      return mesUnifiedOperators
+        .map((operator) => {
+          const startedAtTs = Date.parse(String(operator.sessionStartedAt || ""));
+          const hasSessionStart = Number.isFinite(startedAtTs);
+          const elapsedMs = hasSessionStart ? Math.max(0, nowTs - startedAtTs) : 0;
+          const elapsedHours = elapsedMs > 0 ? elapsedMs / (60 * 60 * 1000) : 0;
+          const producedParts = Number(operator.sessionProducedParts || 0);
+          const goodParts = Number(operator.sessionGoodParts || 0);
+          const scrapParts = Number(operator.sessionScrapParts || 0);
+          const partsPerHour = elapsedHours > 0 ? producedParts / elapsedHours : 0;
+          const qualityPct = producedParts > 0 ? safeRatioPercent(goodParts, producedParts) : null;
+          return {
+            ...operator,
+            elapsedMs,
+            partsPerHour,
+            qualityPct,
+            producedParts,
+            goodParts,
+            scrapParts
+          };
+        })
+        .filter((row) => row.producedParts > 0 || row.isActiveInMes)
+        .sort((a, b) => {
+          if (b.partsPerHour !== a.partsPerHour) {
+            return b.partsPerHour - a.partsPerHour;
+          }
+          return b.producedParts - a.producedParts;
+        });
+    })();
+    const mesOperatorPerformanceSummary = {
+      activeCount: mesOperatorPerformanceRows.filter((row) => row.isActiveInMes).length,
+      totalCount: mesOperatorPerformanceRows.length,
+      avgRate:
+        mesOperatorPerformanceRows.length > 0
+          ? mesOperatorPerformanceRows.reduce((sum, row) => sum + Number(row.partsPerHour || 0), 0) / mesOperatorPerformanceRows.length
+          : 0,
+      topPerformer: mesOperatorPerformanceRows[0] || null
+    };
     const mesRecurringEventRows = (() => {
       const grouped = {};
       (mesRecentEventRows || []).forEach((event) => {
@@ -20812,44 +20852,110 @@ function App() {
           )}
 
           {mesDashboardTab === "analytics" && (
-            <article className="orders-panel-card workflow-card workflow-card-list">
-              <div className="panel-head workflow-section-head">
-                <div>
-                  <h2>Opakujúce sa eventy</h2>
-                  <p className="panel-meta">Najčastejšie opakovania podľa typu eventu, dôvodu a stroja, vrátane priemernej frekvencie.</p>
+            <>
+              <article className="orders-panel-card workflow-card workflow-card-list">
+                <div className="panel-head workflow-section-head">
+                  <div>
+                    <h2>Výkon operátorov</h2>
+                    <p className="panel-meta">Výkon jednotlivých operátorov podľa aktívnej session (ks/h, kvalita, trvanie).</p>
+                  </div>
                 </div>
-              </div>
-              {mesRecurringEventRows.length === 0 ? (
-                <p className="hint">Zatiaľ nie sú zachytené opakujúce sa eventy (min. 2 výskyty).</p>
-              ) : (
-                <div className="table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Event</th>
-                        <th>Stroj</th>
-                        <th>Dôvod</th>
-                        <th>Počet</th>
-                        <th>Frekvencia</th>
-                        <th>Naposledy</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {mesRecurringEventRows.map((row) => (
-                        <tr key={row.key}>
-                          <td>{row.eventType}</td>
-                          <td>{row.machineLabel}</td>
-                          <td>{row.reason}</td>
-                          <td>{new Intl.NumberFormat("sk-SK").format(row.count)}</td>
-                          <td>{row.frequencyLabel}</td>
-                          <td>{row.lastSeenAt ? formatDate(row.lastSeenAt) : "-"}</td>
+                <div className="mes-kpi-grid">
+                  <article className="card workflow-stat-card mes-kpi-card">
+                    <span className="mes-kpi-label">Aktívni operátori</span>
+                    <strong>{new Intl.NumberFormat("sk-SK").format(mesOperatorPerformanceSummary.activeCount)}</strong>
+                    <p className="mes-kpi-meta">{`${new Intl.NumberFormat("sk-SK").format(mesOperatorPerformanceSummary.totalCount)} v prehľade`}</p>
+                  </article>
+                  <article className="card workflow-stat-card mes-kpi-card">
+                    <span className="mes-kpi-label">Priemerný výkon</span>
+                    <strong>{`${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(mesOperatorPerformanceSummary.avgRate)} ks/h`}</strong>
+                    <p className="mes-kpi-meta">naprieč operátormi v session</p>
+                  </article>
+                  <article className="card workflow-stat-card mes-kpi-card">
+                    <span className="mes-kpi-label">Top operátor</span>
+                    <strong>{mesOperatorPerformanceSummary.topPerformer?.operatorName || "-"}</strong>
+                    <p className="mes-kpi-meta">
+                      {mesOperatorPerformanceSummary.topPerformer
+                        ? `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(mesOperatorPerformanceSummary.topPerformer.partsPerHour)} ks/h`
+                        : "bez dát"}
+                    </p>
+                  </article>
+                </div>
+                {mesOperatorPerformanceRows.length === 0 ? (
+                  <p className="hint">Zatiaľ nie sú dostupné session dáta pre výpočet výkonu operátorov.</p>
+                ) : (
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Operátor</th>
+                          <th>Stroj</th>
+                          <th>Zákazka</th>
+                          <th>Vyrobené</th>
+                          <th>OK / NOK</th>
+                          <th>Kvalita</th>
+                          <th>Výkon (ks/h)</th>
+                          <th>Session trvanie</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {mesOperatorPerformanceRows.map((row) => (
+                          <tr key={`perf-${row.key}`}>
+                            <td>{row.operatorName}</td>
+                            <td>{row.currentMachineName || "-"}</td>
+                            <td>{row.currentWorkOrder || "-"}</td>
+                            <td>{new Intl.NumberFormat("sk-SK").format(row.producedParts)}</td>
+                            <td>{`${new Intl.NumberFormat("sk-SK").format(row.goodParts)} / ${new Intl.NumberFormat("sk-SK").format(row.scrapParts)}`}</td>
+                            <td>{row.qualityPct === null ? "-" : formatPercentValue(row.qualityPct)}</td>
+                            <td>{`${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(row.partsPerHour)} ks/h`}</td>
+                            <td>{row.elapsedMs > 0 ? formatDurationShort(row.elapsedMs) : "-"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </article>
+
+              <article className="orders-panel-card workflow-card workflow-card-list">
+                <div className="panel-head workflow-section-head">
+                  <div>
+                    <h2>Opakujúce sa eventy</h2>
+                    <p className="panel-meta">Najčastejšie opakovania podľa typu eventu, dôvodu a stroja, vrátane priemernej frekvencie.</p>
+                  </div>
                 </div>
-              )}
-            </article>
+                {mesRecurringEventRows.length === 0 ? (
+                  <p className="hint">Zatiaľ nie sú zachytené opakujúce sa eventy (min. 2 výskyty).</p>
+                ) : (
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Event</th>
+                          <th>Stroj</th>
+                          <th>Dôvod</th>
+                          <th>Počet</th>
+                          <th>Frekvencia</th>
+                          <th>Naposledy</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {mesRecurringEventRows.map((row) => (
+                          <tr key={row.key}>
+                            <td>{row.eventType}</td>
+                            <td>{row.machineLabel}</td>
+                            <td>{row.reason}</td>
+                            <td>{new Intl.NumberFormat("sk-SK").format(row.count)}</td>
+                            <td>{row.frequencyLabel}</td>
+                            <td>{row.lastSeenAt ? formatDate(row.lastSeenAt) : "-"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </article>
+            </>
           )}
 
           {mesDashboardTab === "map" && mesDashboardCustomization.showFactoryMap && mesViewRole !== "operator" && (

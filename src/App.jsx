@@ -19628,6 +19628,90 @@ function App() {
           source: existing.source === "attendance" ? "attendance+mes" : "mes"
         };
       });
+      (mesRecentJobRuns || []).forEach((run) => {
+        const operatorName = String(run?.operator_name || "").trim();
+        const operatorUserId = String(run?.operator_user_id || "").trim();
+        const key = normalizeMesOperatorLookupValue(operatorName || operatorUserId);
+        if (!key) {
+          return;
+        }
+        const machineRow =
+          machineDashboardRows.find((row) => String(row.machineId || "").trim() === String(run?.machine_id || "").trim()) ||
+          machineDashboardRows.find((row) => String(row.workstationId || "").trim() === String(run?.workstation_id || "").trim()) ||
+          null;
+        const existing = merged[key] || {
+          key,
+          operatorName: operatorName || operatorUserId || "Operátor",
+          employeeCode: "",
+          currentMachineName: "",
+          currentWorkOrder: "",
+          sessionStartedAt: null,
+          lastSeenAt: null,
+          sessionGoodParts: 0,
+          sessionScrapParts: 0,
+          sessionProducedParts: 0,
+          isActiveInMes: false,
+          source: "terminal"
+        };
+        const runProducedParts = Number(run?.good_quantity || 0) + Number(run?.scrap_quantity || 0);
+        merged[key] = {
+          ...existing,
+          operatorName: operatorName || existing.operatorName,
+          currentMachineName: machineRow?.machineName || existing.currentMachineName || "",
+          currentWorkOrder: String(run?.job_number || existing.currentWorkOrder || "").trim(),
+          sessionStartedAt: run?.started_at || existing.sessionStartedAt,
+          lastSeenAt: run?.updated_at || run?.ended_at || run?.started_at || existing.lastSeenAt,
+          sessionGoodParts: Math.max(Number(existing.sessionGoodParts || 0), Number(run?.good_quantity || 0)),
+          sessionScrapParts: Math.max(Number(existing.sessionScrapParts || 0), Number(run?.scrap_quantity || 0)),
+          sessionProducedParts: Math.max(Number(existing.sessionProducedParts || 0), runProducedParts),
+          isActiveInMes:
+            existing.isActiveInMes ||
+            ["running", "paused", "queued"].includes(String(run?.status || "").toLowerCase()),
+          source: existing.source === "attendance+mes" || existing.source === "attendance" || existing.source === "mes" ? existing.source : "terminal"
+        };
+      });
+      (mesRecentEventRows || []).forEach((event) => {
+        const operatorName = String(event?.operator_name || "").trim();
+        const operatorUserId = String(event?.operator_user_id || event?.operator_id || "").trim();
+        const key = normalizeMesOperatorLookupValue(operatorName || operatorUserId);
+        if (!key) {
+          return;
+        }
+        const machineRow =
+          machineDashboardRows.find((row) => String(row.machineId || "").trim() === String(event?.machine_id || "").trim()) ||
+          machineDashboardRows.find((row) => String(row.workstationId || "").trim() === String(event?.workstation_id || "").trim()) ||
+          null;
+        const existing = merged[key] || {
+          key,
+          operatorName: operatorName || operatorUserId || "Operátor",
+          employeeCode: "",
+          currentMachineName: "",
+          currentWorkOrder: "",
+          sessionStartedAt: null,
+          lastSeenAt: null,
+          sessionGoodParts: 0,
+          sessionScrapParts: 0,
+          sessionProducedParts: 0,
+          isActiveInMes: false,
+          source: "terminal"
+        };
+        const eventType = String(event?.event_type || "").toLowerCase();
+        const producedDelta = ["good_count", "scrap_count", "ml"].includes(eventType) ? 1 : 0;
+        const goodDelta = eventType === "good_count" ? 1 : 0;
+        const scrapDelta = eventType === "scrap_count" ? 1 : 0;
+        const happenedAt = event?.happened_at || event?.created_at || null;
+        merged[key] = {
+          ...existing,
+          operatorName: operatorName || existing.operatorName,
+          currentMachineName: machineRow?.machineName || existing.currentMachineName || "",
+          currentWorkOrder: String(event?.job_number || existing.currentWorkOrder || "").trim(),
+          lastSeenAt: happenedAt || existing.lastSeenAt,
+          sessionGoodParts: Number(existing.sessionGoodParts || 0) + goodDelta,
+          sessionScrapParts: Number(existing.sessionScrapParts || 0) + scrapDelta,
+          sessionProducedParts: Number(existing.sessionProducedParts || 0) + producedDelta,
+          source: existing.source === "attendance+mes" || existing.source === "attendance" || existing.source === "mes" ? existing.source : "terminal"
+        };
+      });
       return Object.values(merged).sort((a, b) => String(a.operatorName).localeCompare(String(b.operatorName), "sk-SK", { sensitivity: "base" }));
     })();
     const filteredMesUnifiedOperators = mesUnifiedOperators.filter((operator) => {

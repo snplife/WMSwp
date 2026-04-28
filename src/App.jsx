@@ -19572,6 +19572,7 @@ function App() {
     ];
     const mesUnifiedOperators = (() => {
       const merged = {};
+      const shouldUseTerminalOperatorFallback = !canAccessAttendanceModule || attendanceProfiles.length === 0;
       (mesAvailableOperatorRows || []).forEach((operator) => {
         const name = String(operator?.fullName || "").trim();
         const key = normalizeMesOperatorLookupValue(name || operator?.employeeCode || operator?.linkedUserId || operator?.profileId || "");
@@ -19628,7 +19629,8 @@ function App() {
           source: existing.source === "attendance" ? "attendance+mes" : "mes"
         };
       });
-      (mesRecentJobRuns || []).forEach((run) => {
+      if (shouldUseTerminalOperatorFallback) {
+        (mesRecentJobRuns || []).forEach((run) => {
         const operatorName = String(run?.operator_name || "").trim();
         const operatorUserId = String(run?.operator_user_id || "").trim();
         const key = normalizeMesOperatorLookupValue(operatorName || operatorUserId);
@@ -19669,8 +19671,10 @@ function App() {
             ["running", "paused", "queued"].includes(String(run?.status || "").toLowerCase()),
           source: existing.source === "attendance+mes" || existing.source === "attendance" || existing.source === "mes" ? existing.source : "terminal"
         };
-      });
-      (mesRecentEventRows || []).forEach((event) => {
+        });
+      }
+      if (shouldUseTerminalOperatorFallback) {
+        (mesRecentEventRows || []).forEach((event) => {
         const operatorName = String(event?.operator_name || "").trim();
         const operatorUserId = String(event?.operator_user_id || event?.operator_id || "").trim();
         const key = normalizeMesOperatorLookupValue(operatorName || operatorUserId);
@@ -19711,7 +19715,8 @@ function App() {
           sessionProducedParts: Number(existing.sessionProducedParts || 0) + producedDelta,
           source: existing.source === "attendance+mes" || existing.source === "attendance" || existing.source === "mes" ? existing.source : "terminal"
         };
-      });
+        });
+      }
       return Object.values(merged).sort((a, b) => String(a.operatorName).localeCompare(String(b.operatorName), "sk-SK", { sensitivity: "base" }));
     })();
     const filteredMesUnifiedOperators = mesUnifiedOperators.filter((operator) => {

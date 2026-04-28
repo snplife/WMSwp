@@ -2839,6 +2839,9 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile, languag
     variableSymbol: isEnglish ? "Variable symbol:" : "Variabilný symbol:",
     constantSymbol: isEnglish ? "Constant symbol:" : "Konštantný symbol:",
     specificSymbol: isEnglish ? "Specific symbol:" : "Špecifický symbol:"
+    ,
+    issuedAt: isEnglish ? "Issued at" : "Dátum vystavenia",
+    dueAt: isEnglish ? "Due date" : "Dátum splatnosti"
   };
   const normalizedCompany =
     companyProfile && typeof companyProfile === "object" ? companyProfile : { name: String(companyProfile || "").trim() };
@@ -3397,10 +3400,9 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile, languag
             <h1>${escapeHtml(`${documentTitle} ${copy.numberShort} ${invoiceNumber}`)}</h1>
           </div>
           <div class="hero-right">
-            ${
-              invoiceOrderNumber || invoiceDocument.sourceProformaNumber
-                ? `
             <div class="header-meta">
+              <div class="header-meta-row"><span class="header-meta-label-wrap"><span class="section-icon">${calendarIcon}</span><span>${escapeHtml(copy.issuedAt)}</span></span><strong>${escapeHtml(issuedAtLabel)}</strong></div>
+              <div class="header-meta-row"><span class="header-meta-label-wrap"><span class="section-icon">${calendarIcon}</span><span>${escapeHtml(copy.dueAt)}</span></span><strong>${escapeHtml(dueDateLabel)}</strong></div>
               ${invoiceOrderNumber ? `<div class="header-meta-row"><span class="header-meta-label-wrap"><span class="section-icon">${calendarIcon}</span><span>${escapeHtml(copy.order)}</span></span><strong>${escapeHtml(invoiceOrderNumber)}</strong></div>` : ""}
               ${
                 invoiceDocument.sourceProformaNumber
@@ -3408,9 +3410,6 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile, languag
                   : ""
               }
             </div>
-            `
-                : ""
-            }
           </div>
         </header>
 

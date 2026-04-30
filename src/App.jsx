@@ -2487,22 +2487,24 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
           font-family: var(--invoice-heading-font);
           color: var(--invoice-text);
         }
-        .proforma-header-dates {
+        .invoice-header-dates {
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
           gap: 2mm;
           margin-top: 2mm;
           max-width: 90mm;
         }
-        .proforma-date-card {
-          display: grid;
-          gap: 0.7mm;
-          padding: 1.2mm 1.6mm;
-          border: 0.3mm solid var(--invoice-border);
+        .invoice-date-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 2.2mm;
+          padding: 1.5mm 1.8mm;
+          border-top: 0.3mm solid var(--invoice-border);
           border-radius: 1.2mm;
-          background: #f8fbff;
+          background: #fcfdff;
         }
-        .proforma-date-card span {
+        .invoice-date-row span {
           font-size: 7.1pt;
           text-transform: uppercase;
           letter-spacing: 0.09em;
@@ -2510,11 +2512,13 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
           font-weight: 700;
           line-height: 1.1;
         }
-        .proforma-date-card strong {
+        .invoice-date-row strong {
           font-size: 8.8pt;
           line-height: 1.2;
           color: var(--invoice-text);
           font-weight: 600;
+          padding-left: 1.2mm;
+          white-space: nowrap;
         }
         .hero-right {
           display: grid;
@@ -3427,11 +3431,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile, languag
         <header class="hero">
           <div>
             <h1>${escapeHtml(`${documentTitle} ${copy.numberShort} ${invoiceNumber}`)}</h1>
-            ${
-              invoiceDocument.documentKind === "proforma"
-                ? `<div class="proforma-header-dates"><div class="proforma-date-card"><span>${escapeHtml(copy.issuedAt)}</span><strong>${escapeHtml(issuedAtLabel)}</strong></div><div class="proforma-date-card"><span>${escapeHtml(copy.dueAt)}</span><strong>${escapeHtml(dueDateLabel)}</strong></div></div>`
-                : ""
-            }
+            <div class="invoice-header-dates"><div class="invoice-date-row"><span>${escapeHtml(copy.issuedAt)}</span><strong>${escapeHtml(issuedAtLabel)}</strong></div><div class="invoice-date-row"><span>${escapeHtml(copy.dueAt)}</span><strong>${escapeHtml(dueDateLabel)}</strong></div></div>
           </div>
           <div class="hero-right">
             <div class="header-meta">

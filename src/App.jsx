@@ -26655,7 +26655,10 @@ function App() {
                                 >
                                   PDF EN
                                 </button>
-                                {invoiceDocument.documentKind === "proforma" && !invoiceDocument.linkedInvoiceNumber && !archived && (
+                                {invoiceDocument.documentKind === "proforma" &&
+                                  !invoiceDocument.linkedInvoiceId &&
+                                  !invoiceDocument.linkedInvoiceNumber &&
+                                  !archived && (
                                   <button
                                     type="button"
                                     className="clear-btn"

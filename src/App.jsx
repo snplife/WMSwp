@@ -3057,31 +3057,6 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile, languag
           font-family: var(--invoice-heading-font);
           color: var(--invoice-text);
         }
-        .invoice-header-dates {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 1.6mm;
-          margin-top: 2.2mm;
-        }
-        .invoice-date-pill {
-          display: inline-flex;
-          align-items: center;
-          min-height: 6.2mm;
-          padding: 1.1mm 2.2mm;
-          border: 0.3mm solid var(--invoice-border);
-          border-radius: 999px;
-          background: var(--invoice-panel-bg);
-          color: var(--invoice-muted);
-          font-size: 7.8pt;
-          line-height: 1.1;
-          font-weight: 600;
-          white-space: nowrap;
-        }
-        .invoice-date-pill strong {
-          margin-left: 1.1mm;
-          color: var(--invoice-text);
-          font-weight: 700;
-        }
         .hero-right {
           display: grid;
           gap: 2.6mm;
@@ -3456,13 +3431,11 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile, languag
         <header class="hero">
           <div>
             <h1>${escapeHtml(`${documentTitle} ${copy.numberShort} ${invoiceNumber}`)}</h1>
-            <div class="invoice-header-dates">
-              <span class="invoice-date-pill">${escapeHtml(copy.issuedAt)}<strong>${escapeHtml(issuedAtLabel)}</strong></span>
-              <span class="invoice-date-pill">${escapeHtml(copy.dueAt)}<strong>${escapeHtml(dueDateLabel)}</strong></span>
-            </div>
           </div>
           <div class="hero-right">
             <div class="header-meta">
+              <div class="header-meta-row"><span class="header-meta-label-wrap"><span class="section-icon">${calendarIcon}</span><span>${escapeHtml(copy.issuedAt)}</span></span><strong>${escapeHtml(issuedAtLabel)}</strong></div>
+              <div class="header-meta-row"><span class="header-meta-label-wrap"><span class="section-icon">${calendarIcon}</span><span>${escapeHtml(copy.dueAt)}</span></span><strong>${escapeHtml(dueDateLabel)}</strong></div>
               ${invoiceOrderNumber ? `<div class="header-meta-row"><span class="header-meta-label-wrap"><span class="section-icon">${calendarIcon}</span><span>${escapeHtml(copy.order)}</span></span><strong>${escapeHtml(invoiceOrderNumber)}</strong></div>` : ""}
               ${
                 invoiceDocument.sourceProformaNumber

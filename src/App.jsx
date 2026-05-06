@@ -3010,7 +3010,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile, languag
   <html lang="${isEnglish ? "en" : "sk"}">
     <head>
       <meta charset="UTF-8" />
-      <title>${escapeHtml(invoiceNumber || documentTitle)}</title>
+      <title>${escapeHtml(documentTitle)}</title>
       <style>
         @page { size: A4 portrait; margin: 10mm 10mm 12mm; }
         :root {

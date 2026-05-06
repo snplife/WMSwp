@@ -1854,6 +1854,27 @@ select {
   box-shadow: 0 0 0 3px rgba(79, 127, 184, 0.14);
 }
 
+.invoice-date-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.invoice-date-meta-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0.24rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid #dbe4ef;
+  background: #f3f7fc;
+  color: #41586d;
+  font-size: 0.76rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
 .workflow-field-grid-contact {
   grid-template-columns: minmax(0, 1fr) 132px;
   align-items: end;

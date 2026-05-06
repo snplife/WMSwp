@@ -6583,6 +6583,14 @@ function App() {
     }
     return grouped;
   }, [invoiceItems]);
+  const editingInvoiceRow = useMemo(
+    () => invoices.find((row) => String(row.id || "") === String(editingInvoiceId || "")) || null,
+    [invoices, editingInvoiceId]
+  );
+  const invoiceIssuedAtLabel = useMemo(() => {
+    const sourceDate = editingInvoiceRow?.created_at || new Date().toISOString();
+    return formatDate(sourceDate);
+  }, [editingInvoiceRow]);
   const orderItemsByOrderId = useMemo(() => {
     const grouped = {};
     for (const item of orderItems) {
@@ -26328,6 +26336,10 @@ function App() {
                         disabled={!activeCompanyId || invoiceSubmitting}
                       />
                     </label>
+                  </div>
+                  <div className="invoice-date-meta-row">
+                    <span className="invoice-date-meta-pill">{`Dátum vystavenia: ${invoiceIssuedAtLabel}`}</span>
+                    <span className="invoice-date-meta-pill">{`Dátum splatnosti: ${formatDate(invoiceDueDate)}`}</span>
                   </div>
 
                   {invoiceLinkedProformaMeta.sourceProformaNumber && (

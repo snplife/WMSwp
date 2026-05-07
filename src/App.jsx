@@ -2995,9 +2995,11 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile, languag
   const rowsHtml = (items || [])
     .map((item, index) => {
       const computed = computeInvoiceItemSignedTotals(item);
+      const isWriteOff = resolveInvoiceItemWriteOff(item);
+      const quantityLabel = `${isWriteOff ? "-" : ""}${formatCell(Math.abs(Number(item.quantity || 0)), "number")}`;
       const itemNote = parseInvoiceItemLineNote(item.line_note);
       const detailBits = [
-        resolveInvoiceItemWriteOff(item) ? (isEnglish ? "Write-off" : "Odúčtovanie") : "",
+        isWriteOff ? (isEnglish ? "Write-off" : "Odúčtovanie") : "",
         Number(item.discount_percent || 0) > 0 ? `${copy.discount} ${formatPercentValue(item.discount_percent || 0, 2)}` : "",
         itemNote.noteText ? itemNote.noteText : ""
       ].filter(Boolean);
@@ -3008,7 +3010,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile, languag
             <div class="item-title">${escapeHtml(String(item.material_code || "-"))}</div>
             <div class="item-meta">${escapeHtml(detailBits.join(" | ") || copy.noExtraData)}</div>
           </td>
-          <td class="cell-right cell-qty">${escapeHtml(formatCell(item.quantity, "number"))}</td>
+          <td class="cell-right cell-qty">${escapeHtml(quantityLabel)}</td>
           <td class="cell-unit">${escapeHtml(String(item.unit || "ks"))}</td>
           <td class="cell-right">${escapeHtml(formatCurrencyValue(computed.unitPrice || 0))}</td>
           <td class="cell-right">${escapeHtml(formatPercentValue(item.vat_percent || 0, 2))}</td>

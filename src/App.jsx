@@ -12008,6 +12008,21 @@ function App() {
     );
   };
 
+  const handleToggleInvoiceDraftItemWriteOff = (index) => {
+    setInvoiceDraftItems((prev) =>
+      prev.map((item, currentIndex) => {
+        if (currentIndex !== index) {
+          return item;
+        }
+
+        const quantityValue = normalizePriceInput(item.quantity);
+        const baseQuantity = quantityValue === null || quantityValue === 0 ? 1 : Math.abs(quantityValue);
+        const nextQuantity = quantityValue !== null && quantityValue < 0 ? baseQuantity : -baseQuantity;
+        return { ...item, quantity: String(nextQuantity) };
+      })
+    );
+  };
+
   const handleSelectRegistryCompany = async (company) => {
     const companyId = String(company?.id || "").trim();
     if (!companyId) {
@@ -12671,8 +12686,8 @@ function App() {
         String(item.discountPercent || "").trim() === "" ? 0 : normalizePriceInput(item.discountPercent);
       const vatPercent = String(item.vatPercent || "").trim() === "" ? 0 : normalizePriceInput(item.vatPercent);
 
-      if (quantity === null || quantity <= 0) {
-        setInvoicesError(`Zadaj platné množstvo pre ${materialCode}.`);
+      if (quantity === null || quantity === 0) {
+        setInvoicesError(`Zadaj platné množstvo (okrem 0) pre ${materialCode}.`);
         return;
       }
       if (unitPrice === null) {
@@ -25898,6 +25913,8 @@ function App() {
                         vatPercent: String(item.vatPercent || "").trim() === "" ? 0 : normalizePriceInput(item.vatPercent) || 0
                       });
                       const showNote = Boolean(item.showNote || String(item.lineNote || "").trim());
+                      const quantityValue = normalizePriceInput(item.quantity);
+                      const isWriteOff = quantityValue !== null && quantityValue < 0;
 
                       return (
                         <div key={item.draftId || `quote-draft-${index}`} className="orders-draft-row">
@@ -26436,7 +26453,6 @@ function App() {
                               <span className="draft-field-label">Množstvo</span>
                               <input
                                 type="number"
-                                min={0.01}
                                 step={0.01}
                                 className="dead-stock-days-input quote-compact-input"
                                 value={item.quantity}
@@ -26492,6 +26508,14 @@ function App() {
                             <span>{`Marža: ${formatCurrencyValue(computed.lineMarginTotal)} | ${formatPercentValue(computed.lineMarginPercent, 2)}`}</span>
                           </div>
                           <div className="orders-draft-actions">
+                            <button
+                              type="button"
+                              className="clear-btn"
+                              onClick={() => handleToggleInvoiceDraftItemWriteOff(index)}
+                              disabled={!activeCompanyId || invoiceSubmitting}
+                            >
+                              {isWriteOff ? "Zrušiť odúčtovanie" : "Odúčtovať"}
+                            </button>
                             <button
                               type="button"
                               className="clear-btn"

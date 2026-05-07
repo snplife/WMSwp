@@ -450,6 +450,7 @@ const AUTH_INIT_TIMEOUT_MS = 15000;
 const IBAN_MAX_LENGTH = 24;
 const IBAN_FORMATTED_MAX_LENGTH = 29;
 const INVOICE_DOCUMENT_META_PREFIX = "[[WMS_INVOICE_META]]";
+const INVOICE_ITEM_WRITEOFF_PREFIX = "[[WMS_INVOICE_WRITEOFF]]";
 const INVOICE_DOCUMENT_KIND_OPTIONS = [
   { value: "invoice", label: "Faktúra" },
   { value: "proforma", label: "Predfaktúra" }
@@ -1144,6 +1145,7 @@ function createEmptyInvoiceDraftItem() {
     purchasePrice: "",
     discountPercent: "0",
     vatPercent: "23",
+    isWriteOff: false,
     lineNote: "",
     showNote: false
   };
@@ -1636,6 +1638,52 @@ function resolveInvoiceDocumentFields(invoice) {
   };
 }
 
+function parseInvoiceItemLineNote(lineNote) {
+  const source = String(lineNote || "").trim();
+  if (!source) {
+    return { isWriteOff: false, noteText: "" };
+  }
+  if (source.startsWith(INVOICE_ITEM_WRITEOFF_PREFIX)) {
+    return { isWriteOff: true, noteText: source.slice(INVOICE_ITEM_WRITEOFF_PREFIX.length).trim() };
+  }
+  return { isWriteOff: false, noteText: source };
+}
+
+function buildInvoiceItemLineNote(noteText, isWriteOff) {
+  const clean = String(noteText || "").trim();
+  return isWriteOff ? `${INVOICE_ITEM_WRITEOFF_PREFIX}${clean}` : clean;
+}
+
+function resolveInvoiceItemWriteOff(item) {
+  const parsed = parseInvoiceItemLineNote(item?.line_note);
+  if (parsed.isWriteOff) {
+    return true;
+  }
+  return Number(item?.unit_price || 0) < 0;
+}
+
+function computeInvoiceItemSignedTotals(item) {
+  const computed = computeQuoteLineTotals({
+    quantity: Math.abs(Number(item?.quantity || 0)),
+    unitPrice: Math.abs(Number(item?.unit_price || 0)),
+    purchasePrice: Math.abs(Number(item?.purchase_price || 0)),
+    discountPercent: item?.discount_percent,
+    vatPercent: item?.vat_percent
+  });
+  const sign = resolveInvoiceItemWriteOff(item) ? -1 : 1;
+  return {
+    ...computed,
+    quantity: computed.quantity * sign,
+    unitPrice: computed.unitPrice * sign,
+    purchasePrice: computed.purchasePrice * sign,
+    finalUnitPrice: computed.finalUnitPrice * sign,
+    lineTotal: computed.lineTotal * sign,
+    lineMarginTotal: computed.lineMarginTotal * sign,
+    lineVatTotal: computed.lineVatTotal * sign,
+    lineTotalWithVat: computed.lineTotalWithVat * sign
+  };
+}
+
 function parseLegacyCustomerNote(note) {
   const source = String(note || "");
   const lines = source.split(/\r?\n/);
@@ -1831,13 +1879,7 @@ function buildQrImageUrl(value, size = 220) {
 function computeDocumentTotals(items) {
   return (items || []).reduce(
     (acc, item) => {
-      const computed = computeQuoteLineTotals({
-        quantity: item.quantity,
-        unitPrice: item.unit_price,
-        purchasePrice: item.purchase_price,
-        discountPercent: item.discount_percent,
-        vatPercent: item.vat_percent
-      });
+      const computed = computeInvoiceItemSignedTotals(item);
       acc.total += computed.lineTotal;
       acc.vat += computed.lineVatTotal;
       acc.totalWithVat += computed.lineTotalWithVat;
@@ -2952,16 +2994,12 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile, languag
       .join("");
   const rowsHtml = (items || [])
     .map((item, index) => {
-      const computed = computeQuoteLineTotals({
-        quantity: item.quantity,
-        unitPrice: item.unit_price,
-        purchasePrice: item.purchase_price,
-        discountPercent: item.discount_percent,
-        vatPercent: item.vat_percent
-      });
+      const computed = computeInvoiceItemSignedTotals(item);
+      const itemNote = parseInvoiceItemLineNote(item.line_note);
       const detailBits = [
+        resolveInvoiceItemWriteOff(item) ? (isEnglish ? "Write-off" : "Odúčtovanie") : "",
         Number(item.discount_percent || 0) > 0 ? `${copy.discount} ${formatPercentValue(item.discount_percent || 0, 2)}` : "",
-        String(item.line_note || "").trim() ? String(item.line_note || "").trim() : ""
+        itemNote.noteText ? itemNote.noteText : ""
       ].filter(Boolean);
       return `
         <tr>
@@ -2972,7 +3010,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile, languag
           </td>
           <td class="cell-right cell-qty">${escapeHtml(formatCell(item.quantity, "number"))}</td>
           <td class="cell-unit">${escapeHtml(String(item.unit || "ks"))}</td>
-          <td class="cell-right">${escapeHtml(formatCurrencyValue(item.unit_price || 0))}</td>
+          <td class="cell-right">${escapeHtml(formatCurrencyValue(computed.unitPrice || 0))}</td>
           <td class="cell-right">${escapeHtml(formatPercentValue(item.vat_percent || 0, 2))}</td>
           <td class="cell-right strong">${escapeHtml(formatCurrencyValue(computed.lineTotalWithVat))}</td>
         </tr>
@@ -5581,23 +5619,6 @@ function normalizePriceInput(value) {
 
   const parsed = Number(normalized);
   if (!Number.isFinite(parsed) || parsed < 0) {
-    return null;
-  }
-
-  return Math.round(parsed * 100) / 100;
-}
-
-function normalizeSignedQuantityInput(value) {
-  const normalized = String(value || "")
-    .trim()
-    .replace(/\s+/g, "")
-    .replace(",", ".");
-  if (!normalized) {
-    return null;
-  }
-
-  const parsed = Number(normalized);
-  if (!Number.isFinite(parsed)) {
     return null;
   }
 
@@ -9475,7 +9496,9 @@ function App() {
     const quantityValue = Number(row?.quantity ?? 1);
     const unitPriceValue = Number(row?.unit_price ?? 0);
     const purchasePriceValue = Number(row?.purchase_price ?? 0);
-    const isWriteOffRow = Number.isFinite(unitPriceValue) && unitPriceValue < 0 && Number.isFinite(quantityValue) && quantityValue > 0;
+    const parsedLineNote = parseInvoiceItemLineNote(row?.line_note);
+    const isWriteOffRow =
+      parsedLineNote.isWriteOff || (Number.isFinite(unitPriceValue) && unitPriceValue < 0 && Number.isFinite(quantityValue) && quantityValue > 0);
 
     return {
       draftId: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
@@ -9483,13 +9506,14 @@ function App() {
       priceListId: "",
       materialCode: String(row?.material_code || ""),
       unit: String(row?.unit || "ks"),
-      quantity: String(isWriteOffRow ? -Math.abs(quantityValue) : quantityValue),
-      unitPrice: String(isWriteOffRow ? Math.abs(unitPriceValue) : unitPriceValue),
-      purchasePrice: String(isWriteOffRow ? Math.abs(purchasePriceValue) : purchasePriceValue),
+      quantity: String(Math.abs(quantityValue)),
+      unitPrice: String(Math.abs(unitPriceValue)),
+      purchasePrice: String(Math.abs(purchasePriceValue)),
       discountPercent: String(row?.discount_percent ?? "0"),
       vatPercent: String(row?.vat_percent ?? "23"),
-      lineNote: String(row?.line_note || ""),
-      showNote: Boolean(String(row?.line_note || "").trim())
+      isWriteOff: isWriteOffRow,
+      lineNote: parsedLineNote.noteText,
+      showNote: Boolean(parsedLineNote.noteText)
     };
   };
 
@@ -12038,11 +12062,7 @@ function App() {
         if (currentIndex !== index) {
           return item;
         }
-
-        const quantityValue = normalizeSignedQuantityInput(item.quantity);
-        const baseQuantity = quantityValue === null || quantityValue === 0 ? 1 : Math.abs(quantityValue);
-        const nextQuantity = quantityValue !== null && quantityValue < 0 ? baseQuantity : -baseQuantity;
-        return { ...item, quantity: String(nextQuantity) };
+        return { ...item, isWriteOff: !Boolean(item.isWriteOff) };
       })
     );
   };
@@ -12326,7 +12346,7 @@ function App() {
         continue;
       }
 
-      const quantity = normalizeSignedQuantityInput(item.quantity);
+      const quantity = normalizePriceInput(item.quantity);
       const unitPrice = normalizePriceInput(item.unitPrice);
       const purchasePrice = normalizePriceInput(item.purchasePrice) ?? 0;
       const discountPercent =
@@ -12704,15 +12724,15 @@ function App() {
         continue;
       }
 
-      const quantity = normalizeSignedQuantityInput(item.quantity);
+      const quantity = normalizePriceInput(item.quantity);
       const unitPrice = normalizePriceInput(item.unitPrice);
       const purchasePrice = normalizePriceInput(item.purchasePrice) ?? 0;
       const discountPercent =
         String(item.discountPercent || "").trim() === "" ? 0 : normalizePriceInput(item.discountPercent);
       const vatPercent = String(item.vatPercent || "").trim() === "" ? 0 : normalizePriceInput(item.vatPercent);
 
-      if (quantity === null || quantity === 0) {
-        setInvoicesError(`Zadaj platné množstvo (okrem 0) pre ${materialCode}.`);
+      if (quantity === null || quantity <= 0) {
+        setInvoicesError(`Zadaj platné množstvo pre ${materialCode}.`);
         return;
       }
       if (unitPrice === null) {
@@ -12729,6 +12749,7 @@ function App() {
       }
 
       const computed = computeQuoteLineTotals({ quantity, unitPrice, purchasePrice, discountPercent, vatPercent });
+      const isWriteOff = Boolean(item.isWriteOff);
       normalizedItems.push({
         draft: item,
         row: {
@@ -12740,9 +12761,9 @@ function App() {
           discount_percent: computed.discountPercent,
           vat_percent: computed.vatPercent,
           final_unit_price: computed.finalUnitPrice,
-          line_total: computed.lineTotal,
-          line_margin_total: computed.lineMarginTotal,
-          line_note: String(item.lineNote || "").trim()
+          line_total: isWriteOff ? -Math.abs(computed.lineTotal) : computed.lineTotal,
+          line_margin_total: isWriteOff ? -Math.abs(computed.lineMarginTotal) : computed.lineMarginTotal,
+          line_note: buildInvoiceItemLineNote(item.lineNote, isWriteOff)
         }
       });
     }
@@ -25930,7 +25951,7 @@ function App() {
                     {quoteDraftItems.map((item, index) => {
                       const matchedPriceRow = quotePriceListMap[item.priceListId] || resolvePriceListOption(item.materialCode, quotePriceListOptions)?.row || null;
                       const computed = computeQuoteLineTotals({
-                        quantity: normalizeSignedQuantityInput(item.quantity) || 0,
+                        quantity: normalizePriceInput(item.quantity) || 0,
                         unitPrice: normalizePriceInput(item.unitPrice) || 0,
                         purchasePrice: normalizePriceInput(item.purchasePrice) || 0,
                         discountPercent:
@@ -26201,26 +26222,21 @@ function App() {
                                    </thead>
                                    <tbody>
                                     {items.map((item) => {
-                                      const computed = computeQuoteLineTotals({
-                                        quantity: item.quantity,
-                                        unitPrice: item.unit_price,
-                                        purchasePrice: item.purchase_price,
-                                        discountPercent: item.discount_percent,
-                                        vatPercent: item.vat_percent
-                                      });
+                                      const computed = computeInvoiceItemSignedTotals(item);
+                                      const parsedLineNote = parseInvoiceItemLineNote(item.line_note);
                                       return (
                                         <tr key={item.id}>
                                           <td>{item.material_code}</td>
                                           <td>{item.unit || "ks"}</td>
                                           <td>{formatCell(item.quantity, "number")}</td>
-                                          <td>{formatCurrencyValue(item.unit_price || 0)}</td>
+                                          <td>{formatCurrencyValue(computed.unitPrice || 0)}</td>
                                           <td>{formatPercentValue(item.discount_percent || 0, 2)}</td>
                                           <td>{formatPercentValue(item.vat_percent || 0, 2)}</td>
-                                          <td>{formatCurrencyValue(item.final_unit_price || 0)}</td>
-                                          <td>{formatCurrencyValue(item.line_total || 0)}</td>
+                                          <td>{formatCurrencyValue(computed.finalUnitPrice || 0)}</td>
+                                          <td>{formatCurrencyValue(computed.lineTotal || 0)}</td>
                                           <td>{formatCurrencyValue(computed.lineTotalWithVat)}</td>
-                                          <td>{`${formatCurrencyValue(item.line_margin_total || 0)} | ${formatPercentValue(computed.lineMarginPercent, 2)}`}</td>
-                                          <td>{item.line_note || "-"}</td>
+                                          <td>{`${formatCurrencyValue(computed.lineMarginTotal || 0)} | ${formatPercentValue(computed.lineMarginPercent, 2)}`}</td>
+                                          <td>{parsedLineNote.noteText || "-"}</td>
                                         </tr>
                                       );
                                     })}
@@ -26441,8 +26457,14 @@ function App() {
                         vatPercent: String(item.vatPercent || "").trim() === "" ? 0 : normalizePriceInput(item.vatPercent) || 0
                       });
                       const showNote = Boolean(item.showNote || String(item.lineNote || "").trim());
-                      const quantityValue = normalizeSignedQuantityInput(item.quantity);
-                      const isWriteOff = quantityValue !== null && quantityValue < 0;
+                      const isWriteOff = Boolean(item.isWriteOff);
+                      const computedSigned = {
+                        ...computed,
+                        finalUnitPrice: isWriteOff ? -Math.abs(computed.finalUnitPrice) : computed.finalUnitPrice,
+                        lineTotal: isWriteOff ? -Math.abs(computed.lineTotal) : computed.lineTotal,
+                        lineTotalWithVat: isWriteOff ? -Math.abs(computed.lineTotalWithVat) : computed.lineTotalWithVat,
+                        lineMarginTotal: isWriteOff ? -Math.abs(computed.lineMarginTotal) : computed.lineMarginTotal
+                      };
 
                       return (
                         <div key={item.draftId || `invoice-draft-${index}`} className="orders-draft-row">
@@ -26527,10 +26549,10 @@ function App() {
                             </div>
                           </div>
                           <div className="quote-draft-summary">
-                            <span>{`Po zľave: ${formatCurrencyValue(computed.finalUnitPrice)}`}</span>
-                            <span>{`Bez DPH: ${formatCurrencyValue(computed.lineTotal)}`}</span>
-                            <span>{`S DPH: ${formatCurrencyValue(computed.lineTotalWithVat)}`}</span>
-                            <span>{`Marža: ${formatCurrencyValue(computed.lineMarginTotal)} | ${formatPercentValue(computed.lineMarginPercent, 2)}`}</span>
+                            <span>{`Po zľave: ${formatCurrencyValue(computedSigned.finalUnitPrice)}`}</span>
+                            <span>{`Bez DPH: ${formatCurrencyValue(computedSigned.lineTotal)}`}</span>
+                            <span>{`S DPH: ${formatCurrencyValue(computedSigned.lineTotalWithVat)}`}</span>
+                            <span>{`Marža: ${formatCurrencyValue(computedSigned.lineMarginTotal)} | ${formatPercentValue(computed.lineMarginPercent, 2)}`}</span>
                           </div>
                           <div className="orders-draft-actions">
                             <button
@@ -26804,26 +26826,21 @@ function App() {
                                   </thead>
                                   <tbody>
                                     {items.map((item) => {
-                                      const computed = computeQuoteLineTotals({
-                                        quantity: item.quantity,
-                                        unitPrice: item.unit_price,
-                                        purchasePrice: item.purchase_price,
-                                        discountPercent: item.discount_percent,
-                                        vatPercent: item.vat_percent
-                                      });
+                                      const computed = computeInvoiceItemSignedTotals(item);
+                                      const parsedLineNote = parseInvoiceItemLineNote(item.line_note);
                                       return (
                                         <tr key={item.id}>
                                           <td>{item.material_code}</td>
                                           <td>{item.unit || "ks"}</td>
                                           <td>{formatCell(item.quantity, "number")}</td>
-                                          <td>{formatCurrencyValue(item.unit_price || 0)}</td>
+                                          <td>{formatCurrencyValue(computed.unitPrice || 0)}</td>
                                           <td>{formatPercentValue(item.discount_percent || 0, 2)}</td>
                                           <td>{formatPercentValue(item.vat_percent || 0, 2)}</td>
-                                          <td>{formatCurrencyValue(item.final_unit_price || 0)}</td>
-                                          <td>{formatCurrencyValue(item.line_total || 0)}</td>
+                                          <td>{formatCurrencyValue(computed.finalUnitPrice || 0)}</td>
+                                          <td>{formatCurrencyValue(computed.lineTotal || 0)}</td>
                                           <td>{formatCurrencyValue(computed.lineTotalWithVat)}</td>
-                                          <td>{`${formatCurrencyValue(item.line_margin_total || 0)} | ${formatPercentValue(computed.lineMarginPercent, 2)}`}</td>
-                                          <td>{item.line_note || "-"}</td>
+                                          <td>{`${formatCurrencyValue(computed.lineMarginTotal || 0)} | ${formatPercentValue(computed.lineMarginPercent, 2)}`}</td>
+                                          <td>{parsedLineNote.noteText || "-"}</td>
                                         </tr>
                                       );
                                     })}

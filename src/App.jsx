@@ -9471,20 +9471,27 @@ function App() {
     showNote: Boolean(String(row?.line_note || "").trim())
   });
 
-  const createInvoiceDraftItemFromRow = (row) => ({
-    draftId: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-    invoiceItemId: String(row?.id || ""),
-    priceListId: "",
-    materialCode: String(row?.material_code || ""),
-    unit: String(row?.unit || "ks"),
-    quantity: String(row?.quantity ?? "1"),
-    unitPrice: String(row?.unit_price ?? ""),
-    purchasePrice: String(row?.purchase_price ?? ""),
-    discountPercent: String(row?.discount_percent ?? "0"),
-    vatPercent: String(row?.vat_percent ?? "23"),
-    lineNote: String(row?.line_note || ""),
-    showNote: Boolean(String(row?.line_note || "").trim())
-  });
+  const createInvoiceDraftItemFromRow = (row) => {
+    const quantityValue = Number(row?.quantity ?? 1);
+    const unitPriceValue = Number(row?.unit_price ?? 0);
+    const purchasePriceValue = Number(row?.purchase_price ?? 0);
+    const isWriteOffRow = Number.isFinite(unitPriceValue) && unitPriceValue < 0 && Number.isFinite(quantityValue) && quantityValue > 0;
+
+    return {
+      draftId: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      invoiceItemId: String(row?.id || ""),
+      priceListId: "",
+      materialCode: String(row?.material_code || ""),
+      unit: String(row?.unit || "ks"),
+      quantity: String(isWriteOffRow ? -Math.abs(quantityValue) : quantityValue),
+      unitPrice: String(isWriteOffRow ? Math.abs(unitPriceValue) : unitPriceValue),
+      purchasePrice: String(isWriteOffRow ? Math.abs(purchasePriceValue) : purchasePriceValue),
+      discountPercent: String(row?.discount_percent ?? "0"),
+      vatPercent: String(row?.vat_percent ?? "23"),
+      lineNote: String(row?.line_note || ""),
+      showNote: Boolean(String(row?.line_note || "").trim())
+    };
+  };
 
   const resetCustomerForm = () => {
     setEditingCustomerId("");
@@ -12344,17 +12351,18 @@ function App() {
       }
 
       const computed = computeQuoteLineTotals({ quantity, unitPrice, purchasePrice, discountPercent, vatPercent });
+      const isWriteOff = computed.quantity < 0;
       normalizedItems.push({
         draft: item,
         row: {
           material_code: materialCode,
           unit: String(item.unit || "ks").trim() || "ks",
-          quantity: computed.quantity,
-          unit_price: computed.unitPrice,
-          purchase_price: computed.purchasePrice,
+          quantity: Math.abs(computed.quantity),
+          unit_price: isWriteOff ? -Math.abs(computed.unitPrice) : computed.unitPrice,
+          purchase_price: isWriteOff ? -Math.abs(computed.purchasePrice) : computed.purchasePrice,
           discount_percent: computed.discountPercent,
           vat_percent: computed.vatPercent,
-          final_unit_price: computed.finalUnitPrice,
+          final_unit_price: isWriteOff ? -Math.abs(computed.finalUnitPrice) : computed.finalUnitPrice,
           line_total: computed.lineTotal,
           line_margin_total: computed.lineMarginTotal,
           line_note: String(item.lineNote || "").trim()

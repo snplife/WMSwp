@@ -5587,6 +5587,23 @@ function normalizePriceInput(value) {
   return Math.round(parsed * 100) / 100;
 }
 
+function normalizeSignedQuantityInput(value) {
+  const normalized = String(value || "")
+    .trim()
+    .replace(/\s+/g, "")
+    .replace(",", ".");
+  if (!normalized) {
+    return null;
+  }
+
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+
+  return Math.round(parsed * 100) / 100;
+}
+
 function formatPriceInputValue(value) {
   const normalized = normalizeBillingPriceValue(value);
   return normalized === null ? "" : String(normalized);
@@ -12015,7 +12032,7 @@ function App() {
           return item;
         }
 
-        const quantityValue = normalizePriceInput(item.quantity);
+        const quantityValue = normalizeSignedQuantityInput(item.quantity);
         const baseQuantity = quantityValue === null || quantityValue === 0 ? 1 : Math.abs(quantityValue);
         const nextQuantity = quantityValue !== null && quantityValue < 0 ? baseQuantity : -baseQuantity;
         return { ...item, quantity: String(nextQuantity) };
@@ -12302,7 +12319,7 @@ function App() {
         continue;
       }
 
-      const quantity = normalizePriceInput(item.quantity);
+      const quantity = normalizeSignedQuantityInput(item.quantity);
       const unitPrice = normalizePriceInput(item.unitPrice);
       const purchasePrice = normalizePriceInput(item.purchasePrice) ?? 0;
       const discountPercent =
@@ -25905,7 +25922,7 @@ function App() {
                     {quoteDraftItems.map((item, index) => {
                       const matchedPriceRow = quotePriceListMap[item.priceListId] || resolvePriceListOption(item.materialCode, quotePriceListOptions)?.row || null;
                       const computed = computeQuoteLineTotals({
-                        quantity: normalizePriceInput(item.quantity) || 0,
+                        quantity: normalizeSignedQuantityInput(item.quantity) || 0,
                         unitPrice: normalizePriceInput(item.unitPrice) || 0,
                         purchasePrice: normalizePriceInput(item.purchasePrice) || 0,
                         discountPercent:
@@ -26416,7 +26433,7 @@ function App() {
                         vatPercent: String(item.vatPercent || "").trim() === "" ? 0 : normalizePriceInput(item.vatPercent) || 0
                       });
                       const showNote = Boolean(item.showNote || String(item.lineNote || "").trim());
-                      const quantityValue = normalizePriceInput(item.quantity);
+                      const quantityValue = normalizeSignedQuantityInput(item.quantity);
                       const isWriteOff = quantityValue !== null && quantityValue < 0;
 
                       return (

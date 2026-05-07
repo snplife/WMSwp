@@ -12755,7 +12755,7 @@ function App() {
         row: {
           material_code: materialCode,
           unit: String(item.unit || "ks").trim() || "ks",
-          quantity: computed.quantity,
+          quantity: Math.abs(computed.quantity),
           unit_price: computed.unitPrice,
           purchase_price: computed.purchasePrice,
           discount_percent: computed.discountPercent,
@@ -12826,6 +12826,12 @@ function App() {
           .upsert(existingRows, { onConflict: "id" })
           .select("*");
         if (upsertError) {
+          if (String(upsertError.message || "").toLowerCase().includes("quantity")) {
+            const debugQty = existingRows.map((row) => Number(row.quantity || 0));
+            setInvoicesError(`Chyba množstva pri úprave položiek faktúry. Kontrola: ${debugQty.join(", ")}`);
+            setInvoiceSubmitting(false);
+            return;
+          }
           setInvoicesError(upsertError.message || "Nepodarilo sa upraviť položky faktúry.");
           setInvoiceSubmitting(false);
           return;
@@ -12839,6 +12845,12 @@ function App() {
           .insert(newRows)
           .select("*");
         if (insertItemsError) {
+          if (String(insertItemsError.message || "").toLowerCase().includes("quantity")) {
+            const debugQty = newRows.map((row) => Number(row.quantity || 0));
+            setInvoicesError(`Chyba množstva pri doplnení položiek faktúry. Kontrola: ${debugQty.join(", ")}`);
+            setInvoiceSubmitting(false);
+            return;
+          }
           setInvoicesError(insertItemsError.message || "Nepodarilo sa doplniť nové položky faktúry.");
           setInvoiceSubmitting(false);
           return;
@@ -12932,6 +12944,13 @@ function App() {
       .select("*");
 
     if (itemInsertError) {
+      if (String(itemInsertError.message || "").toLowerCase().includes("quantity")) {
+        const debugQty = normalizedItems.map(({ row }) => Number(row.quantity || 0));
+        setInvoicesError(`Chyba množstva pri vytvorení faktúry. Kontrola: ${debugQty.join(", ")}`);
+        setInvoiceSubmitting(false);
+        await loadInvoicesModuleData();
+        return;
+      }
       setInvoicesError(itemInsertError.message || "Faktúra sa vytvorila, ale položky sa nepodarilo uložiť.");
       setInvoiceSubmitting(false);
       await loadInvoicesModuleData();

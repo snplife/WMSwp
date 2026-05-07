@@ -25913,8 +25913,6 @@ function App() {
                         vatPercent: String(item.vatPercent || "").trim() === "" ? 0 : normalizePriceInput(item.vatPercent) || 0
                       });
                       const showNote = Boolean(item.showNote || String(item.lineNote || "").trim());
-                      const quantityValue = normalizePriceInput(item.quantity);
-                      const isWriteOff = quantityValue !== null && quantityValue < 0;
 
                       return (
                         <div key={item.draftId || `quote-draft-${index}`} className="orders-draft-row">
@@ -26418,6 +26416,8 @@ function App() {
                         vatPercent: String(item.vatPercent || "").trim() === "" ? 0 : normalizePriceInput(item.vatPercent) || 0
                       });
                       const showNote = Boolean(item.showNote || String(item.lineNote || "").trim());
+                      const quantityValue = normalizePriceInput(item.quantity);
+                      const isWriteOff = quantityValue !== null && quantityValue < 0;
 
                       return (
                         <div key={item.draftId || `invoice-draft-${index}`} className="orders-draft-row">

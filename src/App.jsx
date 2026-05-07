@@ -2468,7 +2468,7 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
             <div class="item-title">${escapeHtml(String(item.material_code || "-"))}</div>
             <div class="item-meta">${escapeHtml(detailBits.join(" | ") || "Bez doplňujúcich údajov")}</div>
           </td>
-          <td class="cell-right cell-qty">${escapeHtml(formatCell(item.quantity, "number"))}</td>
+          <td class="cell-right cell-qty">${escapeHtml(formatCell(computed.quantity, "number"))}</td>
           <td class="cell-unit">${escapeHtml(String(item.unit || "ks"))}</td>
           <td class="cell-right">${escapeHtml(formatCurrencyValue(item.final_unit_price || 0))}</td>
           <td class="cell-right">${escapeHtml(formatPercentValue(item.vat_percent || 0, 2))}</td>
@@ -26247,7 +26247,7 @@ function App() {
                                         <tr key={item.id}>
                                           <td>{item.material_code}</td>
                                           <td>{item.unit || "ks"}</td>
-                                          <td>{formatCell(item.quantity, "number")}</td>
+                                          <td>{formatCell(computed.quantity, "number")}</td>
                                           <td>{formatCurrencyValue(computed.unitPrice || 0)}</td>
                                           <td>{formatPercentValue(item.discount_percent || 0, 2)}</td>
                                           <td>{formatPercentValue(item.vat_percent || 0, 2)}</td>
@@ -26851,7 +26851,7 @@ function App() {
                                         <tr key={item.id}>
                                           <td>{item.material_code}</td>
                                           <td>{item.unit || "ks"}</td>
-                                          <td>{formatCell(item.quantity, "number")}</td>
+                                          <td>{formatCell(computed.quantity, "number")}</td>
                                           <td>{formatCurrencyValue(computed.unitPrice || 0)}</td>
                                           <td>{formatPercentValue(item.discount_percent || 0, 2)}</td>
                                           <td>{formatPercentValue(item.vat_percent || 0, 2)}</td>

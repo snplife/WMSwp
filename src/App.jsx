@@ -12696,7 +12696,7 @@ function App() {
         continue;
       }
 
-      const quantity = normalizePriceInput(item.quantity);
+      const quantity = normalizeSignedQuantityInput(item.quantity);
       const unitPrice = normalizePriceInput(item.unitPrice);
       const purchasePrice = normalizePriceInput(item.purchasePrice) ?? 0;
       const discountPercent =

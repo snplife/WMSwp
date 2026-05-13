@@ -1,0 +1,28 @@
+-- WMS invoices: invoice number uniqueness per document kind
+-- Allows using the same invoice number across different document types
+-- (invoice, proforma, credit_note) while keeping uniqueness inside each type.
+
+alter table public.invoices
+add column if not exists document_kind text;
+
+update public.invoices
+set document_kind = case
+  when coalesce(note, '') like '%"documentKind":"proforma"%' then 'proforma'
+  when coalesce(note, '') like '%"documentKind":"credit_note"%' then 'credit_note'
+  else 'invoice'
+end
+where coalesce(trim(document_kind), '') = '';
+
+alter table public.invoices
+alter column document_kind set default 'invoice';
+
+alter table public.invoices
+alter column document_kind set not null;
+
+drop index if exists idx_invoices_company_number_unique;
+
+create unique index if not exists idx_invoices_company_number_kind_unique
+  on public.invoices (company_id, invoice_number, document_kind);
+
+create index if not exists idx_invoices_company_kind_created_at
+  on public.invoices (company_id, document_kind, created_at desc);

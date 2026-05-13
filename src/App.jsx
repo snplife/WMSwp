@@ -123,7 +123,7 @@ const COMPANY_ADMIN_HARDWARE_OPTIONS = [
   },
   {
     key: "network_upgrade",
-    label: "Sieť a Wi‑Fi",
+    label: "Sieť a Wi-Fi",
     description: "pokrytie haly, kiosk zóna, stabilita terminálov",
     priceExVat: null,
     moduleKeys: ["wms", "mes", "attendance"]
@@ -1630,6 +1630,7 @@ function parseInvoiceDocumentNote(note) {
 
 function resolveInvoiceDocumentFields(invoice) {
   const fallback = parseInvoiceDocumentNote(invoice?.note);
+  const invoiceDocumentKindRaw = String(invoice?.document_kind || "").trim();
   return {
     noteText: String(invoice?.note || "").startsWith(INVOICE_DOCUMENT_META_PREFIX)
       ? fallback.noteText
@@ -1637,7 +1638,7 @@ function resolveInvoiceDocumentFields(invoice) {
     introText: String(invoice?.intro_text || "").trim() || fallback.introText,
     outroText: String(invoice?.outro_text || "").trim() || fallback.outroText,
     orderNumber: String(invoice?.order_number || "").trim() || fallback.orderNumber,
-    documentKind: normalizeInvoiceDocumentKind(fallback.documentKind),
+    documentKind: normalizeInvoiceDocumentKind(invoiceDocumentKindRaw || fallback.documentKind),
     sourceProformaId: String(fallback.sourceProformaId || "").trim(),
     sourceProformaNumber: String(fallback.sourceProformaNumber || "").trim(),
     linkedInvoiceId: String(fallback.linkedInvoiceId || "").trim(),
@@ -9937,7 +9938,7 @@ function App() {
       const scopedCompanyId = await resolveCustomerScope();
       const invoicesQuery = supabase
         .from("invoices")
-        .select("id,company_id,customer_id,customer_name,invoice_number,order_number,due_date,status,note,intro_text,outro_text,archived_at,created_at,created_by")
+        .select("id,company_id,customer_id,customer_name,invoice_number,document_kind,order_number,due_date,status,note,intro_text,outro_text,archived_at,created_at,created_by")
         .order("created_at", { ascending: false });
       const priceListQuery = supabase
         .from(PRICE_LIST_TABLE)
@@ -12669,7 +12670,7 @@ function App() {
         })
       })
       .eq("id", normalizedSourceProformaId)
-      .select("id,company_id,customer_id,customer_name,invoice_number,order_number,due_date,status,note,intro_text,outro_text,archived_at,created_at,created_by")
+      .select("id,company_id,customer_id,customer_name,invoice_number,document_kind,order_number,due_date,status,note,intro_text,outro_text,archived_at,created_at,created_by")
       .single();
 
     return { row: updatedSourceRow || null, error: sourceUpdateError || null };
@@ -12815,6 +12816,7 @@ function App() {
         customer_id: customer.id,
         customer_name: customer.name,
         invoice_number: normalizedInvoiceNumber,
+        document_kind: normalizedInvoiceDocumentKind,
         due_date: normalizedDueDate,
         note: invoiceNotePayload,
         order_number: normalizedInvoiceOrderNumber,
@@ -12826,7 +12828,7 @@ function App() {
         .from("invoices")
         .update(payloadBase)
         .eq("id", editingInvoiceId)
-        .select("id,company_id,customer_id,customer_name,invoice_number,order_number,due_date,status,note,intro_text,outro_text,archived_at,created_at,created_by")
+        .select("id,company_id,customer_id,customer_name,invoice_number,document_kind,order_number,due_date,status,note,intro_text,outro_text,archived_at,created_at,created_by")
         .single();
 
       if (invoiceUpdateError) {
@@ -12952,6 +12954,7 @@ function App() {
           customer_id: customer.id,
           customer_name: customer.name,
           invoice_number: normalizedInvoiceNumber,
+          document_kind: normalizedInvoiceDocumentKind,
           due_date: normalizedDueDate,
           status: "draft",
           note: invoiceNotePayload,
@@ -12961,7 +12964,7 @@ function App() {
           created_by: authUser?.id || null
         }
       ])
-      .select("id,company_id,customer_id,customer_name,invoice_number,order_number,due_date,status,note,intro_text,outro_text,archived_at,created_at,created_by")
+      .select("id,company_id,customer_id,customer_name,invoice_number,document_kind,order_number,due_date,status,note,intro_text,outro_text,archived_at,created_at,created_by")
       .single();
 
     if (invoiceInsertError) {
@@ -13105,7 +13108,7 @@ function App() {
             })
           })
           .eq("id", sourceProformaId)
-          .select("id,company_id,customer_id,customer_name,invoice_number,order_number,due_date,status,note,intro_text,outro_text,archived_at,created_at,created_by")
+          .select("id,company_id,customer_id,customer_name,invoice_number,document_kind,order_number,due_date,status,note,intro_text,outro_text,archived_at,created_at,created_by")
           .single();
 
         if (sourceUpdateError) {
@@ -21417,7 +21420,7 @@ function App() {
                 aria-expanded={!collapsedSidebarSections[section.title]}
               >
                 <span className="sidebar-section-title">{section.title}</span>
-                <span className="sidebar-section-chevron">{collapsedSidebarSections[section.title] ? "+" : "−"}</span>
+                <span className="sidebar-section-chevron">{collapsedSidebarSections[section.title] ? "+" : "-"}</span>
               </button>
               {!collapsedSidebarSections[section.title] && (
                 <div className="sidebar-tree">
@@ -21446,7 +21449,7 @@ function App() {
             aria-expanded={!collapsedSidebarSections.tools}
           >
             <span className="sidebar-section-title">Nástroje</span>
-            <span className="sidebar-section-chevron">{collapsedSidebarSections.tools ? "+" : "−"}</span>
+            <span className="sidebar-section-chevron">{collapsedSidebarSections.tools ? "+" : "-"}</span>
           </button>
           {!collapsedSidebarSections.tools && (
             <div className="sidebar-tree">
@@ -28370,6 +28373,8 @@ function App() {
 }
 
 export default App;
+
+
 
 
 

@@ -793,6 +793,7 @@ create table if not exists public.invoices (
   customer_id uuid references public.customers (id) on delete set null,
   customer_name text not null,
   invoice_number text not null,
+  document_kind text not null default 'invoice' check (document_kind in ('invoice', 'proforma', 'credit_note')),
   status text not null default 'draft' check (status in ('draft', 'issued', 'paid', 'cancelled')),
   note text not null default '',
   archived_at timestamptz,
@@ -818,8 +819,8 @@ create table if not exists public.invoice_items (
   created_at timestamptz not null default now()
 );
 
-create unique index if not exists idx_invoices_company_number_unique
-  on public.invoices (company_id, invoice_number);
+create unique index if not exists idx_invoices_company_number_kind_unique
+  on public.invoices (company_id, invoice_number, document_kind);
 
 create index if not exists idx_invoices_company_created_at
   on public.invoices (company_id, created_at desc);

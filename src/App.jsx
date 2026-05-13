@@ -9938,7 +9938,7 @@ function App() {
       const scopedCompanyId = await resolveCustomerScope();
       const invoicesQuery = supabase
         .from("invoices")
-        .select("id,company_id,customer_id,customer_name,invoice_number,document_kind,order_number,due_date,status,note,intro_text,outro_text,archived_at,created_at,created_by")
+        .select("id,company_id,customer_id,customer_name,invoice_number,order_number,due_date,status,note,intro_text,outro_text,archived_at,created_at,created_by")
         .order("created_at", { ascending: false });
       const priceListQuery = supabase
         .from(PRICE_LIST_TABLE)
@@ -12670,7 +12670,7 @@ function App() {
         })
       })
       .eq("id", normalizedSourceProformaId)
-      .select("id,company_id,customer_id,customer_name,invoice_number,document_kind,order_number,due_date,status,note,intro_text,outro_text,archived_at,created_at,created_by")
+      .select("id,company_id,customer_id,customer_name,invoice_number,order_number,due_date,status,note,intro_text,outro_text,archived_at,created_at,created_by")
       .single();
 
     return { row: updatedSourceRow || null, error: sourceUpdateError || null };
@@ -12816,7 +12816,6 @@ function App() {
         customer_id: customer.id,
         customer_name: customer.name,
         invoice_number: normalizedInvoiceNumber,
-        document_kind: normalizedInvoiceDocumentKind,
         due_date: normalizedDueDate,
         note: invoiceNotePayload,
         order_number: normalizedInvoiceOrderNumber,
@@ -12828,7 +12827,7 @@ function App() {
         .from("invoices")
         .update(payloadBase)
         .eq("id", editingInvoiceId)
-        .select("id,company_id,customer_id,customer_name,invoice_number,document_kind,order_number,due_date,status,note,intro_text,outro_text,archived_at,created_at,created_by")
+        .select("id,company_id,customer_id,customer_name,invoice_number,order_number,due_date,status,note,intro_text,outro_text,archived_at,created_at,created_by")
         .single();
 
       if (invoiceUpdateError) {
@@ -12954,7 +12953,6 @@ function App() {
           customer_id: customer.id,
           customer_name: customer.name,
           invoice_number: normalizedInvoiceNumber,
-          document_kind: normalizedInvoiceDocumentKind,
           due_date: normalizedDueDate,
           status: "draft",
           note: invoiceNotePayload,
@@ -12964,7 +12962,7 @@ function App() {
           created_by: authUser?.id || null
         }
       ])
-      .select("id,company_id,customer_id,customer_name,invoice_number,document_kind,order_number,due_date,status,note,intro_text,outro_text,archived_at,created_at,created_by")
+      .select("id,company_id,customer_id,customer_name,invoice_number,order_number,due_date,status,note,intro_text,outro_text,archived_at,created_at,created_by")
       .single();
 
     if (invoiceInsertError) {
@@ -13108,7 +13106,7 @@ function App() {
             })
           })
           .eq("id", sourceProformaId)
-          .select("id,company_id,customer_id,customer_name,invoice_number,document_kind,order_number,due_date,status,note,intro_text,outro_text,archived_at,created_at,created_by")
+          .select("id,company_id,customer_id,customer_name,invoice_number,order_number,due_date,status,note,intro_text,outro_text,archived_at,created_at,created_by")
           .single();
 
         if (sourceUpdateError) {

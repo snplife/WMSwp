@@ -2496,7 +2496,7 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
       <meta charset="UTF-8" />
       <title>${escapeHtml(quoteNumber || "Cenová ponuka")}</title>
       <style>
-        @page { size: A4 portrait; margin: 10mm 10mm 12mm; }
+        @page { size: A4 portrait; margin: 10mm 12mm 12mm 10mm; }
         :root {
           --invoice-font: ${invoiceTheme.bodyFontFamily};
           --invoice-heading-font: ${invoiceTheme.headingFontFamily};
@@ -2521,11 +2521,15 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
         .page {
           display: grid;
           gap: 3.4mm;
+          width: 100%;
+          max-width: 187mm;
+          margin: 0 auto;
           padding: 0;
+          overflow: hidden;
         }
         .hero {
           display: grid;
-          grid-template-columns: minmax(0, 1fr) 46mm;
+          grid-template-columns: minmax(0, 1fr) 54mm;
           gap: 6mm;
           align-items: start;
           padding-top: 1.5mm;
@@ -2586,7 +2590,8 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
           display: flex;
           justify-content: space-between;
           gap: 3mm;
-          align-items: flex-start;
+          align-items: center;
+          flex-wrap: nowrap;
           padding-top: 1.2mm;
           border-top: 0.3mm solid var(--invoice-border);
         }
@@ -2616,6 +2621,10 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
           width: 3.8mm;
           height: 3.8mm;
         }
+        .header-meta-label-wrap {
+          white-space: nowrap;
+          min-width: 0;
+        }
         .header-meta-row span {
           font-size: 7.8pt;
           text-transform: uppercase;
@@ -2629,6 +2638,8 @@ function buildQuotePrintHtml(quote, customer, items, companyProfile, options = {
           line-height: 1.2;
           color: var(--invoice-text);
           font-weight: 600;
+          white-space: nowrap;
+          text-align: right;
         }
         .parties {
           display: grid;

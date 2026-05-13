@@ -6243,6 +6243,7 @@ function App() {
   const [editingInvoiceId, setEditingInvoiceId] = useState("");
   const [selectedInvoiceCustomerId, setSelectedInvoiceCustomerId] = useState("");
   const [invoiceNumberInput, setInvoiceNumberInput] = useState(buildInvoiceNumber());
+  const [invoiceIssuedAtInput, setInvoiceIssuedAtInput] = useState(() => formatDateInputValue());
   const [invoiceDueDate, setInvoiceDueDate] = useState(getDefaultInvoiceDueDate(14));
   const [invoiceDocumentKindInput, setInvoiceDocumentKindInput] = useState("invoice");
   const [invoiceLinkedProformaMeta, setInvoiceLinkedProformaMeta] = useState(() => createDefaultInvoiceDocumentMeta());
@@ -6673,14 +6674,9 @@ function App() {
     }
     return grouped;
   }, [invoiceItems]);
-  const editingInvoiceRow = useMemo(
-    () => invoices.find((row) => String(row.id || "") === String(editingInvoiceId || "")) || null,
-    [invoices, editingInvoiceId]
-  );
   const invoiceIssuedAtLabel = useMemo(() => {
-    const sourceDate = editingInvoiceRow?.created_at || new Date().toISOString();
-    return formatDate(sourceDate);
-  }, [editingInvoiceRow]);
+    return formatDate(invoiceIssuedAtInput);
+  }, [invoiceIssuedAtInput]);
   const orderItemsByOrderId = useMemo(() => {
     const grouped = {};
     for (const item of orderItems) {
@@ -9518,6 +9514,7 @@ function App() {
   const resetInvoiceDraft = () => {
     setEditingInvoiceId("");
     setInvoiceNumberInput(buildInvoiceNumber());
+    setInvoiceIssuedAtInput(formatDateInputValue());
     setInvoiceDueDate(getDefaultInvoiceDueDate(activeCompanyProfile?.invoice_due_days ?? 14));
     setInvoiceDocumentKindInput("invoice");
     setInvoiceLinkedProformaMeta(createDefaultInvoiceDocumentMeta());
@@ -12616,6 +12613,7 @@ function App() {
     setEditingInvoiceId(invoiceId);
     setSelectedInvoiceCustomerId(String(invoice?.customer_id || ""));
     setInvoiceNumberInput(String(invoice?.invoice_number || ""));
+    setInvoiceIssuedAtInput(formatDateInputValue(invoice?.created_at || new Date()));
     setInvoiceDueDate(formatDateInputValue(invoice?.due_date) || getDefaultInvoiceDueDate(activeCompanyProfile?.invoice_due_days ?? 14));
     setInvoiceDocumentKindInput(invoiceDocument.documentKind);
     setInvoiceLinkedProformaMeta(createDefaultInvoiceDocumentMeta(invoiceDocument));
@@ -12647,6 +12645,7 @@ function App() {
     setEditingInvoiceId("");
     setSelectedInvoiceCustomerId(String(invoice?.customer_id || ""));
     setInvoiceNumberInput(buildInvoiceNumber());
+    setInvoiceIssuedAtInput(formatDateInputValue());
     setInvoiceDueDate(getDefaultInvoiceDueDate(activeCompanyProfile?.invoice_due_days ?? 14));
     setInvoiceDocumentKindInput(duplicateMeta.documentKind);
     setInvoiceLinkedProformaMeta(duplicateMeta);
@@ -12713,6 +12712,12 @@ function App() {
       return;
     }
     const normalizedDueDate = String(invoiceDueDate || "").trim();
+    const normalizedIssuedAtDate = String(invoiceIssuedAtInput || "").trim();
+    const issuedAtIso = normalizedIssuedAtDate ? `${normalizedIssuedAtDate}T00:00:00.000Z` : "";
+    if (!normalizedIssuedAtDate || Number.isNaN(Date.parse(issuedAtIso))) {
+      setInvoicesError("Zadaj dátum vystavenia.");
+      return;
+    }
     if (!normalizedDueDate) {
       setInvoicesError("Zadaj splatnosť faktúry.");
       return;
@@ -12834,6 +12839,7 @@ function App() {
         customer_id: customer.id,
         customer_name: customer.name,
         invoice_number: normalizedInvoiceNumber,
+        created_at: issuedAtIso,
         due_date: normalizedDueDate,
         note: invoiceNotePayload,
         order_number: normalizedInvoiceOrderNumber,
@@ -12971,6 +12977,7 @@ function App() {
           customer_id: customer.id,
           customer_name: customer.name,
           invoice_number: normalizedInvoiceNumber,
+          created_at: issuedAtIso,
           due_date: normalizedDueDate,
           status: "draft",
           note: invoiceNotePayload,
@@ -13201,6 +13208,7 @@ function App() {
     setEditingInvoiceId("");
     setSelectedInvoiceCustomerId(String(proforma.customer_id || ""));
     setInvoiceNumberInput(buildInvoiceNumber());
+    setInvoiceIssuedAtInput(formatDateInputValue());
     setInvoiceDueDate(getDefaultInvoiceDueDate(activeCompanyProfile?.invoice_due_days ?? 14));
     setInvoiceDocumentKindInput("invoice");
     setInvoiceLinkedProformaMeta(finalInvoiceMeta);
@@ -26480,6 +26488,16 @@ function App() {
                           </option>
                         ))}
                       </select>
+                    </label>
+                    <label className="workflow-field workflow-field-compact invoice-date-field">
+                      <span className="workflow-field-label">Dátum vystavenia</span>
+                      <input
+                        type="date"
+                        className="invoice-date-input"
+                        value={invoiceIssuedAtInput}
+                        onChange={(event) => setInvoiceIssuedAtInput(event.target.value)}
+                        disabled={!activeCompanyId || invoiceSubmitting}
+                      />
                     </label>
                     <label className="workflow-field workflow-field-compact invoice-date-field">
                       <span className="workflow-field-label">

@@ -2915,6 +2915,7 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile, languag
     contact: isEnglish ? "Contact" : "Kontakt",
     order: isEnglish ? "Order" : "Objednávka",
     sourceProforma: isEnglish ? "Proforma" : "Predfaktúra",
+    relatedInvoice: isEnglish ? "Related invoice" : "K faktúre",
     paymentDetails: isEnglish ? "Payment details" : "Platobné údaje",
     itemsInvoice: isEnglish ? "Invoice items" : "Položky faktúry",
     itemsProforma: isEnglish ? "Proforma items" : "Položky predfaktúry",
@@ -3127,6 +3128,13 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile, languag
           letter-spacing: -0.04em;
           font-family: var(--invoice-heading-font);
           color: var(--invoice-text);
+        }
+        .hero-subtitle {
+          margin: 1.4mm 0 0;
+          font-size: 8.6pt;
+          line-height: 1.2;
+          color: var(--invoice-muted);
+          font-weight: 600;
         }
         .hero-right {
           display: grid;
@@ -3502,6 +3510,11 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile, languag
         <header class="hero">
           <div>
             <h1>${escapeHtml(`${documentTitle} ${copy.numberShort} ${invoiceNumber}`)}</h1>
+            ${
+              invoiceDocument.documentKind === "credit_note" && invoiceDocument.linkedInvoiceNumber
+                ? `<p class="hero-subtitle">${escapeHtml(`${copy.relatedInvoice} ${copy.numberShort} ${invoiceDocument.linkedInvoiceNumber}`)}</p>`
+                : ""
+            }
           </div>
           <div class="hero-right">
             <div class="header-meta">
@@ -3511,6 +3524,11 @@ function buildInvoicePrintHtml(invoice, customer, items, companyProfile, languag
               ${
                 invoiceDocument.sourceProformaNumber
                   ? `<div class="header-meta-row"><span class="header-meta-label-wrap"><span class="section-icon">${calendarIcon}</span><span>${escapeHtml(copy.sourceProforma)}</span></span><strong>${escapeHtml(invoiceDocument.sourceProformaNumber)}</strong></div>`
+                  : ""
+              }
+              ${
+                invoiceDocument.documentKind === "credit_note" && invoiceDocument.linkedInvoiceNumber
+                  ? `<div class="header-meta-row"><span class="header-meta-label-wrap"><span class="section-icon">${calendarIcon}</span><span>${escapeHtml(copy.relatedInvoice)}</span></span><strong>${escapeHtml(invoiceDocument.linkedInvoiceNumber)}</strong></div>`
                   : ""
               }
             </div>
@@ -26407,6 +26425,15 @@ function App() {
                               })
                             );
                           }
+                          if (nextKind !== "credit_note") {
+                            setInvoiceLinkedProformaMeta((current) =>
+                              createDefaultInvoiceDocumentMeta({
+                                ...current,
+                                linkedInvoiceId: "",
+                                linkedInvoiceNumber: ""
+                              })
+                            );
+                          }
                         }}
                         disabled={
                           !activeCompanyId ||
@@ -26471,6 +26498,26 @@ function App() {
                       />
                     </label>
                   </div>
+                  {invoiceDocumentKindInput === "credit_note" && (
+                    <label className="workflow-field invoice-order-reference-field">
+                      <span className="workflow-field-label">Číslo pôvodnej faktúry</span>
+                      <input
+                        type="text"
+                        className="search-input"
+                        placeholder="Napr. 2505100001"
+                        value={invoiceLinkedProformaMeta.linkedInvoiceNumber}
+                        onChange={(event) =>
+                          setInvoiceLinkedProformaMeta((current) =>
+                            createDefaultInvoiceDocumentMeta({
+                              ...current,
+                              linkedInvoiceNumber: event.target.value
+                            })
+                          )
+                        }
+                        disabled={!activeCompanyId || invoiceSubmitting}
+                      />
+                    </label>
+                  )}
                   <div className="invoice-date-meta-row">
                     <span className="invoice-date-meta-pill">{`Dátum vystavenia: ${invoiceIssuedAtLabel}`}</span>
                     <span className="invoice-date-meta-pill">{`Dátum splatnosti: ${formatDate(invoiceDueDate)}`}</span>

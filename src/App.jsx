@@ -6498,11 +6498,6 @@ function App() {
   const [mesRenameWorkstationNameInput, setMesRenameWorkstationNameInput] = useState("");
   const [mesWorkstationSignalModeInput, setMesWorkstationSignalModeInput] = useState("no");
   const [mesRenameWorkstationSubmitting, setMesRenameWorkstationSubmitting] = useState(false);
-  const [mesNewWorkstationCodeInput, setMesNewWorkstationCodeInput] = useState("");
-  const [mesNewWorkstationNameInput, setMesNewWorkstationNameInput] = useState("");
-  const [mesNewWorkstationAreaInput, setMesNewWorkstationAreaInput] = useState("");
-  const [mesNewWorkstationSignalModeInput, setMesNewWorkstationSignalModeInput] = useState("no");
-  const [mesNewWorkstationSubmitting, setMesNewWorkstationSubmitting] = useState(false);
   const [mesLoading, setMesLoading] = useState(false);
   const [mesError, setMesError] = useState("");
   const [isMesSettingsModalOpen, setIsMesSettingsModalOpen] = useState(false);
@@ -11782,7 +11777,82 @@ function App() {
     setMesError("");
 
     try {
-      const workstationId = String(mesTerminalWorkstationIdInput || "").trim();
+      let workstationId = String(mesTerminalWorkstationIdInput || "").trim();
+      const existingWorkstation = workstationId ? mesWorkstationsById[workstationId] || null : null;
+
+      if (!workstationId) {
+        const workstationCode = terminalCode || sanitizeMesTerminalCode(name) || `MES-${Date.now().toString(36).toUpperCase()}`;
+        const matchedWorkstation =
+          mesWorkstations.find(
+            (row) =>
+              String(row.company_id || "") === String(companyId || "") &&
+              String(row.code || "").trim().toUpperCase() === workstationCode
+          ) || null;
+
+        if (matchedWorkstation?.id) {
+          workstationId = matchedWorkstation.id;
+        } else {
+          const { data: workstationRow, error: workstationError } = await supabase
+            .from("mes_workstations")
+            .insert([
+              {
+                company_id: companyId,
+                code: workstationCode,
+                name,
+                area: "",
+                hmi_enabled: true,
+                is_active: true,
+                created_by: authUser?.id || null,
+                updated_by: authUser?.id || null
+              }
+            ])
+            .select("id")
+            .single();
+
+          if (workstationError) {
+            throw workstationError;
+          }
+
+          workstationId = workstationRow?.id || "";
+
+          if (workstationId) {
+            const machinePayload = {
+              workstation_id: workstationId,
+              code: workstationCode,
+              name,
+              machine_state: "offline",
+              automation_mode: "full_automatic",
+              signal_mode: "no",
+              is_active: true,
+              created_by: authUser?.id || null,
+              updated_by: authUser?.id || null
+            };
+            let { error: machineError } = await supabase.from("mes_machines").insert([machinePayload]);
+            if (machineError && isMissingMesMachinesSignalModeColumnError(machineError)) {
+              const { signal_mode, ...fallbackMachinePayload } = machinePayload;
+              ({ error: machineError } = await supabase.from("mes_machines").insert([fallbackMachinePayload]));
+            }
+            if (machineError) {
+              throw machineError;
+            }
+          }
+        }
+      } else if (existingWorkstation?.id) {
+        const { error: workstationNameError } = await supabase
+          .from("mes_workstations")
+          .update({
+            name,
+            updated_by: authUser?.id || null,
+            updated_at: new Date().toISOString()
+          })
+          .eq("id", workstationId)
+          .eq("company_id", existingWorkstation.company_id || companyId);
+
+        if (workstationNameError) {
+          throw workstationNameError;
+        }
+      }
+
       const payload = {
         company_id: companyId,
         workstation_id: workstationId || null,
@@ -11909,86 +11979,6 @@ function App() {
       setMesError(renameWorkstationError?.message || "Nastavenia pracoviska sa nepodarilo uložiť.");
     } finally {
       setMesRenameWorkstationSubmitting(false);
-    }
-  };
-
-  const handleCreateMesWorkstation = async (event) => {
-    event.preventDefault();
-
-    const companyId = activeCompanyId || userCompanyId || "";
-    const code = String(mesNewWorkstationCodeInput || "").trim().toUpperCase();
-    const name = String(mesNewWorkstationNameInput || "").trim();
-    const area = String(mesNewWorkstationAreaInput || "").trim();
-    const signalMode = normalizeMesSignalModeValue(mesNewWorkstationSignalModeInput);
-
-    if (!companyId) {
-      setMesError("Vyber firmu.");
-      return;
-    }
-    if (!code) {
-      setMesError("Zadaj kód pracoviska.");
-      return;
-    }
-    if (!name) {
-      setMesError("Zadaj názov pracoviska.");
-      return;
-    }
-
-    setMesNewWorkstationSubmitting(true);
-    setMesError("");
-
-    try {
-      const { data: workstation, error: workstationError } = await supabase
-        .from("mes_workstations")
-        .insert([
-          {
-            company_id: companyId,
-            code,
-            name,
-            area,
-            hmi_enabled: true,
-            is_active: true,
-            created_by: authUser?.id || null,
-            updated_by: authUser?.id || null
-          }
-        ])
-        .select("id,company_id,code,name,area,description,target_cycle_seconds,ideal_units_per_hour,hmi_enabled,sort_order,is_active,created_at,updated_at")
-        .single();
-
-      if (workstationError) {
-        throw workstationError;
-      }
-
-      const { error: machineError } = await supabase.from("mes_machines").insert([
-        {
-          workstation_id: workstation.id,
-          code,
-          name,
-          machine_state: "offline",
-          automation_mode: "full_automatic",
-          signal_mode: signalMode,
-          is_active: true,
-          created_by: authUser?.id || null,
-          updated_by: authUser?.id || null
-        }
-      ]);
-
-      if (machineError) {
-        throw machineError;
-      }
-
-      setMesNewWorkstationCodeInput("");
-      setMesNewWorkstationNameInput("");
-      setMesNewWorkstationAreaInput("");
-      setMesNewWorkstationSignalModeInput("no");
-      setMesRenameWorkstationId(workstation.id);
-      setMesRenameWorkstationNameInput(workstation.name || workstation.code || "");
-      setMesWorkstationSignalModeInput(signalMode);
-      await loadMesModuleData();
-    } catch (createWorkstationError) {
-      setMesError(createWorkstationError?.message || "Pracovisko sa nepodarilo vytvoriť.");
-    } finally {
-      setMesNewWorkstationSubmitting(false);
     }
   };
 
@@ -20575,64 +20565,6 @@ function App() {
                     })}
                   </div>
                 </div>
-                <form className="settings-field mes-workstation-create-form" onSubmit={handleCreateMesWorkstation}>
-                  <span>Nové pracovisko</span>
-                  <div className="workflow-field-grid">
-                    <label className="workflow-field">
-                      <span className="workflow-field-label">Kód</span>
-                      <input
-                        type="text"
-                        className="search-input"
-                        value={mesNewWorkstationCodeInput}
-                        onChange={(event) => setMesNewWorkstationCodeInput(event.target.value.toUpperCase())}
-                        disabled={mesNewWorkstationSubmitting}
-                        placeholder="LINKA-01"
-                      />
-                    </label>
-                    <label className="workflow-field">
-                      <span className="workflow-field-label">Názov</span>
-                      <input
-                        type="text"
-                        className="search-input"
-                        value={mesNewWorkstationNameInput}
-                        onChange={(event) => setMesNewWorkstationNameInput(event.target.value)}
-                        disabled={mesNewWorkstationSubmitting}
-                        placeholder="Linka 1"
-                      />
-                    </label>
-                    <label className="workflow-field">
-                      <span className="workflow-field-label">Zóna</span>
-                      <input
-                        type="text"
-                        className="search-input"
-                        value={mesNewWorkstationAreaInput}
-                        onChange={(event) => setMesNewWorkstationAreaInput(event.target.value)}
-                        disabled={mesNewWorkstationSubmitting}
-                        placeholder="Hala A"
-                      />
-                    </label>
-                    <label className="workflow-field">
-                      <span className="workflow-field-label">Signál</span>
-                      <select
-                        value={mesNewWorkstationSignalModeInput}
-                        onChange={(event) => setMesNewWorkstationSignalModeInput(normalizeMesSignalModeValue(event.target.value))}
-                        disabled={mesNewWorkstationSubmitting}
-                      >
-                        <option value="no">NO</option>
-                        <option value="nc">NC</option>
-                      </select>
-                    </label>
-                  </div>
-                  <div className="order-card-actions">
-                    <button
-                      type="submit"
-                      className="settings-btn"
-                      disabled={mesNewWorkstationSubmitting || !activeCompanyId}
-                    >
-                      {mesNewWorkstationSubmitting ? "Vytváram..." : "Vytvoriť pracovisko"}
-                    </button>
-                  </div>
-                </form>
                 <form className="settings-field mes-workstation-rename-form" onSubmit={handleRenameMesWorkstation}>
                   <span>Pracovisko</span>
                   <div className="workflow-field-grid">
@@ -20783,7 +20715,7 @@ function App() {
                   <div className="mes-terminal-form-header">
                     <div>
                       <h3>{editingMesTerminalId ? "Upraviť terminál" : "Nová registrácia terminálu"}</h3>
-                      <p>{mesSupportsDeviceUid ? "Admin registruje zariadenie podľa device UID, terminál sa potom páruje automaticky na firmu." : "Admin registruje terminál podľa terminal_code. Rovnaký kód potom používa aj MES point pri resolve a posielaní eventov."}</p>
+                      <p>{mesSupportsDeviceUid ? "Admin registruje zariadenie podľa device UID, terminál sa použije aj ako pracovisko." : "Admin registruje terminál podľa terminal_code, terminál sa použije aj ako pracovisko."}</p>
                     </div>
                     <span className="table-badge">{mesSupportsDeviceUid ? "UID" : "terminal_code"}</span>
                   </div>
@@ -20827,7 +20759,7 @@ function App() {
                   </div>
                   <div className="workflow-field-grid">
                     <label className="workflow-field">
-                      <span className="workflow-field-label">Pracovisko</span>
+                      <span className="workflow-field-label">Existujúce pracovisko</span>
                       <select
                         value={mesTerminalWorkstationIdInput}
                         onChange={(event) => {
@@ -20838,7 +20770,7 @@ function App() {
                         }}
                         disabled={mesTerminalSubmitting}
                       >
-                        <option value="">Bez priradeného pracoviska</option>
+                        <option value="">Vytvoriť z terminálu</option>
                         {mesWorkstations.map((workstation) => (
                           <option key={workstation.id} value={workstation.id}>
                             {`${workstation.name || workstation.code || "-"}${workstation.area ? ` | ${workstation.area}` : ""}`}
@@ -20883,8 +20815,8 @@ function App() {
                     </article>
                     <article>
                       <span className="draft-field-label">Pracovisko</span>
-                      <strong>{mesTerminalWorkstationIdInput ? mesWorkstationsById[mesTerminalWorkstationIdInput]?.name || mesWorkstationsById[mesTerminalWorkstationIdInput]?.code || "-" : "Nepriradené"}</strong>
-                      <p>Pracovisko môžeš doplniť aj neskôr.</p>
+                      <strong>{mesTerminalWorkstationIdInput ? mesWorkstationsById[mesTerminalWorkstationIdInput]?.name || mesWorkstationsById[mesTerminalWorkstationIdInput]?.code || "-" : mesTerminalNameInput || "Nové pracovisko"}</strong>
+                      <p>{mesTerminalWorkstationIdInput ? "Terminál sa napojí na existujúce pracovisko." : "Pracovisko sa vytvorí automaticky z názvu terminálu."}</p>
                     </article>
                     <article>
                       <span className="draft-field-label">Režim stroja</span>

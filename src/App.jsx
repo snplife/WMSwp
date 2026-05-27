@@ -6474,6 +6474,9 @@ function App() {
   const [mesTerminalSubmitting, setMesTerminalSubmitting] = useState(false);
   const [mesTerminalDeletingId, setMesTerminalDeletingId] = useState("");
   const [mesSupportsDeviceUid, setMesSupportsDeviceUid] = useState(false);
+  const [mesRenameWorkstationId, setMesRenameWorkstationId] = useState("");
+  const [mesRenameWorkstationNameInput, setMesRenameWorkstationNameInput] = useState("");
+  const [mesRenameWorkstationSubmitting, setMesRenameWorkstationSubmitting] = useState(false);
   const [mesLoading, setMesLoading] = useState(false);
   const [mesError, setMesError] = useState("");
   const [isMesSettingsModalOpen, setIsMesSettingsModalOpen] = useState(false);
@@ -6710,6 +6713,19 @@ function App() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isMesSettingsModalOpen]);
+  useEffect(() => {
+    if (!isMesSettingsModalOpen || mesWorkstations.length === 0) {
+      return;
+    }
+    const current = mesWorkstations.find((row) => row.id === mesRenameWorkstationId) || mesWorkstations[0];
+    if (!current) {
+      return;
+    }
+    if (current.id !== mesRenameWorkstationId) {
+      setMesRenameWorkstationId(current.id);
+      setMesRenameWorkstationNameInput(current.name || current.code || "");
+    }
+  }, [isMesSettingsModalOpen, mesWorkstations, mesRenameWorkstationId]);
   useEffect(() => {
     if (!isProductionModule(selectedTable) && isMesSettingsModalOpen) {
       setIsMesSettingsModalOpen(false);
@@ -11797,6 +11813,51 @@ function App() {
       setMesError(deleteMesTerminalError?.message || "MES terminál sa nepodarilo zmazať.");
     } finally {
       setMesTerminalDeletingId("");
+    }
+  };
+
+  const handleRenameMesWorkstation = async (event) => {
+    event.preventDefault();
+
+    const workstationId = String(mesRenameWorkstationId || "").trim();
+    const nextName = String(mesRenameWorkstationNameInput || "").trim();
+    const workstation = mesWorkstationsById[workstationId] || null;
+
+    if (!workstationId || !workstation) {
+      setMesError("Vyber pracovisko.");
+      return;
+    }
+    if (!nextName) {
+      setMesError("Zadaj nový názov pracoviska.");
+      return;
+    }
+
+    setMesRenameWorkstationSubmitting(true);
+    setMesError("");
+
+    try {
+      const { error } = await supabase
+        .from("mes_workstations")
+        .update({
+          name: nextName,
+          updated_by: authUser?.id || null,
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", workstationId)
+        .eq("company_id", workstation.company_id || activeCompanyId || userCompanyId);
+
+      if (error) {
+        throw error;
+      }
+
+      setMesWorkstations((current) =>
+        current.map((row) => (row.id === workstationId ? { ...row, name: nextName, updated_by: authUser?.id || null } : row))
+      );
+      await loadMesModuleData();
+    } catch (renameWorkstationError) {
+      setMesError(renameWorkstationError?.message || "Pracovisko sa nepodarilo premenovať.");
+    } finally {
+      setMesRenameWorkstationSubmitting(false);
     }
   };
 
@@ -20383,6 +20444,54 @@ function App() {
                     })}
                   </div>
                 </div>
+                <form className="settings-field mes-workstation-rename-form" onSubmit={handleRenameMesWorkstation}>
+                  <span>Pracovisko</span>
+                  <div className="workflow-field-grid">
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Vybrať</span>
+                      <select
+                        value={mesRenameWorkstationId}
+                        onChange={(event) => {
+                          const nextId = event.target.value;
+                          const workstation = mesWorkstationsById[nextId] || null;
+                          setMesRenameWorkstationId(nextId);
+                          setMesRenameWorkstationNameInput(workstation?.name || workstation?.code || "");
+                        }}
+                        disabled={mesRenameWorkstationSubmitting || mesWorkstations.length === 0}
+                      >
+                        {mesWorkstations.length === 0 ? (
+                          <option value="">Žiadne pracoviská</option>
+                        ) : (
+                          mesWorkstations.map((workstation) => (
+                            <option key={workstation.id} value={workstation.id}>
+                              {`${workstation.name || workstation.code || "-"}${workstation.area ? ` | ${workstation.area}` : ""}`}
+                            </option>
+                          ))
+                        )}
+                      </select>
+                    </label>
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Názov</span>
+                      <input
+                        type="text"
+                        className="search-input"
+                        value={mesRenameWorkstationNameInput}
+                        onChange={(event) => setMesRenameWorkstationNameInput(event.target.value)}
+                        disabled={mesRenameWorkstationSubmitting || mesWorkstations.length === 0}
+                      />
+                    </label>
+                  </div>
+                  <div className="order-card-actions">
+                    <button
+                      type="submit"
+                      className="settings-btn"
+                      disabled={mesRenameWorkstationSubmitting || mesWorkstations.length === 0}
+                    >
+                      {mesRenameWorkstationSubmitting ? "Ukladám..." : "Premenovať pracovisko"}
+                    </button>
+                  </div>
+                </form>
+                {mesError && <p className="error">{mesError}</p>}
                 <div className="order-card-actions">
                   <button
                     type="button"
@@ -21076,9 +21185,7 @@ function App() {
           )}
 
           {mesDashboardTab === "analytics" && mesDashboardCustomization.showThroughputQuality && machineDashboardRows.length > 0 && (
-          <div className="orders-layout workflow-grid">
-            <div className="orders-column workflow-editor-column">
-              <article className="orders-panel-card workflow-card workflow-card-list">
+              <article className="orders-panel-card workflow-card workflow-card-list mes-throughput-panel">
                 <div className="panel-head workflow-section-head">
                   <div>
                     <h2>Výrobný výkon</h2>
@@ -21131,9 +21238,9 @@ function App() {
                   <article className="mes-mini-stat">
                     <span>Maximum / interval</span>
                     <strong>{new Intl.NumberFormat("sk-SK").format(mesThroughput.partsPerDay)}</strong>
-                  </article>
-                </div>
-                <div className="occupancy-chart-wrap">
+                    </article>
+                  </div>
+                <div className="occupancy-chart-wrap mes-throughput-chart-wrap">
                   <svg viewBox="0 0 100 100" className="occupancy-chart" preserveAspectRatio="none" role="img" aria-label="MES throughput po hodinách">
                     <line x1="0" y1="100" x2="100" y2="100" className="occupancy-chart-axis" />
                     <polyline points={mesThroughput.hourlyPolyline} className="occupancy-chart-line" />
@@ -21144,55 +21251,15 @@ function App() {
                     <span>{mesThroughput.hourlySeries[mesThroughput.hourlySeries.length - 1]?.label || "-"}</span>
                   </div>
                 </div>
-              </article>
-            </div>
-            <div className="orders-column orders-column-list workflow-feed-column">
-              <article className="orders-panel-card workflow-card workflow-card-list">
-                <div className="panel-head workflow-section-head">
-                  <div>
-                    <h2>Sledovanie kvality</h2>
-                    <p className="panel-meta">OK kusy, NOK kusy, zmetkovitosť a najčastejšie typy chýb z MES eventov.</p>
-                  </div>
-                </div>
-                <div className="mes-quality-grid">
-                  <article className="mes-mini-stat">
-                    <span>OK kusy</span>
-                    <strong>{new Intl.NumberFormat("sk-SK").format(mesQualitySummary.goodParts)}</strong>
-                  </article>
-                  <article className="mes-mini-stat">
-                    <span>NOK kusy</span>
-                    <strong>{new Intl.NumberFormat("sk-SK").format(mesQualitySummary.scrapParts)}</strong>
-                  </article>
-                  <article className="mes-mini-stat">
-                    <span>Zmetkovitosť</span>
-                    <strong>{formatPercentValue(mesQualitySummary.rejectRatePct)}</strong>
-                  </article>
-                </div>
-                <div className="mes-bar-list">
-                  {mesQualitySummary.defectTypes.length === 0 ? (
-                    <p className="hint">Zatiaľ nie sú evidované typy chýb.</p>
-                  ) : (
-                    mesQualitySummary.defectTypes.map((item) => (
-                      <div key={item.type} className="mes-bar-row">
-                        <div className="mes-bar-row-head">
-                          <strong>{item.type}</strong>
-                          <span>{new Intl.NumberFormat("sk-SK").format(item.quantity)}</span>
-                        </div>
-                        <div className="mes-progress-track">
-                          <div
-                            className="mes-progress-fill mes-progress-fill-alert"
-                            style={{
-                              width: `${clampPercent(safeRatioPercent(item.quantity, mesQualitySummary.scrapParts || item.quantity || 1))}%`
-                            }}
-                          />
-                        </div>
-                      </div>
-                    ))
-                  )}
+                <div className="mes-throughput-quantity-grid">
+                  {mesThroughput.hourlySeries.map((row) => (
+                    <article key={row.key} className="mes-throughput-quantity-item">
+                      <span>{row.label}</span>
+                      <strong>{new Intl.NumberFormat("sk-SK").format(row.total)}</strong>
+                    </article>
+                  ))}
                 </div>
               </article>
-            </div>
-          </div>
           )}
 
           {mesDashboardTab === "live" &&

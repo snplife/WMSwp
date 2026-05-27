@@ -2780,6 +2780,44 @@ select {
   width: 148px;
 }
 
+.mes-throughput-panel {
+  width: 100%;
+}
+
+.mes-throughput-chart-wrap .occupancy-chart {
+  height: 320px;
+}
+
+.mes-throughput-quantity-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  gap: 0.45rem;
+  margin-top: 0.7rem;
+}
+
+.mes-throughput-quantity-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 36px;
+  padding: 0.38rem 0.55rem;
+  border: 1px solid rgba(174, 185, 191, 0.58);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.mes-throughput-quantity-item span {
+  color: #647587;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.mes-throughput-quantity-item strong {
+  color: #163048;
+  font-size: 0.9rem;
+}
+
 .mes-mini-stat {
   display: grid;
   gap: 0.25rem;

@@ -443,6 +443,15 @@ const ENV_DEFAULT_DEAD_STOCK_DAYS = Math.max(1, Number(import.meta.env.VITE_DEAD
 const ENV_DEFAULT_MAX_POSITIONS = Math.max(1, Number(import.meta.env.VITE_MAX_POSITIONS || 100));
 const HISTORY_ANALYTICS_LOOKBACK_DAYS = Math.max(30, Number(import.meta.env.VITE_HISTORY_LOOKBACK_DAYS || 365));
 const MES_ANALYTICS_LOOKBACK_DAYS = Math.max(7, Number(import.meta.env.VITE_MES_LOOKBACK_DAYS || 30));
+const MES_THROUGHPUT_RANGE_OPTIONS = [
+  { key: "last_30_minutes", label: "30 min" },
+  { key: "last_8_hours", label: "8 hodín" },
+  { key: "current_shift", label: "Aktuálna zmena" },
+  { key: "today", label: "Dnes" },
+  { key: "yesterday", label: "Včera" },
+  { key: "last_7_days", label: "7 dní" },
+  { key: "custom", label: "Vlastné" }
+];
 const AUTO_REFRESH_MS = Math.max(60 * 1000, Number(import.meta.env.VITE_AUTO_REFRESH_MS || 5 * 60 * 1000));
 const DATA_STALE_REFRESH_MS = Math.max(60 * 1000, Number(import.meta.env.VITE_DATA_STALE_REFRESH_MS || AUTO_REFRESH_MS));
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -5581,6 +5590,150 @@ function buildSimplePolyline(series, valueKey, maxValue) {
     .join(" ");
 }
 
+function padDatePart(value) {
+  return String(value).padStart(2, "0");
+}
+
+function makeMesLocalHourKey(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}T${padDatePart(date.getHours())}`;
+}
+
+function makeMesLocalMinuteKey(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return `${makeMesLocalHourKey(date)}:${padDatePart(date.getMinutes())}`;
+}
+
+function makeMesLocalDayKey(value) {
+  return formatDateInputValue(value);
+}
+
+function getMesCurrentShiftWindow(nowTs = Date.now()) {
+  const now = new Date(nowTs);
+  const start = new Date(now);
+  start.setMinutes(0, 0, 0);
+
+  const hour = now.getHours();
+  if (hour >= 22) {
+    start.setHours(22, 0, 0, 0);
+  } else if (hour >= 14) {
+    start.setHours(14, 0, 0, 0);
+  } else if (hour >= 6) {
+    start.setHours(6, 0, 0, 0);
+  } else {
+    start.setDate(start.getDate() - 1);
+    start.setHours(22, 0, 0, 0);
+  }
+
+  const end = new Date(start);
+  end.setHours(end.getHours() + 8);
+  return { startAt: start, endAt: now < end ? now : end };
+}
+
+function getMesThroughputRangeWindow(rangeKey, customStartDate, customEndDate, nowTs = Date.now()) {
+  const now = new Date(nowTs);
+  const selectedRange = MES_THROUGHPUT_RANGE_OPTIONS.some((option) => option.key === rangeKey) ? rangeKey : "last_8_hours";
+
+  if (selectedRange === "last_30_minutes") {
+    const startAt = new Date(now.getTime() - 30 * 60 * 1000);
+    startAt.setSeconds(0, 0);
+    return { startAt, endAt: now, bucket: "minute", label: "posledných 30 min" };
+  }
+
+  if (selectedRange === "current_shift") {
+    const window = getMesCurrentShiftWindow(nowTs);
+    return { ...window, bucket: "hour", label: "aktuálna zmena" };
+  }
+
+  if (selectedRange === "today") {
+    const startAt = new Date(now);
+    startAt.setHours(0, 0, 0, 0);
+    return { startAt, endAt: now, bucket: "hour", label: "dnes" };
+  }
+
+  if (selectedRange === "yesterday") {
+    const startAt = new Date(now);
+    startAt.setDate(startAt.getDate() - 1);
+    startAt.setHours(0, 0, 0, 0);
+    const endAt = new Date(startAt);
+    endAt.setHours(23, 59, 59, 999);
+    return { startAt, endAt, bucket: "hour", label: "včera" };
+  }
+
+  if (selectedRange === "last_7_days") {
+    const startAt = new Date(now);
+    startAt.setDate(startAt.getDate() - 6);
+    startAt.setHours(0, 0, 0, 0);
+    return { startAt, endAt: now, bucket: "day", label: "posledných 7 dní" };
+  }
+
+  if (selectedRange === "custom") {
+    const parsedStart = customStartDate ? new Date(`${customStartDate}T00:00:00`) : null;
+    const parsedEnd = customEndDate ? new Date(`${customEndDate}T23:59:59.999`) : null;
+    const startAt = parsedStart && !Number.isNaN(parsedStart.getTime()) ? parsedStart : new Date(now.getTime() - 7 * 60 * 60 * 1000);
+    let endAt = parsedEnd && !Number.isNaN(parsedEnd.getTime()) ? parsedEnd : now;
+    if (endAt < startAt) {
+      endAt = new Date(startAt);
+      endAt.setHours(23, 59, 59, 999);
+    }
+    const durationMs = endAt.getTime() - startAt.getTime();
+    return {
+      startAt,
+      endAt,
+      bucket: durationMs > 48 * 60 * 60 * 1000 ? "day" : "hour",
+      label: `${startAt.toLocaleDateString("sk-SK")} - ${endAt.toLocaleDateString("sk-SK")}`
+    };
+  }
+
+  const startAt = new Date(now);
+  startAt.setMinutes(0, 0, 0);
+  startAt.setHours(startAt.getHours() - 7);
+  return { startAt, endAt: now, bucket: "hour", label: "posledných 8 hodín" };
+}
+
+function buildMesThroughputSeries(rangeWindow) {
+  const startAt = new Date(rangeWindow?.startAt || Date.now());
+  const endAt = new Date(rangeWindow?.endAt || Date.now());
+  const bucket = ["minute", "day"].includes(rangeWindow?.bucket) ? rangeWindow.bucket : "hour";
+  const series = [];
+  const cursor = new Date(startAt);
+  if (bucket === "day") {
+    cursor.setHours(0, 0, 0, 0);
+  } else if (bucket === "minute") {
+    cursor.setSeconds(0, 0);
+  } else {
+    cursor.setMinutes(0, 0, 0);
+  }
+
+  while (cursor <= endAt && series.length < 96) {
+    series.push({
+      key: bucket === "day" ? makeMesLocalDayKey(cursor) : bucket === "minute" ? makeMesLocalMinuteKey(cursor) : makeMesLocalHourKey(cursor),
+      label:
+        bucket === "day"
+          ? cursor.toLocaleDateString("sk-SK", { day: "2-digit", month: "2-digit" })
+          : cursor.toLocaleTimeString("sk-SK", { hour: "2-digit", minute: "2-digit" }),
+      good: 0,
+      scrap: 0,
+      total: 0
+    });
+    if (bucket === "day") {
+      cursor.setDate(cursor.getDate() + 1);
+    } else if (bucket === "minute") {
+      cursor.setMinutes(cursor.getMinutes() + 1);
+    } else {
+      cursor.setHours(cursor.getHours() + 1);
+    }
+  }
+
+  return series;
+}
+
 function buildPriceListComputedRow(row) {
   const salePrice = Number(row?.unit_price || 0);
   const purchasePrice = Number(row?.purchase_price || 0);
@@ -6330,6 +6483,9 @@ function App() {
   const [mesDashboardCustomization, setMesDashboardCustomization] = useState(() => ({ ...DEFAULT_MES_DASHBOARD_CUSTOMIZATION }));
   const [mesNowTs, setMesNowTs] = useState(() => Date.now());
   const [mesOeeRangeKey, setMesOeeRangeKey] = useState("current_shift");
+  const [mesThroughputRangeKey, setMesThroughputRangeKey] = useState("last_8_hours");
+  const [mesThroughputCustomStartDate, setMesThroughputCustomStartDate] = useState(() => formatDateInputValue(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)));
+  const [mesThroughputCustomEndDate, setMesThroughputCustomEndDate] = useState(() => formatDateInputValue());
   const [mesHourlyDowntimeShiftKey, setMesHourlyDowntimeShiftKey] = useState(() => {
     const hour = new Date().getHours();
     return hour >= 14 ? "shift_14_22" : "shift_06_14";
@@ -17016,60 +17172,45 @@ function App() {
       );
   }, [mesRecentJobRuns, machineDashboardRows, mesWorkstationsById, mesEventSummaryByJobRunId]);
   const mesThroughput = useMemo(() => {
-    const hourlySeries = Array.from({ length: 8 }, (_, index) => {
-      const start = new Date();
-      start.setMinutes(0, 0, 0);
-      start.setHours(start.getHours() - (7 - index));
-      return {
-        key: start.toISOString(),
-        label: start.toLocaleTimeString("sk-SK", { hour: "2-digit", minute: "2-digit" }),
-        good: 0,
-        scrap: 0,
-        total: 0
-      };
-    });
-    const dailySeries = Array.from({ length: 7 }, (_, index) => {
-      const start = new Date();
-      start.setHours(0, 0, 0, 0);
-      start.setDate(start.getDate() - (6 - index));
-      return {
-        key: start.toISOString().slice(0, 10),
-        label: start.toLocaleDateString("sk-SK", { day: "2-digit", month: "2-digit" }),
-        good: 0,
-        scrap: 0,
-        total: 0
-      };
-    });
-    const hourlyByKey = Object.fromEntries(hourlySeries.map((row) => [row.key.slice(0, 13), row]));
-    const dailyByKey = Object.fromEntries(dailySeries.map((row) => [row.key, row]));
+    const rangeWindow = getMesThroughputRangeWindow(
+      mesThroughputRangeKey,
+      mesThroughputCustomStartDate,
+      mesThroughputCustomEndDate,
+      mesNowTs
+    );
+    const series = buildMesThroughputSeries(rangeWindow);
+    const seriesByKey = Object.fromEntries(series.map((row) => [row.key, row]));
+    const startMs = new Date(rangeWindow.startAt).getTime();
+    const endMs = new Date(rangeWindow.endAt).getTime();
+    const bucketKeyForDate = (value) =>
+      rangeWindow.bucket === "day"
+        ? makeMesLocalDayKey(value)
+        : rangeWindow.bucket === "minute"
+          ? makeMesLocalMinuteKey(value)
+          : makeMesLocalHourKey(value);
     let hasEventCounts = false;
     mesRecentEventRows.forEach((row) => {
       const eventType = String(row.event_type || "").toLowerCase();
       if (!["good_count", "scrap_count", "ml"].includes(eventType)) {
         return;
       }
-      const quantity = 1;
-      const happenedAt = String(row.happened_at || row.created_at || "");
-      const hourKey = happenedAt.slice(0, 13);
-      const dayKey = happenedAt.slice(0, 10);
-      const hourlyBucket = hourlyByKey[hourKey];
-      const dailyBucket = dailyByKey[dayKey];
-      if (hourlyBucket) {
-        if (eventType === "good_count") {
-          hourlyBucket.good += quantity;
-        } else if (eventType === "scrap_count") {
-          hourlyBucket.scrap += quantity;
-        }
-        hourlyBucket.total += quantity;
+      const happenedAt = new Date(row.happened_at || row.created_at || 0);
+      const happenedMs = happenedAt.getTime();
+      if (!Number.isFinite(happenedMs) || happenedMs < startMs || happenedMs > endMs) {
+        return;
       }
-      if (dailyBucket) {
-        if (eventType === "good_count") {
-          dailyBucket.good += quantity;
-        } else if (eventType === "scrap_count") {
-          dailyBucket.scrap += quantity;
-        }
-        dailyBucket.total += quantity;
+      const rawQuantity = Number(row.quantity || 0);
+      const quantity = Number.isFinite(rawQuantity) && rawQuantity > 0 ? rawQuantity : 1;
+      const bucket = seriesByKey[bucketKeyForDate(happenedAt)];
+      if (!bucket) {
+        return;
       }
+      if (eventType === "good_count") {
+        bucket.good += quantity;
+      } else if (eventType === "scrap_count") {
+        bucket.scrap += quantity;
+      }
+      bucket.total += quantity;
       hasEventCounts = true;
     });
     if (!hasEventCounts) {
@@ -17078,39 +17219,36 @@ function App() {
         if (totalProduced <= 0) {
           return;
         }
-        const happenedAt = String(row.ended_at || row.updated_at || row.created_at || "");
-        const hourKey = happenedAt.slice(0, 13);
-        const dayKey = happenedAt.slice(0, 10);
-        const hourlyBucket = hourlyByKey[hourKey];
-        const dailyBucket = dailyByKey[dayKey];
-        if (hourlyBucket) {
-          hourlyBucket.good += Number(row.good_quantity || 0);
-          hourlyBucket.scrap += Number(row.scrap_quantity || 0);
-          hourlyBucket.total += totalProduced;
+        const happenedAt = new Date(row.ended_at || row.updated_at || row.created_at || 0);
+        const happenedMs = happenedAt.getTime();
+        if (!Number.isFinite(happenedMs) || happenedMs < startMs || happenedMs > endMs) {
+          return;
         }
-        if (dailyBucket) {
-          dailyBucket.good += Number(row.good_quantity || 0);
-          dailyBucket.scrap += Number(row.scrap_quantity || 0);
-          dailyBucket.total += totalProduced;
+        const bucket = seriesByKey[bucketKeyForDate(happenedAt)];
+        if (!bucket) {
+          return;
         }
+        bucket.good += Number(row.good_quantity || 0);
+        bucket.scrap += Number(row.scrap_quantity || 0);
+        bucket.total += totalProduced;
       });
     }
-    const partsPerHour = hourlySeries[hourlySeries.length - 1]?.total || 0;
-    const partsPerShift = hourlySeries.reduce((sum, row) => sum + row.total, 0);
-    const todayKey = new Date().toISOString().slice(0, 10);
-    const partsPerDay = dailyByKey[todayKey]?.total || 0;
-    const maxHourly = Math.max(1, ...hourlySeries.map((row) => row.total));
-    const maxDaily = Math.max(1, ...dailySeries.map((row) => row.total));
+    const totalParts = series.reduce((sum, row) => sum + row.total, 0);
+    const durationHours = Math.max(1, (endMs - startMs) / (60 * 60 * 1000));
+    const maxValue = Math.max(1, ...series.map((row) => row.total));
+    const peakParts = Math.max(0, ...series.map((row) => row.total));
     return {
-      hourlySeries,
-      dailySeries,
-      partsPerHour,
-      partsPerShift,
-      partsPerDay,
-      hourlyPolyline: buildSimplePolyline(hourlySeries, "total", maxHourly),
-      dailyPolyline: buildSimplePolyline(dailySeries, "total", maxDaily)
+      hourlySeries: series,
+      dailySeries: series,
+      rangeLabel: rangeWindow.label,
+      bucketLabel: rangeWindow.bucket === "day" ? "dni" : rangeWindow.bucket === "minute" ? "minúty" : "hodiny",
+      partsPerHour: Math.round((totalParts / durationHours) * 10) / 10,
+      partsPerShift: totalParts,
+      partsPerDay: peakParts,
+      hourlyPolyline: buildSimplePolyline(series, "total", maxValue),
+      dailyPolyline: buildSimplePolyline(series, "total", maxValue)
     };
-  }, [mesRecentJobRuns, mesRecentEventRows]);
+  }, [mesRecentJobRuns, mesRecentEventRows, mesThroughputRangeKey, mesThroughputCustomStartDate, mesThroughputCustomEndDate, mesNowTs]);
   const mesQualitySummary = useMemo(() => {
     const defectTypeMap = new Map();
     let goodParts = 0;
@@ -20944,20 +21082,54 @@ function App() {
                 <div className="panel-head workflow-section-head">
                   <div>
                     <h2>Výrobný výkon</h2>
-                    <p className="panel-meta">Kusy za hodinu, zmenu a deň ako počet cyklov (primárne `ml` impulzy, fallback `good_count`/`scrap_count`).</p>
+                  </div>
+                  <div className="mes-throughput-controls">
+                    <label className="workflow-field mes-throughput-range-field">
+                      <span className="workflow-field-label">Obdobie</span>
+                      <select
+                        value={mesThroughputRangeKey}
+                        onChange={(event) => setMesThroughputRangeKey(event.target.value)}
+                      >
+                        {MES_THROUGHPUT_RANGE_OPTIONS.map((option) => (
+                          <option key={option.key} value={option.key}>{option.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    {mesThroughputRangeKey === "custom" && (
+                      <>
+                        <label className="workflow-field mes-throughput-date-field">
+                          <span className="workflow-field-label">Od</span>
+                          <input
+                            className="invoice-date-input"
+                            type="date"
+                            value={mesThroughputCustomStartDate}
+                            onChange={(event) => setMesThroughputCustomStartDate(event.target.value)}
+                          />
+                        </label>
+                        <label className="workflow-field mes-throughput-date-field">
+                          <span className="workflow-field-label">Do</span>
+                          <input
+                            className="invoice-date-input"
+                            type="date"
+                            value={mesThroughputCustomEndDate}
+                            onChange={(event) => setMesThroughputCustomEndDate(event.target.value)}
+                          />
+                        </label>
+                      </>
+                    )}
                   </div>
                 </div>
                 <div className="mes-throughput-metrics">
                   <article className="mes-mini-stat">
-                    <span>Kusy / hodina</span>
+                    <span>Priemer / hodina</span>
                     <strong>{new Intl.NumberFormat("sk-SK").format(mesThroughput.partsPerHour)}</strong>
                   </article>
                   <article className="mes-mini-stat">
-                    <span>Kusy / zmena</span>
+                    <span>Kusy / obdobie</span>
                     <strong>{new Intl.NumberFormat("sk-SK").format(mesThroughput.partsPerShift)}</strong>
                   </article>
                   <article className="mes-mini-stat">
-                    <span>Kusy / deň</span>
+                    <span>Maximum / interval</span>
                     <strong>{new Intl.NumberFormat("sk-SK").format(mesThroughput.partsPerDay)}</strong>
                   </article>
                 </div>

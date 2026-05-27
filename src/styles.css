@@ -2764,6 +2764,22 @@ select {
   grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
 }
 
+.mes-throughput-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: flex-end;
+  gap: 0.7rem;
+}
+
+.mes-throughput-range-field {
+  min-width: 160px;
+}
+
+.mes-throughput-date-field {
+  width: 148px;
+}
+
 .mes-mini-stat {
   display: grid;
   gap: 0.25rem;
@@ -7921,6 +7937,16 @@ tbody tr:nth-child(even) {
   .mes-machine-grid,
   .mes-machine-panel-grid {
     grid-template-columns: 1fr;
+  }
+
+  .mes-throughput-controls,
+  .mes-throughput-range-field,
+  .mes-throughput-date-field {
+    width: 100%;
+  }
+
+  .mes-throughput-controls {
+    justify-content: stretch;
   }
 
   .mes-kpi-grid,

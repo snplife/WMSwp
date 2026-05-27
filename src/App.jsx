@@ -4507,8 +4507,18 @@ function normalizeMesMachineCatalogRow(row) {
   return {
     ...row,
     automation_mode: String(row.automation_mode || "full_automatic").trim().toLowerCase() || "full_automatic",
+    signal_mode: normalizeMesSignalModeValue(row.signal_mode),
     is_active: Boolean(row.is_active)
   };
+}
+
+function normalizeMesSignalModeValue(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "nc" ? "nc" : "no";
+}
+
+function formatMesSignalModeLabel(value) {
+  return normalizeMesSignalModeValue(value).toUpperCase();
 }
 
 function normalizeMesAutomationModeValue(value) {
@@ -5025,6 +5035,16 @@ function isMissingMesMachinesAutomationModeColumnError(error) {
   const message = String(error?.message || "").toLowerCase();
   return (
     message.includes("mes_machines.automation_mode") &&
+    (message.includes("does not exist") ||
+      message.includes("schema cache") ||
+      message.includes("could not find"))
+  );
+}
+
+function isMissingMesMachinesSignalModeColumnError(error) {
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    message.includes("mes_machines.signal_mode") &&
     (message.includes("does not exist") ||
       message.includes("schema cache") ||
       message.includes("could not find"))
@@ -6476,6 +6496,7 @@ function App() {
   const [mesSupportsDeviceUid, setMesSupportsDeviceUid] = useState(false);
   const [mesRenameWorkstationId, setMesRenameWorkstationId] = useState("");
   const [mesRenameWorkstationNameInput, setMesRenameWorkstationNameInput] = useState("");
+  const [mesWorkstationSignalModeInput, setMesWorkstationSignalModeInput] = useState("no");
   const [mesRenameWorkstationSubmitting, setMesRenameWorkstationSubmitting] = useState(false);
   const [mesLoading, setMesLoading] = useState(false);
   const [mesError, setMesError] = useState("");
@@ -6722,10 +6743,12 @@ function App() {
       return;
     }
     if (current.id !== mesRenameWorkstationId) {
+      const machine = mesMachines.find((row) => String(row.workstation_id || "") === String(current.id || "")) || null;
       setMesRenameWorkstationId(current.id);
       setMesRenameWorkstationNameInput(current.name || current.code || "");
+      setMesWorkstationSignalModeInput(normalizeMesSignalModeValue(machine?.signal_mode));
     }
-  }, [isMesSettingsModalOpen, mesWorkstations, mesRenameWorkstationId]);
+  }, [isMesSettingsModalOpen, mesWorkstations, mesMachines, mesRenameWorkstationId]);
   useEffect(() => {
     if (!isProductionModule(selectedTable) && isMesSettingsModalOpen) {
       setIsMesSettingsModalOpen(false);
@@ -11507,11 +11530,14 @@ function App() {
         const machineQuery = () =>
           supabase
             .from("mes_machines")
-            .select("id,workstation_id,code,name,asset_tag,serial_number,machine_state,automation_mode,last_heartbeat_at,is_active,created_at")
+            .select("id,workstation_id,code,name,asset_tag,serial_number,machine_state,automation_mode,signal_mode,last_heartbeat_at,is_active,created_at")
             .in("workstation_id", workstationIds)
             .order("name", { ascending: true });
         ({ data: fetchedMachines, error: machinesError } = await machineQuery());
-        if (machinesError && isMissingMesMachinesAutomationModeColumnError(machinesError)) {
+        if (
+          machinesError &&
+          (isMissingMesMachinesAutomationModeColumnError(machinesError) || isMissingMesMachinesSignalModeColumnError(machinesError))
+        ) {
           ({ data: fetchedMachines, error: machinesError } = await supabase
             .from("mes_machines")
             .select("id,workstation_id,code,name,asset_tag,serial_number,machine_state,last_heartbeat_at,is_active,created_at")
@@ -11822,6 +11848,8 @@ function App() {
     const workstationId = String(mesRenameWorkstationId || "").trim();
     const nextName = String(mesRenameWorkstationNameInput || "").trim();
     const workstation = mesWorkstationsById[workstationId] || null;
+    const machine = mesMachines.find((row) => String(row.workstation_id || "") === workstationId) || null;
+    const signalMode = normalizeMesSignalModeValue(mesWorkstationSignalModeInput);
 
     if (!workstationId || !workstation) {
       setMesError("Vyber pracovisko.");
@@ -11850,12 +11878,30 @@ function App() {
         throw error;
       }
 
+      if (machine?.id) {
+        const { error: machineError } = await supabase
+          .from("mes_machines")
+          .update({
+            signal_mode: signalMode,
+            updated_by: authUser?.id || null,
+            updated_at: new Date().toISOString()
+          })
+          .eq("id", machine.id);
+
+        if (machineError) {
+          throw machineError;
+        }
+      }
+
       setMesWorkstations((current) =>
         current.map((row) => (row.id === workstationId ? { ...row, name: nextName, updated_by: authUser?.id || null } : row))
       );
+      setMesMachines((current) =>
+        current.map((row) => (row.id === machine?.id ? { ...row, signal_mode: signalMode, updated_by: authUser?.id || null } : row))
+      );
       await loadMesModuleData();
     } catch (renameWorkstationError) {
-      setMesError(renameWorkstationError?.message || "Pracovisko sa nepodarilo premenovať.");
+      setMesError(renameWorkstationError?.message || "Nastavenia pracoviska sa nepodarilo uložiť.");
     } finally {
       setMesRenameWorkstationSubmitting(false);
     }
@@ -20454,8 +20500,10 @@ function App() {
                         onChange={(event) => {
                           const nextId = event.target.value;
                           const workstation = mesWorkstationsById[nextId] || null;
+                          const machine = mesMachines.find((row) => String(row.workstation_id || "") === String(nextId || "")) || null;
                           setMesRenameWorkstationId(nextId);
                           setMesRenameWorkstationNameInput(workstation?.name || workstation?.code || "");
+                          setMesWorkstationSignalModeInput(normalizeMesSignalModeValue(machine?.signal_mode));
                         }}
                         disabled={mesRenameWorkstationSubmitting || mesWorkstations.length === 0}
                       >
@@ -20480,6 +20528,17 @@ function App() {
                         disabled={mesRenameWorkstationSubmitting || mesWorkstations.length === 0}
                       />
                     </label>
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Signál</span>
+                      <select
+                        value={mesWorkstationSignalModeInput}
+                        onChange={(event) => setMesWorkstationSignalModeInput(normalizeMesSignalModeValue(event.target.value))}
+                        disabled={mesRenameWorkstationSubmitting || mesWorkstations.length === 0}
+                      >
+                        <option value="no">NO</option>
+                        <option value="nc">NC</option>
+                      </select>
+                    </label>
                   </div>
                   <div className="order-card-actions">
                     <button
@@ -20487,7 +20546,7 @@ function App() {
                       className="settings-btn"
                       disabled={mesRenameWorkstationSubmitting || mesWorkstations.length === 0}
                     >
-                      {mesRenameWorkstationSubmitting ? "Ukladám..." : "Premenovať pracovisko"}
+                      {mesRenameWorkstationSubmitting ? "Ukladám..." : "Uložiť pracovisko"}
                     </button>
                   </div>
                 </form>
@@ -20759,7 +20818,7 @@ function App() {
                           </div>
                           <div>
                             <span className="draft-field-label">Typ stroja</span>
-                            <p>{formatMesAutomationModeLabel(workstationMachine?.automation_mode || "full_automatic")}</p>
+                            <p>{`${formatMesAutomationModeLabel(workstationMachine?.automation_mode || "full_automatic")} | ${formatMesSignalModeLabel(workstationMachine?.signal_mode)}`}</p>
                           </div>
                           <div>
                             <span className="draft-field-label">Posledný kontakt</span>

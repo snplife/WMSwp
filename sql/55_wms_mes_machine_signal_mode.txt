@@ -1,0 +1,18 @@
+-- MES machine signal mode (NO / NC)
+
+alter table public.mes_machines
+add column if not exists signal_mode text not null default 'no';
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'mes_machines_signal_mode_check'
+      and conrelid = 'public.mes_machines'::regclass
+  ) then
+    alter table public.mes_machines
+    add constraint mes_machines_signal_mode_check
+    check (signal_mode in ('no', 'nc'));
+  end if;
+end $$;

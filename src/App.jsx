@@ -5198,6 +5198,7 @@ function App() {
   const [expandedProductionOrders, setExpandedProductionOrders] = useState({});
   const [mesOverviewRows, setMesOverviewRows] = useState([]);
   const [mesRecentJobRuns, setMesRecentJobRuns] = useState([]);
+  const [mesProductionOrders, setMesProductionOrders] = useState([]);
   const [mesRecentEventRows, setMesRecentEventRows] = useState([]);
   const [mesDowntimeReasons, setMesDowntimeReasons] = useState([]);
   const [mesWorkstations, setMesWorkstations] = useState([]);
@@ -9933,6 +9934,7 @@ function App() {
     if (!authReady || !isLoggedIn || !canAccessMesModule) {
       setMesOverviewRows([]);
       setMesRecentJobRuns([]);
+      setMesProductionOrders([]);
       setMesRecentEventRows([]);
       setMesDowntimeReasons([]);
       setMesWorkstations([]);
@@ -9972,6 +9974,36 @@ function App() {
         )
       );
       const mesLookbackStartAt = new Date(nowTs - requiredMesLookbackDays * DAY_MS).toISOString();
+      const fetchAllMesProductionOrders = async () => {
+        const rows = [];
+        let from = 0;
+
+        while (true) {
+          const scopedQuery = scopedCompanyId
+            ? supabase
+                .from("production_orders")
+                .select("id,company_id,production_number,title,status,note,created_at,created_by,completed_at,completed_by")
+                .eq("company_id", scopedCompanyId)
+            : supabase
+                .from("production_orders")
+                .select("id,company_id,production_number,title,status,note,created_at,created_by,completed_at,completed_by");
+          const { data: pageData, error: pageError } = await scopedQuery
+            .order("created_at", { ascending: false })
+            .range(from, from + MES_QUERY_PAGE_SIZE - 1);
+
+          if (pageError) {
+            throw pageError;
+          }
+
+          rows.push(...(pageData || []));
+          if (!pageData || pageData.length < MES_QUERY_PAGE_SIZE) {
+            break;
+          }
+          from += MES_QUERY_PAGE_SIZE;
+        }
+
+        return rows;
+      };
       const fetchAllMesJobRuns = async () => {
         const rows = [];
         let from = 0;
@@ -10101,10 +10133,11 @@ function App() {
         .eq("company_id", scopedCompanyId)
         .order("created_at", { ascending: true });
 
-      const [overviewResult, jobRunsResult, eventsResult, downtimeReasonsResult, workstationsResult, terminalsResult] = await Promise.all([
+      const [overviewResult, productionOrdersResult, jobRunsResult, eventsResult, downtimeReasonsResult, workstationsResult, terminalsResult] = await Promise.all([
         supabase.rpc("mes_factory_overview", {
           p_company_id: scopedCompanyId
         }),
+        fetchAllMesProductionOrders(),
         fetchAllMesJobRuns(),
         fetchAllMesEvents(),
         supabase
@@ -10122,6 +10155,8 @@ function App() {
       ]);
 
       const { data, error: overviewError } = overviewResult;
+      const productionOrdersData = Array.isArray(productionOrdersResult) ? productionOrdersResult : productionOrdersResult?.data || [];
+      const productionOrdersError = Array.isArray(productionOrdersResult) ? null : productionOrdersResult?.error || null;
       const jobRunsData = Array.isArray(jobRunsResult) ? jobRunsResult : jobRunsResult?.data || [];
       const jobRunsError = Array.isArray(jobRunsResult) ? null : jobRunsResult?.error || null;
       const eventData = Array.isArray(eventsResult) ? eventsResult : eventsResult?.data || [];
@@ -10130,6 +10165,9 @@ function App() {
       const { data: workstationData, error: workstationsError } = workstationsResult;
       const { data: terminalData, error: terminalsError } = terminalsResult;
 
+      if (productionOrdersError) {
+        throw productionOrdersError;
+      }
       if (jobRunsError) {
         throw jobRunsError;
       }
@@ -10306,6 +10344,7 @@ function App() {
         console.warn("MES overview fallback", overviewError);
       }
       setMesOverviewRows((data || []).map((row) => normalizeMesOverviewRow(row)));
+      setMesProductionOrders(productionOrdersData || []);
       setMesRecentJobRuns((jobRunsData || []).map((row) => normalizeMesJobRunRow(row)));
       setMesRecentEventRows(eventRows.map((row) => normalizeMesEventRow(row)));
       setMesDowntimeReasons(downtimeReasonsData || []);
@@ -10320,6 +10359,7 @@ function App() {
       setMesError(loadMesError?.message || "Nepodarilo sa načítať MES prehľad.");
       setMesOverviewRows([]);
       setMesRecentJobRuns([]);
+      setMesProductionOrders([]);
       setMesRecentEventRows([]);
       setMesDowntimeReasons([]);
       setMesWorkstations([]);
@@ -12931,6 +12971,9 @@ function App() {
         loadMesModuleData();
       } else {
         setMesOverviewRows([]);
+        setMesRecentJobRuns([]);
+        setMesProductionOrders([]);
+        setMesRecentEventRows([]);
         setMesLoading(false);
         setMesError("");
       }
@@ -15710,9 +15753,49 @@ function App() {
     };
   }, [selectedMesMachineOverview, currentMesMachineRun, selectedMesMachineScopedEvents, mesHourlyDowntimeShiftKey, mesHourlyDowntimeDayOffset, mesNowTs]);
   const mesProductionOrderRows = useMemo(() => {
-    return mesRecentJobRuns
-      .filter((row) => ["queued", "running", "paused", "planned"].includes(String(row.status || "").toLowerCase()))
-      .map((row) => {
+    const rowsByProductionOrderId = new Map();
+    const rowsWithoutProductionOrder = [];
+    const normalizeOrderStatusRank = (status) => {
+      const normalized = String(status || "").toLowerCase();
+      if (normalized === "running") return 0;
+      if (normalized === "paused") return 1;
+      if (normalized === "queued" || normalized === "planned" || normalized === "draft") return 2;
+      if (normalized === "completed") return 3;
+      if (normalized === "cancelled") return 4;
+      return 5;
+    };
+    const isActiveStatus = (status) => ["running", "paused", "queued", "planned", "draft"].includes(String(status || "").toLowerCase());
+
+    mesProductionOrders.forEach((order) => {
+      const row = {
+        id: `production:${order.id}`,
+        production_order_id: order.id,
+        production_number: order.production_number,
+        job_number: order.production_number,
+        title: order.title,
+        item_name: order.title,
+        status: order.status,
+        note: order.note,
+        company_id: order.company_id,
+        created_at: order.created_at,
+        updated_at: order.completed_at || order.created_at,
+        completed_at: order.completed_at,
+        machineLabel: "Produkcia",
+        workstationLabel: "História produkcie",
+        totalProduced: 0,
+        completionPct: String(order.status || "").toLowerCase() === "completed" ? 100 : 0,
+        rejectRatePct: 0,
+        actualRate: null,
+        estimatedFinishAt: "",
+        isActive: isActiveStatus(order.status),
+        source: "production_orders"
+      };
+      rowsByProductionOrderId.set(String(order.id), row);
+    });
+
+    mesRecentJobRuns.forEach((row) => {
+      const isActiveRun = isActiveStatus(row.status);
+      const mappedRow = (() => {
         const machineRow = machineDashboardRows.find((item) => item.machineId === row.machine_id) || null;
         const workstation = mesWorkstationsById[row.workstation_id] || null;
         const eventSummary = mesEventSummaryByJobRunId[String(row.id || "")] || null;
@@ -15733,22 +15816,41 @@ function App() {
           fallbackRate && fallbackRate > 0 && remaining > 0 ? new Date(Date.now() + (remaining / fallbackRate) * 60 * 60 * 1000).toISOString() : "";
         return {
           ...row,
+          production_order_id: row.production_order_id || null,
+          production_number: row.job_number || "",
           machineLabel: machineRow?.machineName || machineRow?.machineCode || row.machine_id || "-",
           workstationLabel: workstation?.name || row.workstation_id || "-",
           totalProduced,
           completionPct,
           rejectRatePct: safeRatioPercent(scrapQuantity, totalProduced),
           actualRate,
-          estimatedFinishAt
+          estimatedFinishAt,
+          isActive: isActiveRun,
+          source: "mes_job_runs"
         };
-      })
-      .sort(
-        (a, b) =>
-          ["running", "paused", "queued", "planned"].indexOf(String(a.status || "").toLowerCase()) -
-            ["running", "paused", "queued", "planned"].indexOf(String(b.status || "").toLowerCase()) ||
-          new Date(b.started_at || b.created_at || 0).getTime() - new Date(a.started_at || a.created_at || 0).getTime()
-      );
-  }, [mesRecentJobRuns, machineDashboardRows, mesWorkstationsById, mesEventSummaryByJobRunId]);
+      })();
+      const productionOrderId = String(row.production_order_id || "").trim();
+      if (productionOrderId) {
+        rowsByProductionOrderId.set(productionOrderId, {
+          ...(rowsByProductionOrderId.get(productionOrderId) || {}),
+          ...mappedRow,
+          id: mappedRow.id || `mes:${row.id}`,
+          title: rowsByProductionOrderId.get(productionOrderId)?.title || mappedRow.item_name || mappedRow.job_number || "",
+          production_number: rowsByProductionOrderId.get(productionOrderId)?.production_number || mappedRow.job_number || "",
+          isActive: mappedRow.isActive
+        });
+      } else {
+        rowsWithoutProductionOrder.push(mappedRow);
+      }
+    });
+
+    return [...rowsByProductionOrderId.values(), ...rowsWithoutProductionOrder].sort(
+      (a, b) =>
+        normalizeOrderStatusRank(a.status) - normalizeOrderStatusRank(b.status) ||
+        new Date(b.started_at || b.completed_at || b.updated_at || b.created_at || 0).getTime() -
+          new Date(a.started_at || a.completed_at || a.updated_at || a.created_at || 0).getTime()
+    );
+  }, [mesProductionOrders, mesRecentJobRuns, machineDashboardRows, mesWorkstationsById, mesEventSummaryByJobRunId]);
   const mesThroughput = useMemo(() => {
     const rangeWindow = getMesThroughputRangeWindow(
       mesThroughputRangeKey,
@@ -16138,9 +16240,10 @@ function App() {
       { running: 0, stopped: 0, idle: 0, alarm: 0, setup: 0 }
     );
     const productionRate = machineDashboardRows.reduce((sum, row) => sum + Number(row.actualRate || 0), 0);
+    const activeProductionOrders = mesProductionOrderRows.filter((row) => row.isActive).length;
     return {
       ...counts,
-      activeOrders: mesProductionOrderRows.length,
+      activeOrders: activeProductionOrders,
       productionRate,
       goodParts: mesQualitySummary.goodParts,
       scrapParts: mesQualitySummary.scrapParts,
@@ -16148,7 +16251,7 @@ function App() {
       onlineTerminals: mesTerminals.filter((row) => isMesTerminalOnline(row.last_seen_at)).length,
       averageOperatorRunPct: mesOperatorSummary.averageRunPct
     };
-  }, [machineDashboardRows, mesProductionOrderRows.length, mesQualitySummary.goodParts, mesQualitySummary.scrapParts, mesOperatorSummary, mesTerminals]);
+  }, [machineDashboardRows, mesProductionOrderRows, mesQualitySummary.goodParts, mesQualitySummary.scrapParts, mesOperatorSummary, mesTerminals]);
   const handleExportSelectedMesMachineEvents = async () => {
     if (!selectedMesMachineOverview || selectedMesMachineEvents.length === 0) {
       return;
@@ -18592,21 +18695,21 @@ function App() {
                   <article className="orders-panel-card workflow-card workflow-card-list">
                     <div className="panel-head workflow-section-head">
                       <div>
-                        <h2>Aktívne zákazky</h2>
-                        <p className="panel-meta">Bežiace a otvorené výrobné zákazky.</p>
+                        <h2>Výrobné zákazky</h2>
+                        <p className="panel-meta">{`${mesProductionOrderRows.length} záznamov z produkcie vrátane histórie.`}</p>
                       </div>
                     </div>
                     {mesProductionOrderRows.length === 0 ? (
-                      <p className="hint">Momentálne nebeží žiadna MES zákazka.</p>
+                      <p className="hint">Zatiaľ nie sú dostupné výrobné zákazky.</p>
                     ) : (
                       <div className="orders-list compact-list">
                         {mesProductionOrderRows.slice(0, 8).map((row) => (
                           <div key={row.id || row.job_number} className="daily-activity-item">
                             <div>
                               <strong>{row.job_number || row.production_number || "Zákazka"}</strong>
-                              <p>{`${row.item_name || row.title || "-"} | ${row.machineName || row.workstationName || "-"}`}</p>
+                              <p>{`${row.item_name || row.title || "-"} | ${row.machineLabel || row.workstationLabel || "-"}`}</p>
                             </div>
-                            <span>{new Intl.NumberFormat("sk-SK").format(Number(row.good_quantity || row.goodParts || 0))} OK</span>
+                            <span>{row.status || (row.completed_at ? "completed" : "draft")}</span>
                           </div>
                         ))}
                       </div>

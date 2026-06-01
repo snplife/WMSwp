@@ -2,9 +2,76 @@
 import { createClient } from "@supabase/supabase-js";
 import { useRef } from "react";
 import { Activity, ArrowDownLeft, ArrowRight, ArrowRightLeft, ArrowUpRight, BarChart3, Boxes, Building2, CheckCircle2, ClipboardList, Clock3, Factory, FileText, History, LogIn, MapPin, MonitorSmartphone, Package, ReceiptText, RotateCcw, Settings2, ShieldCheck, Users, X } from "lucide-react";
-import * as XLSX from "xlsx";
 import { installHotjar, uninstallHotjar } from "./hotjar";
 import StatusPill from "./components/StatusPill";
+import {
+  MES_ANALYTICS_LOOKBACK_DAYS,
+  MES_BASE_LOOKBACK_DAYS,
+  MES_FACTORY_TERMINAL_GRID_COLS,
+  MES_FACTORY_TERMINAL_GRID_ROWS,
+  MES_THROUGHPUT_RANGE_OPTIONS,
+  MES_THROUGHPUT_SHIFT_RANGE_KEYS,
+  DEFAULT_MES_DASHBOARD_CUSTOMIZATION,
+  averageMesNumber,
+  buildMesEventIdentity,
+  buildMesOperatorKey,
+  buildMesThroughputSeries,
+  buildSimplePolyline,
+  clampPercent,
+  collectMesDowntimeDurations,
+  collectMesEventDeltaDurations,
+  collectMesEventDurations,
+  formatEstimatedFinishTime,
+  formatMesEventLabel,
+  formatTimeOnly,
+  getMesDailyShiftWindow,
+  getMesEventDurationMs,
+  getMesEventOperatorLabel,
+  getMesEventQuantity,
+  getMesEventScopeKeys,
+  getMesInclusiveLookbackDays,
+  getMesOeeRangeWindow,
+  getMesShiftWindow,
+  getMesStateTransitionFromEvent,
+  getMesStatusMeta,
+  getMesThroughputRangeWindow,
+  getMesViewRole,
+  getMesViewRoleLabel,
+  isMesAuthEvent,
+  isMesLoginEvent,
+  isMesLogoutEvent,
+  isMesTerminalOnline,
+  isMissingMesDeviceUidColumnError,
+  isMissingMesEventLogTableError,
+  isMissingMesJobRunEventsColumnError,
+  isMissingMesMachinesAutomationModeColumnError,
+  isMissingMesMachinesSignalModeColumnError,
+  normalizeMesAutomationModeValue,
+  normalizeMesEventRow,
+  normalizeMesMachineCatalogRow,
+  normalizeMesOperatorLookupValue,
+  normalizeMesOverviewRow,
+  normalizeMesTerminalRow,
+  normalizeMesWorkstationRow,
+  normalizeMesJobRunRow,
+  resolveMesAutomationMode,
+  safeRatioPercent,
+  sumMesEventQuantities,
+  summarizeMesStateWindow
+} from "./modules/mes/mesUtils";
+import {
+  LANDING_DESCRIPTION,
+  LANDING_FAQ,
+  LANDING_FEATURES,
+  LANDING_FLOW_SCENARIOS,
+  LANDING_LEGAL_DOCUMENTS,
+  LANDING_OUTCOMES,
+  LANDING_SERVICE_AREAS,
+  LANDING_TITLE,
+  LANDING_USE_CASES,
+  SITE_NAME
+} from "./content/landingContent";
+import { createTableConfig } from "./config/tableConfig";
 import { clearSupabaseAuthStorage, noStoreFetch, supabase, supabaseAnonKey, supabaseUrl, tableNames } from "./supabaseClient";
 import { estimateWmsPricing, isCompanyOnBasicFreePlan, normalizeBillingPriceValue, resolveCompanyBillingPricing } from "../shared/billingPricing";
 import logo from "../logo.png";
@@ -23,6 +90,20 @@ const ATTENDANCE_SETTINGS_MODULE = "__attendance_settings__";
 const COMPANY_SETTINGS_MODULE = "__company_settings__";
 const SYSTEM_ADMIN_MODULE = "__system_admin__";
 const PRICE_LIST_TABLE = "price_list";
+const { TABLE_CONFIG, DEFAULT_CONFIG } = createTableConfig({
+  ATTENDANCE_GROUPS_MODULE,
+  ATTENDANCE_MODULE,
+  ATTENDANCE_SETTINGS_MODULE,
+  CRM_MODULE,
+  CUSTOMERS_MODULE,
+  DAILY_OVERVIEW_TABLE,
+  INVOICES_MODULE,
+  ORDERS_MODULE,
+  PRICE_LIST_TABLE,
+  PRODUCTION_MODULE,
+  SYSTEM_ADMIN_MODULE,
+  QUOTES_MODULE
+});
 const BILLING_API_BASE = "/api/v1/billing";
 const QUOTE_VAT_OPTIONS = [0, 5, 19, 23];
 const COMPANY_LOOKUP_DEBOUNCE_MS = 250;
@@ -129,310 +210,6 @@ const COMPANY_ADMIN_HARDWARE_OPTIONS = [
     moduleKeys: ["wms", "mes", "attendance"]
   }
 ];
-const LANDING_LEGAL_DOCUMENTS = {
-  vop: {
-    label: "VOP",
-    title: "Všeobecné obchodné podmienky",
-    intro: "Tieto podmienky upravujú základný rámec používania platformy Factory OS, onboardingu, dodávky modulov, hardware a súvisiacich implementačných služieb.",
-    meta: ["B2B služba", "Platí pre onboarding a prevádzku platformy", "Individuálne nacenenie má prednosť pred orientačným cenníkom"],
-    icon: FileText,
-    sections: [
-      {
-        title: "1. Predmet služby",
-        paragraphs: [
-          "Factory OS poskytuje firmám webovú platformu a súvisiace digitálne nástroje pre sklad, výrobu, dochádzku, dokumenty, reporting a onboarding nových prevádzok.",
-          "Rozsah aktivovaných modulov, hardware, konzultácií a onboarding služieb sa riadi podľa výberu zákazníka, potvrdeného setupu a následnej objednávky, checkoutu alebo individuálnej ponuky."
-        ]
-      },
-      {
-        title: "2. Objednávka a aktivácia",
-        paragraphs: [
-          "Zákazník si v onboarding flow alebo v nastaveniach firmy vyberá moduly, počty používateľov, hardware a prípadné požiadavky na pomoc s konfiguráciou systému.",
-          "Platené služby a hardware sa aktivujú po potvrdení objednávky alebo po úspešnom checkout procese. Bezplatná vrstva sa môže aktivovať samostatne podľa aktuálneho cenníka.",
-          "Ak onboarding obsahuje individuálne nacenené položky alebo implementačné práce, finálny rozsah a cena sa potvrdzujú samostatne pred ostrým spustením."
-        ]
-      },
-      {
-        title: "3. Fakturácia a platby",
-        paragraphs: [
-          "Predplatné, jednorazové setup poplatky a hardware sa účtujú podľa aktuálneho cenníka alebo individuálne dohodnutej ponuky.",
-          "Ak zákazník uhradí predfaktúru, uhradená suma sa pri vystavení finálnej faktúry zohľadní a odpočíta od výslednej sumy na úhradu.",
-          "V prípade pravidelného predplatného sa fakturačný interval, prípadné setup položky a termíny úhrad riadia potvrdeným billing modelom zákazníka."
-        ]
-      },
-      {
-        title: "4. Prevádzka, zmeny a zodpovednosť",
-        paragraphs: [
-          "Zákazník zodpovedá za správnosť údajov, ktoré do systému vkladá, a za správu interných prístupov svojich používateľov.",
-          "Poskytovateľ zabezpečuje prevádzku platformy v primeranom rozsahu. Plánované rozšírenia, integrácie, migrácie dát a špecifické úpravy sa riešia samostatným dojednaním.",
-          "Ak je súčasťou dodávky hardware alebo onsite implementácia, zákazník zabezpečí potrebnú súčinnosť, prístupy a technické podmienky pre nasadenie."
-        ]
-      },
-      {
-        title: "5. Ukončenie a podpora",
-        paragraphs: [
-          "Zákazník môže požiadať o ukončenie služby alebo zmenu rozsahu modulov podľa dohodnutého billing modelu a potvrdených obchodných podmienok.",
-          "Podpora, onboarding asistencia a následné úpravy sa riešia cez dohodnutý komunikačný kanál medzi zákazníkom a poskytovateľom."
-        ]
-      }
-    ]
-  },
-  gdpr: {
-    label: "GDPR",
-    title: "Ochrana osobných údajov",
-    intro: "Factory OS spracúva osobné údaje len v rozsahu potrebnom na prevádzku služby, onboarding firmy, billing, podporu a správu používateľských prístupov.",
-    meta: ["Minimálny rozsah údajov", "Prístup podľa rolí a firmy", "Prevádzkové logy pre audit a bezpečnosť"],
-    icon: ShieldCheck,
-    sections: [
-      {
-        title: "1. Aké údaje spracúvame",
-        paragraphs: [
-          "Môžu sa spracúvať identifikačné a kontaktné údaje firmy, administrátora a používateľov, najmä meno, email, telefón, pracovná pozícia a prístupové oprávnenia.",
-          "Pri používaní dochádzky alebo prevádzkových modulov sa môžu ukladať aj prevádzkové eventy, terminálové záznamy, logy a auditné údaje.",
-          "Pri obchodných moduloch sa môžu spracúvať aj údaje potrebné na cenové ponuky, objednávky, fakturáciu a komunikáciu so zákazníkom."
-        ]
-      },
-      {
-        title: "2. Účel spracúvania",
-        paragraphs: [
-          "Údaje sa používajú na registráciu účtu, vytvorenie firmy, onboarding, billing, správu pozvánok, nastavenie prístupov a bezpečnú prevádzku jednotlivých modulov systému.",
-          "Prevádzkové logy a auditné záznamy slúžia aj na riešenie incidentov, obnovu histórie a ochranu pred duplicitnými alebo chybnými transakciami."
-        ]
-      },
-      {
-        title: "3. Právny základ a uchovávanie",
-        paragraphs: [
-          "Spracúvanie osobných údajov prebieha na základe plnenia zmluvného vzťahu, oprávneného záujmu na bezpečnej prevádzke systému alebo splnenia zákonných povinností.",
-          "Údaje sa uchovávajú len počas obdobia potrebného na prevádzku služby, billing, audit, podporu a splnenie súvisiacich zákonných povinností."
-        ]
-      },
-      {
-        title: "4. Zdieľanie a ochrana",
-        paragraphs: [
-          "Údaje sa nezdieľajú s tretími stranami mimo nevyhnutných technologických, platobných a komunikačných partnerov potrebných na prevádzku služby.",
-          "Prístup k údajom je obmedzený podľa rolí, firmy a oprávnení. Zákazník má mať vlastné interné pravidlá pre správu používateľov, zariadení a pracovných terminálov."
-        ]
-      },
-      {
-        title: "5. Práva dotknutých osôb",
-        paragraphs: [
-          "Používatelia a zákazníci môžu žiadať opravu nepresných údajov, obmedzenie spracúvania alebo výmaz údajov, pokiaľ to nie je v rozpore s účtovnými, zmluvnými alebo zákonnými povinnosťami.",
-          "Konkrétne žiadosti o prístup k údajom alebo výmaz sa riešia cez kontaktný kanál poskytovateľa alebo cez zodpovedného firemného administrátora."
-        ]
-      }
-    ]
-  }
-};
-
-const TABLE_CONFIG = {
-  stock: {
-    title: "Skladové zásoby",
-    subtitle: "Aktuálny stav skladu",
-    columns: [
-      { label: "Pozícia", keys: ["position"], required: true },
-      { label: "Materiál", keys: ["material_code"], required: true },
-      { label: "Množstvo", keys: ["quantity"], kind: "number", required: true }
-    ],
-    searchKeys: ["position", "material_code", "quantity"],
-    statusKeys: [],
-    timeKeys: [],
-    orderBy: "material_code",
-    orderAsc: true,
-    metricLabel: "Celkové množstvo",
-    metricValue: (rows) => rows.reduce((sum, row) => sum + Number(row.quantity || 0), 0)
-  },
-  [PRICE_LIST_TABLE]: {
-    title: "Cenník",
-    subtitle: "Jednotkové ceny materiálov podľa firmy",
-    columns: [
-      { label: "Materiál", keys: ["material_code"], required: true },
-      { label: "Jednotka", keys: ["unit"], required: true },
-      { label: "Predajná cena", keys: ["unit_price"], kind: "currency", required: true },
-      { label: "Nákupná cena", keys: ["purchase_price"], kind: "currency", required: true },
-      { label: "Marža", keys: ["margin_value"], kind: "currency", required: true },
-      { label: "Max zľava", keys: ["max_discount_display"], required: true },
-      { label: "Poznámka", keys: ["note"] },
-      { label: "Upravené", keys: ["updated_at", "created_at"], kind: "date_time" }
-    ],
-    searchKeys: ["material_code", "unit", "note", "unit_price", "purchase_price", "max_discount_display"],
-    statusKeys: [],
-    timeKeys: ["updated_at", "created_at"],
-    orderBy: "material_code",
-    orderAsc: true,
-    metricLabel: "Položky cenníka",
-    metricValue: (rows) => rows.length
-  },
-  [CRM_MODULE]: {
-    title: "CRM",
-    subtitle: "Leady, firmy, kontakty a follow-up pipeline",
-    columns: [],
-    searchKeys: [],
-    statusKeys: [],
-    timeKeys: [],
-    orderBy: "created_at",
-    orderAsc: false,
-    metricLabel: "CRM firmy",
-    metricValue: (rows) => rows.length
-  },
-  [CUSTOMERS_MODULE]: {
-    title: "Zákazníci",
-    subtitle: "Databáza zákazníkov pre objednávky a cenové ponuky",
-    columns: [],
-    searchKeys: [],
-    statusKeys: [],
-    timeKeys: [],
-    orderBy: "created_at",
-    orderAsc: false,
-    metricLabel: "Zákazníci",
-    metricValue: (rows) => rows.length
-  },
-  [QUOTES_MODULE]: {
-    title: "Cenové ponuky",
-    subtitle: "Cenové ponuky zo zákazníkov a cenníka",
-    columns: [],
-    searchKeys: [],
-    statusKeys: [],
-    timeKeys: [],
-    orderBy: "created_at",
-    orderAsc: false,
-    metricLabel: "Ponuky",
-    metricValue: (rows) => rows.length
-  },
-  [INVOICES_MODULE]: {
-    title: "Fakturácia",
-    subtitle: "Faktúry zo zákazníkov a cenníka",
-    columns: [],
-    searchKeys: [],
-    statusKeys: [],
-    timeKeys: [],
-    orderBy: "created_at",
-    orderAsc: false,
-    metricLabel: "Faktúry",
-    metricValue: (rows) => rows.length
-  },
-  stock_history: {
-    title: "História zásob",
-    subtitle: "Pohyb zásob a operácie",
-    columns: [
-      { label: "Operácia", keys: ["action"], kind: "status", required: true },
-      { label: "Pozícia", keys: ["position"], required: true },
-      { label: "Materiál", keys: ["material_code"], required: true },
-      { label: "Poznámka", keys: ["note"] },
-      { label: "Vytvorené", keys: ["created_at_ms"], kind: "epoch_ms", required: true }
-    ],
-    searchKeys: ["action", "position", "material_code", "note", "event_key"],
-    statusKeys: ["action"],
-    timeKeys: ["created_at_ms"],
-    orderBy: "created_at_ms",
-    orderAsc: false,
-    metricLabel: "Príjmy",
-    metricValue: (rows) => rows.filter((row) => String(row.action || "").toUpperCase() === "RECEIVE").length
-  },
-  [DAILY_OVERVIEW_TABLE]: {
-    title: "Denný prehľad",
-    subtitle: "Manažérsky prehľad dnešného pohybu skladu",
-    columns: [
-      { label: "Operácia", keys: ["action"], kind: "status", required: true },
-      { label: "Pozícia", keys: ["position"], required: true },
-      { label: "Materiál", keys: ["material_code"], required: true },
-      { label: "Poznámka", keys: ["note"] },
-      { label: "Vytvorené", keys: ["created_at_ms"], kind: "epoch_ms", required: true }
-    ],
-    searchKeys: ["action", "position", "material_code", "note", "event_key"],
-    statusKeys: ["action"],
-    timeKeys: ["created_at_ms"],
-    orderBy: "created_at_ms",
-    orderAsc: false,
-    metricLabel: "Dnešné pohyby",
-    metricValue: (rows) => rows.length
-  },
-  [ORDERS_MODULE]: {
-    title: "Objednávky",
-    subtitle: "Zákazníci, rozpracované objednávky a PDF výstupy",
-    columns: [],
-    searchKeys: [],
-    statusKeys: [],
-    timeKeys: [],
-    orderBy: "created_at",
-    orderAsc: false,
-    metricLabel: "Objednávky",
-    metricValue: (rows) => rows.length
-  },
-  [ATTENDANCE_MODULE]: {
-    title: "Dochádzka",
-    subtitle: "Operatívny prehľad príchodov, odchodov a stavov",
-    columns: [],
-    searchKeys: [],
-    statusKeys: [],
-    timeKeys: [],
-    orderBy: "created_at",
-    orderAsc: false,
-    metricLabel: "Eventy",
-    metricValue: (rows) => rows.length
-  },
-  [ATTENDANCE_GROUPS_MODULE]: {
-    title: "Skupiny",
-    subtitle: "Dochádzkové skupiny, zmenovosť a pracovná doba",
-    columns: [],
-    searchKeys: [],
-    statusKeys: [],
-    timeKeys: [],
-    orderBy: "created_at",
-    orderAsc: false,
-    metricLabel: "Skupiny",
-    metricValue: (rows) => rows.length
-  },
-  [ATTENDANCE_SETTINGS_MODULE]: {
-    title: "Nastavenia dochádzky",
-    subtitle: "Terminály, credentials a prepojenie HR modulov",
-    columns: [],
-    searchKeys: [],
-    statusKeys: [],
-    timeKeys: [],
-    orderBy: "created_at",
-    orderAsc: false,
-    metricLabel: "Eventy",
-    metricValue: (rows) => rows.length
-  },
-  [PRODUCTION_MODULE]: {
-    title: "Prehľad výroby",
-    subtitle: "Plánovanie výroby, výrobné zákazky, výkon a rozpracovanosť",
-    columns: [],
-    searchKeys: [],
-    statusKeys: [],
-    timeKeys: [],
-    orderBy: "created_at",
-    orderAsc: false,
-    metricLabel: "Výrobné zákazky",
-    metricValue: (rows) => rows.length
-  },
-  [SYSTEM_ADMIN_MODULE]: {
-    title: "Správa systému",
-    subtitle: "Firmy, účty, billing a systémové prístupy na jednom mieste",
-    columns: [],
-    searchKeys: [],
-    statusKeys: [],
-    timeKeys: [],
-    orderBy: "created_at",
-    orderAsc: false,
-    metricLabel: "Tenanty",
-    metricValue: (rows) => rows.length
-  }
-};
-
-const DEFAULT_CONFIG = {
-  title: "Dátová tabuľka",
-  subtitle: "Živý monitoring",
-  columns: [{ label: "ID", keys: ["id"], required: true }],
-  searchKeys: ["id"],
-  statusKeys: [],
-  timeKeys: [],
-  orderBy: null,
-  orderAsc: false,
-  metricLabel: "Riadky",
-  metricValue: (rows) => rows.length
-};
-
 const ROLE_TABLE = (import.meta.env.VITE_USER_ROLES_TABLE || "app_users").trim();
 const MASTER_EMAIL = (import.meta.env.VITE_MASTER_EMAIL || "").trim().toLowerCase();
 const INTERNAL_LOGIN_DOMAIN = (import.meta.env.VITE_INTERNAL_LOGIN_DOMAIN || "wms.local").trim().toLowerCase();
@@ -442,19 +219,6 @@ const MIN_MANAGED_PASSWORD_LENGTH = 8;
 const ENV_DEFAULT_DEAD_STOCK_DAYS = Math.max(1, Number(import.meta.env.VITE_DEAD_STOCK_DAYS || 30));
 const ENV_DEFAULT_MAX_POSITIONS = Math.max(1, Number(import.meta.env.VITE_MAX_POSITIONS || 100));
 const HISTORY_ANALYTICS_LOOKBACK_DAYS = Math.max(30, Number(import.meta.env.VITE_HISTORY_LOOKBACK_DAYS || 365));
-const MES_ANALYTICS_LOOKBACK_DAYS = Math.max(7, Number(import.meta.env.VITE_MES_LOOKBACK_DAYS || 30));
-const MES_THROUGHPUT_RANGE_OPTIONS = [
-  { key: "last_30_minutes", label: "30 min" },
-  { key: "last_8_hours", label: "8 hodín" },
-  { key: "current_shift", label: "Aktuálna zmena" },
-  { key: "shift_06_14", label: "Ranná smena" },
-  { key: "shift_14_22", label: "Poobedná smena" },
-  { key: "today", label: "Dnes" },
-  { key: "yesterday", label: "Včera" },
-  { key: "last_7_days", label: "7 dní" },
-  { key: "custom", label: "Vlastné" }
-];
-const MES_THROUGHPUT_SHIFT_RANGE_KEYS = new Set(["shift_06_14", "shift_14_22"]);
 const AUTO_REFRESH_MS = Math.max(60 * 1000, Number(import.meta.env.VITE_AUTO_REFRESH_MS || 5 * 60 * 1000));
 const DATA_STALE_REFRESH_MS = Math.max(60 * 1000, Number(import.meta.env.VITE_DATA_STALE_REFRESH_MS || AUTO_REFRESH_MS));
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -473,29 +237,6 @@ const PENDING_COMPANY_INVITE_STORAGE_KEY = "wms_pending_company_invite";
 const PENDING_COMPANY_ADMIN_SETUP_STORAGE_KEY = "wms_pending_company_admin_setup";
 const COMPANY_ADMIN_SETUP_STORAGE_KEY = "wms_company_admin_setup";
 const COMPANY_HARDWARE_PRICE_CATALOG_STORAGE_KEY = "wms_company_hardware_price_catalog";
-const MES_DASHBOARD_DEFAULT_KPI_KEYS = [
-  "running",
-  "stopped",
-  "activeOrders",
-  "productionRate",
-  "goodParts",
-  "scrapParts",
-  "onlineTerminals",
-  "oee",
-  "rejectRate"
-];
-const MES_FACTORY_TERMINAL_GRID_ROWS = 4;
-const MES_FACTORY_TERMINAL_GRID_COLS = 6;
-const DEFAULT_MES_DASHBOARD_CUSTOMIZATION = {
-  showMachineFocus: true,
-  showMachineTable: true,
-  showThroughputQuality: true,
-  showAvailableOperators: true,
-  showActiveOperators: true,
-  showFactoryMap: true,
-  visibleKpis: MES_DASHBOARD_DEFAULT_KPI_KEYS,
-  terminalMapLayout: {}
-};
 const COMPANY_WAREHOUSES_TABLE = "company_warehouses";
 const INVOICE_STYLE_OPTIONS = [
   { value: "clean", label: "Čistá" },
@@ -570,206 +311,6 @@ const OCCUPANCY_RANGE_CONFIG = {
   week: { label: "Týždeň", bucketMs: 24 * 60 * 60 * 1000, points: 7 },
   month: { label: "Mesiac", bucketMs: 24 * 60 * 60 * 1000, points: 30 }
 };
-const LANDING_FEATURES = [
-  "Online skladový prehľad pre operatívu, vedúcich skladu aj manažment",
-  "Fakturácia, cenové ponuky, objednávky a workflow v jednom firemnom systéme",
-  "QR štítky, lokácie, pohyby materiálu a auditovateľná história skladových operácií",
-  "Pripravenosť na e-shopy, order processing, mobilnú appku a viac firiem v jednom prostredí"
-];
-const SITE_NAME = "Factory OS";
-const DEFAULT_SITE_URL = String(import.meta.env.VITE_SITE_URL || "")
-  .trim()
-  .replace(/\/+$/, "");
-const LANDING_TITLE = `${SITE_NAME} | Skladový monitoring a online prehľad zásob`;
-const LANDING_DESCRIPTION =
-  "Skladový monitoring, online prehľad zásob a evidencia skladových pohybov v reálnom čase pre výrobu, logistiku a interné sklady.";
-const LANDING_USE_CASES = [
-  "Sklady a logistické tímy, ktoré potrebujú mať zásoby, pohyby a lokácie pod kontrolou v reálnom čase.",
-  "Výrobné firmy, ktoré chcú prepojiť sklad, objednávky, materiál a interné workflow do jedného systému.",
-  "Majitelia a manažéri, ktorí chcú menej Excelu, menej chaosu a viac dát pre rozhodovanie."
-];
-const LANDING_SERVICE_AREAS = [
-  "Návrh a digitalizácia skladových procesov podľa konkrétnej prevádzky",
-  "Nasadenie Factory OS, objednávok, fakturácie a firemných workflow modulov",
-  "Prispôsobenie systému pre konkrétnu firmu, role, tlačové výstupy a dokumenty",
-  "Príprava na e-shop integrácie, mobilný picking a order processing"
-];
-const LANDING_OUTCOMES = [
-  "Rýchlejší prehľad o stave skladu bez ručného dohľadávania",
-  "Nižší počet chýb pri pohyboch, výdaji, fakturácii a objednávkach",
-  "Jedno spoločné prostredie pre sklad, obchod aj backoffice",
-  "Systém pripravený rásť spolu s firmou, nie len riešiť aktuálny problém"
-];
-const LANDING_FAQ = [
-  {
-    question: "Čo dokáže Factory OS sledovať?",
-    answer:
-      "Aplikácia zobrazuje stav skladu, zásoby podľa lokácie, históriu pohybov, príjmy, výdaje, presuny, dokumenty aj firemné workflow v jednom rozhraní."
-  },
-  {
-    question: "Je systém vhodný pre výrobu aj logistiku?",
-    answer:
-      "Áno. Systém je vhodný pre interné sklady, výrobu, logistiku aj obchodné tímy, ktoré potrebujú mať procesy v jednom firemnom nástroji."
-  },
-  {
-    question: "Dá sa Factory OS napojiť na existujúce procesy?",
-    answer:
-      "Áno. Riešenie sa dá prispôsobiť konkrétnej firme, rolám, dokumentom, QR štítkom, lokátorom aj budúcim e-shop integráciám."
-  }
-];
-const LANDING_FLOW_SCENARIOS = [
-  {
-    key: "stock",
-    icon: Boxes,
-    eyebrow: "Sklad",
-    title: "Príjem materiálu a lokácie",
-    detail: "Materiál sa naskladní na pozície, systém drží množstvá, expirácie a dostupnosť pre picking aj výrobu.",
-    metric: "128 ks dostupných",
-    panelTitle: "Skladová vrstva",
-    panelLabel: "Živý sample skladu",
-    kpis: [
-      { label: "Presnosť", value: "94.6%", note: "lokácie vs realita" },
-      { label: "Pohyby", value: "142", note: "dnes spracovaných" },
-      { label: "Rezervácie", value: "31", note: "čaká na picking" }
-    ],
-    bars: [
-      { label: "Obsadenie regálov", value: "84%", width: "84%" },
-      { label: "Príjmy materiálu", value: "57 ks", width: "62%" },
-      { label: "Výdaj do výroby", value: "32 ks", width: "54%" }
-    ],
-    events: [
-      { time: "08:12", text: "Príjem materiálu PLECH-02 na pozíciu A-01-04" },
-      { time: "08:26", text: "Sklad rezervoval 32 ks pre výrobný príkaz VP-240322-01" },
-      { time: "08:45", text: "Picker potvrdil výdaj vstupu na pracovisko Laser 2" }
-    ]
-  },
-  {
-    key: "production",
-    icon: Factory,
-    eyebrow: "Výroba",
-    title: "Spotreba vstupov a výstupy",
-    detail: "Výrobný terminál odpíše vstupy, zaeviduje výstup a vedúci vidí prestoje aj rozpracovanosť.",
-    metric: "24 ks hotových",
-    panelTitle: "Výrobná vrstva",
-    panelLabel: "Živý sample výroby",
-    kpis: [
-      { label: "Linky", value: "3", note: "2 bežia, 1 prestavba" },
-      { label: "Výstupy", value: "24 ks", note: "hotové dnes" },
-      { label: "Prestoj", value: "18 min", note: "najväčší výpadok" }
-    ],
-    bars: [
-      { label: "Plnenie plánu", value: "76%", width: "76%" },
-      { label: "Spotreba vstupov", value: "32 ks", width: "58%" },
-      { label: "Hotové výrobky", value: "24 ks", width: "61%" }
-    ],
-    events: [
-      { time: "09:05", text: "Výroba odpísala 32 ks vstupu a naskladnila 24 ks hotového dielu" },
-      { time: "09:18", text: "Majster označil prestavbu linky Lis 1 a systém prepočítal kapacitu" },
-      { time: "09:44", text: "MES ukázal oneskorenie zákazky o 12 min oproti plánu" }
-    ]
-  },
-  {
-    key: "attendance",
-    icon: Clock3,
-    eyebrow: "Dochádzka",
-    title: "Smeny, prítomnosť a kapacita tímu",
-    detail: "Terminály a HR modul ukážu, kto je na zmene, koľko ľudí je na linke a kde hrozí výpadok kapacity.",
-    metric: "92% obsadenie smeny",
-    panelTitle: "Dochádzková vrstva",
-    panelLabel: "Živý sample smeny",
-    kpis: [
-      { label: "Prítomní", value: "25", note: "z 27 plánovaných" },
-      { label: "Absencie", value: "2", note: "1 PN, 1 dovolenka" },
-      { label: "Kapacita", value: "92%", note: "obsadenie smeny" }
-    ],
-    bars: [
-      { label: "Ranná zmena", value: "92%", width: "92%" },
-      { label: "Výrobný tím", value: "88%", width: "88%" },
-      { label: "Skladový tím", value: "96%", width: "96%" }
-    ],
-    events: [
-      { time: "09:12", text: "Dochádzka potvrdila plný nábeh rannej smeny na 3 pracoviskách" },
-      { time: "09:20", text: "Vedúci vidí absenciu operátora a presun na náhradné pracovisko" },
-      { time: "09:33", text: "Kapacitný prehľad znížil výkon plánu na pracovisku Montáž 1" }
-    ]
-  },
-  {
-    key: "documents",
-    icon: ClipboardList,
-    eyebrow: "Dokumenty",
-    title: "Objednávky, ponuky a faktúry",
-    detail: "Z hotových alebo pripravených položiek vznikajú doklady bez prepisu dát medzi oddeleniami.",
-    metric: "18 expedovaných objednávok",
-    panelTitle: "Dokladová vrstva",
-    panelLabel: "Živý sample obchodného toku",
-    kpis: [
-      { label: "Ponuky", value: "12", note: "otvorené dnes" },
-      { label: "Objednávky", value: "18", note: "pripravené na expedíciu" },
-      { label: "Faktúry", value: "6", note: "čaká na odoslanie" }
-    ],
-    bars: [
-      { label: "Schválené ponuky", value: "67%", width: "67%" },
-      { label: "Expedičná pripravenosť", value: "81%", width: "81%" },
-      { label: "Rozfakturované zákazky", value: "72%", width: "72%" }
-    ],
-    events: [
-      { time: "10:02", text: "Cenová ponuka CP-240322-04 sa preklopila na objednávku" },
-      { time: "10:40", text: "Objednávka zákazníka sa uvoľnila do expedície podľa skladu" },
-      { time: "11:40", text: "Objednávka sa preklopila do fakturácie a pribudla do obratu" }
-    ]
-  },
-  {
-    key: "kpi",
-    icon: MonitorSmartphone,
-    eyebrow: "KPI",
-    title: "Výkon, OEE a manažérsky prehľad",
-    detail: "Vedúci vidí priepustnosť toku, čakania, efektivitu zmien a čo priamo tlačí maržu alebo mešká.",
-    metric: "OEE 78.4%",
-    panelTitle: "KPI vrstva",
-    panelLabel: "Živý sample výkonnosti",
-    kpis: [
-      { label: "OEE", value: "78.4%", note: "dnešný priemer" },
-      { label: "Lead time", value: "2.8 h", note: "od príjmu po doklad" },
-      { label: "Marža", value: "23.1%", note: "na dnešných zákazkách" }
-    ],
-    bars: [
-      { label: "Výkon smeny", value: "78.4%", width: "78%" },
-      { label: "Plnenie termínov", value: "86%", width: "86%" },
-      { label: "Maržová disciplína", value: "73%", width: "73%" }
-    ],
-    events: [
-      { time: "10:30", text: "Dashboard vyhodnotil pokles výkonu na jednej linke a dopad na maržu" },
-      { time: "10:52", text: "KPI tabuľa upozornila na rast čakacej doby medzi skladom a montážou" },
-      { time: "11:06", text: "Vedúci výroby porovnal aktuálny výkon smeny s plánom a minulým týždňom" }
-    ]
-  },
-  {
-    key: "revenue",
-    icon: ReceiptText,
-    eyebrow: "Obraty",
-    title: "Denný prehľad obratu a marže",
-    detail: "Majiteľ alebo obchod vidí obrat, rozfakturované zákazky a čo ešte čaká na billing.",
-    metric: "14 820 € dnes",
-    panelTitle: "Obratová vrstva",
-    panelLabel: "Živý sample obratu",
-    kpis: [
-      { label: "Denný obrat", value: "14 820 €", note: "aktuálny súčet" },
-      { label: "Marža", value: "3 424 €", note: "dnešný hrubý príspevok" },
-      { label: "Billing čaká", value: "6", note: "dokladov bez odoslania" }
-    ],
-    bars: [
-      { label: "Obrat dnes", value: "72%", width: "72%" },
-      { label: "Inkaso vs plán", value: "64%", width: "64%" },
-      { label: "Hrubá marža", value: "23.1%", width: "58%" }
-    ],
-    events: [
-      { time: "11:40", text: "Faktúra FA-240322-06 pribudla do denného obratu" },
-      { time: "12:05", text: "Majiteľ vidí rozpad obratu podľa zákazníkov a stredísk" },
-      { time: "12:18", text: "Billing panel ukázal, ktoré zákazky ešte čakajú na uzavretie" }
-    ]
-  }
-];
-
 function getTableConfig(table) {
   if (isCustomerModule(table)) {
     return TABLE_CONFIG[CUSTOMERS_MODULE];
@@ -4434,652 +3975,6 @@ function normalizeManagedUserRecord(row) {
   };
 }
 
-function normalizeMesOverviewRow(row) {
-  if (!row || typeof row !== "object") {
-    return row;
-  }
-  return {
-    ...row,
-    workstation_active: Boolean(row.workstation_active),
-    hmi_enabled: Boolean(row.hmi_enabled),
-    planned_quantity: Number(row.planned_quantity || 0),
-    good_quantity: Number(row.good_quantity || 0),
-    scrap_quantity: Number(row.scrap_quantity || 0)
-  };
-}
-
-function normalizeMesJobRunRow(row) {
-  if (!row || typeof row !== "object") {
-    return row;
-  }
-  return {
-    ...row,
-    planned_quantity: Number(row.planned_quantity || 0),
-    good_quantity: Number(row.good_quantity || 0),
-    scrap_quantity: Number(row.scrap_quantity || 0)
-  };
-}
-
-function normalizeMesEventRow(row) {
-  if (!row || typeof row !== "object") {
-    return row;
-  }
-  return {
-    ...row,
-    company_id: String(row.company_id || "").trim(),
-    terminal_id: String(row.terminal_id || "").trim(),
-    workstation_id: String(row.workstation_id || "").trim(),
-    machine_id: String(row.machine_id || "").trim(),
-    job_run_id: String(row.job_run_id || "").trim(),
-    terminal_event_id: String(row.terminal_event_id || "").trim(),
-    operator_user_id: String(row.operator_user_id || "").trim(),
-    operator_name: String(row.operator_name || "").trim(),
-    event_type: String(row.event_type || "").trim().toLowerCase(),
-    event_code: String(row.event_code || "").trim().toLowerCase(),
-    job_number: String(row.job_number || "").trim(),
-    downtime_reason_code: String(row.downtime_reason_code || "").trim(),
-    downtime_reason_name: String(row.downtime_reason_name || "").trim(),
-    note: String(row.note || "").trim(),
-    quantity: Number(row.quantity || 0),
-    duration_seconds: Number(row.duration_seconds || 0),
-    time_from: row.time_from || null,
-    time_to: row.time_to || null,
-    happened_at: row.happened_at || row.created_at || null,
-    created_at: row.created_at || row.happened_at || null,
-    payload: row.payload && typeof row.payload === "object" ? row.payload : {}
-  };
-}
-
-function normalizeMesWorkstationRow(row) {
-  if (!row || typeof row !== "object") {
-    return row;
-  }
-  return {
-    ...row,
-    target_cycle_seconds: Number(row.target_cycle_seconds || 0),
-    ideal_units_per_hour: Number(row.ideal_units_per_hour || 0),
-    hmi_enabled: Boolean(row.hmi_enabled),
-    is_active: Boolean(row.is_active)
-  };
-}
-
-function normalizeMesMachineCatalogRow(row) {
-  if (!row || typeof row !== "object") {
-    return row;
-  }
-  return {
-    ...row,
-    automation_mode: String(row.automation_mode || "full_automatic").trim().toLowerCase() || "full_automatic",
-    signal_mode: normalizeMesSignalModeValue(row.signal_mode),
-    is_active: Boolean(row.is_active)
-  };
-}
-
-function normalizeMesSignalModeValue(value) {
-  const normalized = String(value || "").trim().toLowerCase();
-  return normalized === "nc" ? "nc" : "no";
-}
-
-function formatMesSignalModeLabel(value) {
-  return normalizeMesSignalModeValue(value).toUpperCase();
-}
-
-function normalizeMesAutomationModeValue(value) {
-  const normalized = String(value || "").trim().toLowerCase();
-  if (normalized === "semi_automatic") {
-    return "semi_automatic";
-  }
-  if (normalized === "full_automatic" || normalized === "automatic") {
-    return "full_automatic";
-  }
-  return "";
-}
-
-function resolveMesAutomationMode(machineMode, terminalMode) {
-  return (
-    normalizeMesAutomationModeValue(terminalMode) ||
-    normalizeMesAutomationModeValue(machineMode) ||
-    "full_automatic"
-  );
-}
-
-function normalizeMesTerminalRow(row) {
-  if (!row || typeof row !== "object") {
-    return row;
-  }
-  return {
-    ...row,
-    device_uid: String(row.device_uid || "").trim().toUpperCase(),
-    terminal_code: String(row.terminal_code || "").trim().toUpperCase(),
-    name: String(row.name || "").trim(),
-    platform: String(row.platform || "").trim().toLowerCase(),
-    app_mode: String(row.app_mode || "").trim().toLowerCase(),
-    app_version: String(row.app_version || "").trim(),
-    last_ip: String(row.last_ip || "").trim(),
-    is_active: Boolean(row.is_active)
-  };
-}
-
-function formatMesTerminalPlatformLabel(value) {
-  const normalized = String(value || "").trim().toLowerCase();
-  if (normalized === "raspberry_pi") {
-    return "Raspberry Pi";
-  }
-  if (normalized === "web_kiosk") {
-    return "Webový kiosk";
-  }
-  if (normalized === "android") {
-    return "Android";
-  }
-  return normalized || "-";
-}
-
-function formatMesTerminalAppModeLabel(value) {
-  const normalized = String(value || "").trim().toLowerCase();
-  if (normalized === "hmi") {
-    return "HMI";
-  }
-  if (normalized === "overview") {
-    return "Prehľad";
-  }
-  if (normalized === "maintenance") {
-    return "Údržba";
-  }
-  if (normalized === "semi_automatic") {
-    return "Poloautomatický";
-  }
-  if (normalized === "automatic" || normalized === "full_automatic") {
-    return "Plne automatický";
-  }
-  return normalized || "-";
-}
-
-function formatMesAutomationModeLabel(value) {
-  const normalized = String(value || "").trim().toLowerCase();
-  if (normalized === "semi_automatic") {
-    return "Poloautomatický";
-  }
-  if (normalized === "full_automatic") {
-    return "Plne automatický";
-  }
-  return normalized || "-";
-}
-
-function buildMesTerminalCodeFromDeviceUid(value) {
-  const normalized = String(value || "")
-    .trim()
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "");
-  return normalized ? `UID-${normalized}` : "";
-}
-
-function sanitizeMesTerminalCode(value) {
-  return String(value || "")
-    .trim()
-    .toUpperCase()
-    .replace(/[^A-Z0-9_-]/g, "");
-}
-
-function isMesTerminalOnline(lastSeenAt) {
-  const lastSeenMs = Date.parse(String(lastSeenAt || ""));
-  return Number.isFinite(lastSeenMs) && Date.now() - lastSeenMs <= 5 * 60 * 1000;
-}
-
-function normalizeMesOperatorLookupValue(value) {
-  return String(value || "").trim().toLowerCase();
-}
-
-function buildMesOperatorKey(operatorUserId, operatorName) {
-  const normalizedUserId = String(operatorUserId || "").trim();
-  if (normalizedUserId) {
-    return `user:${normalizedUserId}`;
-  }
-  const normalizedName = normalizeMesOperatorLookupValue(operatorName);
-  if (normalizedName) {
-    return `name:${normalizedName}`;
-  }
-  return "";
-}
-
-function isMesLoginEvent(eventType) {
-  const normalized = String(eventType || "").trim().toLowerCase();
-  return ["ol", "login"].includes(normalized);
-}
-
-function isMesLogoutEvent(eventType) {
-  const normalized = String(eventType || "").trim().toLowerCase();
-  return ["oso", "logout"].includes(normalized);
-}
-
-function isMesAuthEvent(eventType) {
-  return isMesLoginEvent(eventType) || isMesLogoutEvent(eventType);
-}
-
-function getMesEventScopeKeys(row) {
-  return Array.from(
-    new Set([String(row?.machine_id || "").trim(), String(row?.workstation_id || "").trim(), String(row?.terminal_id || "").trim()].filter(Boolean))
-  );
-}
-
-function getMesEventOperatorLabel(row) {
-  return String(row?.operator_name || row?.operator_id || row?.operator_user_id || "").trim();
-}
-
-function buildMesEventIdentity(row) {
-  return String(
-    row?.terminal_event_id ||
-      row?.id ||
-      `${row?.terminal_id || ""}:${row?.machine_id || ""}:${row?.workstation_id || ""}:${row?.job_run_id || ""}:${row?.happened_at || row?.created_at || ""}:${row?.event_type || ""}`
-  );
-}
-
-function getMesStateTransitionFromEvent(eventType) {
-  const normalized = String(eventType || "").trim().toLowerCase();
-  if (["start", "resume", "good_count", "scrap_count", "os"].includes(normalized)) {
-    return "running";
-  }
-  if (["downtime_start", "pause", "stop", "ml"].includes(normalized)) {
-    return "stopped";
-  }
-  return "";
-}
-
-function getMesShiftWindow(nowValue = Date.now()) {
-  const now = new Date(nowValue);
-  const year = now.getFullYear();
-  const month = now.getMonth();
-  const day = now.getDate();
-  const hour = now.getHours();
-  const buildPoint = (dayOffset, hours) => new Date(year, month, day + dayOffset, hours, 0, 0, 0);
-
-  let shiftStart = null;
-  let shiftEnd = null;
-  let shiftLabel = "";
-
-  if (hour >= 6 && hour < 14) {
-    shiftStart = buildPoint(0, 6);
-    shiftEnd = buildPoint(0, 14);
-    shiftLabel = "06:00 - 14:00";
-  } else if (hour >= 14 && hour < 22) {
-    shiftStart = buildPoint(0, 14);
-    shiftEnd = buildPoint(0, 22);
-    shiftLabel = "14:00 - 22:00";
-  } else if (hour >= 22) {
-    shiftStart = buildPoint(0, 14);
-    shiftEnd = buildPoint(0, 22);
-    shiftLabel = "14:00 - 22:00";
-  } else {
-    shiftStart = buildPoint(-1, 14);
-    shiftEnd = buildPoint(-1, 22);
-    shiftLabel = "14:00 - 22:00";
-  }
-
-  const nowMs = now.getTime();
-  const shiftStartMs = shiftStart.getTime();
-  const shiftEndMs = shiftEnd.getTime();
-  const rangeEndMs = Math.max(shiftStartMs, Math.min(nowMs, shiftEndMs));
-  return {
-    shiftLabel,
-    shiftStartAt: shiftStart.toISOString(),
-    shiftEndAt: shiftEnd.toISOString(),
-    shiftStartMs,
-    shiftEndMs,
-    nowMs,
-    rangeEndMs,
-    isActive: nowMs >= shiftStartMs && nowMs < shiftEndMs
-  };
-}
-
-function getMesOeeRangeWindow(rangeKey, nowValue = Date.now()) {
-  const now = new Date(nowValue);
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  if (rangeKey === "yesterday") {
-    const start = new Date(startOfToday.getTime() - 24 * 60 * 60 * 1000);
-    const end = startOfToday;
-    return {
-      label: "Včera",
-      startAt: start.toISOString(),
-      endAt: end.toISOString(),
-      startMs: start.getTime(),
-      endMs: end.getTime(),
-      rangeEndMs: end.getTime(),
-      isActive: false
-    };
-  }
-  if (rangeKey === "last_5_days") {
-    const start = new Date(startOfToday.getTime() - 4 * 24 * 60 * 60 * 1000);
-    const end = now;
-    return {
-      label: "Posledných 5 dní",
-      startAt: start.toISOString(),
-      endAt: end.toISOString(),
-      startMs: start.getTime(),
-      endMs: end.getTime(),
-      rangeEndMs: end.getTime(),
-      isActive: true
-    };
-  }
-  const shiftWindow = getMesShiftWindow(nowValue);
-  return {
-    label: `Zmena ${shiftWindow.shiftLabel}`,
-    startAt: shiftWindow.shiftStartAt,
-    endAt: shiftWindow.shiftEndAt,
-    startMs: shiftWindow.shiftStartMs,
-    endMs: shiftWindow.shiftEndMs,
-    rangeEndMs: shiftWindow.rangeEndMs,
-    isActive: shiftWindow.isActive
-  };
-}
-
-function getMesDailyShiftWindow(shiftKey, nowValue = Date.now(), dayOffset = 0, rangeNowValue = nowValue) {
-  const baseNow = new Date(nowValue);
-  const now = new Date(baseNow);
-  if (Number.isFinite(dayOffset) && dayOffset !== 0) {
-    now.setDate(now.getDate() + Number(dayOffset));
-  }
-  const year = now.getFullYear();
-  const month = now.getMonth();
-  const day = now.getDate();
-  const startHour = shiftKey === "shift_14_22" ? 14 : 6;
-  const endHour = shiftKey === "shift_14_22" ? 22 : 14;
-  const start = new Date(year, month, day, startHour, 0, 0, 0);
-  const end = new Date(year, month, day, endHour, 0, 0, 0);
-  const startMs = start.getTime();
-  const endMs = end.getTime();
-  const nowMs = new Date(rangeNowValue).getTime();
-  const rangeEndMs = Math.max(startMs, Math.min(nowMs, endMs));
-  return {
-    key: shiftKey === "shift_14_22" ? "shift_14_22" : "shift_06_14",
-    label: shiftKey === "shift_14_22" ? "14:00 - 22:00" : "06:00 - 14:00",
-    dayLabel: start.toLocaleDateString("sk-SK", { day: "2-digit", month: "2-digit", year: "numeric" }),
-    startAt: start.toISOString(),
-    endAt: end.toISOString(),
-    startMs,
-    endMs,
-    rangeEndMs,
-    isActive: nowMs >= startMs && nowMs < endMs
-  };
-}
-
-const MES_MAX_DOWNTIME_DURATION_MS = 5 * 60 * 60 * 1000;
-
-function summarizeMesStateWindow(events, startAt, endAt, fallbackState = "running", options = {}) {
-  const startMs = new Date(startAt || 0).getTime();
-  const resolvedEndAt = endAt || new Date().toISOString();
-  const endMs = new Date(resolvedEndAt).getTime();
-  const maxStopSegmentMs =
-    Number.isFinite(options.maxStopSegmentMs) && options.maxStopSegmentMs > 0
-      ? options.maxStopSegmentMs
-      : MES_MAX_DOWNTIME_DURATION_MS;
-  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
-    return {
-      totalMs: 0,
-      runMs: 0,
-      stopMs: 0,
-      runPct: 0,
-      stopPct: 0
-    };
-  }
-
-  const orderedEvents = [...(events || [])]
-    .filter((row) => row?.happened_at)
-    .sort((a, b) => new Date(a.happened_at || 0).getTime() - new Date(b.happened_at || 0).getTime());
-
-  let currentState = fallbackState === "stopped" ? "stopped" : "running";
-  let cursorMs = startMs;
-  let runMs = 0;
-  let stopMs = 0;
-
-  orderedEvents.forEach((event) => {
-    const happenedMs = new Date(event.happened_at || 0).getTime();
-    if (!Number.isFinite(happenedMs)) {
-      return;
-    }
-    const nextState = getMesStateTransitionFromEvent(event.event_type);
-    if (!nextState) {
-      return;
-    }
-    if (happenedMs <= startMs) {
-      currentState = nextState;
-      return;
-    }
-    if (happenedMs >= endMs) {
-      return;
-    }
-    const segmentDurationMs = Math.max(0, happenedMs - cursorMs);
-    if (segmentDurationMs > 0) {
-      if (currentState === "running") {
-        runMs += segmentDurationMs;
-      } else if (segmentDurationMs <= maxStopSegmentMs) {
-        stopMs += segmentDurationMs;
-      }
-    }
-    cursorMs = happenedMs;
-    currentState = nextState;
-  });
-
-  const tailDurationMs = Math.max(0, endMs - cursorMs);
-  if (tailDurationMs > 0) {
-    if (currentState === "running") {
-      runMs += tailDurationMs;
-    } else if (tailDurationMs <= maxStopSegmentMs) {
-      stopMs += tailDurationMs;
-    }
-  }
-
-  const totalMs = Math.max(0, endMs - startMs);
-  return {
-    totalMs,
-    runMs,
-    stopMs,
-    runPct: safeRatioPercent(runMs, totalMs),
-    stopPct: safeRatioPercent(stopMs, totalMs)
-  };
-}
-
-function averageMesNumber(values) {
-  const samples = (values || []).filter((value) => Number.isFinite(value) && Number(value) > 0);
-  if (samples.length === 0) {
-    return null;
-  }
-  return samples.reduce((sum, value) => sum + Number(value), 0) / samples.length;
-}
-
-function getMesEventQuantity(row) {
-  const rawQuantity = Number(row?.quantity || row?.payload?.quantity || 0);
-  return Number.isFinite(rawQuantity) && rawQuantity > 0 ? rawQuantity : 1;
-}
-
-function sumMesEventQuantities(events, eventTypes = []) {
-  const allowedTypes = new Set((eventTypes || []).map((value) => String(value || "").trim().toLowerCase()).filter(Boolean));
-  return (events || []).reduce((sum, row) => {
-    const eventType = String(row?.event_type || "").trim().toLowerCase();
-    if (allowedTypes.size > 0 && !allowedTypes.has(eventType)) {
-      return sum;
-    }
-    return sum + getMesEventQuantity(row);
-  }, 0);
-}
-
-function getMesEventDurationMs(row) {
-  const explicitSeconds = Number(row?.duration_seconds || row?.payload?.duration_seconds || 0);
-  if (Number.isFinite(explicitSeconds) && explicitSeconds > 0) {
-    return Math.max(0, explicitSeconds * 1000);
-  }
-
-  const timeFromMs = new Date(row?.time_from || row?.payload?.time_from || 0).getTime();
-  const timeToMs = new Date(row?.time_to || row?.happened_at || row?.created_at || 0).getTime();
-  if (Number.isFinite(timeFromMs) && Number.isFinite(timeToMs) && timeToMs > timeFromMs) {
-    return Math.max(0, timeToMs - timeFromMs);
-  }
-
-  return 0;
-}
-
-function collectMesEventDurations(events, eventTypes = [], options = {}) {
-  const allowedTypes = new Set((eventTypes || []).map((value) => String(value || "").trim().toLowerCase()).filter(Boolean));
-  const startMs = options.startAt ? new Date(options.startAt).getTime() : Number.NEGATIVE_INFINITY;
-  const endMs = options.endAt ? new Date(options.endAt).getTime() : Number.POSITIVE_INFINITY;
-  const maxDurationMs = Number.isFinite(options.maxDurationMs) && options.maxDurationMs > 0 ? options.maxDurationMs : Number.POSITIVE_INFINITY;
-
-  return [...(events || [])]
-    .filter((row) => {
-      const eventType = String(row?.event_type || "").trim().toLowerCase();
-      return allowedTypes.size === 0 || allowedTypes.has(eventType);
-    })
-    .map((row) => {
-      const happenedMs = new Date(row?.happened_at || row?.created_at || 0).getTime();
-      return {
-        row,
-        happenedMs,
-        durationMs: getMesEventDurationMs(row)
-      };
-    })
-    .filter(({ happenedMs, durationMs }) => {
-      return (
-        Number.isFinite(happenedMs) &&
-        happenedMs >= startMs &&
-        happenedMs <= endMs &&
-        Number.isFinite(durationMs) &&
-        durationMs > 0 &&
-        durationMs <= maxDurationMs
-      );
-    });
-}
-
-function collectMesEventDeltaDurations(events, eventTypes = [], options = {}) {
-  const allowedTypes = new Set((eventTypes || []).map((value) => String(value || "").trim().toLowerCase()).filter(Boolean));
-  const startMs = options.startAt ? new Date(options.startAt).getTime() : Number.NEGATIVE_INFINITY;
-  const endMs = options.endAt ? new Date(options.endAt).getTime() : Number.POSITIVE_INFINITY;
-  const maxGapMs = Number.isFinite(options.maxGapMs) && options.maxGapMs > 0 ? options.maxGapMs : Number.POSITIVE_INFINITY;
-
-  const ordered = [...(events || [])]
-    .filter((row) => {
-      const eventType = String(row?.event_type || "").trim().toLowerCase();
-      return (allowedTypes.size === 0 || allowedTypes.has(eventType)) && row?.happened_at;
-    })
-    .sort((a, b) => new Date(a.happened_at || 0).getTime() - new Date(b.happened_at || 0).getTime());
-
-  const durations = [];
-  let previousMs = null;
-
-  ordered.forEach((row) => {
-    const happenedMs = new Date(row?.happened_at || row?.created_at || 0).getTime();
-    if (!Number.isFinite(happenedMs) || happenedMs < startMs || happenedMs > endMs) {
-      return;
-    }
-    if (previousMs !== null) {
-      const deltaMs = happenedMs - previousMs;
-      if (deltaMs > 0 && deltaMs <= maxGapMs) {
-        durations.push({
-          startMs: previousMs,
-          endMs: happenedMs,
-          durationMs: deltaMs
-        });
-      }
-    }
-    previousMs = happenedMs;
-  });
-
-  return durations;
-}
-
-function collectMesDowntimeDurations(events, options = {}) {
-  const {
-    openEventTypes = ["ml"],
-    closeEventTypes = ["start"],
-    startAt = "",
-    endAt = "",
-    maxDurationMs = Number.POSITIVE_INFINITY
-  } = options;
-  const startMs = startAt ? new Date(startAt).getTime() : Number.NEGATIVE_INFINITY;
-  const endMs = endAt ? new Date(endAt).getTime() : Number.POSITIVE_INFINITY;
-  const orderedEvents = [...(events || [])]
-    .filter((row) => row?.happened_at)
-    .sort((a, b) => new Date(a.happened_at || 0).getTime() - new Date(b.happened_at || 0).getTime());
-  const durations = [];
-  let activeStartMs = null;
-
-  orderedEvents.forEach((event) => {
-    const eventType = String(event?.event_type || "").trim().toLowerCase();
-    const happenedMs = new Date(event?.happened_at || 0).getTime();
-    if (!Number.isFinite(happenedMs)) {
-      return;
-    }
-    if (openEventTypes.includes(eventType)) {
-      activeStartMs = Math.max(happenedMs, startMs);
-      return;
-    }
-    if (!closeEventTypes.includes(eventType) || activeStartMs === null) {
-      return;
-    }
-    if (happenedMs < startMs) {
-      return;
-    }
-    const resolvedEndMs = Math.min(happenedMs, endMs);
-    if (resolvedEndMs > activeStartMs && resolvedEndMs - activeStartMs <= maxDurationMs) {
-      durations.push({
-        startMs: activeStartMs,
-        endMs: resolvedEndMs,
-        durationMs: Math.max(0, resolvedEndMs - activeStartMs)
-      });
-    }
-    activeStartMs = null;
-  });
-
-  return durations;
-}
-
-function isMissingMesDeviceUidColumnError(error) {
-  const message = String(error?.message || "").toLowerCase();
-  return (
-    message.includes("mes_hmi_terminals.device_uid") &&
-    (message.includes("does not exist") ||
-      message.includes("schema cache") ||
-      message.includes("could not find"))
-  );
-}
-
-function isMissingMesJobRunEventsColumnError(error) {
-  const message = String(error?.message || "").toLowerCase();
-  return (
-    message.includes("mes_job_run_events.") &&
-    (message.includes("does not exist") ||
-      message.includes("schema cache") ||
-      message.includes("could not find"))
-  );
-}
-
-function isMissingMesMachinesAutomationModeColumnError(error) {
-  const message = String(error?.message || "").toLowerCase();
-  return (
-    message.includes("mes_machines.automation_mode") &&
-    (message.includes("does not exist") ||
-      message.includes("schema cache") ||
-      message.includes("could not find"))
-  );
-}
-
-function isMissingMesMachinesSignalModeColumnError(error) {
-  const message = String(error?.message || "").toLowerCase();
-  return (
-    message.includes("mes_machines.signal_mode") &&
-    (message.includes("does not exist") ||
-      message.includes("schema cache") ||
-      message.includes("could not find"))
-  );
-}
-
-function isMissingMesEventLogTableError(error) {
-  const message = String(error?.message || "").toLowerCase();
-  return (
-    (message.includes("mes_event_log") || message.includes("mes_event_feed")) &&
-    (message.includes("does not exist") ||
-      message.includes("schema cache") ||
-      message.includes("could not find"))
-  );
-}
-
 function normalizeAttendanceProfileRow(row) {
   if (!row || typeof row !== "object") {
     return row;
@@ -5516,275 +4411,6 @@ function formatTimeOfDay(value) {
   });
 }
 
-function formatMesEventLabel(eventType) {
-  const value = String(eventType || "").toLowerCase();
-  if (value === "ol") return "Prihlásenie operátora";
-  if (value === "oso") return "Odhlásenie operátora";
-  if (value === "os") return "Načítanie zákazky";
-  if (value === "of") return "Ukončenie zákazky";
-  if (value === "ss") return "Odovzdanie zákazky";
-  if (value === "ml") return "Materiál / automatický prestoj";
-  if (value === "downtime_start") return "Začiatok prestoja";
-  if (value === "downtime_end") return "Koniec prestoja";
-  if (value === "pause") return "Pauza";
-  if (value === "resume") return "Pokračovanie";
-  if (value === "start") return "Štart výroby";
-  if (value === "stop") return "Stop";
-  if (value === "good_count") return "OK kusy";
-  if (value === "scrap_count") return "NOK kusy";
-  return value || "-";
-}
-
-function formatTimeOnly(value) {
-  if (!value) {
-    return "-";
-  }
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return "-";
-  }
-  return parsed.toLocaleTimeString("sk-SK", { hour: "2-digit", minute: "2-digit" });
-}
-
-function getMesViewRole({ isMaster, canManageOrders, canAccessMes }) {
-  if (isMaster) {
-    return "management";
-  }
-  if (canManageOrders) {
-    return "supervisor";
-  }
-  if (canAccessMes) {
-    return "operator";
-  }
-  return "viewer";
-}
-
-function getMesViewRoleLabel(role) {
-  if (role === "management") return "Manažment";
-  if (role === "supervisor") return "Supervízor";
-  if (role === "operator") return "Operátor";
-  return "Náhľad";
-}
-
-function getMesStatusMeta(status) {
-  const normalized = String(status || "").trim().toLowerCase();
-  if (["running", "run"].includes(normalized)) {
-    return { label: "V PREVÁDZKE", tone: "running" };
-  }
-  if (["setup"].includes(normalized)) {
-    return { label: "NASTAVENIE", tone: "setup" };
-  }
-  if (["alarm", "error", "down"].includes(normalized)) {
-    return { label: normalized === "down" ? "ZASTAVENÉ" : "ALARM", tone: "alarm" };
-  }
-  if (["stopped", "stop", "maintenance", "offline"].includes(normalized)) {
-    return { label: normalized === "maintenance" ? "ZASTAVENÉ" : normalized === "offline" ? "OFFLINE" : "ZASTAVENÉ", tone: "stopped" };
-  }
-  if (["paused"].includes(normalized)) {
-    return { label: "ČAKANIE", tone: "idle" };
-  }
-  return { label: "ČAKANIE", tone: "idle" };
-}
-
-function safeRatioPercent(numerator, denominator) {
-  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator <= 0) {
-    return 0;
-  }
-  return (numerator / denominator) * 100;
-}
-
-function clampPercent(value) {
-  if (!Number.isFinite(value)) {
-    return 0;
-  }
-  return Math.max(0, Math.min(100, value));
-}
-
-function formatEstimatedFinishTime(value) {
-  if (!value) {
-    return "-";
-  }
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return "-";
-  }
-  return parsed.toLocaleString("sk-SK", {
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit"
-  });
-}
-
-function buildSimplePolyline(series, valueKey, maxValue) {
-  if (!Array.isArray(series) || series.length === 0 || !Number.isFinite(maxValue) || maxValue <= 0) {
-    return "";
-  }
-  return series
-    .map((point, index) => {
-      const x = series.length === 1 ? 50 : (index / (series.length - 1)) * 100;
-      const y = 100 - (Math.max(0, Number(point?.[valueKey] || 0)) / maxValue) * 100;
-      return `${x},${Math.max(0, Math.min(100, y))}`;
-    })
-    .join(" ");
-}
-
-function padDatePart(value) {
-  return String(value).padStart(2, "0");
-}
-
-function makeMesLocalHourKey(value) {
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-  return `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}T${padDatePart(date.getHours())}`;
-}
-
-function makeMesLocalMinuteKey(value) {
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-  return `${makeMesLocalHourKey(date)}:${padDatePart(date.getMinutes())}`;
-}
-
-function makeMesLocalDayKey(value) {
-  return formatDateInputValue(value);
-}
-
-function getMesCurrentShiftWindow(nowTs = Date.now()) {
-  const now = new Date(nowTs);
-  const start = new Date(now);
-  start.setMinutes(0, 0, 0);
-
-  const hour = now.getHours();
-  if (hour >= 22) {
-    start.setHours(22, 0, 0, 0);
-  } else if (hour >= 14) {
-    start.setHours(14, 0, 0, 0);
-  } else if (hour >= 6) {
-    start.setHours(6, 0, 0, 0);
-  } else {
-    start.setDate(start.getDate() - 1);
-    start.setHours(22, 0, 0, 0);
-  }
-
-  const end = new Date(start);
-  end.setHours(end.getHours() + 8);
-  return { startAt: start, endAt: now < end ? now : end };
-}
-
-function getMesThroughputRangeWindow(rangeKey, customStartDate, customEndDate, shiftDateValue, nowTs = Date.now()) {
-  const now = new Date(nowTs);
-  const selectedRange = MES_THROUGHPUT_RANGE_OPTIONS.some((option) => option.key === rangeKey) ? rangeKey : "last_8_hours";
-
-  if (selectedRange === "last_30_minutes") {
-    const startAt = new Date(now.getTime() - 30 * 60 * 1000);
-    startAt.setSeconds(0, 0);
-    return { startAt, endAt: now, bucket: "minute", label: "posledných 30 min" };
-  }
-
-  if (selectedRange === "current_shift") {
-    const window = getMesCurrentShiftWindow(nowTs);
-    return { ...window, bucket: "hour", label: "aktuálna zmena" };
-  }
-
-  if (MES_THROUGHPUT_SHIFT_RANGE_KEYS.has(selectedRange)) {
-    const shiftDate = shiftDateValue ? new Date(`${shiftDateValue}T00:00:00`) : now;
-    const baseDate = Number.isNaN(shiftDate.getTime()) ? now : shiftDate;
-    const shiftWindow = getMesDailyShiftWindow(selectedRange, baseDate.getTime(), 0, nowTs);
-    return {
-      startAt: new Date(shiftWindow.startMs),
-      endAt: new Date(shiftWindow.rangeEndMs),
-      bucket: "hour",
-      label: `${selectedRange === "shift_14_22" ? "poobedná" : "ranná"} smena ${shiftWindow.dayLabel}`
-    };
-  }
-
-  if (selectedRange === "today") {
-    const startAt = new Date(now);
-    startAt.setHours(0, 0, 0, 0);
-    return { startAt, endAt: now, bucket: "hour", label: "dnes" };
-  }
-
-  if (selectedRange === "yesterday") {
-    const startAt = new Date(now);
-    startAt.setDate(startAt.getDate() - 1);
-    startAt.setHours(0, 0, 0, 0);
-    const endAt = new Date(startAt);
-    endAt.setHours(23, 59, 59, 999);
-    return { startAt, endAt, bucket: "hour", label: "včera" };
-  }
-
-  if (selectedRange === "last_7_days") {
-    const startAt = new Date(now);
-    startAt.setDate(startAt.getDate() - 6);
-    startAt.setHours(0, 0, 0, 0);
-    return { startAt, endAt: now, bucket: "day", label: "posledných 7 dní" };
-  }
-
-  if (selectedRange === "custom") {
-    const parsedStart = customStartDate ? new Date(`${customStartDate}T00:00:00`) : null;
-    const parsedEnd = customEndDate ? new Date(`${customEndDate}T23:59:59.999`) : null;
-    const startAt = parsedStart && !Number.isNaN(parsedStart.getTime()) ? parsedStart : new Date(now.getTime() - 7 * 60 * 60 * 1000);
-    let endAt = parsedEnd && !Number.isNaN(parsedEnd.getTime()) ? parsedEnd : now;
-    if (endAt < startAt) {
-      endAt = new Date(startAt);
-      endAt.setHours(23, 59, 59, 999);
-    }
-    const durationMs = endAt.getTime() - startAt.getTime();
-    return {
-      startAt,
-      endAt,
-      bucket: durationMs > 48 * 60 * 60 * 1000 ? "day" : "hour",
-      label: `${startAt.toLocaleDateString("sk-SK")} - ${endAt.toLocaleDateString("sk-SK")}`
-    };
-  }
-
-  const startAt = new Date(now);
-  startAt.setMinutes(0, 0, 0);
-  startAt.setHours(startAt.getHours() - 7);
-  return { startAt, endAt: now, bucket: "hour", label: "posledných 8 hodín" };
-}
-
-function buildMesThroughputSeries(rangeWindow) {
-  const startAt = new Date(rangeWindow?.startAt || Date.now());
-  const endAt = new Date(rangeWindow?.endAt || Date.now());
-  const bucket = ["minute", "day"].includes(rangeWindow?.bucket) ? rangeWindow.bucket : "hour";
-  const series = [];
-  const cursor = new Date(startAt);
-  if (bucket === "day") {
-    cursor.setHours(0, 0, 0, 0);
-  } else if (bucket === "minute") {
-    cursor.setSeconds(0, 0);
-  } else {
-    cursor.setMinutes(0, 0, 0);
-  }
-
-  while (cursor <= endAt && series.length < 96) {
-    series.push({
-      key: bucket === "day" ? makeMesLocalDayKey(cursor) : bucket === "minute" ? makeMesLocalMinuteKey(cursor) : makeMesLocalHourKey(cursor),
-      label:
-        bucket === "day"
-          ? cursor.toLocaleDateString("sk-SK", { day: "2-digit", month: "2-digit" })
-          : cursor.toLocaleTimeString("sk-SK", { hour: "2-digit", minute: "2-digit" }),
-      good: 0,
-      scrap: 0,
-      total: 0
-    });
-    if (bucket === "day") {
-      cursor.setDate(cursor.getDate() + 1);
-    } else if (bucket === "minute") {
-      cursor.setMinutes(cursor.getMinutes() + 1);
-    } else {
-      cursor.setHours(cursor.getHours() + 1);
-    }
-  }
-
-  return series;
-}
-
 function buildPriceListComputedRow(row) {
   const salePrice = Number(row?.unit_price || 0);
   const purchasePrice = Number(row?.purchase_price || 0);
@@ -5907,6 +4533,7 @@ function resolvePriceListImportColumn(headers, aliases) {
 async function readSpreadsheetRows(file) {
   const fileName = String(file?.name || "").toLowerCase();
   const buffer = await file.arrayBuffer();
+  const XLSX = await import("xlsx");
   const workbook = XLSX.read(buffer, {
     type: "array",
     raw: false,
@@ -6511,35 +5138,15 @@ function App() {
   const [mesMachines, setMesMachines] = useState([]);
   const [mesTerminals, setMesTerminals] = useState([]);
   const [selectedMesMachineId, setSelectedMesMachineId] = useState("");
-  const [isMesTerminalSectionVisible, setIsMesTerminalSectionVisible] = useState(false);
-  const [isMesTerminalFormVisible, setIsMesTerminalFormVisible] = useState(false);
-  const [editingMesTerminalId, setEditingMesTerminalId] = useState("");
-  const [mesTerminalNameInput, setMesTerminalNameInput] = useState("");
-  const [mesTerminalCodeInput, setMesTerminalCodeInput] = useState("");
-  const [mesTerminalDeviceUidInput, setMesTerminalDeviceUidInput] = useState("");
-  const [mesTerminalWorkstationIdInput, setMesTerminalWorkstationIdInput] = useState("");
-  const [mesMachineAutomationModeInput, setMesMachineAutomationModeInput] = useState("full_automatic");
-  const [mesTerminalPlatformInput, setMesTerminalPlatformInput] = useState("android");
-  const [mesTerminalAppModeInput, setMesTerminalAppModeInput] = useState("hmi");
-  const [mesTerminalActiveInput, setMesTerminalActiveInput] = useState(true);
-  const [mesTerminalSubmitting, setMesTerminalSubmitting] = useState(false);
-  const [mesTerminalDeletingId, setMesTerminalDeletingId] = useState("");
-  const [mesSupportsDeviceUid, setMesSupportsDeviceUid] = useState(false);
-  const [mesRenameWorkstationId, setMesRenameWorkstationId] = useState("");
-  const [mesRenameWorkstationNameInput, setMesRenameWorkstationNameInput] = useState("");
-  const [mesWorkstationSignalModeInput, setMesWorkstationSignalModeInput] = useState("no");
-  const [mesRenameWorkstationSubmitting, setMesRenameWorkstationSubmitting] = useState(false);
   const [mesLoading, setMesLoading] = useState(false);
   const [mesError, setMesError] = useState("");
-  const [isMesSettingsModalOpen, setIsMesSettingsModalOpen] = useState(false);
-  const [isMesMapEditMode, setIsMesMapEditMode] = useState(false);
-  const [mesDashboardTab, setMesDashboardTab] = useState("live");
   const [mesOperatorPresenceFilter, setMesOperatorPresenceFilter] = useState("all");
-  const [mesDashboardCustomization, setMesDashboardCustomization] = useState(() => ({ ...DEFAULT_MES_DASHBOARD_CUSTOMIZATION }));
   const [mesNowTs, setMesNowTs] = useState(() => Date.now());
   const [mesOeeRangeKey, setMesOeeRangeKey] = useState("current_shift");
   const [mesThroughputRangeKey, setMesThroughputRangeKey] = useState("last_8_hours");
+  const [mesThroughputEntityType, setMesThroughputEntityType] = useState("machine");
   const [mesThroughputMachineId, setMesThroughputMachineId] = useState("all");
+  const [mesThroughputOperatorKey, setMesThroughputOperatorKey] = useState("all");
   const [mesThroughputCustomStartDate, setMesThroughputCustomStartDate] = useState(() => formatDateInputValue(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)));
   const [mesThroughputCustomEndDate, setMesThroughputCustomEndDate] = useState(() => formatDateInputValue());
   const [mesThroughputShiftDate, setMesThroughputShiftDate] = useState(() => formatDateInputValue());
@@ -6551,7 +5158,6 @@ function App() {
   const latestLoadRowsRequestRef = useRef(0);
   const latestMesOverviewRequestRef = useRef(0);
   const lastDataRefreshAtRef = useRef({});
-  const mesDashboardCustomizationHydratedRef = useRef(false);
   const companyLookupRequestRef = useRef(0);
   const companyProfileLookupRequestRef = useRef(0);
   const priceListImportInputRef = useRef(null);
@@ -6677,21 +5283,6 @@ function App() {
     () => resolveCompanyBillingPricing(activeCompany || {}, pricingEstimate),
     [activeCompany, pricingEstimate]
   );
-  useEffect(() => {
-    if (editingCrmCompanyId) {
-      return;
-    }
-    setCrmCompanyCompanyIdInput(activeCompanyId || "");
-  }, [activeCompanyId, editingCrmCompanyId]);
-  useEffect(() => {
-    if (!isLoggedIn || !activeCompanyId || (!isMaster && !canManageOrders)) {
-      setCompanyInvites([]);
-      setCompanyInvitesLoading(false);
-      return;
-    }
-
-    loadCompanyInvites(activeCompanyId);
-  }, [isLoggedIn, activeCompanyId, isMaster, canManageOrders]);
   const canAccessMesModule =
     isMaster || (canAccessMes && Boolean(activeCompanyId || userCompanyId || activeCompany?.id));
   useEffect(() => {
@@ -6703,100 +5294,6 @@ function App() {
     }, 1000);
     return () => window.clearInterval(intervalId);
   }, [canAccessMesModule, selectedTable]);
-  useEffect(() => {
-    const remoteLayout = activeCompanyProfile?.mes_dashboard_layout;
-    const nextLayout = hasMesDashboardCustomizationValue(remoteLayout) ? remoteLayout : DEFAULT_MES_DASHBOARD_CUSTOMIZATION;
-    setMesDashboardCustomization(normalizeMesDashboardCustomization(nextLayout));
-    mesDashboardCustomizationHydratedRef.current = true;
-  }, [activeCompanyProfile?.mes_dashboard_layout]);
-  useEffect(() => {
-    if (!mesDashboardCustomizationHydratedRef.current || !authReady || !isLoggedIn || !activeCompanyId || !canAccessMesModule) {
-      return undefined;
-    }
-    if (serializeMesDashboardCustomization(activeCompanyProfile?.mes_dashboard_layout) === serializeMesDashboardCustomization(mesDashboardCustomization)) {
-      return undefined;
-    }
-    const persistTimerId = window.setTimeout(async () => {
-      const { data, error } = await supabase
-        .from("company_profiles")
-        .upsert(
-          {
-            company_id: activeCompanyId,
-            mes_dashboard_layout: normalizeMesDashboardCustomization(mesDashboardCustomization),
-            updated_at: new Date().toISOString(),
-            updated_by: authUser?.id || null
-          },
-          { onConflict: "company_id" }
-        )
-        .select("*");
-      if (error) {
-        if (isMissingMesDashboardLayoutColumnError(error)) {
-          return;
-        }
-        console.warn("MES dashboard layout save failed:", error.message || error);
-        return;
-      }
-      const savedRow = normalizeCompanyProfileRecord(Array.isArray(data) ? data[0] : data);
-      if (!savedRow?.company_id) {
-        return;
-      }
-      setCompanyProfiles((prev) => {
-        const next = prev.filter((profile) => profile.company_id !== savedRow.company_id);
-        return [...next, savedRow];
-      });
-    }, 450);
-    return () => window.clearTimeout(persistTimerId);
-  }, [
-    mesDashboardCustomization,
-    activeCompanyProfile?.mes_dashboard_layout,
-    authReady,
-    isLoggedIn,
-    activeCompanyId,
-    canAccessMesModule,
-    authUser?.id
-  ]);
-  useEffect(() => {
-    if (!isMesSettingsModalOpen) {
-      return undefined;
-    }
-    const handleKeyDown = (event) => {
-      if (event.key === "Escape") {
-        setIsMesSettingsModalOpen(false);
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isMesSettingsModalOpen]);
-  useEffect(() => {
-    if (!isMesSettingsModalOpen || mesWorkstations.length === 0) {
-      return;
-    }
-    const current = mesWorkstations.find((row) => row.id === mesRenameWorkstationId) || mesWorkstations[0];
-    if (!current) {
-      return;
-    }
-    if (current.id !== mesRenameWorkstationId) {
-      const machine = mesMachines.find((row) => String(row.workstation_id || "") === String(current.id || "")) || null;
-      setMesRenameWorkstationId(current.id);
-      setMesRenameWorkstationNameInput(current.name || current.code || "");
-      setMesWorkstationSignalModeInput(normalizeMesSignalModeValue(machine?.signal_mode));
-    }
-  }, [isMesSettingsModalOpen, mesWorkstations, mesMachines, mesRenameWorkstationId]);
-  useEffect(() => {
-    if (!isProductionModule(selectedTable) && isMesSettingsModalOpen) {
-      setIsMesSettingsModalOpen(false);
-    }
-  }, [selectedTable, isMesSettingsModalOpen]);
-  useEffect(() => {
-    if (!isProductionModule(selectedTable) && isMesMapEditMode) {
-      setIsMesMapEditMode(false);
-    }
-  }, [selectedTable, isMesMapEditMode]);
-  useEffect(() => {
-    if (mesDashboardTab !== "map" && isMesMapEditMode) {
-      setIsMesMapEditMode(false);
-    }
-  }, [mesDashboardTab, isMesMapEditMode]);
   const visibleTableNames = useMemo(() => {
     if (isMaster) {
       return Array.from(
@@ -11375,7 +9872,6 @@ function App() {
       setMesWorkstations([]);
       setMesMachines([]);
       setMesTerminals([]);
-      setMesSupportsDeviceUid(false);
       setMesLoading(false);
       setMesError("");
       return;
@@ -11390,6 +9886,26 @@ function App() {
 
     try {
       const MES_QUERY_PAGE_SIZE = 1000;
+      const nowTs = Date.now();
+      const throughputWindow = getMesThroughputRangeWindow(
+        mesThroughputRangeKey,
+        mesThroughputCustomStartDate,
+        mesThroughputCustomEndDate,
+        mesThroughputShiftDate,
+        nowTs
+      );
+      const oeeWindow = getMesOeeRangeWindow(mesOeeRangeKey, nowTs);
+      const hourlyDowntimeWindow = getMesDailyShiftWindow(mesHourlyDowntimeShiftKey, nowTs, mesHourlyDowntimeDayOffset, nowTs);
+      const requiredMesLookbackDays = Math.min(
+        MES_ANALYTICS_LOOKBACK_DAYS,
+        Math.max(
+          MES_BASE_LOOKBACK_DAYS,
+          getMesInclusiveLookbackDays(throughputWindow.startAt, nowTs),
+          getMesInclusiveLookbackDays(oeeWindow.startAt, nowTs),
+          getMesInclusiveLookbackDays(hourlyDowntimeWindow.startAt, nowTs)
+        )
+      );
+      const mesLookbackStartAt = new Date(nowTs - requiredMesLookbackDays * DAY_MS).toISOString();
       const fetchAllMesJobRuns = async () => {
         const rows = [];
         let from = 0;
@@ -11404,6 +9920,7 @@ function App() {
                 .from("mes_job_runs")
                 .select("id,company_id,workstation_id,machine_id,terminal_id,operator_user_id,job_number,item_code,item_name,operator_name,status,planned_quantity,good_quantity,scrap_quantity,started_at,ended_at,created_at,updated_at,note");
           const { data: pageData, error: pageError } = await scopedQuery
+            .or(`status.in.(running,paused,queued,planned),created_at.gte.${mesLookbackStartAt},updated_at.gte.${mesLookbackStartAt},started_at.gte.${mesLookbackStartAt},ended_at.gte.${mesLookbackStartAt}`)
             .order("created_at", { ascending: false })
             .range(from, from + MES_QUERY_PAGE_SIZE - 1);
 
@@ -11434,6 +9951,7 @@ function App() {
                 .from("mes_event_log")
                 .select("id,company_id,terminal_id,workstation_id,job_run_id,terminal_event_id,event_code,job_number,duration_seconds,time_from,time_to,operator_id,downtime_reason_code,downtime_reason_name,payload,created_at");
           const { data: pageData, error: pageError } = await scopedQuery
+            .gte("created_at", mesLookbackStartAt)
             .order("created_at", { ascending: false })
             .range(from, from + MES_QUERY_PAGE_SIZE - 1);
 
@@ -11463,6 +9981,7 @@ function App() {
             const { data: pageData, error: pageError } = await supabase
               .from("mes_job_run_events")
               .select("id,job_run_id,workstation_id,machine_id,downtime_reason_id,event_type,quantity,source,note,payload,happened_at,created_at")
+              .gte("happened_at", mesLookbackStartAt)
               .order("happened_at", { ascending: false })
               .range(from, from + MES_QUERY_PAGE_SIZE - 1);
 
@@ -11489,6 +10008,7 @@ function App() {
               .from("mes_job_run_events")
               .select("id,job_run_id,workstation_id,machine_id,downtime_reason_id,event_type,quantity,source,note,payload,happened_at,created_at")
               .in("job_run_id", idChunk)
+              .gte("happened_at", mesLookbackStartAt)
               .order("happened_at", { ascending: false })
               .range(from, from + MES_QUERY_PAGE_SIZE - 1);
 
@@ -11554,7 +10074,6 @@ function App() {
       if (terminalsError) {
         throw terminalsError;
       }
-      setMesSupportsDeviceUid(false);
       const workstationIds = (workstationData || []).map((row) => row.id).filter(Boolean);
       let machineData = [];
       if (workstationIds.length > 0) {
@@ -11738,280 +10257,6 @@ function App() {
       if (latestMesOverviewRequestRef.current === requestId) {
         setMesLoading(false);
       }
-    }
-  };
-
-  const resetMesTerminalForm = () => {
-    setEditingMesTerminalId("");
-    setMesTerminalNameInput("");
-    setMesTerminalCodeInput("");
-    setMesTerminalDeviceUidInput("");
-    setMesTerminalWorkstationIdInput("");
-    setMesMachineAutomationModeInput("full_automatic");
-    setMesTerminalPlatformInput("android");
-    setMesTerminalAppModeInput("hmi");
-    setMesTerminalActiveInput(true);
-    setIsMesTerminalFormVisible(false);
-  };
-
-  const handleEditMesTerminal = (terminal) => {
-    const workstationId = String(terminal?.workstation_id || "");
-    const workstationMachine = mesMachines.find((row) => String(row.workstation_id || "") === workstationId) || null;
-    const terminalAppMode = String(terminal?.app_mode || "").trim().toLowerCase();
-    const editableTerminalAppMode = ["hmi", "overview", "maintenance"].includes(terminalAppMode) ? terminalAppMode : "hmi";
-    setEditingMesTerminalId(String(terminal?.id || ""));
-    setMesTerminalNameInput(String(terminal?.name || ""));
-    setMesTerminalCodeInput(String(terminal?.terminal_code || ""));
-    setMesTerminalDeviceUidInput(String(terminal?.device_uid || ""));
-    setMesTerminalWorkstationIdInput(workstationId);
-    setMesMachineAutomationModeInput(String(workstationMachine?.automation_mode || "full_automatic"));
-    setMesTerminalPlatformInput(String(terminal?.platform || "android").trim().toLowerCase() || "android");
-    setMesTerminalAppModeInput(editableTerminalAppMode);
-    setMesTerminalActiveInput(Boolean(terminal?.is_active));
-    setIsMesTerminalFormVisible(true);
-    setMesError("");
-  };
-
-  const handleSaveMesTerminal = async (event) => {
-    event.preventDefault();
-
-    const companyId = activeCompanyId || userCompanyId || "";
-    const name = String(mesTerminalNameInput || "").trim();
-    const manualTerminalCode = sanitizeMesTerminalCode(mesTerminalCodeInput);
-    const deviceUid = String(mesTerminalDeviceUidInput || "")
-      .trim()
-      .toUpperCase()
-      .replace(/[^A-Z0-9]/g, "");
-    const terminalCode = mesSupportsDeviceUid ? buildMesTerminalCodeFromDeviceUid(deviceUid) : manualTerminalCode;
-
-    if (!companyId) {
-      setMesError("Vyber firmu, ku ktorej sa má HMI terminál registrovať.");
-      return;
-    }
-    if (!name) {
-      setMesError("Zadaj názov MES terminálu.");
-      return;
-    }
-    if (mesSupportsDeviceUid) {
-      if (!deviceUid) {
-        setMesError("Zadaj UID zariadenia.");
-        return;
-      }
-      if (deviceUid.length !== 10) {
-        setMesError("UID zariadenia musí mať presne 10 znakov.");
-        return;
-      }
-    } else if (!manualTerminalCode) {
-      setMesError("Zadaj kód MES terminálu.");
-      return;
-    }
-
-    setMesTerminalSubmitting(true);
-    setMesError("");
-
-    try {
-      let workstationId = String(mesTerminalWorkstationIdInput || "").trim();
-      const existingWorkstation = workstationId ? mesWorkstationsById[workstationId] || null : null;
-
-      if (!workstationId) {
-        const workstationCode = terminalCode || sanitizeMesTerminalCode(name) || `MES-${Date.now().toString(36).toUpperCase()}`;
-        const matchedWorkstation =
-          mesWorkstations.find(
-            (row) =>
-              String(row.company_id || "") === String(companyId || "") &&
-              String(row.code || "").trim().toUpperCase() === workstationCode
-          ) || null;
-
-        if (matchedWorkstation?.id) {
-          workstationId = matchedWorkstation.id;
-        } else {
-          const { data: workstationRow, error: workstationError } = await supabase
-            .from("mes_workstations")
-            .insert([
-              {
-                company_id: companyId,
-                code: workstationCode,
-                name,
-                area: "",
-                hmi_enabled: true,
-                is_active: true,
-                created_by: authUser?.id || null,
-                updated_by: authUser?.id || null
-              }
-            ])
-            .select("id")
-            .single();
-
-          if (workstationError) {
-            throw workstationError;
-          }
-
-          workstationId = workstationRow?.id || "";
-
-          if (workstationId) {
-            const machinePayload = {
-              workstation_id: workstationId,
-              code: workstationCode,
-              name,
-              machine_state: "offline",
-              automation_mode: "full_automatic",
-              signal_mode: "no",
-              is_active: true,
-              created_by: authUser?.id || null,
-              updated_by: authUser?.id || null
-            };
-            let { error: machineError } = await supabase.from("mes_machines").insert([machinePayload]);
-            if (machineError && isMissingMesMachinesSignalModeColumnError(machineError)) {
-              const { signal_mode, ...fallbackMachinePayload } = machinePayload;
-              ({ error: machineError } = await supabase.from("mes_machines").insert([fallbackMachinePayload]));
-            }
-            if (machineError) {
-              throw machineError;
-            }
-          }
-        }
-      } else if (existingWorkstation?.id) {
-        const { error: workstationNameError } = await supabase
-          .from("mes_workstations")
-          .update({
-            name,
-            updated_by: authUser?.id || null,
-            updated_at: new Date().toISOString()
-          })
-          .eq("id", workstationId)
-          .eq("company_id", existingWorkstation.company_id || companyId);
-
-        if (workstationNameError) {
-          throw workstationNameError;
-        }
-      }
-
-      const payload = {
-        company_id: companyId,
-        workstation_id: workstationId || null,
-        terminal_code: terminalCode,
-        ...(mesSupportsDeviceUid ? { device_uid: deviceUid || null } : {}),
-        name,
-        platform: String(mesTerminalPlatformInput || "android").trim().toLowerCase() || "android",
-        app_mode: String(mesTerminalAppModeInput || "hmi").trim().toLowerCase() || "hmi",
-        is_active: Boolean(mesTerminalActiveInput),
-        updated_by: authUser?.id || null
-      };
-
-      if (editingMesTerminalId) {
-        const { error } = await supabase.from("mes_hmi_terminals").update(payload).eq("id", editingMesTerminalId);
-        if (error) {
-          throw error;
-        }
-      } else {
-        const { error } = await supabase.from("mes_hmi_terminals").insert([
-          {
-            ...payload,
-            created_by: authUser?.id || null
-          }
-        ]);
-        if (error) {
-          throw error;
-        }
-      }
-
-      await loadMesModuleData();
-      resetMesTerminalForm();
-    } catch (saveMesTerminalError) {
-      setMesError(saveMesTerminalError?.message || "MES terminál sa nepodarilo uložiť.");
-    } finally {
-      setMesTerminalSubmitting(false);
-    }
-  };
-
-  const handleDeleteMesTerminal = async (terminal) => {
-    if (!terminal?.id) {
-      return;
-    }
-    if (!window.confirm(`Zmazať MES terminál "${terminal.name}"?`)) {
-      return;
-    }
-
-    setMesTerminalDeletingId(String(terminal.id));
-    setMesError("");
-    try {
-      const { error } = await supabase.from("mes_hmi_terminals").delete().eq("id", terminal.id);
-      if (error) {
-        throw error;
-      }
-      if (editingMesTerminalId === terminal.id) {
-        resetMesTerminalForm();
-      }
-      await loadMesModuleData();
-    } catch (deleteMesTerminalError) {
-      setMesError(deleteMesTerminalError?.message || "MES terminál sa nepodarilo zmazať.");
-    } finally {
-      setMesTerminalDeletingId("");
-    }
-  };
-
-  const handleRenameMesWorkstation = async (event) => {
-    event.preventDefault();
-
-    const workstationId = String(mesRenameWorkstationId || "").trim();
-    const nextName = String(mesRenameWorkstationNameInput || "").trim();
-    const workstation = mesWorkstationsById[workstationId] || null;
-    const machine = mesMachines.find((row) => String(row.workstation_id || "") === workstationId) || null;
-    const signalMode = normalizeMesSignalModeValue(mesWorkstationSignalModeInput);
-
-    if (!workstationId || !workstation) {
-      setMesError("Vyber pracovisko.");
-      return;
-    }
-    if (!nextName) {
-      setMesError("Zadaj nový názov pracoviska.");
-      return;
-    }
-
-    setMesRenameWorkstationSubmitting(true);
-    setMesError("");
-
-    try {
-      const { error } = await supabase
-        .from("mes_workstations")
-        .update({
-          name: nextName,
-          updated_by: authUser?.id || null,
-          updated_at: new Date().toISOString()
-        })
-        .eq("id", workstationId)
-        .eq("company_id", workstation.company_id || activeCompanyId || userCompanyId);
-
-      if (error) {
-        throw error;
-      }
-
-      if (machine?.id) {
-        const { error: machineError } = await supabase
-          .from("mes_machines")
-          .update({
-            signal_mode: signalMode,
-            updated_by: authUser?.id || null,
-            updated_at: new Date().toISOString()
-          })
-          .eq("id", machine.id);
-
-        if (machineError) {
-          throw machineError;
-        }
-      }
-
-      setMesWorkstations((current) =>
-        current.map((row) => (row.id === workstationId ? { ...row, name: nextName, updated_by: authUser?.id || null } : row))
-      );
-      setMesMachines((current) =>
-        current.map((row) => (row.id === machine?.id ? { ...row, signal_mode: signalMode, updated_by: authUser?.id || null } : row))
-      );
-      await loadMesModuleData();
-    } catch (renameWorkstationError) {
-      setMesError(renameWorkstationError?.message || "Nastavenia pracoviska sa nepodarilo uložiť.");
-    } finally {
-      setMesRenameWorkstationSubmitting(false);
     }
   };
 
@@ -14686,7 +12931,7 @@ function App() {
       }
       supabase.removeChannel(channel);
     };
-  }, [selectedTable, isLoggedIn, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id, occupancyChartRange, effectiveMaxPositions, activeCompany?.tracks_expiry_date, canAccessOrdersModule, canAccessAttendanceModule, canAccessMesModule]);
+  }, [selectedTable, isLoggedIn, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id, occupancyChartRange, effectiveMaxPositions, activeCompany?.tracks_expiry_date, canAccessOrdersModule, canAccessAttendanceModule, canAccessMesModule, mesOeeRangeKey, mesThroughputRangeKey, mesThroughputCustomStartDate, mesThroughputCustomEndDate, mesThroughputShiftDate, mesHourlyDowntimeShiftKey, mesHourlyDowntimeDayOffset]);
 
   useEffect(() => {
     if (!authReady || !isLoggedIn) {
@@ -14751,7 +12996,7 @@ function App() {
       window.removeEventListener("focus", handleWindowFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [isLoggedIn, selectedTable, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id, occupancyChartRange, effectiveMaxPositions, activeCompany?.tracks_expiry_date, canAccessOrdersModule, canAccessAttendanceModule, canAccessMesModule]);
+  }, [isLoggedIn, selectedTable, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id, occupancyChartRange, effectiveMaxPositions, activeCompany?.tracks_expiry_date, canAccessOrdersModule, canAccessAttendanceModule, canAccessMesModule, mesOeeRangeKey, mesThroughputRangeKey, mesThroughputCustomStartDate, mesThroughputCustomEndDate, mesThroughputShiftDate, mesHourlyDowntimeShiftKey, mesHourlyDowntimeDayOffset]);
 
   useEffect(() => {
     if (!authReady || !isLoggedIn) {
@@ -16992,6 +15237,33 @@ function App() {
       averageRunPct
     };
   }, [mesOperatorRows]);
+  const mesThroughputOperatorOptions = useMemo(() => {
+    const optionsByKey = new Map();
+    const upsertOperator = (operatorUserId, operatorName) => {
+      const key = buildMesOperatorKey(operatorUserId, operatorName);
+      if (!key) {
+        return;
+      }
+      const existing = optionsByKey.get(key) || {};
+      optionsByKey.set(key, {
+        key,
+        operatorUserId: String(operatorUserId || existing.operatorUserId || "").trim(),
+        operatorName: String(operatorName || existing.operatorName || operatorUserId || "").trim()
+      });
+    };
+    mesRecentEventRows.forEach((row) => {
+      upsertOperator(row.operator_user_id || row.operator_id, getMesEventOperatorLabel(row));
+    });
+    mesRecentJobRuns.forEach((row) => {
+      upsertOperator(row.operator_user_id, row.operator_name);
+    });
+    mesOperatorRows.forEach((row) => {
+      upsertOperator(row.operatorUserId, row.operatorName);
+    });
+    return Array.from(optionsByKey.values())
+      .filter((row) => row.operatorName || row.operatorUserId)
+      .sort((a, b) => String(a.operatorName || a.operatorUserId).localeCompare(String(b.operatorName || b.operatorUserId), "sk-SK", { sensitivity: "base" }));
+  }, [mesRecentEventRows, mesRecentJobRuns, mesOperatorRows]);
   const mesActiveOperatorLookup = useMemo(() => {
     const byProfileId = {};
     const byLinkedUserId = {};
@@ -17424,9 +15696,13 @@ function App() {
           ? makeMesLocalMinuteKey(value)
           : makeMesLocalHourKey(value);
     const selectedMachine =
-      mesThroughputMachineId === "all"
+      mesThroughputEntityType !== "machine" || mesThroughputMachineId === "all"
         ? null
         : machineDashboardRows.find((row) => String(row.machineId || "") === String(mesThroughputMachineId || "")) || null;
+    const selectedOperator =
+      mesThroughputEntityType !== "operator" || mesThroughputOperatorKey === "all"
+        ? null
+        : mesThroughputOperatorOptions.find((row) => row.key === mesThroughputOperatorKey) || null;
     const matchesSelectedMachine = (row) => {
       if (!selectedMachine) {
         return true;
@@ -17440,6 +15716,18 @@ function App() {
         (terminalId && terminalId === String(selectedMachine.terminalId || "").trim())
       );
     };
+    const matchesSelectedOperator = (row) => {
+      if (!selectedOperator) {
+        return true;
+      }
+      const operatorUserId = String(row?.operator_user_id || row?.operator_id || "").trim();
+      const operatorName = getMesEventOperatorLabel(row) || String(row?.operator_name || "").trim();
+      return (
+        (operatorUserId && operatorUserId === selectedOperator.operatorUserId) ||
+        buildMesOperatorKey(operatorUserId, operatorName) === selectedOperator.key ||
+        (operatorName && normalizeMesOperatorLookupValue(operatorName) === normalizeMesOperatorLookupValue(selectedOperator.operatorName))
+      );
+    };
     let hasEventCounts = false;
     mesRecentEventRows.forEach((row) => {
       const eventType = String(row.event_type || "").toLowerCase();
@@ -17447,6 +15735,9 @@ function App() {
         return;
       }
       if (!matchesSelectedMachine(row)) {
+        return;
+      }
+      if (!matchesSelectedOperator(row)) {
         return;
       }
       const happenedAt = new Date(row.happened_at || row.created_at || 0);
@@ -17470,6 +15761,9 @@ function App() {
     if (!hasEventCounts) {
       mesRecentJobRuns.forEach((row) => {
         if (!matchesSelectedMachine(row)) {
+          return;
+        }
+        if (!matchesSelectedOperator(row)) {
           return;
         }
         const totalProduced = Number(row.good_quantity || 0) + Number(row.scrap_quantity || 0);
@@ -17505,7 +15799,7 @@ function App() {
       hourlyPolyline: buildSimplePolyline(series, "total", maxValue),
       dailyPolyline: buildSimplePolyline(series, "total", maxValue)
     };
-  }, [mesRecentJobRuns, mesRecentEventRows, mesThroughputRangeKey, mesThroughputMachineId, mesThroughputCustomStartDate, mesThroughputCustomEndDate, mesThroughputShiftDate, mesNowTs, machineDashboardRows]);
+  }, [mesRecentJobRuns, mesRecentEventRows, mesThroughputRangeKey, mesThroughputEntityType, mesThroughputMachineId, mesThroughputOperatorKey, mesThroughputCustomStartDate, mesThroughputCustomEndDate, mesThroughputShiftDate, mesNowTs, machineDashboardRows, mesThroughputOperatorOptions]);
   const mesQualitySummary = useMemo(() => {
     const defectTypeMap = new Map();
     let goodParts = 0;
@@ -17783,11 +16077,12 @@ function App() {
       averageOperatorRunPct: mesOperatorSummary.averageRunPct
     };
   }, [machineDashboardRows, mesProductionOrderRows.length, mesQualitySummary.goodParts, mesQualitySummary.scrapParts, mesOperatorSummary, mesTerminals]);
-  const handleExportSelectedMesMachineEvents = () => {
+  const handleExportSelectedMesMachineEvents = async () => {
     if (!selectedMesMachineOverview || selectedMesMachineEvents.length === 0) {
       return;
     }
 
+    const XLSX = await import("xlsx");
     const exportRows = selectedMesMachineEvents
       .filter((event) => Number(event.duration_seconds || 0) <= 1000)
       .map((event) => {
@@ -17825,7 +16120,8 @@ function App() {
     const dateStamp = new Date().toISOString().slice(0, 10);
     XLSX.writeFile(workbook, `mes-udalosti-${machineSlug}-${dateStamp}.xlsx`);
   };
-  const handleExportMesDashboardExcel = () => {
+  const handleExportMesDashboardExcel = async () => {
+    const XLSX = await import("xlsx");
     const workbook = XLSX.utils.book_new();
     const generatedAt = new Date().toISOString();
     const dateStamp = generatedAt.slice(0, 10);
@@ -18243,6 +16539,12 @@ function App() {
       setMesThroughputMachineId("all");
     }
   }, [mesMachineOptions, selectedMesMachineId, mesThroughputMachineId]);
+
+  useEffect(() => {
+    if (mesThroughputOperatorKey !== "all" && !mesThroughputOperatorOptions.some((option) => option.key === mesThroughputOperatorKey)) {
+      setMesThroughputOperatorKey("all");
+    }
+  }, [mesThroughputOperatorOptions, mesThroughputOperatorKey]);
 
   useEffect(() => {
   }, [selectedMesMachineId]);
@@ -19921,1957 +18223,328 @@ function App() {
   }
 
   const renderMesDashboard = () => {
-    const mesOnlineTerminalsCount = mesTerminals.filter((terminal) => isMesTerminalOnline(terminal.last_seen_at)).length;
-    const mesAssignedTerminalsCount = mesTerminals.filter((terminal) => terminal.workstation_id).length;
-    const mesRegistrationModeLabel = mesSupportsDeviceUid ? "Registrácia podľa UID" : "Registrácia podľa terminal_code";
-    const mesRegistrationModeMeta = mesSupportsDeviceUid
-      ? "Terminál sa páruje podľa 10-znakového device UID a interný kód sa vytvorí automaticky."
-      : "Aktuálny MES bundle páruje terminál podľa terminal_code. Ten istý kód potom posiela aj MES point.";
-    const mesTerminalIdentifierPreview = mesSupportsDeviceUid
-      ? buildMesTerminalCodeFromDeviceUid(mesTerminalDeviceUidInput)
-      : sanitizeMesTerminalCode(mesTerminalCodeInput);
-    const mesTerminalConfiguredMachine =
-      mesMachines.find((row) => String(row.workstation_id || "") === String(mesTerminalWorkstationIdInput || "")) || null;
-    const selectedMachineWorkstationId = String(selectedMesMachineOverview?.workstationId || "");
-    const selectedMachineTerminalId = String(
-      selectedMesMachineOverview?.terminalId ||
-        currentMesMachineRun?.terminal_id ||
-        selectedMesMachineEvents.find((row) => String(row.terminal_id || "").trim())?.terminal_id ||
-        ""
-    ).trim();
-    const selectedMachineOverviewOperatorNameKey = normalizeMesOperatorLookupValue(selectedMesMachineOverview?.operatorName || "");
-    const selectedMachineOperator =
-      mesOperatorRows.find(
-        (row) =>
-          (row.machineIds.includes(selectedMesMachineId) ||
-            row.workstationIds.includes(selectedMachineWorkstationId) ||
-            (selectedMachineTerminalId && String(row.terminalId || "").trim() === selectedMachineTerminalId)) &&
-          (!selectedMachineOverviewOperatorNameKey ||
-            normalizeMesOperatorLookupValue(row.operatorName) === selectedMachineOverviewOperatorNameKey)
-      ) ||
-      mesOperatorRows.find(
-        (row) =>
-          row.machineIds.includes(selectedMesMachineId) ||
-          row.workstationIds.includes(selectedMachineWorkstationId) ||
-          (selectedMachineTerminalId && String(row.terminalId || "").trim() === selectedMachineTerminalId)
-      ) ||
-      null;
-    const selectedMachineLatestAuthEvent =
-      mesLatestAuthEventByMachineKey[selectedMesMachineId] ||
-      mesLatestAuthEventByMachineKey[selectedMachineWorkstationId] ||
-      mesLatestAuthEventByTerminalId[selectedMachineTerminalId] ||
-      null;
-    const selectedMachineAuthOperatorName =
-      selectedMachineLatestAuthEvent && ["ol", "login"].includes(String(selectedMachineLatestAuthEvent.event_type || "").toLowerCase())
-        ? String(
-            selectedMachineLatestAuthEvent.operator_name ||
-              selectedMachineLatestAuthEvent.operator_user_id ||
-              selectedMachineLatestAuthEvent.operator_id ||
-              ""
-          ).trim()
-        : "";
-    const selectedMachineLatestEventOperatorName =
-      selectedMesMachineEvents
-        .map((row) => String(row.operator_name || row.operator_id || row.operator_user_id || "").trim())
-        .find(Boolean) || "";
-    const openMesEmployee = (operatorName) => {
-      if (!canAccessAttendanceModule || !String(operatorName || "").trim()) {
-        return;
-      }
-      setAttendanceProfileSearch(String(operatorName || "").trim());
-      setSelectedTable(ROLE_TABLE);
-    };
-    const mesKpiCatalog = [
-      {
-        key: "running",
-        label: "Stroje v prevádzke",
-        value: new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.running),
-        meta: "Aktívne vyrábajú"
-      },
-      {
-        key: "stopped",
-        label: "Zastavené stroje",
-        value: new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.stopped + mesGlobalKpis.alarm),
-        meta: "Stop alebo alarm"
-      },
-      {
-        key: "activeOrders",
-        label: "Aktívne zákazky",
-        value: new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.activeOrders),
-        meta: "Bežiace job runy"
-      },
-      {
-        key: "productionRate",
-        label: "Rýchlosť výroby",
-        value: `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(mesGlobalKpis.productionRate)} ks/h`,
-        meta: "Súčet aktuálneho výkonu"
-      },
-      {
-        key: "goodParts",
-        label: "OK kusy",
-        value: new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.goodParts),
-        meta: "Doteraz vyrobené"
-      },
-      {
-        key: "scrapParts",
-        label: "NOK kusy",
-        value: new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.scrapParts),
-        meta: "Zmetky"
-      },
-      {
-        key: "onlineTerminals",
-        label: "Online terminály",
-        value: new Intl.NumberFormat("sk-SK").format(mesOnlineTerminalsCount),
-        meta: "HMI online v posledných 5 minútach"
-      },
-      {
-        key: "oee",
-        label: "OEE",
-        value: formatPercentValue(mesOeeSummary.oeePct),
-        meta: `Aktuálne obdobie: ${mesOeeSummary.rangeLabel}`
-      },
-      {
-        key: "rejectRate",
-        label: "Zmetkovitosť",
-        value: formatPercentValue(mesQualitySummary.rejectRatePct),
-        meta: "Podiel NOK kusov"
-      },
-      {
-        key: "activeOperators",
-        label: "Aktívni operátori",
-        value: `${new Intl.NumberFormat("sk-SK").format(mesOperatorSummary.activeOperators)} / ${new Intl.NumberFormat("sk-SK").format(mesOperatorSummary.totalOperators)}`,
-        meta: "Aktívni vs. všetci operátori v MES"
-      }
-    ];
-    const mesPrimaryKpis = mesKpiCatalog.filter((item) => mesDashboardCustomization.visibleKpis.includes(item.key));
-    const selectedMachineLabel = selectedMesMachineOverview?.machineName || "Nezvolený stroj";
+    const onlineTerminals = mesTerminals.filter((terminal) => isMesTerminalOnline(terminal.last_seen_at)).length;
+    const selectedMachineLabel = selectedMesMachineOverview?.machineName || "Vyber stroj";
+    const selectedMachineStatus = selectedMesMachineOverview?.machine_state || currentMesMachineRun?.status || "idle";
+    const selectedMachineStatusMeta = getMesStatusMeta(selectedMachineStatus);
     const selectedMachineOperatorName =
       selectedMesMachineOverview?.operatorName ||
       selectedMesMachineStats?.operatorName ||
-      selectedMesMachineOperatorMetrics?.operatorName ||
-      selectedMachineOperator?.operatorName ||
-      selectedMachineAuthOperatorName ||
       currentMesMachineRun?.operator_name ||
-      selectedMachineLatestEventOperatorName ||
-      mesLatestLoggedInOperator?.operatorName ||
+      selectedMesMachineEvents
+        .map((row) => String(row.operator_name || row.operator_id || row.operator_user_id || "").trim())
+        .find(Boolean) ||
       "";
-    const formatMesCycleValue = (value) =>
-      Number.isFinite(value) && Number(value) > 0
-        ? `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(Number(value))} s`
-        : "-";
-    const selectedMachineCoreStats = [
-      {
-        label: "Výrobná zákazka",
-        value: selectedMesMachineOverview?.currentWorkOrder || "-"
-      },
-      {
-        label: "Takt stroja",
-        value: formatMesCycleValue(selectedMesMachineCycleMetrics?.machineCycleSeconds ?? selectedMesMachineOverview?.actualCycleSeconds)
-      },
-      {
-        label: "Cieľový cyklus",
-        value: Number.isFinite(selectedMesMachineOverview?.targetCycleSeconds)
-          ? `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(selectedMesMachineOverview.targetCycleSeconds)} s`
-          : "-"
-      },
-      {
-        label: "Vyrobené kusy",
-        value: new Intl.NumberFormat("sk-SK").format(selectedMesMachineOverview?.producedParts || 0)
-      },
-      {
-        label: "Skutočný výkon",
-        value: Number.isFinite(selectedMesMachineOverview?.actualRate) && Number(selectedMesMachineOverview?.actualRate) > 0
-          ? `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(selectedMesMachineOverview.actualRate)} ks/h`
-          : Number.isFinite(selectedMesMachineCycleMetrics?.machineCycleSeconds) && Number(selectedMesMachineCycleMetrics?.machineCycleSeconds) > 0
-            ? `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(3600 / Number(selectedMesMachineCycleMetrics.machineCycleSeconds))} ks/h`
-          : "-"
-      },
-      {
-        label: "Posledný heartbeat",
-        value: selectedMesMachineOverview?.machineLastHeartbeatAt ? formatTimeOnly(selectedMesMachineOverview.machineLastHeartbeatAt) : "-"
+    const sortedMachineRows = [...machineDashboardRows].sort((a, b) => {
+      const priority = { alarm: 0, stopped: 1, setup: 2, idle: 3, running: 4 };
+      const aPriority = priority[a.statusMeta?.tone] ?? 9;
+      const bPriority = priority[b.statusMeta?.tone] ?? 9;
+      if (aPriority !== bPriority) {
+        return aPriority - bPriority;
       }
-    ];
-    const selectedMachineOperatorStats = [
+      return String(a.machineName || "").localeCompare(String(b.machineName || ""), "sk-SK", { sensitivity: "base" });
+    });
+    const criticalMachines = sortedMachineRows.filter((row) => ["alarm", "stopped"].includes(row.statusMeta?.tone)).slice(0, 6);
+    const topDowntimeReasons = (mesAnalytics.downtimeReasons || []).slice(0, 6);
+    const recentEvents = selectedMesMachineEvents.slice(0, 8);
+    const throughputMaxValue = Math.max(1, ...mesThroughput.hourlySeries.map((item) => Number(item.total || 0)));
+    const liveKpis = [
       {
-        label: "Prihlásený operátor",
-        value: selectedMesMachineOperatorMetrics?.operatorName || selectedMachineOperatorName || "-"
+        label: "Bežia",
+        value: new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.running),
+        meta: "stroje vo výrobe"
       },
       {
-        label: "Aktívna zákazka",
-        value: selectedMesMachineOverview?.currentWorkOrder || "-"
+        label: "Stoja",
+        value: new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.stopped + mesGlobalKpis.alarm),
+        meta: criticalMachines.length > 0 ? "vyžaduje pozornosť" : "bez kritického stroja"
       },
       {
-        label: "Takt operátora",
-        value: formatMesCycleValue(
-          selectedMesMachineOperatorMetrics?.sessionOperatorCycleSeconds ??
-            selectedMachineOperator?.sessionOperatorCycleSeconds ??
-            selectedMesMachineCycleMetrics?.operatorCycleSeconds
-        )
+        label: "Aktívne zákazky",
+        value: new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.activeOrders),
+        meta: "aktuálne job runy"
       },
       {
-        label: "Vyrobené kusy",
-        value: new Intl.NumberFormat("sk-SK").format(
-          Number(selectedMesMachineOperatorMetrics?.sessionProducedParts ?? selectedMachineOperator?.sessionProducedParts ?? 0)
-        )
+        label: "OEE",
+        value: formatPercentValue(mesOeeSummary.oeePct),
+        meta: mesOeeSummary.rangeLabel
       },
       {
         label: "OK kusy",
-        value: new Intl.NumberFormat("sk-SK").format(
-          Number(selectedMesMachineOperatorMetrics?.sessionGoodParts ?? selectedMachineOperator?.sessionGoodParts ?? 0)
-        )
+        value: new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.goodParts),
+        meta: `${new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.scrapParts)} NOK`
       },
       {
-        label: "NOK kusy",
-        value: new Intl.NumberFormat("sk-SK").format(
-          Number(selectedMesMachineOperatorMetrics?.sessionScrapParts ?? selectedMachineOperator?.sessionScrapParts ?? 0)
-        )
-      },
-      {
-        label: "Session od",
-        value:
-          selectedMesMachineOperatorMetrics?.sessionStartedAt || selectedMachineOperator?.sessionStartedAt
-            ? formatDate(selectedMesMachineOperatorMetrics?.sessionStartedAt || selectedMachineOperator?.sessionStartedAt)
-            : "-"
+        label: "Výkon",
+        value: `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(mesGlobalKpis.productionRate)} ks/h`,
+        meta: `${onlineTerminals} online terminálov`
       }
     ];
-    const mesCustomizationOptions = [
-      { key: "showMachineFocus", label: "Detail stroja + OEE + KPI", description: "Hlavný operatívny blok pre vybraný stroj." },
-      { key: "showMachineTable", label: "Tabuľka strojov", description: "Prehľad všetkých strojov v jednej tabuľke." },
-      { key: "showThroughputQuality", label: "Výkon a kvalita", description: "Kusy/h, trend a kvalita výroby." },
-      { key: "showAvailableOperators", label: "Dostupní operátori", description: "Operátori z attendance s MES stavom." },
-      { key: "showActiveOperators", label: "Aktívni operátori", description: "Operátori priamo z MES eventov." },
-      { key: "showFactoryMap", label: "Mapa výroby", description: "Zóny, dlaždice a export udalostí stroja." }
-    ];
-    const mesKpiOptions = [
-      { key: "running", label: "Stroje v prevádzke" },
-      { key: "stopped", label: "Zastavené stroje" },
-      { key: "activeOrders", label: "Aktívne zákazky" },
-      { key: "productionRate", label: "Rýchlosť výroby" },
-      { key: "goodParts", label: "OK kusy" },
-      { key: "scrapParts", label: "NOK kusy" },
-      { key: "onlineTerminals", label: "Online terminály" },
-      { key: "oee", label: "OEE" },
-      { key: "rejectRate", label: "Zmetkovitosť" },
-      { key: "activeOperators", label: "Aktívni operátori" }
-    ];
-    const mesDashboardTabs = [
-      { key: "live", label: "Live" },
-      { key: "map", label: "Mapa" },
-      { key: "analytics", label: "Analytika" }
-    ];
-    const mesUnifiedOperators = (() => {
-      const merged = {};
-      const shouldUseTerminalOperatorFallback = !canAccessAttendanceModule || attendanceProfiles.length === 0;
-      (mesAvailableOperatorRows || []).forEach((operator) => {
-        const name = String(operator?.fullName || "").trim();
-        const key = normalizeMesOperatorLookupValue(name || operator?.employeeCode || operator?.linkedUserId || operator?.profileId || "");
-        if (!key) {
-          return;
-        }
-        merged[key] = {
-          key,
-          operatorName: name || "Operátor",
-          employeeCode: String(operator?.employeeCode || "").trim(),
-          currentMachineName: String(operator?.currentMachineName || "").trim(),
-          currentWorkOrder: String(operator?.currentWorkOrder || "").trim(),
-          sessionStartedAt: operator?.sessionStartedAt || null,
-          lastSeenAt: operator?.lastSeenAt || null,
-          sessionGoodParts: Number(operator?.sessionGoodParts || 0),
-          sessionScrapParts: Number(operator?.sessionScrapParts || 0),
-          sessionProducedParts: Number(operator?.sessionProducedParts || 0),
-          isActiveInMes: Boolean(operator?.isActiveInMes),
-          source: "attendance"
-        };
-      });
-      (mesOperatorRows || []).forEach((operator) => {
-        const name = String(operator?.operatorName || "").trim();
-        const key = normalizeMesOperatorLookupValue(name || operator?.operatorUserId || operator?.key || "");
-        if (!key) {
-          return;
-        }
-        const existing = merged[key] || {
-          key,
-          operatorName: name || "Operátor",
-          employeeCode: "",
-          currentMachineName: "",
-          currentWorkOrder: "",
-          sessionStartedAt: null,
-          lastSeenAt: null,
-          sessionGoodParts: 0,
-          sessionScrapParts: 0,
-          sessionProducedParts: 0,
-          isActiveInMes: false,
-          source: "mes"
-        };
-        merged[key] = {
-          ...existing,
-          operatorName: name || existing.operatorName,
-          employeeCode: String(operator?.profile?.employee_code || existing.employeeCode || "").trim(),
-          currentMachineName: String(operator?.currentMachineName || existing.currentMachineName || "").trim(),
-          currentWorkOrder: String(operator?.currentWorkOrder || existing.currentWorkOrder || "").trim(),
-          sessionStartedAt: operator?.sessionStartedAt || existing.sessionStartedAt,
-          lastSeenAt: operator?.lastSeenAt || existing.lastSeenAt,
-          sessionGoodParts: Number(operator?.sessionGoodParts ?? existing.sessionGoodParts ?? 0),
-          sessionScrapParts: Number(operator?.sessionScrapParts ?? existing.sessionScrapParts ?? 0),
-          sessionProducedParts: Number(operator?.sessionProducedParts ?? existing.sessionProducedParts ?? 0),
-          isActiveInMes: Boolean(existing.isActiveInMes || Number(operator?.activeRunCount || 0) > 0),
-          source: existing.source === "attendance" ? "attendance+mes" : "mes"
-        };
-      });
-      if (shouldUseTerminalOperatorFallback) {
-        (mesRecentJobRuns || []).forEach((run) => {
-        const operatorName = String(run?.operator_name || "").trim();
-        const operatorUserId = String(run?.operator_user_id || "").trim();
-        const key = normalizeMesOperatorLookupValue(operatorName || operatorUserId);
-        if (!key) {
-          return;
-        }
-        const machineRow =
-          machineDashboardRows.find((row) => String(row.machineId || "").trim() === String(run?.machine_id || "").trim()) ||
-          machineDashboardRows.find((row) => String(row.workstationId || "").trim() === String(run?.workstation_id || "").trim()) ||
-          null;
-        const existing = merged[key] || {
-          key,
-          operatorName: operatorName || operatorUserId || "Operátor",
-          employeeCode: "",
-          currentMachineName: "",
-          currentWorkOrder: "",
-          sessionStartedAt: null,
-          lastSeenAt: null,
-          sessionGoodParts: 0,
-          sessionScrapParts: 0,
-          sessionProducedParts: 0,
-          isActiveInMes: false,
-          source: "terminal"
-        };
-        const runProducedParts = Number(run?.good_quantity || 0) + Number(run?.scrap_quantity || 0);
-        merged[key] = {
-          ...existing,
-          operatorName: operatorName || existing.operatorName,
-          currentMachineName: machineRow?.machineName || existing.currentMachineName || "",
-          currentWorkOrder: String(run?.job_number || existing.currentWorkOrder || "").trim(),
-          sessionStartedAt: run?.started_at || existing.sessionStartedAt,
-          lastSeenAt: run?.updated_at || run?.ended_at || run?.started_at || existing.lastSeenAt,
-          sessionGoodParts: Math.max(Number(existing.sessionGoodParts || 0), Number(run?.good_quantity || 0)),
-          sessionScrapParts: Math.max(Number(existing.sessionScrapParts || 0), Number(run?.scrap_quantity || 0)),
-          sessionProducedParts: Math.max(Number(existing.sessionProducedParts || 0), runProducedParts),
-          isActiveInMes:
-            existing.isActiveInMes ||
-            ["running", "paused", "queued"].includes(String(run?.status || "").toLowerCase()),
-          source: existing.source === "attendance+mes" || existing.source === "attendance" || existing.source === "mes" ? existing.source : "terminal"
-        };
-        });
-      }
-      if (shouldUseTerminalOperatorFallback) {
-        (mesRecentEventRows || []).forEach((event) => {
-        const operatorName = String(event?.operator_name || "").trim();
-        const operatorUserId = String(event?.operator_user_id || event?.operator_id || "").trim();
-        const key = normalizeMesOperatorLookupValue(operatorName || operatorUserId);
-        if (!key) {
-          return;
-        }
-        const machineRow =
-          machineDashboardRows.find((row) => String(row.machineId || "").trim() === String(event?.machine_id || "").trim()) ||
-          machineDashboardRows.find((row) => String(row.workstationId || "").trim() === String(event?.workstation_id || "").trim()) ||
-          null;
-        const existing = merged[key] || {
-          key,
-          operatorName: operatorName || operatorUserId || "Operátor",
-          employeeCode: "",
-          currentMachineName: "",
-          currentWorkOrder: "",
-          sessionStartedAt: null,
-          lastSeenAt: null,
-          sessionGoodParts: 0,
-          sessionScrapParts: 0,
-          sessionProducedParts: 0,
-          isActiveInMes: false,
-          source: "terminal"
-        };
-        const eventType = String(event?.event_type || "").toLowerCase();
-        const eventQuantity = getMesEventQuantity(event);
-        const producedDelta = ["good_count", "scrap_count", "ml"].includes(eventType) ? eventQuantity : 0;
-        const goodDelta = eventType === "good_count" ? eventQuantity : 0;
-        const scrapDelta = eventType === "scrap_count" ? eventQuantity : 0;
-        const happenedAt = event?.happened_at || event?.created_at || null;
-        merged[key] = {
-          ...existing,
-          operatorName: operatorName || existing.operatorName,
-          currentMachineName: machineRow?.machineName || existing.currentMachineName || "",
-          currentWorkOrder: String(event?.job_number || existing.currentWorkOrder || "").trim(),
-          lastSeenAt: happenedAt || existing.lastSeenAt,
-          sessionGoodParts: Number(existing.sessionGoodParts || 0) + goodDelta,
-          sessionScrapParts: Number(existing.sessionScrapParts || 0) + scrapDelta,
-          sessionProducedParts: Number(existing.sessionProducedParts || 0) + producedDelta,
-          source: existing.source === "attendance+mes" || existing.source === "attendance" || existing.source === "mes" ? existing.source : "terminal"
-        };
-        });
-      }
-      return Object.values(merged).sort((a, b) => String(a.operatorName).localeCompare(String(b.operatorName), "sk-SK", { sensitivity: "base" }));
-    })();
-    const filteredMesUnifiedOperators = mesUnifiedOperators.filter((operator) => {
-      if (mesOperatorPresenceFilter === "active") {
-        return operator.isActiveInMes;
-      }
-      if (mesOperatorPresenceFilter === "available") {
-        return !operator.isActiveInMes;
-      }
-      return true;
-    });
-    const mesOperatorPerformanceRows = (() => {
-      const nowTs = Number.isFinite(Number(mesNowTs)) ? Number(mesNowTs) : Date.now();
-      return mesUnifiedOperators
-        .map((operator) => {
-          const startedAtTs = Date.parse(String(operator.sessionStartedAt || ""));
-          const hasSessionStart = Number.isFinite(startedAtTs);
-          const elapsedMs = hasSessionStart ? Math.max(0, nowTs - startedAtTs) : 0;
-          const elapsedHours = elapsedMs > 0 ? elapsedMs / (60 * 60 * 1000) : 0;
-          const producedParts = Number(operator.sessionProducedParts || 0);
-          const goodParts = Number(operator.sessionGoodParts || 0);
-          const scrapParts = Number(operator.sessionScrapParts || 0);
-          const partsPerHour = elapsedHours > 0 ? producedParts / elapsedHours : 0;
-          const qualityPct = producedParts > 0 ? safeRatioPercent(goodParts, producedParts) : null;
-          return {
-            ...operator,
-            elapsedMs,
-            partsPerHour,
-            qualityPct,
-            producedParts,
-            goodParts,
-            scrapParts
-          };
-        })
-        .filter((row) => row.producedParts > 0 || row.isActiveInMes)
-        .sort((a, b) => {
-          if (b.partsPerHour !== a.partsPerHour) {
-            return b.partsPerHour - a.partsPerHour;
-          }
-          return b.producedParts - a.producedParts;
-        });
-    })();
-    const mesOperatorPerformanceSummary = {
-      activeCount: mesOperatorPerformanceRows.filter((row) => row.isActiveInMes).length,
-      totalCount: mesOperatorPerformanceRows.length,
-      avgRate:
-        mesOperatorPerformanceRows.length > 0
-          ? mesOperatorPerformanceRows.reduce((sum, row) => sum + Number(row.partsPerHour || 0), 0) / mesOperatorPerformanceRows.length
-          : 0,
-      topPerformer: mesOperatorPerformanceRows[0] || null
-    };
-    const mesRecurringEventRows = (() => {
-      const grouped = {};
-      (mesRecentEventRows || []).forEach((event) => {
-        const happenedAt = String(event?.happened_at || event?.created_at || "").trim();
-        const timestamp = Date.parse(happenedAt);
-        if (!Number.isFinite(timestamp)) {
-          return;
-        }
-        const eventType = formatMesEventLabel(event?.event_type || event?.event_code || "-");
-        const reason = String(event?.downtime_reason_name || event?.downtime_reason_code || event?.note || "").trim() || "-";
-        const machineLabel =
-          machineDashboardRows.find((row) => String(row.machineId || "").trim() === String(event?.machine_id || "").trim())?.machineName ||
-          machineDashboardRows.find((row) => String(row.workstationId || "").trim() === String(event?.workstation_id || "").trim())?.machineName ||
-          String(event?.machine_id || event?.workstation_id || "-").trim() ||
-          "-";
-        const signature = [
-          String(event?.event_type || event?.event_code || "").trim().toLowerCase(),
-          reason.toLowerCase(),
-          machineLabel.toLowerCase()
-        ].join("|");
-        if (!grouped[signature]) {
-          grouped[signature] = {
-            signature,
-            eventType,
-            reason,
-            machineLabel,
-            timestamps: []
-          };
-        }
-        grouped[signature].timestamps.push(timestamp);
-      });
-      return Object.values(grouped)
-        .map((group) => {
-          const sorted = [...group.timestamps].sort((a, b) => a - b);
-          const deltas = [];
-          for (let index = 1; index < sorted.length; index += 1) {
-            deltas.push(sorted[index] - sorted[index - 1]);
-          }
-          const averageMs = deltas.length > 0 ? deltas.reduce((sum, value) => sum + value, 0) / deltas.length : 0;
-          const frequencyLabel =
-            averageMs > 0
-              ? averageMs < 60 * 60 * 1000
-                ? `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(averageMs / 60000)} min`
-                : `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(averageMs / (60 * 60 * 1000))} h`
-              : "-";
-          return {
-            key: group.signature,
-            eventType: group.eventType,
-            reason: group.reason,
-            machineLabel: group.machineLabel,
-            count: sorted.length,
-            frequencyLabel,
-            lastSeenAt: sorted.length > 0 ? new Date(sorted[sorted.length - 1]).toISOString() : null
-          };
-        })
-        .filter((row) => row.count >= 2)
-        .sort((a, b) => {
-          if (b.count !== a.count) {
-            return b.count - a.count;
-          }
-          return String(b.lastSeenAt || "").localeCompare(String(a.lastSeenAt || ""));
-        })
-        .slice(0, 12);
-    })();
-    const handleMesTerminalDragStart = (event, terminalId) => {
-      if (!isMesMapEditMode) {
-        return;
-      }
-      const normalizedTerminalId = String(terminalId || "").trim();
-      if (!normalizedTerminalId) {
-        return;
-      }
-      event.dataTransfer.effectAllowed = "move";
-      event.dataTransfer.setData("text/mes-terminal-id", normalizedTerminalId);
-    };
-    const handleMesTerminalDrop = (event, area, row, col) => {
-      if (!isMesMapEditMode) {
-        return;
-      }
-      event.preventDefault();
-      const terminalId = String(event.dataTransfer.getData("text/mes-terminal-id") || "").trim();
-      if (!terminalId || !String(area || "").trim()) {
-        return;
-      }
-      setMesDashboardCustomization((current) => ({
-        ...current,
-        terminalMapLayout: {
-          ...(current.terminalMapLayout || {}),
-          [terminalId]: {
-            area: String(area || "").trim(),
-            row: Math.min(MES_FACTORY_TERMINAL_GRID_ROWS, Math.max(1, Number(row || 1))),
-            col: Math.min(MES_FACTORY_TERMINAL_GRID_COLS, Math.max(1, Number(col || 1)))
-          }
-        }
-      }));
-    };
-    const handleMesTerminalPlacementReset = (terminalId) => {
-      const normalizedTerminalId = String(terminalId || "").trim();
-      if (!normalizedTerminalId) {
-        return;
-      }
-      setMesDashboardCustomization((current) => {
-        const nextLayout = { ...(current.terminalMapLayout || {}) };
-        delete nextLayout[normalizedTerminalId];
-        return {
-          ...current,
-          terminalMapLayout: nextLayout
-        };
-      });
-    };
-    const mesFactoryMapZones = (() => {
-      const zonesByArea = {};
-      mesFactoryMap.forEach((zone) => {
-        const areaKey = String(zone.area || "Výroba").trim() || "Výroba";
-        zonesByArea[areaKey] = {
-          area: areaKey,
-          machines: Array.isArray(zone.machines) ? zone.machines : [],
-          terminals: [],
-          placedTerminalByCell: {},
-          unplacedTerminals: []
-        };
-      });
-      (mesTerminals || []).forEach((terminal) => {
-        const terminalId = String(terminal?.id || "").trim();
-        if (!terminalId) {
-          return;
-        }
-        const placement = mesDashboardCustomization.terminalMapLayout?.[terminalId] || null;
-        const workstation = terminal?.workstation_id ? mesWorkstationsById[terminal.workstation_id] || null : null;
-        const area = String(placement?.area || workstation?.area || "Bez zóny").trim() || "Bez zóny";
-        if (!zonesByArea[area]) {
-          zonesByArea[area] = {
-            area,
-            machines: [],
-            terminals: [],
-            placedTerminalByCell: {},
-            unplacedTerminals: []
-          };
-        }
-        const zone = zonesByArea[area];
-        const normalizedTerminal = {
-          ...terminal,
-          terminalId,
-          workstationLabel: workstation?.name || workstation?.code || "Nepriradené pracovisko",
-          isOnline: isMesTerminalOnline(terminal.last_seen_at)
-        };
-        zone.terminals.push(normalizedTerminal);
-      });
-      Object.values(zonesByArea).forEach((zone) => {
-        (zone.terminals || []).forEach((terminal) => {
-          const placement = mesDashboardCustomization.terminalMapLayout?.[terminal.terminalId] || null;
-          const row = Number.parseInt(String(placement?.row ?? ""), 10);
-          const col = Number.parseInt(String(placement?.col ?? ""), 10);
-          const cellKey = `${row}:${col}`;
-          if (
-            placement &&
-            String(placement.area || "").trim() === zone.area &&
-            Number.isFinite(row) &&
-            Number.isFinite(col) &&
-            row >= 1 &&
-            row <= MES_FACTORY_TERMINAL_GRID_ROWS &&
-            col >= 1 &&
-            col <= MES_FACTORY_TERMINAL_GRID_COLS &&
-            !zone.placedTerminalByCell[cellKey]
-          ) {
-            zone.placedTerminalByCell[cellKey] = terminal;
-          } else {
-            zone.unplacedTerminals.push(terminal);
-          }
-        });
-      });
-      return Object.values(zonesByArea).sort((a, b) => String(a.area).localeCompare(String(b.area), "sk-SK", { sensitivity: "base" }));
-    })();
+
     return (
       <article className="orders-panel-card workflow-card workflow-card-list mes-dashboard-card">
-      <div className="panel-head workflow-section-head">
-        <div>
-          <p className="workflow-section-kicker">MES</p>
-          <h2>Prehľad výroby v reálnom čase</h2>
-          <p className="panel-meta">Stroje, operátori a výrobné zákazky pre aktuálnu firmu.</p>
+        <div className="panel-head workflow-section-head">
+          <div>
+            <p className="workflow-section-kicker">MES</p>
+            <h2>Live výrobný cockpit</h2>
+            <p className="panel-meta">Prehľad strojov, výkonu, prestojov a aktívnych zákaziek pre aktuálnu firmu.</p>
+          </div>
+          <div className="hero-badges">
+            <span className="table-badge">{getMesViewRoleLabel(mesViewRole)}</span>
+            <span className="table-badge">{`${machineDashboardRows.length} strojov`}</span>
+            <span className="table-badge">{`${onlineTerminals} online HMI`}</span>
+            <button type="button" className="clear-btn" onClick={handleExportMesDashboardExcel}>
+              Export MES Excel
+            </button>
+          </div>
         </div>
-        <div className="hero-badges">
-          <span className="table-badge">{getMesViewRoleLabel(mesViewRole)}</span>
-          <span className="table-badge">{`${machineDashboardRows.length} strojov`}</span>
-          <span className="table-badge">{`${mesTerminals.length} HMI terminálov`}</span>
-          <span className="table-badge">{`${mesProductionOrderRows.length} aktívnych zákaziek`}</span>
-          <div className="stock-view-switch mes-tab-switch">
-            {mesDashboardTabs.map((tab) => (
-              <button
-                key={tab.key}
-                type="button"
-                className={`clear-btn ${mesDashboardTab === tab.key ? "stock-view-btn-active" : ""}`}
-                onClick={() => setMesDashboardTab(tab.key)}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-          <button type="button" className="clear-btn" onClick={handleExportMesDashboardExcel}>
-            Export MES Excel
-          </button>
-          <button type="button" className="clear-btn" onClick={() => setIsMesSettingsModalOpen(true)}>
-            Nastavenia MES
-          </button>
-          <button
-            type="button"
-            className="clear-btn"
-            onClick={() => {
-              setIsMesTerminalSectionVisible((current) => {
-                const nextValue = !current;
-                if (!nextValue) {
-                  resetMesTerminalForm();
-                }
-                return nextValue;
-              });
-            }}
-          >
-            {isMesTerminalSectionVisible ? "Skryť MES terminály" : "MES terminály"}
-          </button>
-        </div>
-      </div>
-      {!activeCompanyId && isMaster ? (
-        <p className="hint">Vyber konkrétnu firmu v hornom filtri, aby sa zobrazil MES dashboard.</p>
-      ) : mesLoading ? (
-        <p className="hint">Načítavam MES dashboard...</p>
-      ) : (
-        <>
-          {isMesSettingsModalOpen && (
-            <div className="settings-backdrop" onClick={() => setIsMesSettingsModalOpen(false)}>
-              <div className="settings-modal mes-settings-modal" onClick={(event) => event.stopPropagation()}>
-                <div className="settings-head">
-                  <strong>Nastavenia MES dashboardu</strong>
-                  <button type="button" className="clear-btn" onClick={() => setIsMesSettingsModalOpen(false)}>
-                    Zavrieť
-                  </button>
-                </div>
-                <p className="settings-hint">Nastavenie sa uloží pre celú firmu a bude rovnaké na všetkých zariadeniach.</p>
-                <div className="settings-field">
-                  <span>Sekcie dashboardu</span>
-                  <div className="settings-grid">
-                    {mesCustomizationOptions.map((option) => (
-                      <label key={option.key} className="settings-checkbox">
-                        <input
-                          type="checkbox"
-                          checked={Boolean(mesDashboardCustomization[option.key])}
-                          onChange={(event) =>
-                            setMesDashboardCustomization((current) => ({
-                              ...current,
-                              [option.key]: event.target.checked
-                            }))
-                          }
-                        />
-                        <span>
-                          {option.label}
-                          <small className="panel-meta">{option.description}</small>
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-                <div className="settings-field">
-                  <span>Metriky (KPI karty)</span>
-                  <div className="settings-grid">
-                    {mesKpiOptions.map((option) => {
-                      const isChecked = mesDashboardCustomization.visibleKpis.includes(option.key);
-                      return (
-                        <label key={option.key} className="settings-checkbox">
-                          <input
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={(event) =>
-                              setMesDashboardCustomization((current) => {
-                                const currentKpis = Array.isArray(current.visibleKpis) ? current.visibleKpis : [];
-                                const nextKpis = event.target.checked
-                                  ? Array.from(new Set([...currentKpis, option.key]))
-                                  : currentKpis.filter((item) => item !== option.key);
-                                return {
-                                  ...current,
-                                  visibleKpis: nextKpis.length > 0 ? nextKpis : currentKpis
-                                };
-                              })
-                            }
-                          />
-                          <span>{option.label}</span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-                <form className="settings-field mes-workstation-rename-form" onSubmit={handleRenameMesWorkstation}>
-                  <span>Pracovisko</span>
-                  <div className="workflow-field-grid">
-                    <label className="workflow-field">
-                      <span className="workflow-field-label">Vybrať</span>
-                      <select
-                        value={mesRenameWorkstationId}
-                        onChange={(event) => {
-                          const nextId = event.target.value;
-                          const workstation = mesWorkstationsById[nextId] || null;
-                          const machine = mesMachines.find((row) => String(row.workstation_id || "") === String(nextId || "")) || null;
-                          setMesRenameWorkstationId(nextId);
-                          setMesRenameWorkstationNameInput(workstation?.name || workstation?.code || "");
-                          setMesWorkstationSignalModeInput(normalizeMesSignalModeValue(machine?.signal_mode));
-                        }}
-                        disabled={mesRenameWorkstationSubmitting || mesWorkstations.length === 0}
-                      >
-                        {mesWorkstations.length === 0 ? (
-                          <option value="">Žiadne pracoviská</option>
-                        ) : (
-                          mesWorkstations.map((workstation) => (
-                            <option key={workstation.id} value={workstation.id}>
-                              {`${workstation.name || workstation.code || "-"}${workstation.area ? ` | ${workstation.area}` : ""}`}
-                            </option>
-                          ))
-                        )}
-                      </select>
-                    </label>
-                    <label className="workflow-field">
-                      <span className="workflow-field-label">Názov</span>
-                      <input
-                        type="text"
-                        className="search-input"
-                        value={mesRenameWorkstationNameInput}
-                        onChange={(event) => setMesRenameWorkstationNameInput(event.target.value)}
-                        disabled={mesRenameWorkstationSubmitting || mesWorkstations.length === 0}
-                      />
-                    </label>
-                    <label className="workflow-field">
-                      <span className="workflow-field-label">Signál</span>
-                      <select
-                        value={mesWorkstationSignalModeInput}
-                        onChange={(event) => setMesWorkstationSignalModeInput(normalizeMesSignalModeValue(event.target.value))}
-                        disabled={mesRenameWorkstationSubmitting || mesWorkstations.length === 0}
-                      >
-                        <option value="no">NO</option>
-                        <option value="nc">NC</option>
-                      </select>
-                    </label>
-                  </div>
-                  <div className="order-card-actions">
-                    <button
-                      type="submit"
-                      className="settings-btn"
-                      disabled={mesRenameWorkstationSubmitting || mesWorkstations.length === 0}
-                    >
-                      {mesRenameWorkstationSubmitting ? "Ukladám..." : "Uložiť pracovisko"}
-                    </button>
-                  </div>
-                </form>
-                {mesError && <p className="error">{mesError}</p>}
-                <div className="order-card-actions">
-                  <button
-                    type="button"
-                    className="clear-btn"
-                    onClick={() => setMesDashboardCustomization({ ...DEFAULT_MES_DASHBOARD_CUSTOMIZATION })}
-                  >
-                    Obnoviť predvolené
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-          {isMesTerminalSectionVisible && (
-          <article className="orders-panel-card workflow-card workflow-card-list mes-terminal-admin-card">
-            <div className="panel-head workflow-section-head">
-              <div>
-                <h2>MES terminály</h2>
-                <p className="panel-meta">Registrácia HMI zariadení, párovanie na firmu a pracovisko a rýchly prehľad online stavu.</p>
-              </div>
-              <div className="hero-badges">
-                <span className="table-badge">{mesRegistrationModeLabel}</span>
-                <span className="table-badge">{`${mesOnlineTerminalsCount} online`}</span>
-                <span className="table-badge">{`${mesAssignedTerminalsCount} s pracoviskom`}</span>
-              </div>
-            </div>
 
-            <div className="mes-terminal-admin-grid">
-              <div className="mes-terminal-summary-card">
-                <div className="mes-terminal-mode-banner">
-                  <div className="mes-terminal-mode-copy">
-                    <span className="workflow-section-kicker">Párovanie terminálu</span>
-                    <strong>{mesRegistrationModeLabel}</strong>
-                    <p>{mesRegistrationModeMeta}</p>
-                  </div>
-                  <span className="table-badge">{activeCompanyId ? currentCompanyLabel : "bez firmy"}</span>
-                </div>
-                <div className="mes-terminal-summary-grid">
-                  <article>
-                    <span className="draft-field-label">Aktívne záznamy</span>
-                    <strong>{new Intl.NumberFormat("sk-SK").format(mesTerminals.length)}</strong>
-                    <p>Registrované HMI terminály pre aktuálnu firmu.</p>
-                  </article>
-                  <article>
-                    <span className="draft-field-label">Online teraz</span>
-                    <strong>{new Intl.NumberFormat("sk-SK").format(mesOnlineTerminalsCount)}</strong>
-                    <p>Terminály, ktoré sa ozvali za posledných 5 minút.</p>
-                  </article>
-                  <article>
-                    <span className="draft-field-label">Napojené pracovisko</span>
-                    <strong>{new Intl.NumberFormat("sk-SK").format(mesAssignedTerminalsCount)}</strong>
-                    <p>Zariadenia, ktoré už majú priradené pracovisko.</p>
-                  </article>
-                  <article>
-                    <span className="draft-field-label">Preview identifikátora</span>
-                    <strong>{mesTerminalIdentifierPreview || "-"}</strong>
-                    <p>{mesSupportsDeviceUid ? "Vznikne automaticky po zadaní UID." : "Tento kód sa uloží ako terminal_code a podľa neho sa terminál spáruje s firmou."}</p>
-                  </article>
-                </div>
-                <div className="order-card-actions">
-                  <button
-                    type="button"
-                    className="settings-btn"
-                    onClick={() => {
-                      if (isMesTerminalFormVisible && !editingMesTerminalId) {
-                        resetMesTerminalForm();
-                      } else {
-                        setIsMesTerminalFormVisible(true);
-                        if (!editingMesTerminalId) {
-                          setMesError("");
-                        }
-                      }
-                    }}
-                    disabled={!activeCompanyId || mesTerminalSubmitting}
-                  >
-                    {isMesTerminalFormVisible ? "Zavrieť registráciu" : "Registrovať terminál"}
-                  </button>
-                  {editingMesTerminalId && (
-                    <button type="button" className="clear-btn" onClick={resetMesTerminalForm} disabled={mesTerminalSubmitting}>
-                      Nový terminál
-                    </button>
-                  )}
-                </div>
-              </div>
+        {!activeCompanyId && isMaster ? (
+          <p className="hint">Vyber konkrétnu firmu v hornom filtri, aby sa zobrazil MES cockpit.</p>
+        ) : mesLoading ? (
+          <p className="hint">Načítavam MES dáta...</p>
+        ) : (
+          <>
+            <section className="mes-kpi-grid">
+              {liveKpis.map((item) => (
+                <article key={item.label} className="card workflow-stat-card mes-kpi-card">
+                  <span className="mes-kpi-label">{item.label}</span>
+                  <strong>{item.value}</strong>
+                  <p className="mes-kpi-meta">{item.meta}</p>
+                </article>
+              ))}
+            </section>
 
-              {isMesTerminalFormVisible ? (
-                <form className="orders-form mes-terminal-form-shell" onSubmit={handleSaveMesTerminal}>
-                  <div className="mes-terminal-form-header">
-                    <div>
-                      <h3>{editingMesTerminalId ? "Upraviť terminál" : "Nová registrácia terminálu"}</h3>
-                      <p>{mesSupportsDeviceUid ? "Admin registruje zariadenie podľa device UID, terminál sa použije aj ako pracovisko." : "Admin registruje terminál podľa terminal_code, terminál sa použije aj ako pracovisko."}</p>
-                    </div>
-                    <span className="table-badge">{mesSupportsDeviceUid ? "UID" : "terminal_code"}</span>
-                  </div>
-                  <div className="workflow-field-grid">
-                    <label className="workflow-field">
-                      <span className="workflow-field-label">Názov terminálu</span>
-                      <input
-                        type="text"
-                        className="search-input"
-                        value={mesTerminalNameInput}
-                        onChange={(event) => setMesTerminalNameInput(event.target.value)}
-                        placeholder="Android linka 1"
-                        disabled={mesTerminalSubmitting}
-                      />
-                    </label>
-                    <label className="workflow-field">
-                      <span className="workflow-field-label">{mesSupportsDeviceUid ? "UID zariadenia" : "Kód zariadenia"}</span>
-                      <input
-                        type="text"
-                        className="search-input"
-                        value={mesSupportsDeviceUid ? mesTerminalDeviceUidInput : mesTerminalCodeInput}
-                        onChange={(event) => {
-                          if (mesSupportsDeviceUid) {
-                            setMesTerminalDeviceUidInput(event.target.value.toUpperCase());
-                          } else {
-                            setMesTerminalCodeInput(event.target.value.toUpperCase());
-                          }
-                        }}
-                        placeholder={mesSupportsDeviceUid ? "10 znakov" : "MES-LINKA-01"}
-                        maxLength={mesSupportsDeviceUid ? 10 : undefined}
-                        disabled={mesTerminalSubmitting}
-                      />
-                      <p className="workflow-helper-text">
-                        {mesSupportsDeviceUid
-                          ? mesTerminalIdentifierPreview
-                            ? `Interný kód sa vytvorí ako ${mesTerminalIdentifierPreview}`
-                            : "Zadaj presne 10 znakov, podľa ktorých sa zariadenie spáruje s firmou."
-                          : "Zadaj stabilný terminal_code. Tento istý kód bude používať zariadenie aj backend resolve funkcia."}
-                      </p>
-                    </label>
-                  </div>
-                  <div className="workflow-field-grid">
-                    <label className="workflow-field">
-                      <span className="workflow-field-label">Existujúce pracovisko</span>
-                      <select
-                        value={mesTerminalWorkstationIdInput}
-                        onChange={(event) => {
-                          const nextWorkstationId = event.target.value;
-                          const workstationMachine = mesMachines.find((row) => String(row.workstation_id || "") === String(nextWorkstationId || "")) || null;
-                          setMesTerminalWorkstationIdInput(nextWorkstationId);
-                          setMesMachineAutomationModeInput(String(workstationMachine?.automation_mode || "full_automatic"));
-                        }}
-                        disabled={mesTerminalSubmitting}
-                      >
-                        <option value="">Vytvoriť z terminálu</option>
-                        {mesWorkstations.map((workstation) => (
-                          <option key={workstation.id} value={workstation.id}>
-                            {`${workstation.name || workstation.code || "-"}${workstation.area ? ` | ${workstation.area}` : ""}`}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="workflow-field">
-                      <span className="workflow-field-label">Režim stroja</span>
-                      <input
-                        type="text"
-                        className="search-input"
-                        value={formatMesAutomationModeLabel(mesMachineAutomationModeInput)}
-                        disabled
-                        readOnly
-                      />
-                      <p className="workflow-helper-text">Terminál už režim stroja nemení. Zobrazuje sa tu len aktuálny stav pracoviska.</p>
-                    </label>
-                    <label className="workflow-field">
-                      <span className="workflow-field-label">Platforma</span>
-                      <select value={mesTerminalPlatformInput} onChange={(event) => setMesTerminalPlatformInput(event.target.value)} disabled={mesTerminalSubmitting}>
-                        <option value="android">Android</option>
-                        <option value="raspberry_pi">Raspberry Pi</option>
-                        <option value="web_kiosk">Webový kiosk</option>
-                        <option value="other">Iné</option>
-                      </select>
-                    </label>
-                    <label className="workflow-field">
-                      <span className="workflow-field-label">Režim appky</span>
-                      <select value={mesTerminalAppModeInput} onChange={(event) => setMesTerminalAppModeInput(event.target.value)} disabled={mesTerminalSubmitting}>
-                        <option value="hmi">HMI</option>
-                        <option value="overview">Prehľad</option>
-                        <option value="maintenance">Údržba</option>
-                      </select>
-                    </label>
-                  </div>
-                  <div className="mes-terminal-preview-grid">
-                    <article>
-                      <span className="draft-field-label">Firma</span>
-                      <strong>{currentCompanyLabel || "-"}</strong>
-                      <p>Terminál sa uloží pod aktuálne vybranú firmu.</p>
-                    </article>
-                    <article>
-                      <span className="draft-field-label">Pracovisko</span>
-                      <strong>{mesTerminalWorkstationIdInput ? mesWorkstationsById[mesTerminalWorkstationIdInput]?.name || mesWorkstationsById[mesTerminalWorkstationIdInput]?.code || "-" : mesTerminalNameInput || "Nové pracovisko"}</strong>
-                      <p>{mesTerminalWorkstationIdInput ? "Terminál sa napojí na existujúce pracovisko." : "Pracovisko sa vytvorí automaticky z názvu terminálu."}</p>
-                    </article>
-                    <article>
-                      <span className="draft-field-label">Režim stroja</span>
-                      <strong>{formatMesAutomationModeLabel(mesMachineAutomationModeInput)}</strong>
-                      <p>{mesTerminalConfiguredMachine ? `Použije sa pre stroj ${mesTerminalConfiguredMachine.name || mesTerminalConfiguredMachine.code || "-"}.` : "Uloží sa pre hlavný stroj zvoleného pracoviska."}</p>
-                    </article>
-                    <article>
-                      <span className="draft-field-label">Výsledný identifikátor</span>
-                      <strong>{mesTerminalIdentifierPreview || "-"}</strong>
-                      <p>{mesSupportsDeviceUid ? "Interný terminal_code vznikne z UID automaticky." : "Tento kód sa uloží priamo do terminal_code."}</p>
-                    </article>
-                  </div>
-                  <label className="settings-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={mesTerminalActiveInput}
-                      onChange={(event) => setMesTerminalActiveInput(event.target.checked)}
-                      disabled={mesTerminalSubmitting}
-                    />
-                    <span>Terminál je aktívny</span>
-                  </label>
-                  <div className="order-card-actions">
-                    <button type="submit" className="settings-btn" disabled={mesTerminalSubmitting || !activeCompanyId}>
-                      {mesTerminalSubmitting ? "Ukladám..." : editingMesTerminalId ? "Uložiť terminál" : "Registrovať terminál"}
-                    </button>
-                    <button type="button" className="clear-btn" onClick={resetMesTerminalForm} disabled={mesTerminalSubmitting}>
-                      Zrušiť
-                    </button>
-                  </div>
-                </form>
-              ) : (
-                <div className="mes-terminal-placeholder">
-                  <strong>Registrácia je schovaná, aby dashboard nezaberal miesto.</strong>
-                  <p>Otvoriť ju môžeš iba vtedy, keď potrebuješ pridať nový MES point alebo upraviť existujúci terminál.</p>
-                </div>
-              )}
-            </div>
-
-            {mesTerminals.length === 0 ? (
-              <p className="hint">Pre túto firmu zatiaľ nie sú registrované žiadne HMI terminály.</p>
-            ) : (
-              <div className="orders-list attendance-list mes-terminal-list">
-                {mesTerminals.map((terminal) => {
-                  const workstation = terminal.workstation_id ? mesWorkstationsById[terminal.workstation_id] || null : null;
-                  const workstationMachine = terminal.workstation_id
-                    ? mesMachines.find((row) => String(row.workstation_id || "") === String(terminal.workstation_id || "")) || null
-                    : null;
-                  const isOnline = isMesTerminalOnline(terminal.last_seen_at);
-                  return (
-                    <article key={terminal.id} className="order-card attendance-card mes-terminal-card">
-                      <div className="order-card-head attendance-card-head mes-terminal-card-head">
-                        <div>
-                          <strong>{terminal.name || "-"}</strong>
-                          <p>{terminal.terminal_code || "-"}</p>
-                        </div>
-                        <div className="attendance-card-pills">
-                          <span className={`mes-terminal-connectivity ${isOnline ? "is-online" : "is-offline"}`}>{isOnline ? "Pripojený" : "Odpojený"}</span>
-                          <StatusPill status={terminal.is_active ? "active" : "inactive"} />
-                        </div>
-                      </div>
-                      <div className="order-detail attendance-card-body">
-                        <div className="attendance-meta-grid mes-terminal-meta-grid">
-                          <div>
-                            <span className="draft-field-label">{mesSupportsDeviceUid ? "UID zariadenia" : "Kód registrácie"}</span>
-                            <p>{mesSupportsDeviceUid ? terminal.device_uid || "-" : terminal.terminal_code || "-"}</p>
-                          </div>
-                          <div>
-                            <span className="draft-field-label">Pracovisko</span>
-                            <p>{workstation?.name || workstation?.code || "Nepriradené"}</p>
-                          </div>
-                          <div>
-                            <span className="draft-field-label">Platforma / režim</span>
-                            <p>{`${formatMesTerminalPlatformLabel(terminal.platform)} | ${formatMesTerminalAppModeLabel(terminal.app_mode)}`}</p>
-                          </div>
-                          <div>
-                            <span className="draft-field-label">Typ stroja</span>
-                            <p>{`${formatMesAutomationModeLabel(workstationMachine?.automation_mode || "full_automatic")} | ${formatMesSignalModeLabel(workstationMachine?.signal_mode)}`}</p>
-                          </div>
-                          <div>
-                            <span className="draft-field-label">Posledný kontakt</span>
-                            <p>{terminal.last_seen_at ? formatDate(terminal.last_seen_at) : "Zatiaľ bez heartbeat-u"}</p>
-                          </div>
-                          <div className="attendance-meta-grid-wide mes-terminal-meta-wide">
-                            <span className="draft-field-label">Sieť / aplikácia</span>
-                            <p>
-                              {[terminal.last_ip || "", terminal.app_version ? `app ${terminal.app_version}` : ""].filter(Boolean).join(" | ") || "IP ani verzia appky zatiaľ neprišli."}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="order-card-actions">
-                          <button type="button" className="clear-btn" onClick={() => handleEditMesTerminal(terminal)}>
-                            Upraviť
-                          </button>
-                          <button
-                            type="button"
-                            className="clear-btn"
-                            onClick={() => handleDeleteMesTerminal(terminal)}
-                            disabled={mesTerminalDeletingId === terminal.id}
-                          >
-                            {mesTerminalDeletingId === terminal.id ? "Mažem..." : "Zmazať"}
-                          </button>
-                        </div>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
+            {criticalMachines.length > 0 && (
+              <section className="mes-machine-alert-note">
+                <strong>Vyžaduje pozornosť</strong>
+                <span>{criticalMachines.map((machine) => `${machine.machineName} (${machine.statusMeta?.label || "stav"})`).join(" | ")}</span>
+              </section>
             )}
-          </article>
-          )}
 
-          {mesDashboardTab === "live" && (!mesDashboardCustomization.showMachineFocus ? null : machineDashboardRows.length === 0 ? (
-            <p className="hint">Pre túto firmu zatiaľ nie sú založené stroje, pracoviská alebo MES job runy.</p>
-          ) : (
-            <>
-          <div className="mes-priority-grid">
-            <article className="orders-panel-card workflow-card workflow-card-list mes-machine-detail-card">
-              <div className="mes-machine-toolbar">
-                <label className="settings-field mes-machine-picker">
-                  <span>Vybraný stroj</span>
-                  <select value={selectedMesMachineId} onChange={(event) => setSelectedMesMachineId(event.target.value)}>
-                    {mesMachineOptions.map((option) => (
-                      <option key={option.id} value={option.id}>
-                        {`${option.label} | ${option.workstationName}`}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <div className="mes-machine-toolbar-meta">
-                  <span className={`mes-status-badge mes-status-badge-${selectedMesMachineOverview?.statusMeta?.tone || "idle"}`}>
-                    {selectedMesMachineOverview?.statusMeta?.label || "ČAKANIE"}
-                  </span>
-                  <span className="table-badge">{selectedMesMachineOverview?.workstationName || "-"}</span>
-                  <span className="table-badge">{selectedMesMachineOverview?.area || "-"}</span>
-                  <span className="table-badge">
-                    {selectedMesMachineOverview?.terminalName ? `HMI ${selectedMesMachineOverview.terminalName}` : "bez HMI"}
-                  </span>
-                </div>
-              </div>
-              <div className="mes-machine-summary">
-                <div className="mes-machine-summary-main">
-                  <div className="mes-machine-summary-head">
-                    <p className="mes-focus-kicker">Vybraný stroj</p>
-                    <strong>{selectedMachineLabel}</strong>
-                    <p className="mes-focus-meta">
-                      {currentMesMachineRun
-                        ? `${currentMesMachineRun.item_name || currentMesMachineRun.job_number || "-"} | operátor ${selectedMachineOperatorName || "-"}`
-                        : "Na stroji aktuálne nebeží aktívna zákazka."}
-                    </p>
-                  </div>
-                  <div className="mes-machine-chip-list">
-                    <span className="table-badge">{selectedMesMachineOverview?.workstationName || "Bez pracoviska"}</span>
-                    <span className="table-badge">{selectedMesMachineOverview?.area || "Bez zóny"}</span>
-                    <span className="table-badge">
-                      {selectedMesMachineOverview?.terminalName ? `HMI ${selectedMesMachineOverview.terminalName}` : "bez HMI"}
-                    </span>
-                    <span className="table-badge">{selectedMachineOperatorName || "bez operátora"}</span>
-                  </div>
-                  {selectedMesMachineOverview?.currentDowntimeReason && (
-                    <p className="mes-focus-note mes-machine-alert-note">{`Aktívny prestoj: ${selectedMesMachineOverview.currentDowntimeReason}`}</p>
-                  )}
-                  {canAccessAttendanceModule && selectedMachineOperatorName && (
-                    <div className="order-card-actions mes-inline-actions">
-                      <button type="button" className="clear-btn" onClick={() => openMesEmployee(selectedMachineOperatorName)}>
-                        Otvoriť zamestnanca
-                      </button>
-                    </div>
-                  )}
-                </div>
-                <div className="mes-machine-panel-grid">
-                  <section className="mes-data-panel">
-                    <div className="mes-data-panel-head">
-                      <strong>Stroj</strong>
-                      <span>Aktuálny technický a výrobný stav</span>
-                    </div>
-                    <div className="mes-detail-stats">
-                      {selectedMachineCoreStats.map((item) => (
-                        <article key={item.label} className="mes-mini-stat">
-                          <span>{item.label}</span>
-                          <strong>{item.value}</strong>
-                        </article>
-                      ))}
-                    </div>
-                  </section>
-                  <section className="mes-data-panel">
-                    <div className="mes-data-panel-head">
-                      <strong>Operátor</strong>
-                      <span>Aktívna session, takt obsluhy a vyrobené kusy</span>
-                    </div>
-                    <div className="mes-detail-stats mes-detail-stats-compact">
-                      {selectedMachineOperatorStats.map((item) => (
-                        <article key={item.label} className="mes-mini-stat">
-                          <span>{item.label}</span>
-                          <strong>{item.value}</strong>
-                        </article>
-                      ))}
-                    </div>
-                  </section>
-                </div>
-              </div>
-            </article>
-            <div className="mes-side-stack">
-              <article className="orders-panel-card workflow-card workflow-card-list">
-                <div className="panel-head workflow-section-head">
-                  <div>
-                    <h2>Aktívne výrobné zákazky</h2>
-                    <p className="panel-meta">Job runy, progres a odhad dokončenia.</p>
-                  </div>
-                </div>
-                {mesProductionOrderRows.length === 0 ? (
-                  <p className="hint">Aktuálne nie sú aktívne výrobné zákazky.</p>
-                ) : (
-                  <div className="table-wrap">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Číslo zákazky</th>
-                          <th>Produkt</th>
-                          <th>Vyrobené</th>
-                          <th>Dokončenie</th>
-                          <th>Odhad</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {mesProductionOrderRows.slice(0, 6).map((row) => (
-                          <tr key={row.id}>
-                            <td>
-                              <strong>{row.job_number || "-"}</strong>
-                              <div className="master-user-email">{row.machineLabel}</div>
-                            </td>
-                            <td>
-                              <div>{row.item_name || row.item_code || "-"}</div>
-                              <div className="master-user-email">{row.workstationLabel}</div>
-                            </td>
-                            <td>{`${new Intl.NumberFormat("sk-SK").format(row.totalProduced || 0)} / ${new Intl.NumberFormat("sk-SK").format(row.planned_quantity || 0)}`}</td>
-                            <td>
-                              <div className="mes-progress-cell">
-                                <div className="mes-progress-track">
-                                  <div className="mes-progress-fill" style={{ width: `${clampPercent(row.completionPct)}%` }} />
-                                </div>
-                                <span>{formatPercentValue(row.completionPct)}</span>
-                              </div>
-                            </td>
-                            <td>{formatEstimatedFinishTime(row.estimatedFinishAt)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </article>
-
-              <article className="orders-panel-card workflow-card workflow-card-list mes-oee-panel">
-                <div className="panel-head workflow-section-head">
-                  <div>
-                    <h2>OEE prehľad</h2>
-                    <p className="panel-meta">{`Dostupnosť, výkon a kvalita pre obdobie: ${mesOeeSummary.rangeLabel}.`}</p>
-                  </div>
-                  <div className="stock-view-switch">
-                    <button
-                      type="button"
-                      className={`clear-btn ${mesOeeRangeKey === "current_shift" ? "stock-view-btn-active" : ""}`}
-                      onClick={() => setMesOeeRangeKey("current_shift")}
-                    >
-                      Aktuálna zmena
-                    </button>
-                    <button
-                      type="button"
-                      className={`clear-btn ${mesOeeRangeKey === "yesterday" ? "stock-view-btn-active" : ""}`}
-                      onClick={() => setMesOeeRangeKey("yesterday")}
-                    >
-                      Včera
-                    </button>
-                    <button
-                      type="button"
-                      className={`clear-btn ${mesOeeRangeKey === "last_5_days" ? "stock-view-btn-active" : ""}`}
-                      onClick={() => setMesOeeRangeKey("last_5_days")}
-                    >
-                      Posledných 5 dní
-                    </button>
-                  </div>
-                </div>
-                <div className="mes-oee-grid">
-                  <article className="mes-oee-card">
-                    <span>Dostupnosť</span>
-                    <strong>{formatPercentValue(mesOeeSummary.availabilityPct)}</strong>
-                    <div className="mes-progress-track"><div className="mes-progress-fill" style={{ width: `${clampPercent(mesOeeSummary.availabilityPct)}%` }} /></div>
-                  </article>
-                  <article className="mes-oee-card">
-                    <span>Výkon</span>
-                    <strong>{formatPercentValue(mesOeeSummary.performancePct)}</strong>
-                    <div className="mes-progress-track"><div className="mes-progress-fill" style={{ width: `${clampPercent(mesOeeSummary.performancePct)}%` }} /></div>
-                  </article>
-                  <article className="mes-oee-card">
-                    <span>Kvalita</span>
-                    <strong>{formatPercentValue(mesOeeSummary.qualityPct)}</strong>
-                    <div className="mes-progress-track"><div className="mes-progress-fill" style={{ width: `${clampPercent(mesOeeSummary.qualityPct)}%` }} /></div>
-                  </article>
-                  <article className="mes-oee-card mes-oee-card-strong">
-                    <span>OEE</span>
-                    <strong>{formatPercentValue(mesOeeSummary.oeePct)}</strong>
-                    <div className="mes-progress-track"><div className="mes-progress-fill" style={{ width: `${clampPercent(mesOeeSummary.oeePct)}%` }} /></div>
-                  </article>
-                  <article className="mes-oee-card">
-                    <span>Odstavenie (min)</span>
-                    <strong>{new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(Math.max(0, Number(mesOeeSummary.shiftDowntimeMinutes || 0)))}</strong>
-                    <div className="mes-progress-track"><div className="mes-progress-fill" style={{ width: `${clampPercent(safeRatioPercent(mesOeeSummary.shiftDowntimeMs || 0, mesOeeSummary.shiftElapsedMs || 1))}%` }} /></div>
-                  </article>
-                </div>
-              </article>
-
-            </div>
-          </div>
-          <article className="orders-panel-card workflow-card workflow-card-list">
-            <div className="panel-head workflow-section-head">
-              <div>
-                <h2>Prestoje po hodinách</h2>
-                <p className="panel-meta">
-                  {`Rozpis prestojov vybraného stroja pre zmenu: ${selectedMesMachineHourlyDowntime?.label || "-"} | deň: ${selectedMesMachineHourlyDowntime?.dayLabel || "-"}.`}
-                </p>
-              </div>
-              <div className="stock-view-switch">
-                <button
-                  type="button"
-                  className="clear-btn"
-                  onClick={() => setMesHourlyDowntimeDayOffset((current) => current - 1)}
-                >
-                  Deň -1
-                </button>
-                <button
-                  type="button"
-                  className={`clear-btn ${mesHourlyDowntimeDayOffset === 0 ? "stock-view-btn-active" : ""}`}
-                  onClick={() => setMesHourlyDowntimeDayOffset(0)}
-                >
-                  Dnes
-                </button>
-                <button
-                  type="button"
-                  className="clear-btn"
-                  onClick={() => setMesHourlyDowntimeDayOffset((current) => Math.min(0, current + 1))}
-                  disabled={mesHourlyDowntimeDayOffset >= 0}
-                >
-                  Deň +1
-                </button>
-                <button
-                  type="button"
-                  className={`clear-btn ${mesHourlyDowntimeShiftKey === "shift_06_14" ? "stock-view-btn-active" : ""}`}
-                  onClick={() => setMesHourlyDowntimeShiftKey("shift_06_14")}
-                >
-                  Ranná
-                </button>
-                <button
-                  type="button"
-                  className={`clear-btn ${mesHourlyDowntimeShiftKey === "shift_14_22" ? "stock-view-btn-active" : ""}`}
-                  onClick={() => setMesHourlyDowntimeShiftKey("shift_14_22")}
-                >
-                  Poobedná
-                </button>
-              </div>
-            </div>
-            {selectedMesMachineHourlyDowntime ? (
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Hodina</th>
-                      <th>Prestoj (min)</th>
-                      <th>Podiel prestoja</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selectedMesMachineHourlyDowntime.rows.map((row) => (
-                      <tr key={row.key}>
-                        <td>{row.hourLabel}</td>
-                        <td>{new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(Math.max(0, Number(row.downtimeMinutes || 0)))}</td>
-                        <td>{formatPercentValue(row.downtimePct)}</td>
-                      </tr>
-                    ))}
-                    <tr>
-                      <td><strong>Spolu</strong></td>
-                      <td>
-                        <strong>
-                          {new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(
-                            Math.max(0, Number(selectedMesMachineHourlyDowntime.totalDowntimeMinutes || 0))
-                          )}
-                        </strong>
-                      </td>
-                      <td><strong>{formatPercentValue(selectedMesMachineHourlyDowntime.totalDowntimePct)}</strong></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+            {machineDashboardRows.length === 0 ? (
+              <p className="hint">Zatiaľ nie sú dostupné žiadne MES stroje. Najprv nastav pracoviská, stroje a terminály.</p>
             ) : (
-              <p className="hint">Vyber stroj pre rozpis hodinových prestojov.</p>
-            )}
-          </article>
-
-          <div className="mes-kpi-grid">
-            {mesPrimaryKpis.map((item) => (
-              <article key={item.label} className="card workflow-stat-card mes-kpi-card">
-                <span className="mes-kpi-label">{item.label}</span>
-                <strong>{item.value}</strong>
-                <p className="mes-kpi-meta">{item.meta}</p>
-              </article>
-            ))}
-          </div>
-            </>
-          ))}
-          {mesDashboardTab === "live" && mesDashboardCustomization.showMachineTable && machineDashboardRows.length > 0 && (
-          <article className="orders-panel-card workflow-card workflow-card-list">
-            <div className="panel-head workflow-section-head">
-              <div>
-                <h2>Prehľad strojov</h2>
-                <p className="panel-meta">Klik na stroj otvorí jeho detail. Farba zodpovedá aktuálnemu stavu stroja.</p>
-              </div>
-            </div>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Stroj</th>
-                    <th>ID stroja</th>
-                    <th>Aktuálna zákazka</th>
-                    <th>Stav stroja</th>
-                    <th>Skutočný cyklus</th>
-                    <th>Cieľový cyklus</th>
-                    <th>Vyrobené kusy</th>
-                    <th>Operátor</th>
-                    <th>Detail</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {machineDashboardRows.map((row) => (
-                    <tr
-                      key={row.machineId}
-                      className={selectedMesMachineId === row.machineId ? "mes-machine-row-selected" : ""}
-                      onClick={() => setSelectedMesMachineId(row.machineId)}
-                    >
-                      <td>
-                        <strong>{row.machineName}</strong>
-                        <div className="master-user-email">{`${row.workstationName} | ${row.area}`}</div>
-                      </td>
-                      <td>{row.machineCode || row.machineId || "-"}</td>
-                      <td>
-                        <div>{row.currentWorkOrder || "-"}</div>
-                        <div className="master-user-email">{row.itemName || row.itemCode || "-"}</div>
-                      </td>
-                      <td>
-                        <span className={`mes-status-badge mes-status-badge-${row.statusMeta.tone}`}>{row.statusMeta.label}</span>
-                      </td>
-                      <td>
-                        {Number.isFinite(row.actualCycleSeconds)
-                          ? `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(row.actualCycleSeconds)} s`
-                          : "-"}
-                      </td>
-                      <td>
-                        {Number.isFinite(row.targetCycleSeconds)
-                          ? `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(row.targetCycleSeconds)} s`
-                          : "-"}
-                      </td>
-                      <td>{new Intl.NumberFormat("sk-SK").format(row.producedParts || 0)}</td>
-                      <td>
-                        {row.operatorName ? (
-                          canAccessAttendanceModule ? (
-                            <button
-                              type="button"
-                              className="clear-btn mes-link-btn"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                openMesEmployee(row.operatorName);
-                              }}
-                            >
-                              {row.operatorName}
-                            </button>
-                          ) : (
-                            row.operatorName
-                          )
-                        ) : (
-                          "-"
-                        )}
-                      </td>
-                      <td>
+              <div className="orders-layout workflow-grid">
+                <div className="orders-column workflow-editor-column">
+                  <article className="orders-panel-card workflow-card workflow-card-list">
+                    <div className="panel-head workflow-section-head">
+                      <div>
+                        <h2>Stroje</h2>
+                        <p className="panel-meta">Klikni na stroj pre detail. Zastavené a alarmové stroje sú zoradené navrchu.</p>
+                      </div>
+                    </div>
+                    <div className="mes-factory-zone-grid">
+                      {sortedMachineRows.map((machine) => (
                         <button
+                          key={machine.machineId || machine.workstationId || machine.machineName}
                           type="button"
-                          className="clear-btn mes-link-btn"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setSelectedMesMachineId(row.machineId);
-                          }}
+                          className={`mes-factory-tile mes-factory-tile-${machine.statusMeta?.tone || "idle"} ${selectedMesMachineId === machine.machineId ? "mes-factory-tile-selected" : ""}`}
+                          onClick={() => setSelectedMesMachineId(machine.machineId)}
                         >
-                          Otvoriť
+                          <strong>{machine.machineName}</strong>
+                          <span>{machine.currentWorkOrder || machine.statusMeta?.label || "bez zákazky"}</span>
                         </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                </table>
-              </div>
-            </article>
-          )}
-
-          {mesDashboardTab === "analytics" && mesDashboardCustomization.showThroughputQuality && machineDashboardRows.length > 0 && (
-              <article className="orders-panel-card workflow-card workflow-card-list mes-throughput-panel">
-                <div className="panel-head workflow-section-head">
-                  <div>
-                    <h2>Výrobný výkon</h2>
-                  </div>
-                  <div className="mes-throughput-controls">
-                    <label className="workflow-field mes-throughput-range-field">
-                      <span className="workflow-field-label">Obdobie</span>
-                      <select
-                        value={mesThroughputRangeKey}
-                        onChange={(event) => setMesThroughputRangeKey(event.target.value)}
-                      >
-                        {MES_THROUGHPUT_RANGE_OPTIONS.map((option) => (
-                          <option key={option.key} value={option.key}>{option.label}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="workflow-field mes-throughput-range-field">
-                      <span className="workflow-field-label">Stroj</span>
-                      <select
-                        value={mesThroughputMachineId}
-                        onChange={(event) => setMesThroughputMachineId(event.target.value)}
-                      >
-                        <option value="all">Všetky stroje</option>
-                        {mesMachineOptions.map((option) => (
-                          <option key={option.id} value={option.id}>
-                            {`${option.label} | ${option.workstationName}`}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    {MES_THROUGHPUT_SHIFT_RANGE_KEYS.has(mesThroughputRangeKey) && (
-                      <label className="workflow-field mes-throughput-date-field">
-                        <span className="workflow-field-label">Dátum smeny</span>
-                        <input
-                          className="invoice-date-input"
-                          type="date"
-                          value={mesThroughputShiftDate}
-                          onChange={(event) => setMesThroughputShiftDate(event.target.value)}
-                        />
-                      </label>
-                    )}
-                    {mesThroughputRangeKey === "custom" && (
-                      <>
-                        <label className="workflow-field mes-throughput-date-field">
-                          <span className="workflow-field-label">Od</span>
-                          <input
-                            className="invoice-date-input"
-                            type="date"
-                            value={mesThroughputCustomStartDate}
-                            onChange={(event) => setMesThroughputCustomStartDate(event.target.value)}
-                          />
-                        </label>
-                        <label className="workflow-field mes-throughput-date-field">
-                          <span className="workflow-field-label">Do</span>
-                          <input
-                            className="invoice-date-input"
-                            type="date"
-                            value={mesThroughputCustomEndDate}
-                            onChange={(event) => setMesThroughputCustomEndDate(event.target.value)}
-                          />
-                        </label>
-                      </>
-                    )}
-                  </div>
-                </div>
-                <div className="mes-throughput-metrics">
-                  <article className="mes-mini-stat">
-                    <span>Priemer / hodina</span>
-                    <strong>{new Intl.NumberFormat("sk-SK").format(mesThroughput.partsPerHour)}</strong>
+                      ))}
+                    </div>
                   </article>
-                  <article className="mes-mini-stat">
-                    <span>Kusy / obdobie</span>
-                    <strong>{new Intl.NumberFormat("sk-SK").format(mesThroughput.partsPerShift)}</strong>
-                  </article>
-                  <article className="mes-mini-stat">
-                    <span>Maximum / interval</span>
-                    <strong>{new Intl.NumberFormat("sk-SK").format(mesThroughput.partsPerDay)}</strong>
-                    </article>
-                  </div>
-                <div className="occupancy-chart-wrap mes-throughput-chart-wrap">
-                  <svg viewBox="0 0 100 100" className="occupancy-chart" preserveAspectRatio="none" role="img" aria-label="MES throughput po hodinách">
-                    <line x1="0" y1="100" x2="100" y2="100" className="occupancy-chart-axis" />
-                    <polyline points={mesThroughput.hourlyPolyline} className="occupancy-chart-line" />
-                  </svg>
-                  <div className="occupancy-chart-labels">
-                    <span>{mesThroughput.hourlySeries[0]?.label || "-"}</span>
-                    <span>{mesThroughput.hourlySeries[Math.floor((mesThroughput.hourlySeries.length - 1) / 2)]?.label || "-"}</span>
-                    <span>{mesThroughput.hourlySeries[mesThroughput.hourlySeries.length - 1]?.label || "-"}</span>
-                  </div>
-                </div>
-                <div className="mes-throughput-quantity-grid">
-                  {mesThroughput.hourlySeries.map((row) => (
-                    <article key={row.key} className="mes-throughput-quantity-item">
-                      <span>{row.label}</span>
-                      <strong>{new Intl.NumberFormat("sk-SK").format(row.total)}</strong>
-                    </article>
-                  ))}
-                </div>
-              </article>
-          )}
 
-          {mesDashboardTab === "live" &&
-            (mesDashboardCustomization.showAvailableOperators || mesDashboardCustomization.showActiveOperators) &&
-            machineDashboardRows.length > 0 && (
-            <article className="orders-panel-card workflow-card workflow-card-list">
-              <div className="panel-head workflow-section-head">
-                <div>
-                  <h2>Operátori</h2>
-                  <p className="panel-meta">Jednotný prehľad operátorov z attendance a MES session.</p>
-                </div>
-                <div className="hero-badges">
-                  <div className="stock-view-switch">
-                    <button
-                      type="button"
-                      className={`clear-btn ${mesOperatorPresenceFilter === "all" ? "stock-view-btn-active" : ""}`}
-                      onClick={() => setMesOperatorPresenceFilter("all")}
-                    >
-                      Všetci
-                    </button>
-                    <button
-                      type="button"
-                      className={`clear-btn ${mesOperatorPresenceFilter === "active" ? "stock-view-btn-active" : ""}`}
-                      onClick={() => setMesOperatorPresenceFilter("active")}
-                    >
-                      Aktívni
-                    </button>
-                    <button
-                      type="button"
-                      className={`clear-btn ${mesOperatorPresenceFilter === "available" ? "stock-view-btn-active" : ""}`}
-                      onClick={() => setMesOperatorPresenceFilter("available")}
-                    >
-                      Dostupní
-                    </button>
-                  </div>
-                  <span className="panel-meta">{`${filteredMesUnifiedOperators.filter((operator) => operator.isActiveInMes).length} aktívnych / ${filteredMesUnifiedOperators.length}`}</span>
-                  <span className="panel-meta">
-                    {mesLatestLoggedInOperator?.operatorName
-                      ? `Posledné prihlásenie: ${mesLatestLoggedInOperator.operatorName}${mesLatestLoggedInOperator.happenedAt ? ` | ${formatDate(mesLatestLoggedInOperator.happenedAt)}` : ""}`
-                      : "Posledné prihlásenie: -"}
-                  </span>
-                </div>
-              </div>
-              {filteredMesUnifiedOperators.length === 0 ? (
-                <p className="hint">Pre zvolený filter zatiaľ nie sú dostupní žiadni operátori.</p>
-              ) : (
-                <div className="orders-list attendance-list mes-operator-list">
-                  {filteredMesUnifiedOperators.map((operator) => (
-                    <article key={operator.key} className="order-card attendance-card mes-operator-card">
-                      <div className="order-card-head attendance-card-head mes-operator-card-head">
-                        <div>
-                          <strong>{operator.operatorName}</strong>
-                          <p>{operator.employeeCode || operator.currentMachineName || "Bez aktívneho stroja"}</p>
-                        </div>
-                        <div className="attendance-card-pills">
-                          <span className="table-badge">{operator.isActiveInMes ? "aktívny" : "dostupný"}</span>
-                        </div>
+                  <article className="orders-panel-card workflow-card workflow-card-list mes-throughput-panel">
+                    <div className="panel-head workflow-section-head">
+                      <div>
+                        <h2>Výkon výroby</h2>
+                        <p className="panel-meta">OK/NOK kusy v zvolenom období podľa MES eventov a job runov.</p>
                       </div>
-                      <div className="order-detail attendance-card-body">
-                        <div className="attendance-meta-grid mes-terminal-meta-grid">
-                          <div>
-                            <span className="draft-field-label">Stroj</span>
-                            <p>{operator.currentMachineName || "-"}</p>
-                          </div>
-                          <div>
-                            <span className="draft-field-label">Zákazka</span>
-                            <p>{operator.currentWorkOrder || "-"}</p>
-                          </div>
-                          <div>
-                            <span className="draft-field-label">Session od</span>
-                            <p>{operator.sessionStartedAt ? formatDate(operator.sessionStartedAt) : "-"}</p>
-                          </div>
-                          <div>
-                            <span className="draft-field-label">Posledná aktivita</span>
-                            <p>{operator.lastSeenAt ? formatDate(operator.lastSeenAt) : "-"}</p>
-                          </div>
-                          <div>
-                            <span className="draft-field-label">OK kusy</span>
-                            <p>{new Intl.NumberFormat("sk-SK").format(operator.sessionGoodParts)}</p>
-                          </div>
-                          <div>
-                            <span className="draft-field-label">NOK kusy</span>
-                            <p>{new Intl.NumberFormat("sk-SK").format(operator.sessionScrapParts)}</p>
-                          </div>
-                        </div>
-                        {canAccessAttendanceModule && operator.operatorName && (
-                          <div className="order-card-actions">
-                            <button
-                              type="button"
-                              className="clear-btn"
-                              onClick={() => {
-                                setAttendanceProfileSearch(operator.operatorName || "");
-                                setSelectedTable(ROLE_TABLE);
-                              }}
-                            >
-                              Zamestnanec
-                            </button>
-                          </div>
+                      <div className="hero-badges mes-throughput-controls">
+                        <label className="workflow-field mes-throughput-range-field">
+                          <span className="workflow-field-label">Obdobie</span>
+                          <select value={mesThroughputRangeKey} onChange={(event) => setMesThroughputRangeKey(event.target.value)}>
+                            {MES_THROUGHPUT_RANGE_OPTIONS.map((option) => (
+                              <option key={option.key} value={option.key}>{option.label}</option>
+                            ))}
+                          </select>
+                        </label>
+                        {MES_THROUGHPUT_SHIFT_RANGE_KEYS.has(mesThroughputRangeKey) && (
+                          <label className="workflow-field mes-throughput-date-field">
+                            <span className="workflow-field-label">Dátum smeny</span>
+                            <input type="date" value={mesThroughputShiftDate} onChange={(event) => setMesThroughputShiftDate(event.target.value)} />
+                          </label>
+                        )}
+                        {mesThroughputRangeKey === "custom" && (
+                          <>
+                            <label className="workflow-field mes-throughput-date-field">
+                              <span className="workflow-field-label">Od</span>
+                              <input type="date" value={mesThroughputCustomStartDate} onChange={(event) => setMesThroughputCustomStartDate(event.target.value)} />
+                            </label>
+                            <label className="workflow-field mes-throughput-date-field">
+                              <span className="workflow-field-label">Do</span>
+                              <input type="date" value={mesThroughputCustomEndDate} onChange={(event) => setMesThroughputCustomEndDate(event.target.value)} />
+                            </label>
+                          </>
                         )}
                       </div>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </article>
-          )}
-
-          {mesDashboardTab === "analytics" && (
-            <>
-              <article className="orders-panel-card workflow-card workflow-card-list">
-                <div className="panel-head workflow-section-head">
-                  <div>
-                    <h2>Výkon operátorov</h2>
-                    <p className="panel-meta">Výkon jednotlivých operátorov podľa aktívnej session (ks/h, kvalita, trvanie).</p>
-                  </div>
-                </div>
-                <div className="mes-kpi-grid">
-                  <article className="card workflow-stat-card mes-kpi-card">
-                    <span className="mes-kpi-label">Aktívni operátori</span>
-                    <strong>{new Intl.NumberFormat("sk-SK").format(mesOperatorPerformanceSummary.activeCount)}</strong>
-                    <p className="mes-kpi-meta">{`${new Intl.NumberFormat("sk-SK").format(mesOperatorPerformanceSummary.totalCount)} v prehľade`}</p>
-                  </article>
-                  <article className="card workflow-stat-card mes-kpi-card">
-                    <span className="mes-kpi-label">Priemerný výkon</span>
-                    <strong>{`${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(mesOperatorPerformanceSummary.avgRate)} ks/h`}</strong>
-                    <p className="mes-kpi-meta">naprieč operátormi v session</p>
-                  </article>
-                  <article className="card workflow-stat-card mes-kpi-card">
-                    <span className="mes-kpi-label">Top operátor</span>
-                    <strong>{mesOperatorPerformanceSummary.topPerformer?.operatorName || "-"}</strong>
-                    <p className="mes-kpi-meta">
-                      {mesOperatorPerformanceSummary.topPerformer
-                        ? `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(mesOperatorPerformanceSummary.topPerformer.partsPerHour)} ks/h`
-                        : "bez dát"}
-                    </p>
-                  </article>
-                </div>
-                {mesOperatorPerformanceRows.length === 0 ? (
-                  <p className="hint">Zatiaľ nie sú dostupné session dáta pre výpočet výkonu operátorov.</p>
-                ) : (
-                  <div className="table-wrap">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Operátor</th>
-                          <th>Stroj</th>
-                          <th>Zákazka</th>
-                          <th>Vyrobené</th>
-                          <th>OK / NOK</th>
-                          <th>Kvalita</th>
-                          <th>Výkon (ks/h)</th>
-                          <th>Session trvanie</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {mesOperatorPerformanceRows.map((row) => (
-                          <tr key={`perf-${row.key}`}>
-                            <td>{row.operatorName}</td>
-                            <td>{row.currentMachineName || "-"}</td>
-                            <td>{row.currentWorkOrder || "-"}</td>
-                            <td>{new Intl.NumberFormat("sk-SK").format(row.producedParts)}</td>
-                            <td>{`${new Intl.NumberFormat("sk-SK").format(row.goodParts)} / ${new Intl.NumberFormat("sk-SK").format(row.scrapParts)}`}</td>
-                            <td>{row.qualityPct === null ? "-" : formatPercentValue(row.qualityPct)}</td>
-                            <td>{`${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(row.partsPerHour)} ks/h`}</td>
-                            <td>{row.elapsedMs > 0 ? formatDurationShort(row.elapsedMs) : "-"}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </article>
-
-              <article className="orders-panel-card workflow-card workflow-card-list">
-                <div className="panel-head workflow-section-head">
-                  <div>
-                    <h2>Opakujúce sa eventy</h2>
-                    <p className="panel-meta">Najčastejšie opakovania podľa typu eventu, dôvodu a stroja, vrátane priemernej frekvencie.</p>
-                  </div>
-                </div>
-                {mesRecurringEventRows.length === 0 ? (
-                  <p className="hint">Zatiaľ nie sú zachytené opakujúce sa eventy (min. 2 výskyty).</p>
-                ) : (
-                  <div className="table-wrap">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Event</th>
-                          <th>Stroj</th>
-                          <th>Dôvod</th>
-                          <th>Počet</th>
-                          <th>Frekvencia</th>
-                          <th>Naposledy</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {mesRecurringEventRows.map((row) => (
-                          <tr key={row.key}>
-                            <td>{row.eventType}</td>
-                            <td>{row.machineLabel}</td>
-                            <td>{row.reason}</td>
-                            <td>{new Intl.NumberFormat("sk-SK").format(row.count)}</td>
-                            <td>{row.frequencyLabel}</td>
-                            <td>{row.lastSeenAt ? formatDate(row.lastSeenAt) : "-"}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </article>
-            </>
-          )}
-
-          {mesDashboardTab === "map" && mesDashboardCustomization.showFactoryMap && mesViewRole !== "operator" && (
-            <div className="orders-layout workflow-grid">
-              <div className="orders-column workflow-editor-column">
-                <article className="orders-panel-card workflow-card workflow-card-list">
-                  <div className="panel-head workflow-section-head">
-                    <div>
-                    <h2>Mapa výroby</h2>
-                    <p className="panel-meta">Voliteľný prevádzkový pohľad s farebnými dlaždicami strojov a mapou terminálov na mriežke.</p>
                     </div>
-                    <div className="order-card-actions">
-                      <button type="button" className="clear-btn" onClick={() => setIsMesMapEditMode((current) => !current)}>
-                        {isMesMapEditMode ? "Ukončiť úpravy mapy" : "Upraviť mapu"}
-                      </button>
-                      <button
-                        type="button"
-                        className="clear-btn"
-                        onClick={() =>
-                          setMesDashboardCustomization((current) => ({
-                            ...current,
-                            terminalMapLayout: {}
-                          }))
-                        }
-                      >
-                        Reset mapy terminálov
-                      </button>
+                    <div className="mes-throughput-metrics">
+                      <article className="mes-throughput-quantity-item">
+                        <span>Vyrobené</span>
+                        <strong>{new Intl.NumberFormat("sk-SK").format(mesThroughput.total)}</strong>
+                      </article>
+                      <article className="mes-throughput-quantity-item">
+                        <span>OK</span>
+                        <strong>{new Intl.NumberFormat("sk-SK").format(mesThroughput.good)}</strong>
+                      </article>
+                      <article className="mes-throughput-quantity-item">
+                        <span>NOK</span>
+                        <strong>{new Intl.NumberFormat("sk-SK").format(mesThroughput.scrap)}</strong>
+                      </article>
+                      <article className="mes-throughput-quantity-item">
+                        <span>Kvalita</span>
+                        <strong>{formatPercentValue(mesThroughput.qualityPct)}</strong>
+                      </article>
                     </div>
-                  </div>
-                  <div className="mes-factory-map">
-                    {mesFactoryMapZones.map((zone) => (
-                      <section key={zone.area} className="mes-factory-zone">
-                        <div className="mes-factory-zone-head">
-                          <strong>{zone.area}</strong>
-                          <span>{`${zone.machines.length} strojov | ${zone.terminals.length} terminálov`}</span>
-                        </div>
-                        <div className="mes-factory-zone-grid">
-                          {zone.machines.map((machine) => (
-                            <button
-                              key={machine.machineId}
-                              type="button"
-                              className={`mes-factory-tile mes-factory-tile-${machine.statusMeta.tone} ${selectedMesMachineId === machine.machineId ? "mes-factory-tile-selected" : ""}`}
-                              onClick={() => setSelectedMesMachineId(machine.machineId)}
-                            >
-                              <strong>{machine.machineName}</strong>
-                              <span>{machine.currentWorkOrder || machine.statusMeta.label}</span>
-                            </button>
-                          ))}
-                        </div>
-                        <div className="mes-terminal-grid-shell">
-                          <div className="mes-terminal-grid-head">
-                            <strong>Mapa terminálov</strong>
-                            <span>{isMesMapEditMode ? "Drag & drop režim je zapnutý" : "Zapni úpravy mapy pre presun terminálov"}</span>
+                    <div className="occupancy-chart mes-throughput-chart-wrap" aria-label="Výkon výroby podľa času">
+                      {mesThroughput.hourlySeries.map((point) => {
+                        const height = Math.max(4, Math.round((Number(point.total || 0) / throughputMaxValue) * 100));
+                        return (
+                          <div key={point.key} className="occupancy-bar-wrap" title={`${point.label}: ${point.total} ks`}>
+                            <div className="occupancy-bar" style={{ height: `${height}%` }} />
+                            <span>{point.label}</span>
                           </div>
-                          <div className="mes-terminal-grid">
-                            {Array.from({ length: MES_FACTORY_TERMINAL_GRID_ROWS * MES_FACTORY_TERMINAL_GRID_COLS }, (_, index) => {
-                              const row = Math.floor(index / MES_FACTORY_TERMINAL_GRID_COLS) + 1;
-                              const col = (index % MES_FACTORY_TERMINAL_GRID_COLS) + 1;
-                              const cellKey = `${row}:${col}`;
-                              const placedTerminal = zone.placedTerminalByCell[cellKey] || null;
-                              return (
-                                <div
-                                  key={`${zone.area}-${cellKey}`}
-                                  className={`mes-terminal-cell${placedTerminal ? " has-terminal" : ""}${isMesMapEditMode ? " is-editable" : ""}`}
-                                  onDragOver={(event) => {
-                                    if (!isMesMapEditMode) {
-                                      return;
-                                    }
-                                    event.preventDefault();
-                                    event.dataTransfer.dropEffect = "move";
-                                  }}
-                                  onDrop={(event) => handleMesTerminalDrop(event, zone.area, row, col)}
-                                >
-                                  {placedTerminal ? (
-                                    <div
-                                      className={`mes-terminal-chip ${placedTerminal.isOnline ? "is-online" : "is-offline"}`}
-                                      draggable={isMesMapEditMode}
-                                      onDragStart={(event) => handleMesTerminalDragStart(event, placedTerminal.terminalId)}
-                                    >
-                                      <strong>{placedTerminal.name || placedTerminal.terminal_code || "Terminál"}</strong>
-                                      <span>{placedTerminal.workstationLabel}</span>
-                                      {isMesMapEditMode && (
-                                        <button
-                                          type="button"
-                                          className="clear-btn mes-terminal-unpin-btn"
-                                          onClick={() => handleMesTerminalPlacementReset(placedTerminal.terminalId)}
-                                        >
-                                          Odopnúť
-                                        </button>
-                                      )}
-                                    </div>
-                                  ) : (
-                                    <small>{`${row}:${col}`}</small>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                          {zone.unplacedTerminals.length > 0 && (
-                            <div className="mes-terminal-pool">
-                              <p className="panel-meta">Neumiestnené terminály</p>
-                              <div className="mes-terminal-pool-list">
-                                {zone.unplacedTerminals.map((terminal) => (
-                                  <div
-                                    key={`${zone.area}-${terminal.terminalId}`}
-                                    className={`mes-terminal-chip ${terminal.isOnline ? "is-online" : "is-offline"}${isMesMapEditMode ? "" : " is-readonly"}`}
-                                    draggable={isMesMapEditMode}
-                                    onDragStart={(event) => handleMesTerminalDragStart(event, terminal.terminalId)}
-                                  >
-                                    <strong>{terminal.name || terminal.terminal_code || "Terminál"}</strong>
-                                    <span>{terminal.workstationLabel}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </section>
-                    ))}
-                  </div>
-                </article>
-              </div>
-              <div className="orders-column orders-column-list workflow-feed-column">
-                <article className="orders-panel-card workflow-card workflow-card-list">
-                  <div className="panel-head workflow-section-head">
-                    <div>
-                      <h2>Export udalostí stroja</h2>
-                      <p className="panel-meta">Vyexportuj udalosti aktuálne vybraného stroja do Excelu.</p>
+                        );
+                      })}
                     </div>
-                  </div>
-                  {selectedMesMachineEvents.length === 0 ? (
-                    <p className="hint">Pre vybraný stroj zatiaľ nie sú žiadne udalosti na export.</p>
-                  ) : (
-                    <div className="mes-terminal-summary-card">
-                      <div className="mes-terminal-summary-grid">
-                        <article>
-                          <span className="draft-field-label">Vybraný stroj</span>
-                          <strong>{selectedMesMachineOverview?.machineName || "-"}</strong>
-                          <p>{selectedMesMachineOverview?.currentWorkOrder || "Bez aktívnej zákazky"}</p>
-                        </article>
-                        <article>
-                          <span className="draft-field-label">Počet udalostí</span>
-                          <strong>{new Intl.NumberFormat("sk-SK").format(selectedMesMachineEvents.length)}</strong>
-                          <p>Exportujú sa všetky načítané udalosti pre vybraný stroj.</p>
-                        </article>
+                  </article>
+                </div>
+
+                <div className="orders-column orders-column-list workflow-feed-column">
+                  <article className="orders-panel-card workflow-card workflow-card-list mes-machine-detail-card">
+                    <div className="panel-head workflow-section-head">
+                      <div>
+                        <h2>{selectedMachineLabel}</h2>
+                        <p className="panel-meta">Detail vybraného stroja, aktuálna zákazka a posledné udalosti.</p>
                       </div>
-                      <div className="order-card-actions">
-                        <button type="button" className="settings-btn" onClick={handleExportSelectedMesMachineEvents}>
-                          Exportovať do Excelu
+                      <div className="hero-badges">
+                        <span className={`table-badge mes-factory-tile-${selectedMachineStatusMeta.tone}`}>{selectedMachineStatusMeta.label}</span>
+                        {selectedMachineOperatorName && <span className="table-badge">{selectedMachineOperatorName}</span>}
+                      </div>
+                    </div>
+                    <div className="mes-machine-summary">
+                      <div className="mes-machine-summary-main">
+                        <span className="draft-field-label">Aktuálna zákazka</span>
+                        <strong>{currentMesMachineRun?.item_name || currentMesMachineRun?.job_number || selectedMesMachineOverview?.currentWorkOrder || "Bez aktívnej zákazky"}</strong>
+                        <p className="panel-meta">
+                          {currentMesMachineRun
+                            ? `${currentMesMachineRun.item_code || "-"} | plán ${new Intl.NumberFormat("sk-SK").format(currentMesMachineRun.planned_quantity || 0)} | OK ${new Intl.NumberFormat("sk-SK").format(currentMesMachineRun.good_quantity || 0)} | NOK ${new Intl.NumberFormat("sk-SK").format(currentMesMachineRun.scrap_quantity || 0)}`
+                            : "Vyber stroj s aktívnym job runom pre detail zákazky."}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mes-machine-panel-grid">
+                      <article>
+                        <span className="draft-field-label">Výkon</span>
+                        <strong>{selectedMesMachineStats ? formatPercentValue(selectedMesMachineStats.performancePct) : "-"}</strong>
+                      </article>
+                      <article>
+                        <span className="draft-field-label">Kvalita</span>
+                        <strong>{selectedMesMachineStats ? formatPercentValue(selectedMesMachineStats.qualityPct) : "-"}</strong>
+                      </article>
+                      <article>
+                        <span className="draft-field-label">MTBF</span>
+                        <strong>{selectedMesMachineStats ? formatDurationShort(selectedMesMachineStats.mtbfMs) : "-"}</strong>
+                      </article>
+                      <article>
+                        <span className="draft-field-label">MTTR</span>
+                        <strong>{selectedMesMachineStats ? formatDurationShort(selectedMesMachineStats.mttrMs) : "-"}</strong>
+                      </article>
+                    </div>
+                    <div className="mes-machine-events">
+                      <div className="mes-machine-events-head">
+                        <strong>Posledné udalosti</strong>
+                        <button type="button" className="clear-btn" onClick={handleExportSelectedMesMachineEvents} disabled={selectedMesMachineEvents.length === 0}>
+                          Export stroja
                         </button>
                       </div>
+                      {recentEvents.length === 0 ? (
+                        <p className="hint">Pre vybraný stroj zatiaľ nie sú dostupné udalosti.</p>
+                      ) : (
+                        <div className="table-wrap">
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>Čas</th>
+                                <th>Event</th>
+                                <th>Dôvod</th>
+                                <th>Kusy</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {recentEvents.map((event) => (
+                                <tr key={buildMesEventIdentity(event)}>
+                                  <td>{formatDate(event.happened_at || event.created_at)}</td>
+                                  <td>{formatMesEventLabel(event.event_type)}</td>
+                                  <td>{mesDowntimeReasonNameById[event.downtime_reason_id] || event.downtime_reason_name || event.downtime_reason_code || event.note || "-"}</td>
+                                  <td>{new Intl.NumberFormat("sk-SK").format(Number(event.quantity || 0))}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </article>
+                  </article>
+
+                  <article className="orders-panel-card workflow-card workflow-card-list">
+                    <div className="panel-head workflow-section-head">
+                      <div>
+                        <h2>Prestoje</h2>
+                        <p className="panel-meta">Najčastejšie dôvody prestojov podľa MES eventov.</p>
+                      </div>
+                    </div>
+                    {topDowntimeReasons.length === 0 ? (
+                      <p className="hint">Zatiaľ nie sú evidované downtime eventy.</p>
+                    ) : (
+                      <div className="orders-list compact-list">
+                        {topDowntimeReasons.map((reason) => (
+                          <div key={reason.reason || reason.label} className="daily-activity-item">
+                            <div>
+                              <strong>{reason.reason || reason.label || "Prestoj"}</strong>
+                              <p>{`${new Intl.NumberFormat("sk-SK").format(reason.count || 0)} udalostí`}</p>
+                            </div>
+                            <span>{formatDurationShort(reason.totalMs || reason.durationMs || 0)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </article>
+
+                  <article className="orders-panel-card workflow-card workflow-card-list">
+                    <div className="panel-head workflow-section-head">
+                      <div>
+                        <h2>Aktívne zákazky</h2>
+                        <p className="panel-meta">Bežiace a otvorené výrobné zákazky.</p>
+                      </div>
+                    </div>
+                    {mesProductionOrderRows.length === 0 ? (
+                      <p className="hint">Momentálne nebeží žiadna MES zákazka.</p>
+                    ) : (
+                      <div className="orders-list compact-list">
+                        {mesProductionOrderRows.slice(0, 8).map((row) => (
+                          <div key={row.id || row.job_number} className="daily-activity-item">
+                            <div>
+                              <strong>{row.job_number || row.production_number || "Zákazka"}</strong>
+                              <p>{`${row.item_name || row.title || "-"} | ${row.machineName || row.workstationName || "-"}`}</p>
+                            </div>
+                            <span>{new Intl.NumberFormat("sk-SK").format(Number(row.good_quantity || row.goodParts || 0))} OK</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </article>
+                </div>
               </div>
-            </div>
-          )}
-        </>
-      )}
+            )}
+          </>
+        )}
       </article>
     );
   };
@@ -28916,6 +25589,11 @@ function App() {
 }
 
 export default App;
+
+
+
+
+
 
 
 

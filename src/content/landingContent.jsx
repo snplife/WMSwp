@@ -1,4 +1,4 @@
-﻿import { Boxes, ClipboardList, Clock3, Factory, FileText, ShieldCheck } from "lucide-react";
+﻿import { Boxes, ClipboardList, Clock3, Factory, FileText, MonitorSmartphone, ShieldCheck } from "lucide-react";
 
 export const LANDING_LEGAL_DOCUMENTS = {
   vop: {
@@ -294,3 +294,4 @@ export const LANDING_FLOW_SCENARIOS = [
     ]
   }
 ];
+

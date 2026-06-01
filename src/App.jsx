@@ -10037,34 +10037,6 @@ function App() {
 
         return rows;
       };
-      const fetchAllMesTerminalEvents = async () => {
-        const rows = [];
-        let from = 0;
-
-        while (true) {
-          const { data: pageData, error: pageError } = await supabase
-            .from("mes_terminal_events")
-            .select("id,terminal_id,workstation_code,operator_code,event_type,payload,event_ts,created_at")
-            .gte("event_ts", mesLookbackStartAt)
-            .order("event_ts", { ascending: false })
-            .range(from, from + MES_QUERY_PAGE_SIZE - 1);
-
-          if (pageError) {
-            if (isMissingRelationError(pageError, "mes_terminal_events")) {
-              return [];
-            }
-            throw pageError;
-          }
-
-          rows.push(...(pageData || []));
-          if (!pageData || pageData.length < MES_QUERY_PAGE_SIZE) {
-            break;
-          }
-          from += MES_QUERY_PAGE_SIZE;
-        }
-
-        return rows;
-      };
       const fetchAllMesDetailedEvents = async (jobRunIds) => {
         const rows = [];
         const uniqueIds = Array.from(new Set((jobRunIds || []).filter(Boolean)));
@@ -10129,13 +10101,12 @@ function App() {
         .eq("company_id", scopedCompanyId)
         .order("created_at", { ascending: true });
 
-      const [overviewResult, jobRunsResult, eventsResult, legacyTerminalEventsResult, downtimeReasonsResult, workstationsResult, terminalsResult] = await Promise.all([
+      const [overviewResult, jobRunsResult, eventsResult, downtimeReasonsResult, workstationsResult, terminalsResult] = await Promise.all([
         supabase.rpc("mes_factory_overview", {
           p_company_id: scopedCompanyId
         }),
         fetchAllMesJobRuns(),
         fetchAllMesEvents(),
-        fetchAllMesTerminalEvents(),
         supabase
           .from("mes_downtime_reasons")
           .select("id,name,code")
@@ -10155,9 +10126,6 @@ function App() {
       const jobRunsError = Array.isArray(jobRunsResult) ? null : jobRunsResult?.error || null;
       const eventData = Array.isArray(eventsResult) ? eventsResult : eventsResult?.data || [];
       const eventsError = Array.isArray(eventsResult) ? null : eventsResult?.error || null;
-      const legacyTerminalEventsData = Array.isArray(legacyTerminalEventsResult)
-        ? legacyTerminalEventsResult
-        : legacyTerminalEventsResult?.data || [];
       const { data: downtimeReasonsData, error: downtimeReasonsError } = downtimeReasonsResult;
       const { data: workstationData, error: workstationsError } = workstationsResult;
       const { data: terminalData, error: terminalsError } = terminalsResult;
@@ -10269,105 +10237,6 @@ function App() {
           downtime_reason_name: String(reason?.name || row.note || "")
         };
       });
-      const terminalByCode = Object.fromEntries(
-        (terminalData || []).map((row) => [String(row.terminal_code || "").trim().toUpperCase(), row])
-      );
-      const workstationByCode = Object.fromEntries(
-        (workstationData || []).map((row) => [String(row.code || "").trim().toUpperCase(), row])
-      );
-      const workstationById = Object.fromEntries((workstationData || []).map((row) => [String(row.id || ""), row]));
-      const machinesByWorkstationId = {};
-      (machineData || []).forEach((row) => {
-        const workstationId = String(row.workstation_id || "").trim();
-        if (!workstationId) {
-          return;
-        }
-        if (!machinesByWorkstationId[workstationId]) {
-          machinesByWorkstationId[workstationId] = [];
-        }
-        machinesByWorkstationId[workstationId].push(row);
-      });
-      const findMesRunForTerminalEvent = ({ jobNumber, terminalId, workstationId, machineId, happenedAt }) => {
-        const normalizedJobNumber = String(jobNumber || "").trim().toLowerCase();
-        const happenedMs = new Date(happenedAt || 0).getTime();
-        return (
-          (jobRunsData || [])
-            .filter((row) => {
-              if (normalizedJobNumber && String(row.job_number || "").trim().toLowerCase() !== normalizedJobNumber) {
-                return false;
-              }
-              if (terminalId && String(row.terminal_id || "") === String(terminalId)) {
-                return true;
-              }
-              if (machineId && String(row.machine_id || "") === String(machineId)) {
-                return true;
-              }
-              if (workstationId && String(row.workstation_id || "") === String(workstationId)) {
-                return true;
-              }
-              return !terminalId && !machineId && !workstationId;
-            })
-            .sort((a, b) => {
-              const aActive = ["running", "paused", "queued", "planned"].includes(String(a.status || "").toLowerCase()) ? 0 : 1;
-              const bActive = ["running", "paused", "queued", "planned"].includes(String(b.status || "").toLowerCase()) ? 0 : 1;
-              const aDelta = Number.isFinite(happenedMs)
-                ? Math.abs(happenedMs - new Date(a.started_at || a.created_at || 0).getTime())
-                : 0;
-              const bDelta = Number.isFinite(happenedMs)
-                ? Math.abs(happenedMs - new Date(b.started_at || b.created_at || 0).getTime())
-                : 0;
-              return aActive - bActive || aDelta - bDelta;
-            })[0] || null
-        );
-      };
-      const legacyTerminalEventRows = (legacyTerminalEventsData || [])
-        .map((row) => {
-          const payload = row.payload && typeof row.payload === "object" ? row.payload : {};
-          const terminalCode = String(row.terminal_id || payload.terminal_id || "").trim().toUpperCase();
-          const workstationCode = String(row.workstation_code || payload.workstation_code || "").trim().toUpperCase();
-          const terminal = terminalByCode[terminalCode] || null;
-          const workstation = workstationByCode[workstationCode] || (terminal?.workstation_id ? workstationById[String(terminal.workstation_id)] || null : null);
-          if (scopedCompanyId && !terminal && !workstation) {
-            return null;
-          }
-          const machine = (workstation?.id ? machinesByWorkstationId[String(workstation.id)] || [] : [])[0] || null;
-          const happenedAt = row.event_ts || row.created_at || null;
-          const jobNumber = String(payload.job || payload.job_number || payload.order_code || "").trim();
-          const run = findMesRunForTerminalEvent({
-            jobNumber,
-            terminalId: terminal?.id || "",
-            workstationId: workstation?.id || terminal?.workstation_id || "",
-            machineId: machine?.id || "",
-            happenedAt
-          });
-          const eventType = normalizeMesCompactEventCode(row.event_type, payload);
-          return {
-            id: `terminal_event:${row.id}`,
-            company_id: String(terminal?.company_id || workstation?.company_id || run?.company_id || scopedCompanyId || ""),
-            terminal_id: String(terminal?.id || terminalCode || ""),
-            workstation_id: String(workstation?.id || terminal?.workstation_id || run?.workstation_id || ""),
-            machine_id: String(run?.machine_id || machine?.id || ""),
-            job_run_id: String(run?.id || ""),
-            operator_user_id: "",
-            operator_name: String(row.operator_code || payload.operator_name || payload.operator_id || "").trim(),
-            event_type: eventType,
-            quantity: getMesPayloadQuantity(payload),
-            note: String(payload.downtime_reason_name || payload.reason || payload.details || payload.title || ""),
-            source: "mes_terminal_events",
-            payload,
-            happened_at: happenedAt,
-            created_at: row.created_at || happenedAt,
-            duration_seconds: Number(payload.duration_seconds || 0),
-            time_from: payload.time_from || null,
-            time_to: payload.time_to || happenedAt,
-            terminal_event_id: String(payload.terminal_event_id || `terminal_event:${row.id}`),
-            event_code: eventType,
-            job_number: jobNumber || String(run?.job_number || ""),
-            downtime_reason_code: String(payload.downtime_reason_code || ""),
-            downtime_reason_name: String(payload.downtime_reason_name || "")
-          };
-        })
-        .filter(Boolean);
       const isCountEventType = (value) => ["good_count", "scrap_count"].includes(String(value || "").toLowerCase());
       const hasPositiveQuantity = (value) => {
         const numeric = Number(value || 0);
@@ -10377,12 +10246,6 @@ function App() {
       compactEventRows.forEach((row) => {
         const key = String(row.terminal_event_id || row.id || "");
         if (key) {
-          eventRowsByKey.set(key, row);
-        }
-      });
-      legacyTerminalEventRows.forEach((row) => {
-        const key = String(row.terminal_event_id || row.id || "");
-        if (key && !eventRowsByKey.has(key)) {
           eventRowsByKey.set(key, row);
         }
       });

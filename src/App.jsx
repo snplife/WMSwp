@@ -13092,7 +13092,7 @@ function App() {
         subscriptionTables.push("production_orders", "production_order_inputs", "production_order_outputs", "stock", "stock_history");
       }
       if (canAccessMesModule) {
-        subscriptionTables.push("mes_workstations", "mes_machines", "mes_hmi_terminals", "mes_job_runs", "mes_job_run_events", "mes_event_log");
+        subscriptionTables.push("mes_workstations", "mes_machines", "mes_hmi_terminals", "mes_job_runs", "mes_job_run_events");
       }
 
       let channel = null;

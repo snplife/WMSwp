@@ -4650,8 +4650,15 @@ function normalizeMesCompactEventCode(value, payload = {}) {
   }
 }
 
-function getMesPayloadQuantity(payload = {}) {
-  const numeric = Number(payload?.quantity ?? payload?.qty ?? payload?.count ?? 0);
+function getMesPayloadQuantity(payload = {}, eventType = "") {
+  const normalizedEventType = String(eventType || "").trim().toLowerCase();
+  const quantityCandidates =
+    normalizedEventType === "good_count"
+      ? [payload?.good_quantity, payload?.ok_qty, payload?.quantity, payload?.qty, payload?.count]
+      : normalizedEventType === "scrap_count"
+        ? [payload?.scrap_quantity, payload?.nok_qty, payload?.quantity, payload?.qty, payload?.count]
+        : [payload?.quantity, payload?.qty, payload?.count, payload?.good_quantity, payload?.ok_qty, payload?.scrap_quantity, payload?.nok_qty];
+  const numeric = Number(quantityCandidates.find((value) => Number.isFinite(Number(value)) && Number(value) > 0) ?? 0);
   return Number.isFinite(numeric) && numeric > 0 ? numeric : 0;
 }
 
@@ -10269,7 +10276,7 @@ function App() {
           operator_user_id: String(run?.operator_user_id || row.operator_id || ""),
           operator_name: String(run?.operator_name || payload.operator_name || payload.operator_name_text || row.operator_id || ""),
           event_type: eventType,
-          quantity: getMesPayloadQuantity(payload),
+          quantity: getMesPayloadQuantity(payload, eventType),
           note: String(row.downtime_reason_name || payload.details || payload.title || payload.reason || ""),
           source: "event_log",
           payload,
@@ -14364,12 +14371,16 @@ function App() {
     );
     let eventGood = 0;
     let eventScrap = 0;
+    let eventGoodRows = 0;
+    let eventScrapRows = 0;
     mesRecentEventRows.forEach((row) => {
       const eventType = String(row.event_type || "").toLowerCase();
       if (eventType === "good_count") {
-        eventGood += 1;
+        eventGood += getMesEventQuantity(row);
+        eventGoodRows += 1;
       } else if (eventType === "scrap_count") {
-        eventScrap += 1;
+        eventScrap += getMesEventQuantity(row);
+        eventScrapRows += 1;
       }
     });
     const totalGood = eventGood > 0 || eventScrap > 0 ? eventGood : summary.totalGood;
@@ -14418,6 +14429,8 @@ function App() {
       downtimeCount: resolvedDowntimeCount,
       totalGood,
       totalScrap,
+      eventGoodRows,
+      eventScrapRows,
       machineCount,
       availabilityPct,
       qualityPct,
@@ -14787,9 +14800,9 @@ function App() {
       const entry = grouped[key];
       const eventType = String(row.event_type || "").toLowerCase();
       if (eventType === "good_count") {
-        entry.good += 1;
+        entry.good += getMesEventQuantity(row);
       } else if (eventType === "scrap_count") {
-        entry.scrap += 1;
+        entry.scrap += getMesEventQuantity(row);
       } else if (eventType === "ml") {
         entry.mlCycles += 1;
       }
@@ -14826,9 +14839,9 @@ function App() {
         const entry = grouped[key];
         const eventType = String(row.event_type || "").toLowerCase();
         if (eventType === "good_count") {
-          entry.good += 1;
+          entry.good += getMesEventQuantity(row);
         } else if (eventType === "scrap_count") {
-          entry.scrap += 1;
+          entry.scrap += getMesEventQuantity(row);
         } else if (eventType === "ml") {
           entry.mlCycles += 1;
         }
@@ -16038,17 +16051,21 @@ function App() {
     const defectTypeMap = new Map();
     let goodParts = 0;
     let scrapParts = 0;
+    let goodEventRows = 0;
+    let scrapEventRows = 0;
     mesRecentEventRows.forEach((row) => {
       const eventType = String(row.event_type || "").toLowerCase();
       const quantity = getMesEventQuantity(row);
       if (eventType === "good_count") {
         goodParts += quantity;
+        goodEventRows += 1;
         return;
       }
       if (eventType !== "scrap_count") {
         return;
       }
       scrapParts += quantity;
+      scrapEventRows += 1;
       const defectType =
         String(row.payload?.defect_type || row.payload?.reason || row.note || mesDowntimeReasonNameById[row.downtime_reason_id] || "Nešpecifikovaný")
           .trim() || "Nešpecifikovaný";
@@ -16062,6 +16079,8 @@ function App() {
     return {
       goodParts,
       scrapParts,
+      goodEventRows,
+      scrapEventRows,
       rejectRatePct: safeRatioPercent(scrapParts, totalParts),
       defectTypes: Array.from(defectTypeMap.entries())
         .map(([type, quantity]) => ({ type, quantity }))
@@ -16307,11 +16326,22 @@ function App() {
       productionRate,
       goodParts: mesQualitySummary.goodParts,
       scrapParts: mesQualitySummary.scrapParts,
+      goodEventRows: mesQualitySummary.goodEventRows,
+      scrapEventRows: mesQualitySummary.scrapEventRows,
       activeOperators: mesOperatorSummary.activeOperators,
       onlineTerminals: mesTerminals.filter((row) => isMesTerminalOnline(row.last_seen_at)).length,
       averageOperatorRunPct: mesOperatorSummary.averageRunPct
     };
-  }, [machineDashboardRows, mesProductionOrderRows, mesQualitySummary.goodParts, mesQualitySummary.scrapParts, mesOperatorSummary, mesTerminals]);
+  }, [
+    machineDashboardRows,
+    mesProductionOrderRows,
+    mesQualitySummary.goodParts,
+    mesQualitySummary.scrapParts,
+    mesQualitySummary.goodEventRows,
+    mesQualitySummary.scrapEventRows,
+    mesOperatorSummary,
+    mesTerminals
+  ]);
   const handleExportSelectedMesMachineEvents = async () => {
     if (!selectedMesMachineOverview || selectedMesMachineEvents.length === 0) {
       return;
@@ -18507,7 +18537,7 @@ function App() {
       {
         label: "OK kusy",
         value: new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.goodParts),
-        meta: `${new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.scrapParts)} NOK`
+        meta: `${new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.scrapParts)} NOK | eventy OK/NOK ${new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.goodEventRows)}/${new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.scrapEventRows)}`
       },
       {
         label: "Výkon",
@@ -24960,10 +24990,12 @@ function App() {
                       <article className="card workflow-stat-card">
                         <p>OK kusy</p>
                         <strong>{new Intl.NumberFormat("sk-SK").format(mesOverviewSummary.totalGood)}</strong>
+                        <p className="occupancy-meta">{`${new Intl.NumberFormat("sk-SK").format(mesOverviewSummary.eventGoodRows)} OK eventov`}</p>
                       </article>
                       <article className="card workflow-stat-card">
                         <p>NOK kusy</p>
                         <strong>{new Intl.NumberFormat("sk-SK").format(mesOverviewSummary.totalScrap)}</strong>
+                        <p className="occupancy-meta">{`${new Intl.NumberFormat("sk-SK").format(mesOverviewSummary.eventScrapRows)} NOK eventov`}</p>
                       </article>
                     </div>
                     <div className="orders-summary-grid workflow-summary-grid">

@@ -86,7 +86,15 @@ export function averageMesNumber(values) {
 }
 
 export function getMesEventQuantity(row) {
-  const rawQuantity = Number(row?.quantity || row?.payload?.quantity || 0);
+  const eventType = String(row?.event_type || row?.event_code || "").trim().toLowerCase();
+  const payload = row?.payload && typeof row.payload === "object" ? row.payload : {};
+  const quantityCandidates =
+    eventType === "good_count"
+      ? [row?.quantity, payload.good_quantity, payload.ok_qty, payload.quantity, payload.qty, payload.count]
+      : eventType === "scrap_count"
+        ? [row?.quantity, payload.scrap_quantity, payload.nok_qty, payload.quantity, payload.qty, payload.count]
+        : [row?.quantity, payload.quantity, payload.qty, payload.count];
+  const rawQuantity = Number(quantityCandidates.find((value) => Number.isFinite(Number(value)) && Number(value) > 0) || 0);
   return Number.isFinite(rawQuantity) && rawQuantity > 0 ? rawQuantity : 1;
 }
 

@@ -8,9 +8,16 @@
   if (value === "ml") return "Materiál / automatický prestoj";
   if (value === "downtime_start") return "Začiatok prestoja";
   if (value === "downtime_end") return "Koniec prestoja";
+  if (value === "assign") return "Priradenie zákazky";
+  if (value === "queue") return "Zákazka v poradí";
   if (value === "pause") return "Pauza";
   if (value === "resume") return "Pokračovanie";
   if (value === "start") return "Štart výroby";
+  if (value === "setup_start") return "Začiatok nastavenia";
+  if (value === "setup_end") return "Koniec nastavenia";
+  if (value === "complete") return "Dokončenie zákazky";
+  if (value === "cancel") return "Zrušenie zákazky";
+  if (value === "note") return "Poznámka";
   if (value === "stop") return "Stop";
   if (value === "good_count") return "OK kusy";
   if (value === "scrap_count") return "NOK kusy";

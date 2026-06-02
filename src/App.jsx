@@ -4332,6 +4332,12 @@ function isPermissionDeniedError(error) {
   return code === "42501" || message.includes("permission denied") || message.includes("insufficient privilege");
 }
 
+function isRequestedRangeNotSatisfiableError(error) {
+  const code = String(error?.code || "").trim().toUpperCase();
+  const message = String(error?.message || "").trim().toLowerCase();
+  return code === "PGRST103" || message.includes("requested range not satisfiable");
+}
+
 function formatDocumentDate(value) {
   if (value === null || value === undefined || value === "") {
     return "-";
@@ -9954,7 +9960,8 @@ function App() {
 
     try {
       const MES_QUERY_PAGE_SIZE = 1000;
-      const MES_HISTORY_MAX_ROWS = Math.max(1000, Number(import.meta.env.VITE_MES_HISTORY_MAX_ROWS || 20000));
+      const configuredMesHistoryMaxRows = Number.parseInt(String(import.meta.env.VITE_MES_HISTORY_MAX_ROWS || "20000"), 10);
+      const MES_HISTORY_MAX_ROWS = Number.isFinite(configuredMesHistoryMaxRows) ? Math.max(1000, configuredMesHistoryMaxRows) : 20000;
       const nowTs = Date.now();
       const throughputWindow = getMesThroughputRangeWindow(
         mesThroughputRangeKey,
@@ -9994,6 +10001,9 @@ function App() {
             .range(from, rangeTo);
 
           if (pageError) {
+            if (isRequestedRangeNotSatisfiableError(pageError)) {
+              break;
+            }
             if (isPermissionDeniedError(pageError) || isMissingRelationError(pageError, "production_orders")) {
               return [];
             }
@@ -10028,6 +10038,9 @@ function App() {
             .range(from, rangeTo);
 
           if (pageError) {
+            if (isRequestedRangeNotSatisfiableError(pageError)) {
+              break;
+            }
             throw pageError;
           }
 
@@ -10059,6 +10072,9 @@ function App() {
             .range(from, rangeTo);
 
           if (pageError) {
+            if (isRequestedRangeNotSatisfiableError(pageError)) {
+              break;
+            }
             if (isMissingMesEventLogTableError(pageError)) {
               return [];
             }
@@ -10092,6 +10108,9 @@ function App() {
               .range(from, rangeTo);
 
             if (pageError) {
+              if (isRequestedRangeNotSatisfiableError(pageError)) {
+                break;
+              }
               if (isMissingMesJobRunEventsColumnError(pageError) || isMissingRelationError(pageError, "mes_job_run_events")) {
                 return [];
               }
@@ -10125,6 +10144,9 @@ function App() {
               .range(from, rangeTo);
 
             if (pageError) {
+              if (isRequestedRangeNotSatisfiableError(pageError)) {
+                break;
+              }
               if (isMissingMesJobRunEventsColumnError(pageError) || isMissingRelationError(pageError, "mes_job_run_events")) {
                 return [];
               }

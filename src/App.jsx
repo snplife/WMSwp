@@ -9992,6 +9992,9 @@ function App() {
             .range(from, from + MES_QUERY_PAGE_SIZE - 1);
 
           if (pageError) {
+            if (isPermissionDeniedError(pageError) || isMissingRelationError(pageError, "production_orders")) {
+              return [];
+            }
             throw pageError;
           }
 
@@ -10127,30 +10130,36 @@ function App() {
 
         return rows;
       };
-      const terminalsQuery = supabase
+      const terminalsQueryBase = supabase
         .from("mes_hmi_terminals")
         .select("id,company_id,workstation_id,terminal_code,name,platform,app_mode,app_version,last_ip,last_seen_at,is_active,created_at,updated_at")
-        .eq("company_id", scopedCompanyId)
         .order("created_at", { ascending: true });
+      const terminalsQuery = scopedCompanyId ? terminalsQueryBase.eq("company_id", scopedCompanyId) : terminalsQueryBase;
+
+      const downtimeReasonsQueryBase = supabase
+        .from("mes_downtime_reasons")
+        .select("id,name,code")
+        .order("sort_order", { ascending: true });
+      const downtimeReasonsQuery = scopedCompanyId ? downtimeReasonsQueryBase.eq("company_id", scopedCompanyId) : downtimeReasonsQueryBase;
+
+      const workstationsQueryBase = supabase
+        .from("mes_workstations")
+        .select("id,company_id,code,name,area,target_cycle_seconds,ideal_units_per_hour,hmi_enabled,is_active,sort_order")
+        .order("sort_order", { ascending: true })
+        .order("name", { ascending: true });
+      const workstationsQuery = scopedCompanyId ? workstationsQueryBase.eq("company_id", scopedCompanyId) : workstationsQueryBase;
 
       const [overviewResult, productionOrdersResult, jobRunsResult, eventsResult, downtimeReasonsResult, workstationsResult, terminalsResult] = await Promise.all([
-        supabase.rpc("mes_factory_overview", {
-          p_company_id: scopedCompanyId
-        }),
+        scopedCompanyId
+          ? supabase.rpc("mes_factory_overview", {
+              p_company_id: scopedCompanyId
+            })
+          : Promise.resolve({ data: [], error: null }),
         fetchAllMesProductionOrders(),
         fetchAllMesJobRuns(),
         fetchAllMesEvents(),
-        supabase
-          .from("mes_downtime_reasons")
-          .select("id,name,code")
-          .eq("company_id", scopedCompanyId)
-          .order("sort_order", { ascending: true }),
-        supabase
-          .from("mes_workstations")
-          .select("id,code,name,area,target_cycle_seconds,ideal_units_per_hour,hmi_enabled,is_active,sort_order")
-          .eq("company_id", scopedCompanyId)
-          .order("sort_order", { ascending: true })
-          .order("name", { ascending: true }),
+        downtimeReasonsQuery,
+        workstationsQuery,
         terminalsQuery
       ]);
 
@@ -18474,9 +18483,7 @@ function App() {
           </div>
         </div>
 
-        {!activeCompanyId && isMaster ? (
-          <p className="hint">Vyber konkrétnu firmu v hornom filtri, aby sa zobrazil MES cockpit.</p>
-        ) : mesLoading ? (
+        {mesLoading ? (
           <p className="hint">Načítavam MES dáta...</p>
         ) : (
           <>
@@ -18747,7 +18754,7 @@ function App() {
             {isCompanyAdmin && <span className="table-badge">firemný admin</span>}
           </div>
 
-          {isMaster && !isProductionModule(selectedTable) && (
+          {isMaster && (
             <label className="sidebar-company-switch">
               <span>Firma</span>
               <select value={selectedCompanyId} onChange={(event) => handleCompanyScopeChange(event.target.value)}>

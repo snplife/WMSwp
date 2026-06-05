@@ -2507,6 +2507,53 @@ select {
   gap: 0.85rem;
 }
 
+.mes-device-admin-card {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid rgba(174, 185, 191, 0.62);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(245, 242, 236, 0.9)),
+    linear-gradient(135deg, rgba(23, 71, 100, 0.05), transparent 44%);
+}
+
+.mes-device-admin-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: start;
+}
+
+.mes-device-admin-head h3 {
+  margin: 0.1rem 0;
+  color: #16304a;
+}
+
+.mes-device-admin-head p {
+  margin: 0;
+  color: #627588;
+}
+
+.mes-device-admin-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0.85rem;
+}
+
+.mes-device-admin-form {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.95rem;
+  border: 1px solid rgba(23, 71, 100, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.mes-device-admin-form strong {
+  color: #16304a;
+}
+
 .mes-machine-status-tile {
   min-height: 142px;
   display: grid;

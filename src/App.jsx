@@ -5234,6 +5234,13 @@ function App() {
   const [mesSelectedMachineJobsRangeKey, setMesSelectedMachineJobsRangeKey] = useState("current_shift");
   const [mesSelectedMachineAvailabilityRangeKey, setMesSelectedMachineAvailabilityRangeKey] = useState("current_shift");
   const [mesSelectedMachineProductionRangeKey, setMesSelectedMachineProductionRangeKey] = useState("current_shift");
+  const [mesDeviceRenameNameInput, setMesDeviceRenameNameInput] = useState("");
+  const [mesDeviceRenameTerminalNameInput, setMesDeviceRenameTerminalNameInput] = useState("");
+  const [mesDeviceNewNameInput, setMesDeviceNewNameInput] = useState("");
+  const [mesDeviceNewTerminalNameInput, setMesDeviceNewTerminalNameInput] = useState("");
+  const [mesDeviceNewAreaInput, setMesDeviceNewAreaInput] = useState("");
+  const [mesDeviceSubmitting, setMesDeviceSubmitting] = useState(false);
+  const [mesDeviceMessage, setMesDeviceMessage] = useState("");
   const [mesHourlyDowntimeShiftKey, setMesHourlyDowntimeShiftKey] = useState(() => {
     const hour = new Date().getHours();
     return hour >= 14 ? "shift_14_22" : "shift_06_14";
@@ -10422,6 +10429,175 @@ function App() {
       if (latestMesOverviewRequestRef.current === requestId) {
         setMesLoading(false);
       }
+    }
+  };
+
+  const buildMesDeviceCode = (value, prefix = "MES") => {
+    const normalized = String(value || "")
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 28);
+    const suffix = Date.now().toString(36).toUpperCase();
+    return `${prefix}-${normalized || "DEVICE"}-${suffix}`.slice(0, 48);
+  };
+
+  const handleRenameMesDevice = async () => {
+    const selectedMachineDetail = selectedMesMachineOverview || null;
+    const nextName = String(mesDeviceRenameNameInput || "").trim();
+    const nextTerminalName = String(mesDeviceRenameTerminalNameInput || "").trim();
+    if (!selectedMachineDetail) {
+      setMesDeviceMessage("Najprv vyber zariadenie.");
+      return;
+    }
+    if (!nextName && !nextTerminalName) {
+      setMesDeviceMessage("Zadaj nový názov zariadenia alebo terminálu.");
+      return;
+    }
+
+    setMesDeviceSubmitting(true);
+    setMesDeviceMessage("");
+    setMesError("");
+
+    try {
+      const machineId = String(selectedMachineDetail.machineId || "").trim();
+      const workstationId = String(selectedMachineDetail.workstationId || "").trim();
+      const terminalId = String(selectedMachineDetail.terminalId || "").trim();
+      const hasCatalogMachine = Boolean(machineId && mesMachines.some((machine) => String(machine.id || "") === machineId));
+
+      if (nextName) {
+        if (hasCatalogMachine) {
+          const { error } = await supabase
+            .from("mes_machines")
+            .update({ name: nextName, updated_by: authUser?.id || null, updated_at: new Date().toISOString() })
+            .eq("id", machineId);
+          if (error) {
+            throw error;
+          }
+        } else if (workstationId) {
+          const { error } = await supabase
+            .from("mes_workstations")
+            .update({ name: nextName, updated_by: authUser?.id || null, updated_at: new Date().toISOString() })
+            .eq("id", workstationId);
+          if (error) {
+            throw error;
+          }
+        }
+      }
+
+      if (nextTerminalName && terminalId) {
+        const { error } = await supabase
+          .from("mes_hmi_terminals")
+          .update({ name: nextTerminalName, updated_by: authUser?.id || null, updated_at: new Date().toISOString() })
+          .eq("id", terminalId);
+        if (error) {
+          throw error;
+        }
+      }
+
+      setMesDeviceMessage("Zariadenie bolo premenované.");
+      await loadMesModuleData();
+    } catch (error) {
+      const message = error?.message || "Zariadenie sa nepodarilo premenovať.";
+      setMesDeviceMessage(message);
+      setMesError(message);
+    } finally {
+      setMesDeviceSubmitting(false);
+    }
+  };
+
+  const handleCreateMesDevice = async () => {
+    const name = String(mesDeviceNewNameInput || "").trim();
+    const terminalName = String(mesDeviceNewTerminalNameInput || "").trim() || name;
+    const area = String(mesDeviceNewAreaInput || "").trim();
+    const scopedCompanyId = activeCompanyId || userCompanyId || null;
+    if (!scopedCompanyId) {
+      setMesDeviceMessage("Vyber firmu, pre ktorú chceš pridať zariadenie.");
+      return;
+    }
+    if (!name) {
+      setMesDeviceMessage("Zadaj názov zariadenia.");
+      return;
+    }
+
+    setMesDeviceSubmitting(true);
+    setMesDeviceMessage("");
+    setMesError("");
+
+    try {
+      const deviceCode = buildMesDeviceCode(name, "MES");
+      const terminalCode = buildMesDeviceCode(terminalName, "HMI");
+      const { data: workstation, error: workstationError } = await supabase
+        .from("mes_workstations")
+        .insert([
+          {
+            company_id: scopedCompanyId,
+            code: deviceCode,
+            name,
+            area,
+            hmi_enabled: true,
+            is_active: true,
+            created_by: authUser?.id || null,
+            updated_by: authUser?.id || null
+          }
+        ])
+        .select("id")
+        .single();
+      if (workstationError) {
+        throw workstationError;
+      }
+
+      const { data: machine, error: machineError } = await supabase
+        .from("mes_machines")
+        .insert([
+          {
+            workstation_id: workstation.id,
+            code: deviceCode,
+            name,
+            machine_state: "idle",
+            is_active: true,
+            created_by: authUser?.id || null,
+            updated_by: authUser?.id || null
+          }
+        ])
+        .select("id")
+        .single();
+      if (machineError) {
+        throw machineError;
+      }
+
+      const { error: terminalError } = await supabase
+        .from("mes_hmi_terminals")
+        .insert([
+          {
+            company_id: scopedCompanyId,
+            workstation_id: workstation.id,
+            terminal_code: terminalCode,
+            name: terminalName,
+            platform: "web_kiosk",
+            app_mode: "hmi",
+            is_active: true,
+            created_by: authUser?.id || null,
+            updated_by: authUser?.id || null
+          }
+        ]);
+      if (terminalError) {
+        throw terminalError;
+      }
+
+      setMesDeviceNewNameInput("");
+      setMesDeviceNewTerminalNameInput("");
+      setMesDeviceNewAreaInput("");
+      setSelectedMesMachineId(machine.id);
+      setMesDeviceMessage("Nové zariadenie bolo pridané.");
+      await loadMesModuleData();
+    } catch (error) {
+      const message = error?.message || "Zariadenie sa nepodarilo pridať.";
+      setMesDeviceMessage(message);
+      setMesError(message);
+    } finally {
+      setMesDeviceSubmitting(false);
     }
   };
 
@@ -16816,7 +16992,10 @@ function App() {
   }, [mesThroughputOperatorOptions, mesThroughputOperatorKey]);
 
   useEffect(() => {
-  }, [selectedMesMachineId]);
+    const selectedMachine = machineDashboardRows.find((row) => row.machineId === selectedMesMachineId) || null;
+    setMesDeviceRenameNameInput(String(selectedMachine?.machineName || selectedMachine?.workstationName || "").trim());
+    setMesDeviceRenameTerminalNameInput(String(selectedMachine?.terminalName || "").trim());
+  }, [machineDashboardRows, selectedMesMachineId]);
 
   useEffect(() => {
     const query = String(companyProfileNameInput || "").trim();
@@ -18524,6 +18703,7 @@ function App() {
     const sortedMachineTiles = [...machineDashboardRows].sort((left, right) =>
       String(left.machineName || "").localeCompare(String(right.machineName || ""), "sk-SK", { sensitivity: "base" })
     );
+    const canManageMesDevices = isMaster || canManageOrders;
     const machineDetailRangeOptions = MES_THROUGHPUT_RANGE_OPTIONS.filter((option) =>
       ["last_30_minutes", "last_8_hours", "current_shift", "today", "yesterday", "last_7_days"].includes(option.key)
     );
@@ -18797,6 +18977,90 @@ function App() {
           <p className="hint">Pre túto firmu zatiaľ nie sú dostupné žiadne MES terminály alebo stroje.</p>
         ) : (
           <>
+            {canManageMesDevices && (
+              <section className="mes-device-admin-card">
+                <div className="mes-device-admin-head">
+                  <div>
+                    <span className="workflow-section-kicker">Zariadenia</span>
+                    <h3>Správa MES zariadení</h3>
+                    <p>Premenuj vybrané zariadenie alebo pridaj nový stroj s HMI terminálom.</p>
+                  </div>
+                  {mesDeviceMessage && <span className="table-badge">{mesDeviceMessage}</span>}
+                </div>
+
+                <div className="mes-device-admin-grid">
+                  <article className="mes-device-admin-form">
+                    <strong>Premenovať vybrané</strong>
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Názov zariadenia</span>
+                      <input
+                        type="text"
+                        value={mesDeviceRenameNameInput}
+                        onChange={(event) => setMesDeviceRenameNameInput(event.target.value)}
+                        placeholder="Názov stroja"
+                      />
+                    </label>
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Názov terminálu</span>
+                      <input
+                        type="text"
+                        value={mesDeviceRenameTerminalNameInput}
+                        onChange={(event) => setMesDeviceRenameTerminalNameInput(event.target.value)}
+                        placeholder="Názov HMI terminálu"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="settings-btn"
+                      onClick={handleRenameMesDevice}
+                      disabled={mesDeviceSubmitting || !selectedMesMachineOverview}
+                    >
+                      Premenovať zariadenie
+                    </button>
+                  </article>
+
+                  <article className="mes-device-admin-form">
+                    <strong>Pridať nové</strong>
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Názov zariadenia</span>
+                      <input
+                        type="text"
+                        value={mesDeviceNewNameInput}
+                        onChange={(event) => setMesDeviceNewNameInput(event.target.value)}
+                        placeholder="Napr. Lis 01"
+                      />
+                    </label>
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Názov terminálu</span>
+                      <input
+                        type="text"
+                        value={mesDeviceNewTerminalNameInput}
+                        onChange={(event) => setMesDeviceNewTerminalNameInput(event.target.value)}
+                        placeholder="Voliteľné, predvolene názov zariadenia"
+                      />
+                    </label>
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Oblasť / hala</span>
+                      <input
+                        type="text"
+                        value={mesDeviceNewAreaInput}
+                        onChange={(event) => setMesDeviceNewAreaInput(event.target.value)}
+                        placeholder="Voliteľné"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="settings-btn"
+                      onClick={handleCreateMesDevice}
+                      disabled={mesDeviceSubmitting || !activeCompanyId}
+                    >
+                      Pridať zariadenie
+                    </button>
+                  </article>
+                </div>
+              </section>
+            )}
+
             <section className="mes-machine-status-panel" aria-label="Dostupné MES terminály">
               {sortedMachineTiles.map((machine) => {
                 const tileState = getMesMachineTileState(machine);

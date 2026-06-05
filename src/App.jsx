@@ -5236,8 +5236,10 @@ function App() {
   const [mesSelectedMachineProductionRangeKey, setMesSelectedMachineProductionRangeKey] = useState("current_shift");
   const [mesDeviceRenameNameInput, setMesDeviceRenameNameInput] = useState("");
   const [mesDeviceRenameTerminalNameInput, setMesDeviceRenameTerminalNameInput] = useState("");
+  const [mesDeviceRenameTerminalCodeInput, setMesDeviceRenameTerminalCodeInput] = useState("");
   const [mesDeviceNewNameInput, setMesDeviceNewNameInput] = useState("");
   const [mesDeviceNewTerminalNameInput, setMesDeviceNewTerminalNameInput] = useState("");
+  const [mesDeviceNewTerminalCodeInput, setMesDeviceNewTerminalCodeInput] = useState("");
   const [mesDeviceNewAreaInput, setMesDeviceNewAreaInput] = useState("");
   const [mesDeviceSubmitting, setMesDeviceSubmitting] = useState(false);
   const [mesDeviceMessage, setMesDeviceMessage] = useState("");
@@ -10443,16 +10445,25 @@ function App() {
     return `${prefix}-${normalized || "DEVICE"}-${suffix}`.slice(0, 48);
   };
 
+  const normalizeMesRegistrationCode = (value) =>
+    String(value || "")
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9_-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 48);
+
   const handleRenameMesDevice = async () => {
     const selectedMachineDetail = selectedMesMachineOverview || null;
     const nextName = String(mesDeviceRenameNameInput || "").trim();
     const nextTerminalName = String(mesDeviceRenameTerminalNameInput || "").trim();
+    const nextTerminalCode = normalizeMesRegistrationCode(mesDeviceRenameTerminalCodeInput);
     if (!selectedMachineDetail) {
       setMesDeviceMessage("Najprv vyber zariadenie.");
       return;
     }
-    if (!nextName && !nextTerminalName) {
-      setMesDeviceMessage("Zadaj nový názov zariadenia alebo terminálu.");
+    if (!nextName && !nextTerminalName && !nextTerminalCode) {
+      setMesDeviceMessage("Zadaj nový názov zariadenia, terminálu alebo registračný kód.");
       return;
     }
 
@@ -10486,20 +10497,30 @@ function App() {
         }
       }
 
-      if (nextTerminalName && terminalId) {
+      if ((nextTerminalName || nextTerminalCode) && terminalId) {
+        const terminalPayload = {
+          updated_by: authUser?.id || null,
+          updated_at: new Date().toISOString()
+        };
+        if (nextTerminalName) {
+          terminalPayload.name = nextTerminalName;
+        }
+        if (nextTerminalCode) {
+          terminalPayload.terminal_code = nextTerminalCode;
+        }
         const { error } = await supabase
           .from("mes_hmi_terminals")
-          .update({ name: nextTerminalName, updated_by: authUser?.id || null, updated_at: new Date().toISOString() })
+          .update(terminalPayload)
           .eq("id", terminalId);
         if (error) {
           throw error;
         }
       }
 
-      setMesDeviceMessage("Zariadenie bolo premenované.");
+      setMesDeviceMessage("Zariadenie bolo uložené.");
       await loadMesModuleData();
     } catch (error) {
-      const message = error?.message || "Zariadenie sa nepodarilo premenovať.";
+      const message = error?.message || "Zariadenie sa nepodarilo uložiť.";
       setMesDeviceMessage(message);
       setMesError(message);
     } finally {
@@ -10510,6 +10531,7 @@ function App() {
   const handleCreateMesDevice = async () => {
     const name = String(mesDeviceNewNameInput || "").trim();
     const terminalName = String(mesDeviceNewTerminalNameInput || "").trim() || name;
+    const requestedTerminalCode = normalizeMesRegistrationCode(mesDeviceNewTerminalCodeInput);
     const area = String(mesDeviceNewAreaInput || "").trim();
     const scopedCompanyId = activeCompanyId || userCompanyId || null;
     if (!scopedCompanyId) {
@@ -10527,7 +10549,7 @@ function App() {
 
     try {
       const deviceCode = buildMesDeviceCode(name, "MES");
-      const terminalCode = buildMesDeviceCode(terminalName, "HMI");
+      const terminalCode = requestedTerminalCode || buildMesDeviceCode(terminalName, "HMI");
       const { data: workstation, error: workstationError } = await supabase
         .from("mes_workstations")
         .insert([
@@ -10588,6 +10610,7 @@ function App() {
 
       setMesDeviceNewNameInput("");
       setMesDeviceNewTerminalNameInput("");
+      setMesDeviceNewTerminalCodeInput("");
       setMesDeviceNewAreaInput("");
       setSelectedMesMachineId(machine.id);
       setMesDeviceMessage("Nové zariadenie bolo pridané.");
@@ -16993,9 +17016,11 @@ function App() {
 
   useEffect(() => {
     const selectedMachine = machineDashboardRows.find((row) => row.machineId === selectedMesMachineId) || null;
+    const selectedTerminal = selectedMachine?.terminalId ? mesTerminalsById[selectedMachine.terminalId] || null : null;
     setMesDeviceRenameNameInput(String(selectedMachine?.machineName || selectedMachine?.workstationName || "").trim());
     setMesDeviceRenameTerminalNameInput(String(selectedMachine?.terminalName || "").trim());
-  }, [machineDashboardRows, selectedMesMachineId]);
+    setMesDeviceRenameTerminalCodeInput(String(selectedTerminal?.terminal_code || "").trim());
+  }, [machineDashboardRows, mesTerminalsById, selectedMesMachineId]);
 
   useEffect(() => {
     const query = String(companyProfileNameInput || "").trim();
@@ -19009,6 +19034,16 @@ function App() {
                         placeholder="Názov HMI terminálu"
                       />
                     </label>
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Registračný kód terminálu</span>
+                      <input
+                        type="text"
+                        value={mesDeviceRenameTerminalCodeInput}
+                        onChange={(event) => setMesDeviceRenameTerminalCodeInput(event.target.value)}
+                        placeholder="Kód pre registráciu HMI"
+                      />
+                    </label>
+                    <p className="panel-meta">Tento kód zadáš v termináli pri registrácii zariadenia.</p>
                     <button
                       type="button"
                       className="settings-btn"
@@ -19037,6 +19072,15 @@ function App() {
                         value={mesDeviceNewTerminalNameInput}
                         onChange={(event) => setMesDeviceNewTerminalNameInput(event.target.value)}
                         placeholder="Voliteľné, predvolene názov zariadenia"
+                      />
+                    </label>
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Registračný kód terminálu</span>
+                      <input
+                        type="text"
+                        value={mesDeviceNewTerminalCodeInput}
+                        onChange={(event) => setMesDeviceNewTerminalCodeInput(event.target.value)}
+                        placeholder="Voliteľné, vygeneruje sa automaticky"
                       />
                     </label>
                     <label className="workflow-field">

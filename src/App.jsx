@@ -10567,6 +10567,8 @@ function App() {
       setMesDeviceRenameTerminalNameInput("");
       setMesDeviceRenameTerminalCodeInput("");
       mesDeviceRenameInitializedForRef.current = "";
+      setSelectedMesMachineId("");
+      setMesThroughputMachineId("all");
       setMesDeviceMessage("Terminál bol úplne odstránený.");
       await loadMesModuleData();
     } catch (error) {
@@ -15376,13 +15378,15 @@ function App() {
   }, [mesMachines, mesOverviewRows, mesRunsByMachineId, mesEventsByMachineId, mesEventSummaryByMachineId, mesEventSummaryByJobRunId, mesWorkstationsById, mesOverviewByMachineId, mesOverviewByWorkstationId, mesWorkstations, mesJobRunsById, mesTerminals, mesTerminalsById, mesPreferredTerminalByWorkstationId, mesNowTs]);
   const mesMachineOptions = useMemo(
     () =>
-      machineDashboardRows.map((row) => ({
-        id: row.machineId,
-        label: row.machineName || row.machineCode || row.machineId,
-        workstationId: row.workstationId || "",
-        workstationName: row.workstationName || "-",
-        terminalId: row.terminalId || ""
-      })),
+      machineDashboardRows
+        .filter((row) => String(row.terminalId || "").trim())
+        .map((row) => ({
+          id: row.machineId,
+          label: row.machineName || row.machineCode || row.machineId,
+          workstationId: row.workstationId || "",
+          workstationName: row.workstationName || "-",
+          terminalId: row.terminalId || ""
+        })),
     [machineDashboardRows]
   );
   const selectedMesMachineOverview = useMemo(
@@ -18780,9 +18784,11 @@ function App() {
       return normalized || emptyLabel;
     };
 
-    const sortedMachineTiles = [...machineDashboardRows].sort((left, right) =>
-      String(left.machineName || "").localeCompare(String(right.machineName || ""), "sk-SK", { sensitivity: "base" })
-    );
+    const sortedMachineTiles = machineDashboardRows
+      .filter((row) => String(row.terminalId || "").trim())
+      .sort((left, right) =>
+        String(left.machineName || "").localeCompare(String(right.machineName || ""), "sk-SK", { sensitivity: "base" })
+      );
     const canManageMesDevices = isMaster || canManageOrders || canAccessMes;
     const machineDetailRangeOptions = MES_THROUGHPUT_RANGE_OPTIONS.filter((option) =>
       ["last_30_minutes", "last_8_hours", "current_shift", "today", "yesterday", "last_7_days"].includes(option.key)

@@ -10450,6 +10450,50 @@ function App() {
       .replace(/^-+|-+$/g, "")
       .slice(0, 48);
 
+  const buildMesArchivedCode = (value, fallback = "DEVICE") => {
+    const base = normalizeMesRegistrationCode(value) || normalizeMesRegistrationCode(fallback) || "DEVICE";
+    const suffix = `ARCH-${Date.now().toString(36).toUpperCase()}`;
+    return `${base.slice(0, Math.max(1, 48 - suffix.length - 1))}-${suffix}`;
+  };
+
+  const freeInactiveMesTerminalCodeConflict = async (companyId, terminalCode, currentTerminalId = "") => {
+    const normalizedCompanyId = String(companyId || "").trim();
+    const normalizedTerminalCode = normalizeMesRegistrationCode(terminalCode);
+    const excludedTerminalId = String(currentTerminalId || "").trim();
+    if (!normalizedCompanyId || !normalizedTerminalCode) {
+      return;
+    }
+
+    const { data: existingRows, error: lookupError } = await supabase
+      .from("mes_hmi_terminals")
+      .select("id,terminal_code,name,is_active")
+      .eq("company_id", normalizedCompanyId)
+      .eq("terminal_code", normalizedTerminalCode);
+    if (lookupError) {
+      throw lookupError;
+    }
+
+    const conflictingRows = (existingRows || []).filter((row) => String(row.id || "") !== excludedTerminalId);
+    const activeConflict = conflictingRows.find((row) => Boolean(row.is_active));
+    if (activeConflict) {
+      throw new Error(`Registračný kód "${normalizedTerminalCode}" už používa aktívny terminál "${activeConflict.name || activeConflict.terminal_code}".`);
+    }
+
+    for (const row of conflictingRows) {
+      const { error: archiveError } = await supabase
+        .from("mes_hmi_terminals")
+        .update({
+          terminal_code: buildMesArchivedCode(row.terminal_code || row.name, "HMI"),
+          updated_by: authUser?.id || null,
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", row.id);
+      if (archiveError) {
+        throw archiveError;
+      }
+    }
+  };
+
   const handleRenameMesDevice = async () => {
     const selectedMachineDetail = selectedMesMachineOverview || null;
     const nextName = String(mesDeviceRenameNameInput || "").trim();
@@ -10472,6 +10516,7 @@ function App() {
       const machineId = String(selectedMachineDetail.machineId || "").trim();
       const workstationId = String(selectedMachineDetail.workstationId || "").trim();
       const terminalId = String(selectedMachineDetail.terminalId || "").trim();
+      const scopedCompanyId = String(activeCompanyId || userCompanyId || selectedMachineDetail.companyId || "").trim();
       const hasCatalogMachine = Boolean(machineId && mesMachines.some((machine) => String(machine.id || "") === machineId));
 
       if (nextName) {
@@ -10495,6 +10540,9 @@ function App() {
       }
 
       if ((nextTerminalName || nextTerminalCode) && terminalId) {
+        if (nextTerminalCode) {
+          await freeInactiveMesTerminalCodeConflict(scopedCompanyId, nextTerminalCode, terminalId);
+        }
         const terminalPayload = {
           updated_by: authUser?.id || null,
           updated_at: new Date().toISOString()
@@ -10559,14 +10607,12 @@ function App() {
     setMesError("");
 
     try {
-      const archiveSuffix = `ARCH-${Date.now().toString(36).toUpperCase()}`;
-      const archivedCode = (value, fallback) => `${String(value || fallback || "DEVICE").trim() || "DEVICE"}-${archiveSuffix}`;
       if (terminalId) {
         const terminal = mesTerminalsById[terminalId] || null;
         const { data, error } = await supabase
           .from("mes_hmi_terminals")
           .update({
-            terminal_code: archivedCode(terminal?.terminal_code || selectedMachineDetail.terminalName, "HMI"),
+            terminal_code: buildMesArchivedCode(terminal?.terminal_code || selectedMachineDetail.terminalName, "HMI"),
             name: `${String(terminal?.name || selectedMachineDetail.terminalName || "HMI terminál").trim()} (archív)`,
             is_active: false,
             workstation_id: null,
@@ -10587,7 +10633,7 @@ function App() {
         const { error } = await supabase
           .from("mes_machines")
           .update({
-            code: archivedCode(selectedMachineDetail.machineCode, "MES"),
+            code: buildMesArchivedCode(selectedMachineDetail.machineCode, "MES"),
             name: `${String(selectedMachineDetail.machineName || "MES stroj").trim()} (archív)`,
             machine_state: "offline",
             is_active: false,
@@ -10603,7 +10649,7 @@ function App() {
         const { error } = await supabase
           .from("mes_workstations")
           .update({
-            code: archivedCode(selectedMachineDetail.workstationCode || selectedMachineDetail.machineCode, "WORKSTATION"),
+            code: buildMesArchivedCode(selectedMachineDetail.workstationCode || selectedMachineDetail.machineCode, "WORKSTATION"),
             name: `${String(selectedMachineDetail.workstationName || selectedMachineDetail.machineName || "MES pracovisko").trim()} (archív)`,
             hmi_enabled: false,
             is_active: false,
@@ -10654,6 +10700,7 @@ function App() {
     try {
       const deviceCode = buildMesDeviceCode(name, "MES");
       const terminalCode = requestedTerminalCode || buildMesDeviceCode(terminalName, "HMI");
+      await freeInactiveMesTerminalCodeConflict(scopedCompanyId, terminalCode);
       const { data: workstation, error: workstationError } = await supabase
         .from("mes_workstations")
         .insert([

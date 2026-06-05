@@ -18728,7 +18728,7 @@ function App() {
     const sortedMachineTiles = [...machineDashboardRows].sort((left, right) =>
       String(left.machineName || "").localeCompare(String(right.machineName || ""), "sk-SK", { sensitivity: "base" })
     );
-    const canManageMesDevices = isMaster || canManageOrders;
+    const canManageMesDevices = isMaster || canManageOrders || canAccessMes;
     const machineDetailRangeOptions = MES_THROUGHPUT_RANGE_OPTIONS.filter((option) =>
       ["last_30_minutes", "last_8_hours", "current_shift", "today", "yesterday", "last_7_days"].includes(option.key)
     );

@@ -10179,6 +10179,7 @@ function App() {
       const terminalsQueryBase = supabase
         .from("mes_hmi_terminals")
         .select("id,company_id,workstation_id,terminal_code,name,platform,app_mode,app_version,last_ip,last_seen_at,is_active,created_at,updated_at")
+        .eq("is_active", true)
         .order("created_at", { ascending: true });
       const terminalsQuery = scopedCompanyId ? terminalsQueryBase.eq("company_id", scopedCompanyId) : terminalsQueryBase;
 
@@ -10191,6 +10192,7 @@ function App() {
       const workstationsQueryBase = supabase
         .from("mes_workstations")
         .select("id,company_id,code,name,area,target_cycle_seconds,ideal_units_per_hour,hmi_enabled,is_active,sort_order")
+        .eq("is_active", true)
         .order("sort_order", { ascending: true })
         .order("name", { ascending: true });
       const workstationsQuery = scopedCompanyId ? workstationsQueryBase.eq("company_id", scopedCompanyId) : workstationsQueryBase;
@@ -10247,6 +10249,7 @@ function App() {
           supabase
             .from("mes_machines")
             .select("id,workstation_id,code,name,asset_tag,serial_number,machine_state,automation_mode,signal_mode,last_heartbeat_at,is_active,created_at")
+            .eq("is_active", true)
             .in("workstation_id", workstationIds)
             .order("name", { ascending: true });
         ({ data: fetchedMachines, error: machinesError } = await machineQuery());
@@ -10257,6 +10260,7 @@ function App() {
           ({ data: fetchedMachines, error: machinesError } = await supabase
             .from("mes_machines")
             .select("id,workstation_id,code,name,asset_tag,serial_number,machine_state,last_heartbeat_at,is_active,created_at")
+            .eq("is_active", true)
             .in("workstation_id", workstationIds)
             .order("name", { ascending: true }));
         }
@@ -10526,11 +10530,13 @@ function App() {
     }
   };
 
-  const handleDeleteMesTerminal = async () => {
+  const handleArchiveMesDevice = async () => {
     const selectedMachineDetail = selectedMesMachineOverview || null;
     const terminalId = String(selectedMachineDetail?.terminalId || "").trim();
-    if (!selectedMachineDetail || !terminalId) {
-      setMesDeviceMessage("Vybrané zariadenie nemá priradený HMI terminál na odstránenie.");
+    const machineId = String(selectedMachineDetail?.machineId || "").trim();
+    const workstationId = String(selectedMachineDetail?.workstationId || "").trim();
+    if (!selectedMachineDetail || (!terminalId && !machineId && !workstationId)) {
+      setMesDeviceMessage("Vybrané zariadenie nemá čo odpojiť.");
       return;
     }
 
@@ -10541,7 +10547,9 @@ function App() {
         selectedMachineDetail.machineName ||
         "vybraný terminál"
     ).trim();
-    const confirmed = window.confirm(`Naozaj chceš úplne odstrániť HMI terminál "${terminalLabel}"? Táto akcia sa nedá vrátiť späť.`);
+    const confirmed = window.confirm(
+      `Naozaj chceš odpojiť "${terminalLabel}" a začať odznova? Staré historické MES riadky ostanú v SQL, ale zariadenie sa deaktivuje a registračný kód sa uvoľní.`
+    );
     if (!confirmed) {
       return;
     }
@@ -10551,17 +10559,61 @@ function App() {
     setMesError("");
 
     try {
-      const { data, error } = await supabase
-        .from("mes_hmi_terminals")
-        .delete()
-        .eq("id", terminalId)
-        .select("id")
-        .maybeSingle();
-      if (error) {
-        throw error;
+      const archiveSuffix = `ARCH-${Date.now().toString(36).toUpperCase()}`;
+      const archivedCode = (value, fallback) => `${String(value || fallback || "DEVICE").trim() || "DEVICE"}-${archiveSuffix}`;
+      if (terminalId) {
+        const terminal = mesTerminalsById[terminalId] || null;
+        const { data, error } = await supabase
+          .from("mes_hmi_terminals")
+          .update({
+            terminal_code: archivedCode(terminal?.terminal_code || selectedMachineDetail.terminalName, "HMI"),
+            name: `${String(terminal?.name || selectedMachineDetail.terminalName || "HMI terminál").trim()} (archív)`,
+            is_active: false,
+            workstation_id: null,
+            updated_by: authUser?.id || null,
+            updated_at: new Date().toISOString()
+          })
+          .eq("id", terminalId)
+          .select("id")
+          .maybeSingle();
+        if (error) {
+          throw error;
+        }
+        if (!data?.id) {
+          throw new Error("Terminál sa nenašiel alebo nemáš oprávnenie ho odpojiť.");
+        }
       }
-      if (!data?.id) {
-        throw new Error("Terminál sa nenašiel alebo nemáš oprávnenie ho odstrániť.");
+      if (machineId && mesMachines.some((machine) => String(machine.id || "") === machineId)) {
+        const { error } = await supabase
+          .from("mes_machines")
+          .update({
+            code: archivedCode(selectedMachineDetail.machineCode, "MES"),
+            name: `${String(selectedMachineDetail.machineName || "MES stroj").trim()} (archív)`,
+            machine_state: "offline",
+            is_active: false,
+            updated_by: authUser?.id || null,
+            updated_at: new Date().toISOString()
+          })
+          .eq("id", machineId);
+        if (error) {
+          throw error;
+        }
+      }
+      if (workstationId) {
+        const { error } = await supabase
+          .from("mes_workstations")
+          .update({
+            code: archivedCode(selectedMachineDetail.workstationCode || selectedMachineDetail.machineCode, "WORKSTATION"),
+            name: `${String(selectedMachineDetail.workstationName || selectedMachineDetail.machineName || "MES pracovisko").trim()} (archív)`,
+            hmi_enabled: false,
+            is_active: false,
+            updated_by: authUser?.id || null,
+            updated_at: new Date().toISOString()
+          })
+          .eq("id", workstationId);
+        if (error) {
+          throw error;
+        }
       }
 
       setMesDeviceRenameTerminalNameInput("");
@@ -10569,10 +10621,10 @@ function App() {
       mesDeviceRenameInitializedForRef.current = "";
       setSelectedMesMachineId("");
       setMesThroughputMachineId("all");
-      setMesDeviceMessage("Terminál bol úplne odstránený.");
+      setMesDeviceMessage("Zariadenie bolo odpojené. Registračný kód môžeš použiť znova.");
       await loadMesModuleData();
     } catch (error) {
-      const message = error?.message || "Terminál sa nepodarilo odstrániť.";
+      const message = error?.message || "Zariadenie sa nepodarilo odpojiť.";
       setMesDeviceMessage(message);
       setMesError(message);
     } finally {
@@ -19127,10 +19179,10 @@ function App() {
                       <button
                         type="button"
                         className="clear-btn"
-                        onClick={handleDeleteMesTerminal}
-                        disabled={mesDeviceSubmitting || !selectedMesMachineOverview?.terminalId}
+                        onClick={handleArchiveMesDevice}
+                        disabled={mesDeviceSubmitting || !selectedMesMachineOverview}
                       >
-                        Odstrániť terminál úplne
+                        Odpojiť a začať odznova
                       </button>
                     </article>
 

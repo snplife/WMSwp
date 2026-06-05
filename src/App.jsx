@@ -10504,16 +10504,73 @@ function App() {
         const { error } = await supabase
           .from("mes_hmi_terminals")
           .update(terminalPayload)
-          .eq("id", terminalId);
+          .eq("id", terminalId)
+          .select("id")
+          .maybeSingle();
         if (error) {
           throw error;
         }
+      } else if ((nextTerminalName || nextTerminalCode) && !terminalId) {
+        throw new Error("Vybrané zariadenie nemá priradený HMI terminál, registračný kód sa nedá uložiť.");
       }
 
       setMesDeviceMessage("Zariadenie bolo uložené.");
+      mesDeviceRenameInitializedForRef.current = "";
       await loadMesModuleData();
     } catch (error) {
       const message = error?.message || "Zariadenie sa nepodarilo uložiť.";
+      setMesDeviceMessage(message);
+      setMesError(message);
+    } finally {
+      setMesDeviceSubmitting(false);
+    }
+  };
+
+  const handleDeleteMesTerminal = async () => {
+    const selectedMachineDetail = selectedMesMachineOverview || null;
+    const terminalId = String(selectedMachineDetail?.terminalId || "").trim();
+    if (!selectedMachineDetail || !terminalId) {
+      setMesDeviceMessage("Vybrané zariadenie nemá priradený HMI terminál na odstránenie.");
+      return;
+    }
+
+    const terminalLabel = String(
+      selectedMachineDetail.terminalName ||
+        mesTerminalsById[terminalId]?.name ||
+        mesTerminalsById[terminalId]?.terminal_code ||
+        selectedMachineDetail.machineName ||
+        "vybraný terminál"
+    ).trim();
+    const confirmed = window.confirm(`Naozaj chceš úplne odstrániť HMI terminál "${terminalLabel}"? Táto akcia sa nedá vrátiť späť.`);
+    if (!confirmed) {
+      return;
+    }
+
+    setMesDeviceSubmitting(true);
+    setMesDeviceMessage("");
+    setMesError("");
+
+    try {
+      const { data, error } = await supabase
+        .from("mes_hmi_terminals")
+        .delete()
+        .eq("id", terminalId)
+        .select("id")
+        .maybeSingle();
+      if (error) {
+        throw error;
+      }
+      if (!data?.id) {
+        throw new Error("Terminál sa nenašiel alebo nemáš oprávnenie ho odstrániť.");
+      }
+
+      setMesDeviceRenameTerminalNameInput("");
+      setMesDeviceRenameTerminalCodeInput("");
+      mesDeviceRenameInitializedForRef.current = "";
+      setMesDeviceMessage("Terminál bol úplne odstránený.");
+      await loadMesModuleData();
+    } catch (error) {
+      const message = error?.message || "Terminál sa nepodarilo odstrániť.";
       setMesDeviceMessage(message);
       setMesError(message);
     } finally {
@@ -19060,6 +19117,14 @@ function App() {
                         disabled={mesDeviceSubmitting || !selectedMesMachineOverview}
                       >
                         Premenovať zariadenie
+                      </button>
+                      <button
+                        type="button"
+                        className="clear-btn"
+                        onClick={handleDeleteMesTerminal}
+                        disabled={mesDeviceSubmitting || !selectedMesMachineOverview?.terminalId}
+                      >
+                        Odstrániť terminál úplne
                       </button>
                     </article>
 

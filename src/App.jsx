@@ -5230,6 +5230,10 @@ function App() {
   const [mesThroughputCustomStartDate, setMesThroughputCustomStartDate] = useState(() => formatDateInputValue(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)));
   const [mesThroughputCustomEndDate, setMesThroughputCustomEndDate] = useState(() => formatDateInputValue());
   const [mesThroughputShiftDate, setMesThroughputShiftDate] = useState(() => formatDateInputValue());
+  const [mesSelectedMachinePartsRangeKey, setMesSelectedMachinePartsRangeKey] = useState("current_shift");
+  const [mesSelectedMachineJobsRangeKey, setMesSelectedMachineJobsRangeKey] = useState("current_shift");
+  const [mesSelectedMachineAvailabilityRangeKey, setMesSelectedMachineAvailabilityRangeKey] = useState("current_shift");
+  const [mesSelectedMachineProductionRangeKey, setMesSelectedMachineProductionRangeKey] = useState("current_shift");
   const [mesHourlyDowntimeShiftKey, setMesHourlyDowntimeShiftKey] = useState(() => {
     const hour = new Date().getHours();
     return hour >= 14 ? "shift_14_22" : "shift_06_14";
@@ -18488,324 +18492,491 @@ function App() {
   }
 
   const renderMesDashboard = () => {
-    const onlineTerminals = mesTerminals.filter((terminal) => isMesTerminalOnline(terminal.last_seen_at)).length;
-    const selectedMachineLabel = selectedMesMachineOverview?.machineName || "Vyber stroj";
-    const selectedMachineStatus = selectedMesMachineOverview?.machine_state || currentMesMachineRun?.status || "idle";
-    const selectedMachineStatusMeta = getMesStatusMeta(selectedMachineStatus);
+    const getMesMachineTileState = (machine) => {
+      const statusTone = machine?.statusMeta?.tone || getMesStatusMeta(machine?.machineStatus).tone;
+      const hasDowntimeReason = Boolean(String(machine?.currentDowntimeReason || "").trim());
+      const isRunning = statusTone === "running";
+      if (isRunning) {
+        return {
+          key: "running",
+          label: "Beží",
+          className: "mes-machine-status-tile-running"
+        };
+      }
+      if (hasDowntimeReason) {
+        return {
+          key: "stopped-with-reason",
+          label: "Stojí s dôvodom",
+          className: "mes-machine-status-tile-warning"
+        };
+      }
+      return {
+        key: "stopped-no-reason",
+        label: "Stojí bez dôvodu",
+        className: "mes-machine-status-tile-danger"
+      };
+    };
+    const formatMesKnownTextValue = (value, emptyLabel = "Nie je evidované") => {
+      const normalized = String(value || "").trim();
+      return normalized || emptyLabel;
+    };
+
+    const sortedMachineTiles = [...machineDashboardRows].sort((left, right) =>
+      String(left.machineName || "").localeCompare(String(right.machineName || ""), "sk-SK", { sensitivity: "base" })
+    );
+    const machineDetailRangeOptions = MES_THROUGHPUT_RANGE_OPTIONS.filter((option) =>
+      ["last_30_minutes", "last_8_hours", "current_shift", "today", "yesterday", "last_7_days"].includes(option.key)
+    );
+    const selectedMachineDetail = selectedMesMachineOverview || sortedMachineTiles[0] || null;
+    const partsRangeWindow = getMesThroughputRangeWindow(mesSelectedMachinePartsRangeKey, "", "", "", mesNowTs);
+    const jobsRangeWindow = getMesThroughputRangeWindow(mesSelectedMachineJobsRangeKey, "", "", "", mesNowTs);
+    const availabilityRangeWindow = getMesThroughputRangeWindow(mesSelectedMachineAvailabilityRangeKey, "", "", "", mesNowTs);
+    const productionRangeWindow = getMesThroughputRangeWindow(mesSelectedMachineProductionRangeKey, "", "", "", mesNowTs);
+    const isInRange = (value, rangeWindow) => {
+      const valueMs = new Date(value || 0).getTime();
+      const startMs = new Date(rangeWindow?.startAt || 0).getTime();
+      const endMs = new Date(rangeWindow?.endAt || 0).getTime();
+      return Number.isFinite(valueMs) && Number.isFinite(startMs) && Number.isFinite(endMs) && valueMs >= startMs && valueMs <= endMs;
+    };
+    const selectedMachineEventsInPartsRange = selectedMesMachineEvents.filter((event) =>
+      isInRange(event.happened_at || event.created_at, partsRangeWindow)
+    );
+    const selectedMachineGoodParts = sumMesEventQuantities(selectedMachineEventsInPartsRange, ["good_count"]);
+    const selectedMachineScrapParts = sumMesEventQuantities(selectedMachineEventsInPartsRange, ["scrap_count"]);
+    const selectedMachineMlParts = sumMesEventQuantities(selectedMachineEventsInPartsRange, ["ml"]);
+    const selectedMachineRunsInPartsRange = selectedMesMachineRuns.filter((run) =>
+      isInRange(run.ended_at || run.updated_at || run.created_at, partsRangeWindow)
+    );
+    const selectedMachineRunGoodParts = selectedMachineRunsInPartsRange.reduce((sum, run) => sum + Number(run.good_quantity || 0), 0);
+    const selectedMachineRunScrapParts = selectedMachineRunsInPartsRange.reduce((sum, run) => sum + Number(run.scrap_quantity || 0), 0);
+    const hasSelectedMachineCountEvents = selectedMachineGoodParts + selectedMachineScrapParts > 0;
+    const resolvedSelectedMachineGoodParts = hasSelectedMachineCountEvents ? selectedMachineGoodParts : selectedMachineRunGoodParts;
+    const resolvedSelectedMachineScrapParts = hasSelectedMachineCountEvents ? selectedMachineScrapParts : selectedMachineRunScrapParts;
+    const selectedMachineProducedParts =
+      resolvedSelectedMachineGoodParts + resolvedSelectedMachineScrapParts > 0
+        ? resolvedSelectedMachineGoodParts + resolvedSelectedMachineScrapParts
+        : selectedMachineMlParts;
+    const selectedMachineCompletedJobs = Array.from(
+      new Map(
+        selectedMesMachineRuns
+          .filter((run) => {
+            const normalizedStatus = String(run.status || "").trim().toLowerCase();
+            const completedAt = run.ended_at || (["completed", "complete", "done", "finished"].includes(normalizedStatus) ? run.updated_at || run.created_at : "");
+            return completedAt && isInRange(completedAt, jobsRangeWindow);
+          })
+          .map((run) => [String(run.production_order_id || run.id || run.job_number || ""), run])
+      ).values()
+    );
+    const selectedMachineActiveRun =
+      selectedMesMachineRuns.find((run) => ["queued", "running", "paused"].includes(String(run.status || "").trim().toLowerCase())) ||
+      (["queued", "running", "paused"].includes(String(selectedMachineDetail?.activeRun?.status || "").trim().toLowerCase()) ? selectedMachineDetail.activeRun : null);
     const selectedMachineOperatorName =
-      selectedMesMachineOverview?.operatorName ||
-      selectedMesMachineStats?.operatorName ||
-      currentMesMachineRun?.operator_name ||
+      selectedMachineDetail?.operatorName ||
+      selectedMachineActiveRun?.operator_name ||
       selectedMesMachineEvents
-        .map((row) => String(row.operator_name || row.operator_id || row.operator_user_id || "").trim())
+        .map((event) => String(event.operator_name || event.operator_id || event.operator_user_id || "").trim())
         .find(Boolean) ||
       "";
-    const sortedMachineRows = [...machineDashboardRows].sort((a, b) => {
-      const priority = { alarm: 0, stopped: 1, setup: 2, idle: 3, running: 4 };
-      const aPriority = priority[a.statusMeta?.tone] ?? 9;
-      const bPriority = priority[b.statusMeta?.tone] ?? 9;
-      if (aPriority !== bPriority) {
-        return aPriority - bPriority;
+    const selectedMachineAverageTaktSeconds = Number(selectedMachineDetail?.actualCycleSeconds || 0);
+    const selectedMachineAverageTaktLabel =
+      Number.isFinite(selectedMachineAverageTaktSeconds) && selectedMachineAverageTaktSeconds > 0
+        ? selectedMachineAverageTaktSeconds >= 60
+          ? `${formatDurationShort(selectedMachineAverageTaktSeconds * 1000)} / ks`
+          : `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(selectedMachineAverageTaktSeconds)} s / ks`
+        : "Nie je evidované";
+    const buildAvailabilitySeries = (rangeWindow) => {
+      const startAt = new Date(rangeWindow?.startAt || Date.now());
+      const endAt = new Date(rangeWindow?.endAt || Date.now());
+      const bucket = rangeWindow?.bucket === "minute" ? "minute" : rangeWindow?.bucket === "day" ? "day" : "hour";
+      const stateTransitionEvents = selectedMesMachineEvents
+        .map((event) => {
+          const happenedMs = new Date(event.happened_at || event.created_at || 0).getTime();
+          const state = getMesStateTransitionFromEvent(event.event_type);
+          return {
+            ...event,
+            happenedMs,
+            state
+          };
+        })
+        .filter((event) => Number.isFinite(event.happenedMs) && event.state)
+        .sort((left, right) => left.happenedMs - right.happenedMs);
+      const cursor = new Date(startAt);
+      if (bucket === "day") {
+        cursor.setHours(0, 0, 0, 0);
+      } else if (bucket === "minute") {
+        cursor.setSeconds(0, 0);
+      } else {
+        cursor.setMinutes(0, 0, 0);
       }
-      return String(a.machineName || "").localeCompare(String(b.machineName || ""), "sk-SK", { sensitivity: "base" });
-    });
-    const criticalMachines = sortedMachineRows.filter((row) => ["alarm", "stopped"].includes(row.statusMeta?.tone)).slice(0, 6);
-    const topDowntimeReasons = (mesAnalytics.downtimeReasons || []).slice(0, 6);
-    const recentEvents = selectedMesMachineEvents.slice(0, 8);
-    const throughputMaxValue = Math.max(1, ...mesThroughput.hourlySeries.map((item) => Number(item.total || 0)));
-    const liveKpis = [
-      {
-        label: "Bežia",
-        value: new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.running),
-        meta: "stroje vo výrobe"
-      },
-      {
-        label: "Stoja",
-        value: new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.stopped + mesGlobalKpis.alarm),
-        meta: criticalMachines.length > 0 ? "vyžaduje pozornosť" : "bez kritického stroja"
-      },
-      {
-        label: "Aktívne zákazky",
-        value: new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.activeOrders),
-        meta: "aktuálne job runy"
-      },
-      {
-        label: "OEE",
-        value: formatPercentValue(mesOeeSummary.oeePct),
-        meta: mesOeeSummary.rangeLabel
-      },
-      {
-        label: "OK kusy",
-        value: new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.goodParts),
-        meta: `${new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.scrapParts)} NOK | eventy OK/NOK ${new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.goodEventRows)}/${new Intl.NumberFormat("sk-SK").format(mesGlobalKpis.scrapEventRows)}`
-      },
-      {
-        label: "Výkon",
-        value: `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(mesGlobalKpis.productionRate)} ks/h`,
-        meta: `${onlineTerminals} online terminálov`
+      const series = [];
+      if (stateTransitionEvents.length === 0) {
+        const latestStatusTone = selectedMachineDetail?.statusMeta?.tone || getMesStatusMeta(selectedMachineDetail?.machineStatus || selectedMachineActiveRun?.status).tone;
+        const latestAvailabilityPct = latestStatusTone === "running" ? 100 : 0;
+        while (cursor < endAt && series.length < 96) {
+          const bucketStart = new Date(cursor);
+          if (bucket === "day") {
+            cursor.setDate(cursor.getDate() + 1);
+          } else if (bucket === "minute") {
+            cursor.setMinutes(cursor.getMinutes() + 1);
+          } else {
+            cursor.setHours(cursor.getHours() + 1);
+          }
+          series.push({
+            key: bucketStart.toISOString(),
+            label:
+              bucket === "day"
+                ? bucketStart.toLocaleDateString("sk-SK", { day: "2-digit", month: "2-digit" })
+                : bucketStart.toLocaleTimeString("sk-SK", { hour: "2-digit", minute: "2-digit" }),
+            availabilityPct: latestAvailabilityPct
+          });
+        }
+        return series;
       }
-    ];
+      while (cursor < endAt && series.length < 96) {
+        const bucketStart = new Date(cursor);
+        const bucketEnd = new Date(cursor);
+        if (bucket === "day") {
+          bucketEnd.setDate(bucketEnd.getDate() + 1);
+        } else if (bucket === "minute") {
+          bucketEnd.setMinutes(bucketEnd.getMinutes() + 1);
+        } else {
+          bucketEnd.setHours(bucketEnd.getHours() + 1);
+        }
+        const clippedEnd = new Date(Math.min(bucketEnd.getTime(), endAt.getTime()));
+        const bucketStartMs = bucketStart.getTime();
+        const clippedEndMs = clippedEnd.getTime();
+        const previousTransition = [...stateTransitionEvents].reverse().find((event) => event.happenedMs <= bucketStartMs);
+        const bucketTransitions = stateTransitionEvents.filter((event) => event.happenedMs > bucketStartMs && event.happenedMs <= clippedEndMs);
+        const firstKnownTransition = previousTransition || bucketTransitions[0] || null;
+        if (!firstKnownTransition) {
+          cursor.setTime(bucketEnd.getTime());
+          continue;
+        }
+        const effectiveStart = previousTransition ? bucketStart : new Date(firstKnownTransition.happenedMs);
+        if (effectiveStart.getTime() >= clippedEndMs) {
+          cursor.setTime(bucketEnd.getTime());
+          continue;
+        }
+        const windowSummary = summarizeMesStateWindow(
+          stateTransitionEvents,
+          effectiveStart.toISOString(),
+          clippedEnd.toISOString(),
+          firstKnownTransition.state,
+          { maxStopSegmentMs: MES_MAX_DOWNTIME_DURATION_MS }
+        );
+        series.push({
+          key: bucketStart.toISOString(),
+          label:
+            bucket === "day"
+              ? bucketStart.toLocaleDateString("sk-SK", { day: "2-digit", month: "2-digit" })
+              : bucketStart.toLocaleTimeString("sk-SK", { hour: "2-digit", minute: "2-digit" }),
+          availabilityPct: clampPercent(windowSummary.runPct)
+        });
+        cursor.setTime(bucketEnd.getTime());
+      }
+      return series;
+    };
+    const selectedMachineAvailabilitySeries = buildAvailabilitySeries(availabilityRangeWindow);
+    const selectedMachineAvailabilityHasEventData = selectedMachineAvailabilitySeries.length > 0;
+    const selectedMachineAvailabilityPolyline = buildSimplePolyline(selectedMachineAvailabilitySeries, "availabilityPct", 100);
+    const selectedMachineAvailabilityAverage =
+      selectedMachineAvailabilitySeries.length > 0
+        ? selectedMachineAvailabilitySeries.reduce((sum, row) => sum + Number(row.availabilityPct || 0), 0) / selectedMachineAvailabilitySeries.length
+        : 0;
+    const selectedMachineAvailabilityLatest =
+      selectedMachineAvailabilitySeries[selectedMachineAvailabilitySeries.length - 1]?.availabilityPct ?? 0;
+    const buildProductionSeries = (rangeWindow) => {
+      const startAt = new Date(rangeWindow?.startAt || Date.now());
+      const endAt = new Date(rangeWindow?.endAt || Date.now());
+      const bucket = rangeWindow?.bucket === "minute" ? "minute" : rangeWindow?.bucket === "day" ? "day" : "hour";
+      const series = [];
+      const cursor = new Date(startAt);
+      if (bucket === "day") {
+        cursor.setHours(0, 0, 0, 0);
+      } else if (bucket === "minute") {
+        cursor.setSeconds(0, 0);
+      } else {
+        cursor.setMinutes(0, 0, 0);
+      }
+      const countEvents = selectedMesMachineEvents.filter((event) =>
+        ["good_count", "scrap_count"].includes(String(event.event_type || "").toLowerCase()) &&
+        isInRange(event.happened_at || event.created_at, rangeWindow)
+      );
+      const useEventCounts = countEvents.length > 0;
+      const runSamples = selectedMesMachineRuns.filter((run) =>
+        isInRange(run.ended_at || run.updated_at || run.created_at, rangeWindow)
+      );
+
+      while (cursor < endAt && series.length < 96) {
+        const bucketStart = new Date(cursor);
+        const bucketEnd = new Date(cursor);
+        if (bucket === "day") {
+          bucketEnd.setDate(bucketEnd.getDate() + 1);
+        } else if (bucket === "minute") {
+          bucketEnd.setMinutes(bucketEnd.getMinutes() + 1);
+        } else {
+          bucketEnd.setHours(bucketEnd.getHours() + 1);
+        }
+        const clippedEnd = new Date(Math.min(bucketEnd.getTime(), endAt.getTime()));
+        const bucketWindow = { startAt: bucketStart, endAt: clippedEnd };
+        const bucketEvents = countEvents.filter((event) => isInRange(event.happened_at || event.created_at, bucketWindow));
+        const bucketRuns = runSamples.filter((run) => isInRange(run.ended_at || run.updated_at || run.created_at, bucketWindow));
+        const eventGood = sumMesEventQuantities(bucketEvents, ["good_count"]);
+        const eventScrap = sumMesEventQuantities(bucketEvents, ["scrap_count"]);
+        const runGood = bucketRuns.reduce((sum, run) => sum + Number(run.good_quantity || 0), 0);
+        const runScrap = bucketRuns.reduce((sum, run) => sum + Number(run.scrap_quantity || 0), 0);
+        const good = useEventCounts ? eventGood : runGood;
+        const scrap = useEventCounts ? eventScrap : runScrap;
+        series.push({
+          key: bucketStart.toISOString(),
+          label:
+            bucket === "day"
+              ? bucketStart.toLocaleDateString("sk-SK", { day: "2-digit", month: "2-digit" })
+              : bucketStart.toLocaleTimeString("sk-SK", { hour: "2-digit", minute: "2-digit" }),
+          good,
+          scrap,
+          total: good + scrap,
+          cumulative: 0
+        });
+        cursor.setTime(bucketEnd.getTime());
+      }
+
+      let cumulative = 0;
+      return series.map((point) => {
+        cumulative += Number(point.total || 0);
+        return {
+          ...point,
+          cumulative
+        };
+      });
+    };
+    const selectedMachineProductionSeries = buildProductionSeries(productionRangeWindow);
+    const selectedMachineProductionTotal = selectedMachineProductionSeries.reduce((sum, point) => sum + Number(point.total || 0), 0);
+    const selectedMachineProductionGood = selectedMachineProductionSeries.reduce((sum, point) => sum + Number(point.good || 0), 0);
+    const selectedMachineProductionScrap = selectedMachineProductionSeries.reduce((sum, point) => sum + Number(point.scrap || 0), 0);
+    const selectedMachineProductionQualityPct = safeRatioPercent(selectedMachineProductionGood, selectedMachineProductionTotal);
+    const selectedMachineProductionRangeHours = Math.max(
+      0,
+      (new Date(productionRangeWindow?.endAt || 0).getTime() - new Date(productionRangeWindow?.startAt || 0).getTime()) / (60 * 60 * 1000)
+    );
+    const selectedMachineProductionRate =
+      selectedMachineProductionRangeHours > 0 ? selectedMachineProductionTotal / selectedMachineProductionRangeHours : 0;
+    const selectedMachineProductionCompletedJobs = Array.from(
+      new Map(
+        selectedMesMachineRuns
+          .filter((run) => {
+            const normalizedStatus = String(run.status || "").trim().toLowerCase();
+            const completedAt = run.ended_at || (["completed", "complete", "done", "finished"].includes(normalizedStatus) ? run.updated_at || run.created_at : "");
+            return completedAt && isInRange(completedAt, productionRangeWindow);
+          })
+          .map((run) => [String(run.production_order_id || run.id || run.job_number || ""), run])
+      ).values()
+    );
+    const selectedMachineProductionMaxValue = Math.max(1, ...selectedMachineProductionSeries.map((point) => Number(point.cumulative || 0)));
+    const selectedMachineProductionPolyline = buildSimplePolyline(selectedMachineProductionSeries, "cumulative", selectedMachineProductionMaxValue);
+    const selectedMachineProductionHasData = selectedMachineProductionSeries.some((point) => Number(point.total || 0) > 0);
 
     return (
       <article className="orders-panel-card workflow-card workflow-card-list mes-dashboard-card">
         <div className="panel-head workflow-section-head">
           <div>
             <p className="workflow-section-kicker">MES</p>
-            <h2>Live výrobný cockpit</h2>
-            <p className="panel-meta">Prehľad strojov, výkonu, prestojov a aktívnych zákaziek pre aktuálnu firmu.</p>
+            <h2>Nový MES dashboard</h2>
+            <p className="panel-meta">Dostupné MES terminály a stroje podľa aktuálneho stavu.</p>
           </div>
           <div className="hero-badges">
             <span className="table-badge">{getMesViewRoleLabel(mesViewRole)}</span>
-            <span className="table-badge">{`${machineDashboardRows.length} strojov`}</span>
-            <span className="table-badge">{`${onlineTerminals} online HMI`}</span>
-            <button type="button" className="clear-btn" onClick={handleExportMesDashboardExcel}>
-              Export MES Excel
-            </button>
+            {mesLoading && <span className="table-badge">načítavam dáta</span>}
           </div>
         </div>
-
-        {mesLoading ? (
-          <p className="hint">Načítavam MES dáta...</p>
+        {!activeCompanyId && isMaster ? (
+          <p className="hint">Vyber konkrétnu firmu v hornom filtri, aby sa zobrazili dostupné MES terminály.</p>
+        ) : mesLoading ? (
+          <p className="hint">Načítavam MES terminály...</p>
+        ) : sortedMachineTiles.length === 0 ? (
+          <p className="hint">Pre túto firmu zatiaľ nie sú dostupné žiadne MES terminály alebo stroje.</p>
         ) : (
           <>
-            <section className="mes-kpi-grid">
-              {liveKpis.map((item) => (
-                <article key={item.label} className="card workflow-stat-card mes-kpi-card">
-                  <span className="mes-kpi-label">{item.label}</span>
-                  <strong>{item.value}</strong>
-                  <p className="mes-kpi-meta">{item.meta}</p>
-                </article>
-              ))}
+            <section className="mes-machine-status-panel" aria-label="Dostupné MES terminály">
+              {sortedMachineTiles.map((machine) => {
+                const tileState = getMesMachineTileState(machine);
+                const isSelected = selectedMesMachineId === machine.machineId;
+                return (
+                  <button
+                    key={machine.machineId || machine.workstationId || machine.machineName}
+                    type="button"
+                    className={`mes-machine-status-tile ${tileState.className} ${isSelected ? "is-selected" : ""}`}
+                    onClick={() => setSelectedMesMachineId(machine.machineId)}
+                    aria-pressed={isSelected}
+                  >
+                    <span className="mes-machine-status-label">{tileState.label}</span>
+                    <strong>{formatMesKnownTextValue(machine.machineName || machine.workstationName || machine.machineCode || machine.machineId)}</strong>
+                    <span>{formatMesKnownTextValue(machine.terminalName || machine.workstationName, "Terminál nie je evidovaný")}</span>
+                    <small>{formatMesKnownTextValue(machine.currentDowntimeReason || machine.currentWorkOrder || machine.machineStatus)}</small>
+                  </button>
+                );
+              })}
             </section>
 
-            {criticalMachines.length > 0 && (
-              <section className="mes-machine-alert-note">
-                <strong>Vyžaduje pozornosť</strong>
-                <span>{criticalMachines.map((machine) => `${machine.machineName} (${machine.statusMeta?.label || "stav"})`).join(" | ")}</span>
-              </section>
-            )}
-
-            {machineDashboardRows.length === 0 ? (
-              <p className="hint">Zatiaľ nie sú dostupné žiadne MES stroje. Najprv nastav pracoviská, stroje a terminály.</p>
-            ) : (
-              <div className="orders-layout workflow-grid">
-                <div className="orders-column workflow-editor-column">
-                  <article className="orders-panel-card workflow-card workflow-card-list">
-                    <div className="panel-head workflow-section-head">
-                      <div>
-                        <h2>Stroje</h2>
-                        <p className="panel-meta">Klikni na stroj pre detail. Zastavené a alarmové stroje sú zoradené navrchu.</p>
-                      </div>
-                    </div>
-                    <div className="mes-factory-zone-grid">
-                      {sortedMachineRows.map((machine) => (
-                        <button
-                          key={machine.machineId || machine.workstationId || machine.machineName}
-                          type="button"
-                          className={`mes-factory-tile mes-factory-tile-${machine.statusMeta?.tone || "idle"} ${selectedMesMachineId === machine.machineId ? "mes-factory-tile-selected" : ""}`}
-                          onClick={() => setSelectedMesMachineId(machine.machineId)}
-                        >
-                          <strong>{machine.machineName}</strong>
-                          <span>{machine.currentWorkOrder || machine.statusMeta?.label || "bez zákazky"}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </article>
-
-                  <article className="orders-panel-card workflow-card workflow-card-list mes-throughput-panel">
-                    <div className="panel-head workflow-section-head">
-                      <div>
-                        <h2>Výkon výroby</h2>
-                        <p className="panel-meta">OK/NOK kusy v zvolenom období podľa MES eventov a job runov.</p>
-                      </div>
-                      <div className="hero-badges mes-throughput-controls">
-                        <label className="workflow-field mes-throughput-range-field">
-                          <span className="workflow-field-label">Obdobie</span>
-                          <select value={mesThroughputRangeKey} onChange={(event) => setMesThroughputRangeKey(event.target.value)}>
-                            {MES_THROUGHPUT_RANGE_OPTIONS.map((option) => (
-                              <option key={option.key} value={option.key}>{option.label}</option>
-                            ))}
-                          </select>
-                        </label>
-                        {MES_THROUGHPUT_SHIFT_RANGE_KEYS.has(mesThroughputRangeKey) && (
-                          <label className="workflow-field mes-throughput-date-field">
-                            <span className="workflow-field-label">Dátum smeny</span>
-                            <input type="date" value={mesThroughputShiftDate} onChange={(event) => setMesThroughputShiftDate(event.target.value)} />
-                          </label>
-                        )}
-                        {mesThroughputRangeKey === "custom" && (
-                          <>
-                            <label className="workflow-field mes-throughput-date-field">
-                              <span className="workflow-field-label">Od</span>
-                              <input type="date" value={mesThroughputCustomStartDate} onChange={(event) => setMesThroughputCustomStartDate(event.target.value)} />
-                            </label>
-                            <label className="workflow-field mes-throughput-date-field">
-                              <span className="workflow-field-label">Do</span>
-                              <input type="date" value={mesThroughputCustomEndDate} onChange={(event) => setMesThroughputCustomEndDate(event.target.value)} />
-                            </label>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                    <div className="mes-throughput-metrics">
-                      <article className="mes-throughput-quantity-item">
-                        <span>Vyrobené</span>
-                        <strong>{new Intl.NumberFormat("sk-SK").format(mesThroughput.total)}</strong>
-                      </article>
-                      <article className="mes-throughput-quantity-item">
-                        <span>OK</span>
-                        <strong>{new Intl.NumberFormat("sk-SK").format(mesThroughput.good)}</strong>
-                      </article>
-                      <article className="mes-throughput-quantity-item">
-                        <span>NOK</span>
-                        <strong>{new Intl.NumberFormat("sk-SK").format(mesThroughput.scrap)}</strong>
-                      </article>
-                      <article className="mes-throughput-quantity-item">
-                        <span>Kvalita</span>
-                        <strong>{formatPercentValue(mesThroughput.qualityPct)}</strong>
-                      </article>
-                    </div>
-                    <div className="occupancy-chart mes-throughput-chart-wrap" aria-label="Výkon výroby podľa času">
-                      {mesThroughput.hourlySeries.map((point) => {
-                        const height = Math.max(4, Math.round((Number(point.total || 0) / throughputMaxValue) * 100));
-                        return (
-                          <div key={point.key} className="occupancy-bar-wrap" title={`${point.label}: ${point.total} ks`}>
-                            <div className="occupancy-bar" style={{ height: `${height}%` }} />
-                            <span>{point.label}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </article>
+            <section className="mes-selected-machine-card" aria-label="Detail rozkliknutého stroja">
+              <div className="mes-selected-machine-head">
+                <div>
+                  <span className="workflow-section-kicker">Rozkliknutý stroj</span>
+                  <h3>{formatMesKnownTextValue(selectedMachineDetail?.machineName || selectedMachineDetail?.workstationName || selectedMachineDetail?.machineCode || selectedMachineDetail?.machineId)}</h3>
+                  <p>{formatMesKnownTextValue(selectedMachineDetail?.terminalName || selectedMachineDetail?.workstationName, "Terminál nie je evidovaný")}</p>
                 </div>
-
-                <div className="orders-column orders-column-list workflow-feed-column">
-                  <article className="orders-panel-card workflow-card workflow-card-list mes-machine-detail-card">
-                    <div className="panel-head workflow-section-head">
-                      <div>
-                        <h2>{selectedMachineLabel}</h2>
-                        <p className="panel-meta">Detail vybraného stroja, aktuálna zákazka a posledné udalosti.</p>
-                      </div>
-                      <div className="hero-badges">
-                        <span className={`table-badge mes-factory-tile-${selectedMachineStatusMeta.tone}`}>{selectedMachineStatusMeta.label}</span>
-                        {selectedMachineOperatorName && <span className="table-badge">{selectedMachineOperatorName}</span>}
-                      </div>
-                    </div>
-                    <div className="mes-machine-summary">
-                      <div className="mes-machine-summary-main">
-                        <span className="draft-field-label">Aktuálna zákazka</span>
-                        <strong>{currentMesMachineRun?.item_name || currentMesMachineRun?.job_number || selectedMesMachineOverview?.currentWorkOrder || "Bez aktívnej zákazky"}</strong>
-                        <p className="panel-meta">
-                          {currentMesMachineRun
-                            ? `${currentMesMachineRun.item_code || "-"} | plán ${new Intl.NumberFormat("sk-SK").format(currentMesMachineRun.planned_quantity || 0)} | OK ${new Intl.NumberFormat("sk-SK").format(currentMesMachineRun.good_quantity || 0)} | NOK ${new Intl.NumberFormat("sk-SK").format(currentMesMachineRun.scrap_quantity || 0)}`
-                            : "Vyber stroj s aktívnym job runom pre detail zákazky."}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="mes-machine-panel-grid">
-                      <article>
-                        <span className="draft-field-label">Výkon</span>
-                        <strong>{selectedMesMachineStats ? formatPercentValue(selectedMesMachineStats.performancePct) : "-"}</strong>
-                      </article>
-                      <article>
-                        <span className="draft-field-label">Kvalita</span>
-                        <strong>{selectedMesMachineStats ? formatPercentValue(selectedMesMachineStats.qualityPct) : "-"}</strong>
-                      </article>
-                      <article>
-                        <span className="draft-field-label">MTBF</span>
-                        <strong>{selectedMesMachineStats ? formatDurationShort(selectedMesMachineStats.mtbfMs) : "-"}</strong>
-                      </article>
-                      <article>
-                        <span className="draft-field-label">MTTR</span>
-                        <strong>{selectedMesMachineStats ? formatDurationShort(selectedMesMachineStats.mttrMs) : "-"}</strong>
-                      </article>
-                    </div>
-                    <div className="mes-machine-events">
-                      <div className="mes-machine-events-head">
-                        <strong>Posledné udalosti</strong>
-                        <button type="button" className="clear-btn" onClick={handleExportSelectedMesMachineEvents} disabled={selectedMesMachineEvents.length === 0}>
-                          Export stroja
-                        </button>
-                      </div>
-                      {recentEvents.length === 0 ? (
-                        <p className="hint">Pre vybraný stroj zatiaľ nie sú dostupné udalosti.</p>
-                      ) : (
-                        <div className="table-wrap">
-                          <table>
-                            <thead>
-                              <tr>
-                                <th>Čas</th>
-                                <th>Event</th>
-                                <th>Dôvod</th>
-                                <th>Kusy</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {recentEvents.map((event) => (
-                                <tr key={buildMesEventIdentity(event)}>
-                                  <td>{formatDate(event.happened_at || event.created_at)}</td>
-                                  <td>{formatMesEventLabel(event.event_type)}</td>
-                                  <td>{mesDowntimeReasonNameById[event.downtime_reason_id] || event.downtime_reason_name || event.downtime_reason_code || event.note || "-"}</td>
-                                  <td>{new Intl.NumberFormat("sk-SK").format(Number(event.quantity || 0))}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                    </div>
-                  </article>
-
-                  <article className="orders-panel-card workflow-card workflow-card-list">
-                    <div className="panel-head workflow-section-head">
-                      <div>
-                        <h2>Prestoje</h2>
-                        <p className="panel-meta">Najčastejšie dôvody prestojov podľa MES eventov.</p>
-                      </div>
-                    </div>
-                    {topDowntimeReasons.length === 0 ? (
-                      <p className="hint">Zatiaľ nie sú evidované downtime eventy.</p>
-                    ) : (
-                      <div className="orders-list compact-list">
-                        {topDowntimeReasons.map((reason) => (
-                          <div key={reason.reason || reason.label} className="daily-activity-item">
-                            <div>
-                              <strong>{reason.reason || reason.label || "Prestoj"}</strong>
-                              <p>{`${new Intl.NumberFormat("sk-SK").format(reason.count || 0)} udalostí`}</p>
-                            </div>
-                            <span>{formatDurationShort(reason.totalMs || reason.durationMs || 0)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </article>
-
-                  <article className="orders-panel-card workflow-card workflow-card-list">
-                    <div className="panel-head workflow-section-head">
-                      <div>
-                        <h2>Výrobné zákazky</h2>
-                        <p className="panel-meta">{`${mesProductionOrderRows.length} záznamov z produkcie vrátane histórie.`}</p>
-                      </div>
-                    </div>
-                    {mesProductionOrderRows.length === 0 ? (
-                      <p className="hint">Zatiaľ nie sú dostupné výrobné zákazky.</p>
-                    ) : (
-                      <div className="orders-list compact-list">
-                        {mesProductionOrderRows.slice(0, 8).map((row) => (
-                          <div key={row.id || row.job_number} className="daily-activity-item">
-                            <div>
-                              <strong>{row.job_number || row.production_number || "Zákazka"}</strong>
-                              <p>{`${row.item_name || row.title || "-"} | ${row.machineLabel || row.workstationLabel || "-"}`}</p>
-                            </div>
-                            <span>{row.status || (row.completed_at ? "completed" : "draft")}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </article>
-                </div>
+                <span className="table-badge">{formatMesKnownTextValue(selectedMachineDetail?.statusMeta?.label || selectedMachineDetail?.machineStatus)}</span>
               </div>
-            )}
+
+              <article className="mes-selected-machine-order">
+                <div>
+                  <span>Aktuálna výrobná zákazka</span>
+                  <strong>{formatMesKnownTextValue(selectedMachineActiveRun?.job_number, "Aktívna zákazka nie je evidovaná")}</strong>
+                  <p>{formatMesKnownTextValue(selectedMachineActiveRun?.item_name, "Položka nie je evidovaná")}</p>
+                </div>
+                <div className="mes-selected-machine-order-stats">
+                  <span>{`Plán: ${new Intl.NumberFormat("sk-SK").format(selectedMachineActiveRun?.planned_quantity || 0)}`}</span>
+                  <span>{`OK: ${new Intl.NumberFormat("sk-SK").format(selectedMachineActiveRun?.good_quantity || 0)}`}</span>
+                  <span>{`NOK: ${new Intl.NumberFormat("sk-SK").format(selectedMachineActiveRun?.scrap_quantity || 0)}`}</span>
+                  <span>{formatMesKnownTextValue(selectedMachineActiveRun?.status)}</span>
+                </div>
+              </article>
+
+              <div className="mes-selected-machine-metrics">
+                <article className="mes-selected-machine-metric">
+                  <span>Prihlásený</span>
+                  <strong>{formatMesKnownTextValue(selectedMachineOperatorName, "Operátor nie je prihlásený")}</strong>
+                  <p>údaj z poslednej známej aktivity stroja</p>
+                </article>
+
+                <article className="mes-selected-machine-metric">
+                  <div className="mes-selected-machine-metric-head">
+                    <span>Vyrobené kusy</span>
+                    <select value={mesSelectedMachinePartsRangeKey} onChange={(event) => setMesSelectedMachinePartsRangeKey(event.target.value)}>
+                      {machineDetailRangeOptions.map((option) => (
+                        <option key={option.key} value={option.key}>{option.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <strong>{new Intl.NumberFormat("sk-SK").format(selectedMachineProducedParts)}</strong>
+                  <p>{`${new Intl.NumberFormat("sk-SK").format(resolvedSelectedMachineGoodParts)} OK | ${new Intl.NumberFormat("sk-SK").format(resolvedSelectedMachineScrapParts)} NOK`}</p>
+                </article>
+
+                <article className="mes-selected-machine-metric">
+                  <div className="mes-selected-machine-metric-head">
+                    <span>Vyrobené zákazky</span>
+                    <select value={mesSelectedMachineJobsRangeKey} onChange={(event) => setMesSelectedMachineJobsRangeKey(event.target.value)}>
+                      {machineDetailRangeOptions.map((option) => (
+                        <option key={option.key} value={option.key}>{option.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <strong>{new Intl.NumberFormat("sk-SK").format(selectedMachineCompletedJobs.length)}</strong>
+                  <p>dokončené zákazky v období</p>
+                </article>
+
+                <article className="mes-selected-machine-metric">
+                  <span>Priemerný takt</span>
+                  <strong>{selectedMachineAverageTaktLabel}</strong>
+                  <p>vypočítané z výrobných záznamov stroja</p>
+                </article>
+              </div>
+
+              <article className="mes-selected-machine-availability">
+                <div className="mes-selected-machine-chart-head">
+                  <div>
+                    <span className="workflow-section-kicker">Dostupnosť zariadenia</span>
+                    <h4>{selectedMachineAvailabilityHasEventData ? formatPercentValue(selectedMachineAvailabilityLatest) : "Nie je evidované"}</h4>
+                    <p>
+                      {selectedMachineAvailabilityHasEventData
+                        ? `Priemer v období: ${formatPercentValue(selectedMachineAvailabilityAverage)}`
+                        : "Dostupnosť podľa posledného známeho stavu stroja."}
+                    </p>
+                  </div>
+                  <select value={mesSelectedMachineAvailabilityRangeKey} onChange={(event) => setMesSelectedMachineAvailabilityRangeKey(event.target.value)}>
+                    {machineDetailRangeOptions.map((option) => (
+                      <option key={option.key} value={option.key}>{option.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="mes-selected-machine-chart" role="img" aria-label="Trend dostupnosti zariadenia">
+                  {selectedMachineAvailabilityHasEventData && selectedMachineAvailabilityPolyline ? (
+                    <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                      <defs>
+                        <linearGradient id="mesAvailabilityFill" x1="0" x2="0" y1="0" y2="1">
+                          <stop offset="0%" stopColor="rgba(22, 165, 92, 0.32)" />
+                          <stop offset="100%" stopColor="rgba(22, 165, 92, 0)" />
+                        </linearGradient>
+                      </defs>
+                      <polyline
+                        className="mes-selected-machine-chart-fill"
+                        points={`0,100 ${selectedMachineAvailabilityPolyline} 100,100`}
+                      />
+                      <polyline className="mes-selected-machine-chart-line" points={selectedMachineAvailabilityPolyline} />
+                    </svg>
+                  ) : (
+                    <p className="hint">Dostupnosť nie je evidovaná.</p>
+                  )}
+                </div>
+                {selectedMachineAvailabilityHasEventData && (
+                  <div className="mes-selected-machine-chart-labels">
+                    {selectedMachineAvailabilitySeries.map((point) => (
+                      <span key={point.key}>{point.label}</span>
+                    ))}
+                  </div>
+                )}
+              </article>
+
+              <article className="mes-selected-machine-production">
+                <div className="mes-selected-machine-chart-head">
+                  <div>
+                    <span className="workflow-section-kicker">Priebeh výroby</span>
+                    <h4>{new Intl.NumberFormat("sk-SK").format(selectedMachineProductionTotal)}</h4>
+                    <p>vyrobené kusy v zvolenom období</p>
+                  </div>
+                  <select value={mesSelectedMachineProductionRangeKey} onChange={(event) => setMesSelectedMachineProductionRangeKey(event.target.value)}>
+                    {machineDetailRangeOptions.map((option) => (
+                      <option key={option.key} value={option.key}>{option.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="mes-selected-machine-production-stats">
+                  <span>{`${new Intl.NumberFormat("sk-SK").format(selectedMachineProductionGood)} OK`}</span>
+                  <span>{`${new Intl.NumberFormat("sk-SK").format(selectedMachineProductionScrap)} NOK`}</span>
+                  <span>{`${formatPercentValue(selectedMachineProductionQualityPct)} kvalita`}</span>
+                  <span>{`${new Intl.NumberFormat("sk-SK").format(selectedMachineProductionCompletedJobs.length)} zákaziek`}</span>
+                  <span>{`${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(selectedMachineProductionRate)} ks/h`}</span>
+                </div>
+
+                <div className="mes-selected-machine-chart mes-selected-machine-production-chart" role="img" aria-label="Priebeh výroby v čase">
+                  {selectedMachineProductionHasData && selectedMachineProductionPolyline ? (
+                    <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                      <defs>
+                        <linearGradient id="mesProductionFill" x1="0" x2="0" y1="0" y2="1">
+                          <stop offset="0%" stopColor="rgba(23, 71, 100, 0.28)" />
+                          <stop offset="100%" stopColor="rgba(23, 71, 100, 0)" />
+                        </linearGradient>
+                      </defs>
+                      <polyline
+                        className="mes-selected-machine-production-fill"
+                        points={`0,100 ${selectedMachineProductionPolyline} 100,100`}
+                      />
+                      <polyline className="mes-selected-machine-production-line" points={selectedMachineProductionPolyline} />
+                    </svg>
+                  ) : (
+                    <p className="hint">Výroba v tomto období nie je evidovaná.</p>
+                  )}
+                </div>
+                {selectedMachineProductionHasData && (
+                  <div className="mes-selected-machine-chart-labels">
+                    {selectedMachineProductionSeries.map((point) => (
+                      <span key={point.key}>{point.label}</span>
+                    ))}
+                  </div>
+                )}
+              </article>
+            </section>
           </>
         )}
       </article>

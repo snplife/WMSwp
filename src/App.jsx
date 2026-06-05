@@ -5243,6 +5243,8 @@ function App() {
   const [mesDeviceNewAreaInput, setMesDeviceNewAreaInput] = useState("");
   const [mesDeviceSubmitting, setMesDeviceSubmitting] = useState(false);
   const [mesDeviceMessage, setMesDeviceMessage] = useState("");
+  const [isMesDeviceAdminOpen, setIsMesDeviceAdminOpen] = useState(false);
+  const mesDeviceRenameInitializedForRef = useRef("");
   const [mesHourlyDowntimeShiftKey, setMesHourlyDowntimeShiftKey] = useState(() => {
     const hour = new Date().getHours();
     return hour >= 14 ? "shift_14_22" : "shift_06_14";
@@ -5378,15 +5380,6 @@ function App() {
   );
   const canAccessMesModule =
     isMaster || (canAccessMes && Boolean(activeCompanyId || userCompanyId || activeCompany?.id));
-  useEffect(() => {
-    if (!canAccessMesModule || !isProductionModule(selectedTable)) {
-      return undefined;
-    }
-    const intervalId = window.setInterval(() => {
-      setMesNowTs(Date.now());
-    }, 1000);
-    return () => window.clearInterval(intervalId);
-  }, [canAccessMesModule, selectedTable]);
   const visibleTableNames = useMemo(() => {
     if (isMaster) {
       return Array.from(
@@ -13239,18 +13232,12 @@ function App() {
           if (canAccessOrdersModule) {
             loadProductionModuleData();
           }
-          if (canAccessMesModule) {
-            loadMesModuleData();
-          }
         }, 350);
       };
 
       const subscriptionTables = [];
       if (canAccessOrdersModule) {
         subscriptionTables.push("production_orders", "production_order_inputs", "production_order_outputs", "stock", "stock_history");
-      }
-      if (canAccessMesModule) {
-        subscriptionTables.push("mes_workstations", "mes_machines", "mes_hmi_terminals", "mes_job_runs", "mes_job_run_events");
       }
 
       let channel = null;
@@ -13298,7 +13285,7 @@ function App() {
       }
       supabase.removeChannel(channel);
     };
-  }, [selectedTable, isLoggedIn, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id, occupancyChartRange, effectiveMaxPositions, activeCompany?.tracks_expiry_date, canAccessOrdersModule, canAccessAttendanceModule, canAccessMesModule, mesOeeRangeKey, mesThroughputRangeKey, mesThroughputCustomStartDate, mesThroughputCustomEndDate, mesThroughputShiftDate, mesHourlyDowntimeShiftKey, mesHourlyDowntimeDayOffset]);
+  }, [selectedTable, isLoggedIn, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id, occupancyChartRange, effectiveMaxPositions, activeCompany?.tracks_expiry_date, canAccessOrdersModule, canAccessAttendanceModule, canAccessMesModule]);
 
   useEffect(() => {
     if (!authReady || !isLoggedIn) {
@@ -13338,9 +13325,6 @@ function App() {
       if (isProductionModule(selectedTable)) {
         if (canAccessOrdersModule) {
           loadProductionModuleData();
-        }
-        if (canAccessMesModule) {
-          loadMesModuleData();
         }
         return;
       }
@@ -17015,8 +16999,22 @@ function App() {
   }, [mesThroughputOperatorOptions, mesThroughputOperatorKey]);
 
   useEffect(() => {
+    if (!selectedMesMachineId) {
+      mesDeviceRenameInitializedForRef.current = "";
+      setMesDeviceRenameNameInput("");
+      setMesDeviceRenameTerminalNameInput("");
+      setMesDeviceRenameTerminalCodeInput("");
+      return;
+    }
+    if (mesDeviceRenameInitializedForRef.current === selectedMesMachineId) {
+      return;
+    }
     const selectedMachine = machineDashboardRows.find((row) => row.machineId === selectedMesMachineId) || null;
+    if (!selectedMachine) {
+      return;
+    }
     const selectedTerminal = selectedMachine?.terminalId ? mesTerminalsById[selectedMachine.terminalId] || null : null;
+    mesDeviceRenameInitializedForRef.current = selectedMesMachineId;
     setMesDeviceRenameNameInput(String(selectedMachine?.machineName || selectedMachine?.workstationName || "").trim());
     setMesDeviceRenameTerminalNameInput(String(selectedMachine?.terminalName || "").trim());
     setMesDeviceRenameTerminalCodeInput(String(selectedTerminal?.terminal_code || "").trim());
@@ -19010,98 +19008,110 @@ function App() {
                     <h3>Správa MES zariadení</h3>
                     <p>Premenuj vybrané zariadenie alebo pridaj nový stroj s HMI terminálom.</p>
                   </div>
-                  {mesDeviceMessage && <span className="table-badge">{mesDeviceMessage}</span>}
-                </div>
-
-                <div className="mes-device-admin-grid">
-                  <article className="mes-device-admin-form">
-                    <strong>Premenovať vybrané</strong>
-                    <label className="workflow-field">
-                      <span className="workflow-field-label">Názov zariadenia</span>
-                      <input
-                        type="text"
-                        value={mesDeviceRenameNameInput}
-                        onChange={(event) => setMesDeviceRenameNameInput(event.target.value)}
-                        placeholder="Názov stroja"
-                      />
-                    </label>
-                    <label className="workflow-field">
-                      <span className="workflow-field-label">Názov terminálu</span>
-                      <input
-                        type="text"
-                        value={mesDeviceRenameTerminalNameInput}
-                        onChange={(event) => setMesDeviceRenameTerminalNameInput(event.target.value)}
-                        placeholder="Názov HMI terminálu"
-                      />
-                    </label>
-                    <label className="workflow-field">
-                      <span className="workflow-field-label">Registračný kód terminálu</span>
-                      <input
-                        type="text"
-                        value={mesDeviceRenameTerminalCodeInput}
-                        onChange={(event) => setMesDeviceRenameTerminalCodeInput(event.target.value)}
-                        placeholder="Kód pre registráciu HMI"
-                      />
-                    </label>
-                    <p className="panel-meta">Tento kód zadáš v termináli pri registrácii zariadenia.</p>
+                  <div className="hero-badges">
+                    {mesDeviceMessage && <span className="table-badge">{mesDeviceMessage}</span>}
                     <button
                       type="button"
                       className="settings-btn"
-                      onClick={handleRenameMesDevice}
-                      disabled={mesDeviceSubmitting || !selectedMesMachineOverview}
+                      onClick={() => setIsMesDeviceAdminOpen((isOpen) => !isOpen)}
+                      aria-expanded={isMesDeviceAdminOpen}
                     >
-                      Premenovať zariadenie
+                      {isMesDeviceAdminOpen ? "Skryť" : "Otvoriť"}
                     </button>
-                  </article>
-
-                  <article className="mes-device-admin-form">
-                    <strong>Pridať nové</strong>
-                    <label className="workflow-field">
-                      <span className="workflow-field-label">Názov zariadenia</span>
-                      <input
-                        type="text"
-                        value={mesDeviceNewNameInput}
-                        onChange={(event) => setMesDeviceNewNameInput(event.target.value)}
-                        placeholder="Napr. Lis 01"
-                      />
-                    </label>
-                    <label className="workflow-field">
-                      <span className="workflow-field-label">Názov terminálu</span>
-                      <input
-                        type="text"
-                        value={mesDeviceNewTerminalNameInput}
-                        onChange={(event) => setMesDeviceNewTerminalNameInput(event.target.value)}
-                        placeholder="Voliteľné, predvolene názov zariadenia"
-                      />
-                    </label>
-                    <label className="workflow-field">
-                      <span className="workflow-field-label">Registračný kód terminálu</span>
-                      <input
-                        type="text"
-                        value={mesDeviceNewTerminalCodeInput}
-                        onChange={(event) => setMesDeviceNewTerminalCodeInput(event.target.value)}
-                        placeholder="Voliteľné, vygeneruje sa automaticky"
-                      />
-                    </label>
-                    <label className="workflow-field">
-                      <span className="workflow-field-label">Oblasť / hala</span>
-                      <input
-                        type="text"
-                        value={mesDeviceNewAreaInput}
-                        onChange={(event) => setMesDeviceNewAreaInput(event.target.value)}
-                        placeholder="Voliteľné"
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      className="settings-btn"
-                      onClick={handleCreateMesDevice}
-                      disabled={mesDeviceSubmitting || !activeCompanyId}
-                    >
-                      Pridať zariadenie
-                    </button>
-                  </article>
+                  </div>
                 </div>
+
+                {isMesDeviceAdminOpen && (
+                  <div className="mes-device-admin-grid">
+                    <article className="mes-device-admin-form">
+                      <strong>Premenovať vybrané</strong>
+                      <label className="workflow-field">
+                        <span className="workflow-field-label">Názov zariadenia</span>
+                        <input
+                          type="text"
+                          value={mesDeviceRenameNameInput}
+                          onChange={(event) => setMesDeviceRenameNameInput(event.target.value)}
+                          placeholder="Názov stroja"
+                        />
+                      </label>
+                      <label className="workflow-field">
+                        <span className="workflow-field-label">Názov terminálu</span>
+                        <input
+                          type="text"
+                          value={mesDeviceRenameTerminalNameInput}
+                          onChange={(event) => setMesDeviceRenameTerminalNameInput(event.target.value)}
+                          placeholder="Názov HMI terminálu"
+                        />
+                      </label>
+                      <label className="workflow-field">
+                        <span className="workflow-field-label">Registračný kód terminálu</span>
+                        <input
+                          type="text"
+                          value={mesDeviceRenameTerminalCodeInput}
+                          onChange={(event) => setMesDeviceRenameTerminalCodeInput(event.target.value)}
+                          placeholder="Kód pre registráciu HMI"
+                        />
+                      </label>
+                      <p className="panel-meta">Tento kód zadáš v termináli pri registrácii zariadenia.</p>
+                      <button
+                        type="button"
+                        className="settings-btn"
+                        onClick={handleRenameMesDevice}
+                        disabled={mesDeviceSubmitting || !selectedMesMachineOverview}
+                      >
+                        Premenovať zariadenie
+                      </button>
+                    </article>
+
+                    <article className="mes-device-admin-form">
+                      <strong>Pridať nové</strong>
+                      <label className="workflow-field">
+                        <span className="workflow-field-label">Názov zariadenia</span>
+                        <input
+                          type="text"
+                          value={mesDeviceNewNameInput}
+                          onChange={(event) => setMesDeviceNewNameInput(event.target.value)}
+                          placeholder="Napr. Lis 01"
+                        />
+                      </label>
+                      <label className="workflow-field">
+                        <span className="workflow-field-label">Názov terminálu</span>
+                        <input
+                          type="text"
+                          value={mesDeviceNewTerminalNameInput}
+                          onChange={(event) => setMesDeviceNewTerminalNameInput(event.target.value)}
+                          placeholder="Voliteľné, predvolene názov zariadenia"
+                        />
+                      </label>
+                      <label className="workflow-field">
+                        <span className="workflow-field-label">Registračný kód terminálu</span>
+                        <input
+                          type="text"
+                          value={mesDeviceNewTerminalCodeInput}
+                          onChange={(event) => setMesDeviceNewTerminalCodeInput(event.target.value)}
+                          placeholder="Voliteľné, vygeneruje sa automaticky"
+                        />
+                      </label>
+                      <label className="workflow-field">
+                        <span className="workflow-field-label">Oblasť / hala</span>
+                        <input
+                          type="text"
+                          value={mesDeviceNewAreaInput}
+                          onChange={(event) => setMesDeviceNewAreaInput(event.target.value)}
+                          placeholder="Voliteľné"
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className="settings-btn"
+                        onClick={handleCreateMesDevice}
+                        disabled={mesDeviceSubmitting || !activeCompanyId}
+                      >
+                        Pridať zariadenie
+                      </button>
+                    </article>
+                  </div>
+                )}
               </section>
             )}
 

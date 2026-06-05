@@ -48,7 +48,7 @@ export function buildMesEventIdentity(row) {
 
 export function getMesStateTransitionFromEvent(eventType) {
   const normalized = String(eventType || "").trim().toLowerCase();
-  if (["start", "resume", "good_count", "scrap_count"].includes(normalized)) {
+  if (["start", "resume"].includes(normalized)) {
     return "running";
   }
   if (["downtime_start", "pause", "stop", "ml"].includes(normalized)) {

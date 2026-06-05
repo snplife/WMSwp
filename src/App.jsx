@@ -15285,7 +15285,7 @@ function App() {
           workstation_id: workstationKey,
           code: terminal.terminal_code || "",
           name: terminal.name || terminal.terminal_code || "MES terminal",
-          machine_state: isMesTerminalOnline(terminal.last_seen_at) ? "running" : "idle",
+          machine_state: "idle",
           last_heartbeat_at: terminal.last_seen_at || terminal.updated_at || terminal.created_at || ""
         },
         mesWorkstationsById[workstationKey] || null

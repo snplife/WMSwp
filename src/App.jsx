@@ -9972,9 +9972,12 @@ function App() {
     setMesError("");
 
     try {
-      const MES_QUERY_PAGE_SIZE = 1000;
-      const configuredMesHistoryMaxRows = Number.parseInt(String(import.meta.env.VITE_MES_HISTORY_MAX_ROWS || "20000"), 10);
-      const MES_HISTORY_MAX_ROWS = Number.isFinite(configuredMesHistoryMaxRows) ? Math.max(1000, configuredMesHistoryMaxRows) : 20000;
+      const MES_QUERY_PAGE_SIZE = 500;
+      const configuredMesHistoryMaxRows = Number.parseInt(String(import.meta.env.VITE_MES_HISTORY_MAX_ROWS || "3000"), 10);
+      const MES_HISTORY_MAX_ROWS = Number.isFinite(configuredMesHistoryMaxRows)
+        ? Math.min(10000, Math.max(250, configuredMesHistoryMaxRows))
+        : 3000;
+      const MES_DETAILED_EVENT_JOB_RUN_LIMIT = 500;
       const nowTs = Date.now();
       const throughputWindow = getMesThroughputRangeWindow(
         mesThroughputRangeKey,
@@ -10047,6 +10050,7 @@ function App() {
                 .select("id,company_id,production_order_id,workstation_id,machine_id,terminal_id,operator_user_id,job_number,item_code,item_name,operator_name,status,planned_quantity,good_quantity,scrap_quantity,started_at,ended_at,created_at,updated_at,note");
           const rangeTo = Math.min(from + MES_QUERY_PAGE_SIZE - 1, MES_HISTORY_MAX_ROWS - 1);
           const { data: pageData, error: pageError } = await scopedQuery
+            .gte("created_at", mesLookbackStartAt)
             .order("created_at", { ascending: false })
             .range(from, rangeTo);
 
@@ -10081,6 +10085,7 @@ function App() {
                 .select("id,company_id,terminal_id,workstation_id,job_run_id,terminal_event_id,event_code,job_number,duration_seconds,time_from,time_to,operator_id,downtime_reason_code,downtime_reason_name,payload,created_at");
           const rangeTo = Math.min(from + MES_QUERY_PAGE_SIZE - 1, MES_HISTORY_MAX_ROWS - 1);
           const { data: pageData, error: pageError } = await scopedQuery
+            .gte("created_at", mesLookbackStartAt)
             .order("created_at", { ascending: false })
             .range(from, rangeTo);
 
@@ -10117,6 +10122,7 @@ function App() {
             const { data: pageData, error: pageError } = await supabase
               .from("mes_job_run_events")
               .select("id,job_run_id,workstation_id,machine_id,downtime_reason_id,event_type,quantity,source,note,payload,happened_at,created_at")
+              .gte("happened_at", mesLookbackStartAt)
               .order("happened_at", { ascending: false })
               .range(from, rangeTo);
 
@@ -10140,11 +10146,12 @@ function App() {
           return rows;
         }
 
-        for (let chunkStart = 0; chunkStart < uniqueIds.length; chunkStart += 100) {
+        const limitedIds = uniqueIds.slice(0, MES_DETAILED_EVENT_JOB_RUN_LIMIT);
+        for (let chunkStart = 0; chunkStart < limitedIds.length; chunkStart += 100) {
           if (rows.length >= MES_HISTORY_MAX_ROWS) {
             break;
           }
-          const idChunk = uniqueIds.slice(chunkStart, chunkStart + 100);
+          const idChunk = limitedIds.slice(chunkStart, chunkStart + 100);
           let from = 0;
 
           while (true) {
@@ -10153,6 +10160,7 @@ function App() {
               .from("mes_job_run_events")
               .select("id,job_run_id,workstation_id,machine_id,downtime_reason_id,event_type,quantity,source,note,payload,happened_at,created_at")
               .in("job_run_id", idChunk)
+              .gte("happened_at", mesLookbackStartAt)
               .order("happened_at", { ascending: false })
               .range(from, rangeTo);
 
@@ -10450,10 +10458,96 @@ function App() {
       .replace(/^-+|-+$/g, "")
       .slice(0, 48);
 
+  const getMesRegistrationCodeVariants = (value) => {
+    const code = normalizeMesRegistrationCode(value);
+    if (!code) {
+      return [];
+    }
+    const suffix = code.replace(/^(P4-|UID-)/, "");
+    const variants = [code];
+    if (/^[0-9A-F]{12}$/.test(suffix)) {
+      variants.push(`P4-${suffix}`, `UID-${suffix}`, suffix);
+    }
+    return Array.from(new Set(variants.map((item) => normalizeMesRegistrationCode(item)).filter(Boolean)));
+  };
+
+  const getMesCanonicalRegistrationCode = (value) => {
+    const code = normalizeMesRegistrationCode(value);
+    const suffix = code.replace(/^(P4-|UID-)/, "");
+    return /^[0-9A-F]{12}$/.test(suffix) ? `P4-${suffix}` : code;
+  };
+
   const buildMesArchivedCode = (value, fallback = "DEVICE") => {
     const base = normalizeMesRegistrationCode(value) || normalizeMesRegistrationCode(fallback) || "DEVICE";
     const suffix = `ARCH-${Date.now().toString(36).toUpperCase()}`;
     return `${base.slice(0, Math.max(1, 48 - suffix.length - 1))}-${suffix}`;
+  };
+
+  const findReusableMesTerminal = async (companyId, terminalCode) => {
+    const normalizedCompanyId = String(companyId || "").trim();
+    const variants = getMesRegistrationCodeVariants(terminalCode);
+    if (!normalizedCompanyId || variants.length === 0) {
+      return null;
+    }
+
+    const { data: rows, error } = await supabase
+      .from("mes_hmi_terminals")
+      .select("id,company_id,workstation_id,terminal_code,name,platform,app_mode,is_active,last_seen_at,created_at")
+      .eq("company_id", normalizedCompanyId)
+      .in("terminal_code", variants);
+    if (error) {
+      throw error;
+    }
+    if (!rows || rows.length === 0) {
+      return null;
+    }
+
+    const canonicalCode = getMesCanonicalRegistrationCode(terminalCode);
+    const sortedRows = [...rows].sort((left, right) => {
+      const leftExact = normalizeMesRegistrationCode(left.terminal_code) === canonicalCode ? 1 : 0;
+      const rightExact = normalizeMesRegistrationCode(right.terminal_code) === canonicalCode ? 1 : 0;
+      if (leftExact !== rightExact) {
+        return rightExact - leftExact;
+      }
+      const leftActive = left.is_active ? 1 : 0;
+      const rightActive = right.is_active ? 1 : 0;
+      if (leftActive !== rightActive) {
+        return rightActive - leftActive;
+      }
+      const leftUnassigned = left.workstation_id ? 0 : 1;
+      const rightUnassigned = right.workstation_id ? 0 : 1;
+      if (leftUnassigned !== rightUnassigned) {
+        return rightUnassigned - leftUnassigned;
+      }
+      const leftSeen = Date.parse(left.last_seen_at || left.created_at || "") || 0;
+      const rightSeen = Date.parse(right.last_seen_at || right.created_at || "") || 0;
+      return rightSeen - leftSeen;
+    });
+
+    return {
+      terminal: sortedRows[0],
+      duplicateRows: sortedRows.slice(1)
+    };
+  };
+
+  const archiveMesTerminalDuplicateRows = async (duplicateRows, keepTerminalId) => {
+    const keepId = String(keepTerminalId || "");
+    const rows = (duplicateRows || []).filter((row) => row?.id && String(row.id) !== keepId);
+    for (const row of rows) {
+      const { error } = await supabase
+        .from("mes_hmi_terminals")
+        .update({
+          terminal_code: buildMesArchivedCode(row.terminal_code || row.name, "HMI"),
+          workstation_id: null,
+          is_active: false,
+          updated_by: authUser?.id || null,
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", row.id);
+      if (error) {
+        throw error;
+      }
+    }
   };
 
   const freeInactiveMesTerminalCodeConflict = async (companyId, terminalCode, currentTerminalId = "") => {
@@ -10740,8 +10834,12 @@ function App() {
 
     try {
       const deviceCode = buildMesDeviceCode(name, "MES");
-      const terminalCode = requestedTerminalCode;
-      await freeInactiveMesTerminalCodeConflict(scopedCompanyId, terminalCode);
+      const terminalCode = getMesCanonicalRegistrationCode(requestedTerminalCode);
+      const reusableTerminalResult = await findReusableMesTerminal(scopedCompanyId, terminalCode);
+      const reusableTerminal = reusableTerminalResult?.terminal || null;
+      if (!reusableTerminal) {
+        await freeInactiveMesTerminalCodeConflict(scopedCompanyId, terminalCode);
+      }
       const { data: workstation, error: workstationError } = await supabase
         .from("mes_workstations")
         .insert([
@@ -10781,23 +10879,43 @@ function App() {
         throw machineError;
       }
 
-      const { error: terminalError } = await supabase
-        .from("mes_hmi_terminals")
-        .insert([
-          {
-            company_id: scopedCompanyId,
+      if (reusableTerminal) {
+        const { error: terminalUpdateError } = await supabase
+          .from("mes_hmi_terminals")
+          .update({
             workstation_id: workstation.id,
             terminal_code: terminalCode,
             name: terminalName,
-            platform: "web_kiosk",
-            app_mode: "hmi",
+            platform: reusableTerminal.platform || "esp32",
+            app_mode: reusableTerminal.app_mode || "hmi",
             is_active: true,
-            created_by: authUser?.id || null,
-            updated_by: authUser?.id || null
-          }
-        ]);
-      if (terminalError) {
-        throw terminalError;
+            updated_by: authUser?.id || null,
+            updated_at: new Date().toISOString()
+          })
+          .eq("id", reusableTerminal.id);
+        if (terminalUpdateError) {
+          throw terminalUpdateError;
+        }
+        await archiveMesTerminalDuplicateRows(reusableTerminalResult?.duplicateRows || [], reusableTerminal.id);
+      } else {
+        const { error: terminalError } = await supabase
+          .from("mes_hmi_terminals")
+          .insert([
+            {
+              company_id: scopedCompanyId,
+              workstation_id: workstation.id,
+              terminal_code: terminalCode,
+              name: terminalName,
+              platform: "web_kiosk",
+              app_mode: "hmi",
+              is_active: true,
+              created_by: authUser?.id || null,
+              updated_by: authUser?.id || null
+            }
+          ]);
+        if (terminalError) {
+          throw terminalError;
+        }
       }
 
       setMesDeviceNewNameInput("");

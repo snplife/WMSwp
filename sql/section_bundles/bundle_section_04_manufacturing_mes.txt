@@ -568,6 +568,32 @@ create trigger trg_mes_machines_touch_updated_at
 before update on public.mes_machines
 for each row execute function public.mes_touch_updated_at();
 
+create or replace function public.mes_normalize_hmi_terminal_code()
+returns trigger
+language plpgsql
+as $$
+declare
+  v_code text;
+  v_suffix text;
+begin
+  v_code := upper(btrim(coalesce(new.terminal_code, '')));
+  v_suffix := regexp_replace(v_code, '^(P4-|UID-)', '');
+
+  if v_suffix ~ '^[0-9A-F]{12}$' then
+    new.terminal_code := 'P4-' || v_suffix;
+  else
+    new.terminal_code := v_code;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_mes_hmi_terminals_normalize_code on public.mes_hmi_terminals;
+create trigger trg_mes_hmi_terminals_normalize_code
+before insert or update of terminal_code on public.mes_hmi_terminals
+for each row execute function public.mes_normalize_hmi_terminal_code();
+
 drop trigger if exists trg_mes_hmi_terminals_touch_updated_at on public.mes_hmi_terminals;
 create trigger trg_mes_hmi_terminals_touch_updated_at
 before update on public.mes_hmi_terminals
@@ -1823,6 +1849,11 @@ language sql
 security definer
 set search_path = public
 as $$
+  with input_uid as (
+    select
+      upper(btrim(p_device_uid)) as raw_uid,
+      regexp_replace(upper(btrim(p_device_uid)), '^(P4-|UID-)', '') as normalized_uid
+  )
   select
     t.id as terminal_id,
     t.company_id,
@@ -1836,7 +1867,16 @@ as $$
     t.last_ip,
     t.last_seen_at
   from public.mes_hmi_terminals t
-  where upper(btrim(t.terminal_code)) = upper(btrim(p_device_uid))
+  cross join input_uid i
+  where t.is_active is true
+    and (
+      upper(btrim(t.terminal_code)) = i.raw_uid
+      or regexp_replace(upper(btrim(t.terminal_code)), '^(P4-|UID-)', '') = i.normalized_uid
+    )
+  order by
+    case when upper(btrim(t.terminal_code)) = i.raw_uid then 0 else 1 end,
+    t.last_seen_at desc nulls last,
+    t.created_at desc
   limit 1;
 $$;
 

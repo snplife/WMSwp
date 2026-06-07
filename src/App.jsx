@@ -15406,10 +15406,9 @@ function App() {
           new Date(b.started_at || b.updated_at || b.created_at || 0).getTime() -
           new Date(a.started_at || a.updated_at || a.created_at || 0).getTime()
       );
+      const latestRun = runs[0] || null;
       const activeRun =
-        runs.find((row) => ["running", "paused", "queued"].includes(String(row.status || "").toLowerCase())) ||
-        runs[0] ||
-        null;
+        runs.find((row) => ["running", "paused", "queued"].includes(String(row.status || "").toLowerCase())) || null;
       const events = Array.from(
         new Map(
           resolvedKeys
@@ -15421,7 +15420,7 @@ function App() {
         resolvedKeys
           .map((key) => mesEventSummaryByMachineId[key] || null)
           .find(Boolean) || null;
-      const fallbackRun = eventSummary?.jobRunId ? mesJobRunsById[eventSummary.jobRunId] || null : null;
+      const fallbackRun = eventSummary?.jobRunId ? mesJobRunsById[eventSummary.jobRunId] || latestRun : latestRun;
       const preferredWorkstationTerminal =
         mesPreferredTerminalByWorkstationId[String(workstation?.id || overview?.workstation_id || fallbackRun?.workstation_id || activeRun?.workstation_id || "").trim()] || null;
       const resolvedTerminalId = String(
@@ -15434,6 +15433,8 @@ function App() {
           ""
       );
       const terminal = mesTerminalsById[resolvedTerminalId] || preferredWorkstationTerminal || null;
+      const terminalLastSeenAt = terminal?.last_seen_at || machine?.terminal_last_seen_at || overview?.terminal_last_seen_at || "";
+      const terminalOnline = resolvedTerminalId ? isMesTerminalOnline(terminalLastSeenAt) : true;
       const resolvedAutomationMode = resolveMesAutomationMode(machine?.automation_mode, terminal?.app_mode);
       const isSemiAutomaticMachine = resolvedAutomationMode === "semi_automatic";
       const eventsForCycles = events.filter((row) => {
@@ -15468,7 +15469,7 @@ function App() {
         .filter((value) => Number.isFinite(value) && value > 0);
       const producedInCycleWindow =
         sumMesEventQuantities(eventsForCycles, ["good_count", "scrap_count"]) || sumMesEventQuantities(eventsForCycles, ["ml"]);
-      const machineStateWindow = summarizeMesStateWindow(events, cycleWindow.shiftStartAt, new Date(cycleEndMs).toISOString(), "running", {
+      const machineStateWindow = summarizeMesStateWindow(events, cycleWindow.shiftStartAt, new Date(cycleEndMs).toISOString(), terminalOnline ? "running" : "stopped", {
         maxStopSegmentMs: MES_MAX_DOWNTIME_DURATION_MS
       });
       const runtimeSamples = runsForCycles
@@ -15519,7 +15520,8 @@ function App() {
       const goodParts = eventProduced > 0 ? Number(eventSummary?.good || 0) : Number(activeRun?.good_quantity || overview?.good_quantity || fallbackRun?.good_quantity || 0);
       const scrapQuantity = eventProduced > 0 ? Number(eventSummary?.scrap || 0) : Number(activeRun?.scrap_quantity || overview?.scrap_quantity || fallbackRun?.scrap_quantity || 0);
       const totalProduced = eventProduced || (goodParts + scrapQuantity);
-      const statusRaw = eventSummary?.machineState || machine?.machine_state || overview?.machine_state || activeRun?.status || fallbackRun?.status || "idle";
+      const statusCandidate = eventSummary?.machineState || machine?.machine_state || overview?.machine_state || activeRun?.status || fallbackRun?.status || "idle";
+      const statusRaw = terminalOnline ? statusCandidate : eventSummary?.currentDowntimeReason || overview?.current_downtime_reason ? "paused" : "stopped";
       rows.push({
         machineId: machine?.id || overview?.machine_id || workstation?.id || "",
         machineCode: machine?.code || overview?.machine_code || "",
@@ -15550,7 +15552,7 @@ function App() {
         actualRate,
         idealUnitsPerHour,
         terminalName: terminal?.name || machine?.terminal_name || overview?.terminal_name || "",
-        terminalLastSeenAt: terminal?.last_seen_at || machine?.terminal_last_seen_at || overview?.terminal_last_seen_at || "",
+        terminalLastSeenAt,
         machineLastHeartbeatAt: machine?.last_heartbeat_at || overview?.machine_last_heartbeat_at || eventSummary?.latestEventAt || "",
         jobStatus: activeRun?.status || overview?.job_status || fallbackRun?.status || "",
         plannedQuantity: Number(activeRun?.planned_quantity || overview?.planned_quantity || fallbackRun?.planned_quantity || 0),

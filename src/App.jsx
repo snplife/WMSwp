@@ -15379,6 +15379,12 @@ function App() {
   const machineDashboardRows = useMemo(() => {
     const rows = [];
     const seen = new Set();
+    const markSeen = (...values) => {
+      values
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+        .forEach((value) => seen.add(value));
+    };
     const cycleWindow = getMesShiftWindow(mesNowTs);
     const cycleStartMs = cycleWindow.shiftStartMs;
     const cycleEndMs = Math.max(cycleStartMs, Math.min(mesNowTs, cycleWindow.shiftEndMs));
@@ -15522,7 +15528,7 @@ function App() {
       const totalProduced = eventProduced || (goodParts + scrapQuantity);
       const statusCandidate = eventSummary?.machineState || machine?.machine_state || overview?.machine_state || activeRun?.status || fallbackRun?.status || "idle";
       const statusRaw = terminalOnline ? statusCandidate : eventSummary?.currentDowntimeReason || overview?.current_downtime_reason ? "paused" : "stopped";
-      rows.push({
+      const dashboardRow = {
         machineId: machine?.id || overview?.machine_id || workstation?.id || "",
         machineCode: machine?.code || overview?.machine_code || "",
         machineName: machine?.name || overview?.machine_name || workstation?.name || "Neznámy stroj",
@@ -15561,20 +15567,23 @@ function App() {
         activeRun: activeRun || fallbackRun,
         scrapRate: safeRatioPercent(scrapQuantity, totalProduced),
         workstation
-      });
+      };
+      rows.push(dashboardRow);
+      return dashboardRow;
     };
 
     (mesMachines || []).forEach((machine) => {
-      buildRow(machine);
-      seen.add(String(machine.id || ""));
+      const row = buildRow(machine);
+      markSeen(machine.id, machine.workstation_id, row?.machineId, row?.workstationId, row?.terminalId);
     });
 
     (mesOverviewRows || []).forEach((row) => {
       const rowKey = String(row.machine_id || row.workstation_id || "");
-      if (rowKey && seen.has(rowKey)) {
+      const workstationKey = String(row.workstation_id || "").trim();
+      if ((rowKey && seen.has(rowKey)) || (workstationKey && seen.has(workstationKey))) {
         return;
       }
-      buildRow(
+      const builtRow = buildRow(
         {
           id: row.machine_id || row.workstation_id,
           workstation_id: row.workstation_id,
@@ -15585,9 +15594,7 @@ function App() {
         },
         mesWorkstationsById[row.workstation_id] || null
       );
-      if (rowKey) {
-        seen.add(rowKey);
-      }
+      markSeen(rowKey, row.machine_id, row.workstation_id, builtRow?.machineId, builtRow?.workstationId, builtRow?.terminalId);
     });
     (mesTerminals || []).forEach((terminal) => {
       const terminalKey = String(terminal.id || "").trim();
@@ -15595,7 +15602,7 @@ function App() {
       if (!terminalKey || seen.has(terminalKey) || (workstationKey && seen.has(workstationKey))) {
         return;
       }
-      buildRow(
+      const builtRow = buildRow(
         {
           id: terminalKey,
           terminal_id: terminalKey,
@@ -15609,14 +15616,15 @@ function App() {
         },
         mesWorkstationsById[workstationKey] || null
       );
-      seen.add(terminalKey);
+      markSeen(terminalKey, workstationKey, builtRow?.machineId, builtRow?.workstationId, builtRow?.terminalId);
     });
     Object.entries(mesEventSummaryByMachineId).forEach(([machineId, summary]) => {
       const fallbackEntityId = String(summary.machineId || summary.workstationId || machineId || "");
-      if (!fallbackEntityId || seen.has(fallbackEntityId)) {
+      const summaryWorkstationId = String(summary.workstationId || "").trim();
+      if (!fallbackEntityId || seen.has(fallbackEntityId) || (summaryWorkstationId && seen.has(summaryWorkstationId))) {
         return;
       }
-      buildRow(
+      const builtRow = buildRow(
         {
           id: fallbackEntityId,
           workstation_id: summary.workstationId || fallbackEntityId,
@@ -15627,7 +15635,7 @@ function App() {
         },
         mesWorkstationsById[summary.workstationId] || null
       );
-      seen.add(fallbackEntityId);
+      markSeen(fallbackEntityId, summary.machineId, summary.workstationId, summary.terminalId, builtRow?.machineId, builtRow?.workstationId, builtRow?.terminalId);
     });
 
     return rows.sort(

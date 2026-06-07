@@ -10692,6 +10692,10 @@ function App() {
       setMesDeviceMessage("Zadaj názov zariadenia.");
       return;
     }
+    if (!requestedTerminalCode) {
+      setMesDeviceMessage("Zadaj registračný kód terminálu presne podľa Terminal ID na ESP32, napr. P4-AABBCCDDEEFF.");
+      return;
+    }
 
     setMesDeviceSubmitting(true);
     setMesDeviceMessage("");
@@ -10699,7 +10703,7 @@ function App() {
 
     try {
       const deviceCode = buildMesDeviceCode(name, "MES");
-      const terminalCode = requestedTerminalCode || buildMesDeviceCode(terminalName, "HMI");
+      const terminalCode = requestedTerminalCode;
       await freeInactiveMesTerminalCodeConflict(scopedCompanyId, terminalCode);
       const { data: workstation, error: workstationError } = await supabase
         .from("mes_workstations")
@@ -19259,9 +19263,10 @@ function App() {
                           type="text"
                           value={mesDeviceNewTerminalCodeInput}
                           onChange={(event) => setMesDeviceNewTerminalCodeInput(event.target.value)}
-                          placeholder="Voliteľné, vygeneruje sa automaticky"
+                          placeholder="P4-AABBCCDDEEFF z ESP32"
                         />
                       </label>
+                      <p className="panel-meta">Musí sedieť s Terminal ID zobrazeným na ESP32, inak registrácia vytvorí ďalší terminál.</p>
                       <label className="workflow-field">
                         <span className="workflow-field-label">Oblasť / hala</span>
                         <input

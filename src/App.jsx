@@ -15199,6 +15199,22 @@ function App() {
     () => Object.fromEntries((mesWorkstations || []).map((row) => [row.id, row])),
     [mesWorkstations]
   );
+  const mesMachineByWorkstationId = useMemo(() => {
+    const byWorkstationId = {};
+    (mesMachines || []).forEach((row) => {
+      const workstationId = String(row?.workstation_id || "").trim();
+      if (!workstationId) {
+        return;
+      }
+      const current = byWorkstationId[workstationId] || null;
+      const currentSeenAt = new Date(current?.last_heartbeat_at || current?.created_at || 0).getTime();
+      const candidateSeenAt = new Date(row?.last_heartbeat_at || row?.created_at || 0).getTime();
+      if (!current || candidateSeenAt >= currentSeenAt) {
+        byWorkstationId[workstationId] = row;
+      }
+    });
+    return byWorkstationId;
+  }, [mesMachines]);
   const mesTerminalsById = useMemo(
     () => Object.fromEntries((mesTerminals || []).map((row) => [row.id, row])),
     [mesTerminals]
@@ -15400,7 +15416,8 @@ function App() {
         (workstation ? mesOverviewByWorkstationId[workstation.id] : null) ||
         null;
       const fallbackKey = String(workstation?.id || "").trim();
-      const resolvedKeys = Array.from(new Set([machineKey, fallbackKey].filter(Boolean)));
+      const terminalKey = String(machine?.terminal_id || "").trim();
+      const resolvedKeys = Array.from(new Set([machineKey, fallbackKey, terminalKey].filter(Boolean)));
       const runs = Array.from(
         new Map(
           resolvedKeys
@@ -15441,6 +15458,12 @@ function App() {
       const terminal = mesTerminalsById[resolvedTerminalId] || preferredWorkstationTerminal || null;
       const terminalLastSeenAt = terminal?.last_seen_at || machine?.terminal_last_seen_at || overview?.terminal_last_seen_at || "";
       const terminalOnline = resolvedTerminalId ? isMesTerminalOnline(terminalLastSeenAt) : true;
+      const latestActivityMs = Math.max(
+        Date.parse(eventSummary?.latestEventAt || "") || 0,
+        Date.parse(events[0]?.happened_at || events[0]?.created_at || "") || 0,
+        Date.parse(activeRun?.updated_at || activeRun?.started_at || activeRun?.created_at || "") || 0
+      );
+      const runningActivityIsFresh = latestActivityMs > 0 && mesNowTs - latestActivityMs <= 15 * 60 * 1000;
       const resolvedAutomationMode = resolveMesAutomationMode(machine?.automation_mode, terminal?.app_mode);
       const isSemiAutomaticMachine = resolvedAutomationMode === "semi_automatic";
       const eventsForCycles = events.filter((row) => {
@@ -15475,7 +15498,7 @@ function App() {
         .filter((value) => Number.isFinite(value) && value > 0);
       const producedInCycleWindow =
         sumMesEventQuantities(eventsForCycles, ["good_count", "scrap_count"]) || sumMesEventQuantities(eventsForCycles, ["ml"]);
-      const machineStateWindow = summarizeMesStateWindow(events, cycleWindow.shiftStartAt, new Date(cycleEndMs).toISOString(), terminalOnline ? "running" : "stopped", {
+      const machineStateWindow = summarizeMesStateWindow(events, cycleWindow.shiftStartAt, new Date(cycleEndMs).toISOString(), terminalOnline && runningActivityIsFresh ? "running" : "stopped", {
         maxStopSegmentMs: MES_MAX_DOWNTIME_DURATION_MS
       });
       const runtimeSamples = runsForCycles
@@ -15527,7 +15550,14 @@ function App() {
       const scrapQuantity = eventProduced > 0 ? Number(eventSummary?.scrap || 0) : Number(activeRun?.scrap_quantity || overview?.scrap_quantity || fallbackRun?.scrap_quantity || 0);
       const totalProduced = eventProduced || (goodParts + scrapQuantity);
       const statusCandidate = eventSummary?.machineState || machine?.machine_state || overview?.machine_state || activeRun?.status || fallbackRun?.status || "idle";
-      const statusRaw = terminalOnline ? statusCandidate : eventSummary?.currentDowntimeReason || overview?.current_downtime_reason ? "paused" : "stopped";
+      const statusCandidateMeta = getMesStatusMeta(statusCandidate);
+      const hasDowntimeReason = Boolean(String(eventSummary?.currentDowntimeReason || overview?.current_downtime_reason || "").trim());
+      const statusRaw =
+        terminalOnline && (statusCandidateMeta.tone !== "running" || runningActivityIsFresh)
+          ? statusCandidate
+          : hasDowntimeReason
+            ? "paused"
+            : "stopped";
       const dashboardRow = {
         machineId: machine?.id || overview?.machine_id || workstation?.id || "",
         machineCode: machine?.code || overview?.machine_code || "",
@@ -15572,15 +15602,45 @@ function App() {
       return dashboardRow;
     };
 
-    (mesMachines || []).forEach((machine) => {
-      const row = buildRow(machine);
-      markSeen(machine.id, machine.workstation_id, row?.machineId, row?.workstationId, row?.terminalId);
+    (mesTerminals || []).forEach((terminal) => {
+      const terminalKey = String(terminal.id || "").trim();
+      const workstationKey = String(terminal.workstation_id || "").trim();
+      if (!terminalKey || seen.has(terminalKey) || (workstationKey && seen.has(workstationKey))) {
+        return;
+      }
+      const linkedMachine = mesMachineByWorkstationId[workstationKey] || null;
+      const builtRow = buildRow(
+        {
+          ...(linkedMachine || {}),
+          id: linkedMachine?.id || terminalKey,
+          terminal_id: terminalKey,
+          terminal_name: terminal.name || terminal.terminal_code || "MES terminal",
+          terminal_last_seen_at: terminal.last_seen_at || terminal.updated_at || terminal.created_at || "",
+          workstation_id: workstationKey,
+          code: linkedMachine?.code || terminal.terminal_code || "",
+          name: linkedMachine?.name || terminal.name || terminal.terminal_code || "MES terminal",
+          machine_state: linkedMachine?.machine_state || "idle",
+          last_heartbeat_at: linkedMachine?.last_heartbeat_at || terminal.last_seen_at || terminal.updated_at || terminal.created_at || ""
+        },
+        mesWorkstationsById[workstationKey] || null
+      );
+      markSeen(terminalKey, workstationKey, builtRow?.machineId, builtRow?.workstationId, builtRow?.terminalId);
     });
-
+    (mesMachines || []).forEach((machine) => {
+      const machineKey = String(machine?.id || "").trim();
+      const workstationKey = String(machine?.workstation_id || "").trim();
+      const hasTerminalForWorkstation = workstationKey && Boolean(mesPreferredTerminalByWorkstationId[workstationKey]);
+      if (!machineKey || seen.has(machineKey) || (workstationKey && seen.has(workstationKey)) || hasTerminalForWorkstation) {
+        return;
+      }
+      const builtRow = buildRow(machine);
+      markSeen(machineKey, workstationKey, builtRow?.machineId, builtRow?.workstationId, builtRow?.terminalId);
+    });
     (mesOverviewRows || []).forEach((row) => {
-      const rowKey = String(row.machine_id || row.workstation_id || "");
+      const rowKey = String(row.machine_id || row.workstation_id || "").trim();
       const workstationKey = String(row.workstation_id || "").trim();
-      if ((rowKey && seen.has(rowKey)) || (workstationKey && seen.has(workstationKey))) {
+      const hasTerminalForWorkstation = workstationKey && Boolean(mesPreferredTerminalByWorkstationId[workstationKey]);
+      if (!rowKey || seen.has(rowKey) || (workstationKey && seen.has(workstationKey)) || hasTerminalForWorkstation) {
         return;
       }
       const builtRow = buildRow(
@@ -15596,32 +15656,11 @@ function App() {
       );
       markSeen(rowKey, row.machine_id, row.workstation_id, builtRow?.machineId, builtRow?.workstationId, builtRow?.terminalId);
     });
-    (mesTerminals || []).forEach((terminal) => {
-      const terminalKey = String(terminal.id || "").trim();
-      const workstationKey = String(terminal.workstation_id || "").trim();
-      if (!terminalKey || seen.has(terminalKey) || (workstationKey && seen.has(workstationKey))) {
-        return;
-      }
-      const builtRow = buildRow(
-        {
-          id: terminalKey,
-          terminal_id: terminalKey,
-          terminal_name: terminal.name || terminal.terminal_code || "MES terminal",
-          terminal_last_seen_at: terminal.last_seen_at || terminal.updated_at || terminal.created_at || "",
-          workstation_id: workstationKey,
-          code: terminal.terminal_code || "",
-          name: terminal.name || terminal.terminal_code || "MES terminal",
-          machine_state: "idle",
-          last_heartbeat_at: terminal.last_seen_at || terminal.updated_at || terminal.created_at || ""
-        },
-        mesWorkstationsById[workstationKey] || null
-      );
-      markSeen(terminalKey, workstationKey, builtRow?.machineId, builtRow?.workstationId, builtRow?.terminalId);
-    });
     Object.entries(mesEventSummaryByMachineId).forEach(([machineId, summary]) => {
-      const fallbackEntityId = String(summary.machineId || summary.workstationId || machineId || "");
+      const fallbackEntityId = String(summary.machineId || summary.workstationId || machineId || "").trim();
       const summaryWorkstationId = String(summary.workstationId || "").trim();
-      if (!fallbackEntityId || seen.has(fallbackEntityId) || (summaryWorkstationId && seen.has(summaryWorkstationId))) {
+      const hasTerminalForWorkstation = summaryWorkstationId && Boolean(mesPreferredTerminalByWorkstationId[summaryWorkstationId]);
+      if (!fallbackEntityId || seen.has(fallbackEntityId) || (summaryWorkstationId && seen.has(summaryWorkstationId)) || hasTerminalForWorkstation) {
         return;
       }
       const builtRow = buildRow(
@@ -15643,11 +15682,10 @@ function App() {
         String(a.area || "").localeCompare(String(b.area || ""), "sk-SK", { sensitivity: "base" }) ||
         String(a.machineName || "").localeCompare(String(b.machineName || ""), "sk-SK", { sensitivity: "base" })
     );
-  }, [mesMachines, mesOverviewRows, mesRunsByMachineId, mesEventsByMachineId, mesEventSummaryByMachineId, mesEventSummaryByJobRunId, mesWorkstationsById, mesOverviewByMachineId, mesOverviewByWorkstationId, mesWorkstations, mesJobRunsById, mesTerminals, mesTerminalsById, mesPreferredTerminalByWorkstationId, mesNowTs]);
+  }, [mesMachines, mesOverviewRows, mesRunsByMachineId, mesEventsByMachineId, mesEventSummaryByMachineId, mesEventSummaryByJobRunId, mesWorkstationsById, mesOverviewByMachineId, mesOverviewByWorkstationId, mesWorkstations, mesJobRunsById, mesTerminals, mesTerminalsById, mesPreferredTerminalByWorkstationId, mesMachineByWorkstationId, mesNowTs]);
   const mesMachineOptions = useMemo(
     () =>
       machineDashboardRows
-        .filter((row) => String(row.terminalId || "").trim())
         .map((row) => ({
           id: row.machineId,
           label: row.machineName || row.machineCode || row.machineId,
@@ -19053,7 +19091,6 @@ function App() {
     };
 
     const sortedMachineTiles = machineDashboardRows
-      .filter((row) => String(row.terminalId || "").trim())
       .sort((left, right) =>
         String(left.machineName || "").localeCompare(String(right.machineName || ""), "sk-SK", { sensitivity: "base" })
       );

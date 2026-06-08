@@ -10450,6 +10450,19 @@ function App() {
     return `${prefix}-${normalized || "DEVICE"}-${suffix}`.slice(0, 48);
   };
 
+  const buildUniqueMesDeviceCode = (value, usedCodes, prefix = "MES") => {
+    const baseCode = buildMesDeviceCode(value, prefix);
+    let candidate = baseCode;
+    let counter = 2;
+    while (usedCodes.has(candidate)) {
+      const suffix = `-${counter}`;
+      candidate = `${baseCode.slice(0, Math.max(1, 48 - suffix.length))}${suffix}`;
+      counter += 1;
+    }
+    usedCodes.add(candidate);
+    return candidate;
+  };
+
   const normalizeMesRegistrationCode = (value) =>
     String(value || "")
       .trim()
@@ -10927,6 +10940,108 @@ function App() {
       await loadMesModuleData();
     } catch (error) {
       const message = error?.message || "Zariadenie sa nepodarilo pridať.";
+      setMesDeviceMessage(message);
+      setMesError(message);
+    } finally {
+      setMesDeviceSubmitting(false);
+    }
+  };
+
+  const handleCreateWorkstationsForUnassignedMesTerminals = async () => {
+    const scopedCompanyId = String(activeCompanyId || userCompanyId || "").trim();
+    if (!scopedCompanyId) {
+      setMesDeviceMessage("Vyber firmu, pre ktorú chceš doplniť pracoviská.");
+      return;
+    }
+
+    const terminalsToAssign = unassignedMesTerminals.filter((terminal) => String(terminal.company_id || "").trim() === scopedCompanyId);
+    if (terminalsToAssign.length === 0) {
+      setMesDeviceMessage("Všetky aktívne terminály už majú pracovisko.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Vytvoriť pracovisko a stroj pre ${terminalsToAssign.length} nepriradené MES terminály?`
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setMesDeviceSubmitting(true);
+    setMesDeviceMessage("");
+    setMesError("");
+
+    try {
+      const usedCodes = new Set((mesWorkstations || []).map((row) => normalizeMesRegistrationCode(row?.code)).filter(Boolean));
+      let createdCount = 0;
+
+      for (const terminal of terminalsToAssign) {
+        const terminalCode = getMesCanonicalRegistrationCode(terminal.terminal_code);
+        const deviceName = String(terminal.name || terminalCode || "MES terminál").trim();
+        const deviceCode = buildUniqueMesDeviceCode(deviceName || terminalCode, usedCodes, "MES");
+        const nowIso = new Date().toISOString();
+
+        const { data: workstation, error: workstationError } = await supabase
+          .from("mes_workstations")
+          .insert([
+            {
+              company_id: scopedCompanyId,
+              code: deviceCode,
+              name: deviceName,
+              area: "",
+              hmi_enabled: true,
+              is_active: true,
+              created_by: authUser?.id || null,
+              updated_by: authUser?.id || null
+            }
+          ])
+          .select("id")
+          .single();
+        if (workstationError) {
+          throw workstationError;
+        }
+
+        const { error: machineError } = await supabase
+          .from("mes_machines")
+          .insert([
+            {
+              workstation_id: workstation.id,
+              code: deviceCode,
+              name: deviceName,
+              machine_state: "idle",
+              is_active: true,
+              created_by: authUser?.id || null,
+              updated_by: authUser?.id || null
+            }
+          ]);
+        if (machineError) {
+          throw machineError;
+        }
+
+        const { error: terminalUpdateError } = await supabase
+          .from("mes_hmi_terminals")
+          .update({
+            workstation_id: workstation.id,
+            terminal_code: terminalCode,
+            name: deviceName,
+            platform: terminal.platform || "esp32",
+            app_mode: terminal.app_mode || "hmi",
+            is_active: true,
+            updated_by: authUser?.id || null,
+            updated_at: nowIso
+          })
+          .eq("id", terminal.id);
+        if (terminalUpdateError) {
+          throw terminalUpdateError;
+        }
+
+        createdCount += 1;
+      }
+
+      setMesDeviceMessage(`Doplnené pracoviská: ${createdCount}. Terminály si musia obnoviť session token.`);
+      await loadMesModuleData();
+    } catch (error) {
+      const message = error?.message || "Pracoviská sa nepodarilo doplniť.";
       setMesDeviceMessage(message);
       setMesError(message);
     } finally {
@@ -15219,6 +15334,19 @@ function App() {
     () => Object.fromEntries((mesTerminals || []).map((row) => [row.id, row])),
     [mesTerminals]
   );
+  const unassignedMesTerminals = useMemo(
+    () =>
+      (mesTerminals || []).filter((row) => {
+        const rowCompanyId = String(row?.company_id || "").trim();
+        const scopedCompanyId = String(activeCompanyId || userCompanyId || "").trim();
+        return (
+          Boolean(row?.is_active) &&
+          !String(row?.workstation_id || "").trim() &&
+          (!scopedCompanyId || rowCompanyId === scopedCompanyId)
+        );
+      }),
+    [activeCompanyId, mesTerminals, userCompanyId]
+  );
   const mesPreferredTerminalByWorkstationId = useMemo(() => {
     const byWorkstationId = {};
     (mesTerminals || []).forEach((row) => {
@@ -19391,6 +19519,23 @@ function App() {
 
                 {isMesDeviceAdminOpen && (
                   <div className="mes-device-admin-grid">
+                    <article className="mes-device-admin-form">
+                      <strong>Automaticky doplniť</strong>
+                      <p className="panel-meta">
+                        {unassignedMesTerminals.length > 0
+                          ? `Nájdené nepriradené aktívne terminály: ${unassignedMesTerminals.length}. Web im vytvorí pracovisko a stroj podľa názvu terminálu.`
+                          : "Všetky aktívne terminály už majú pracovisko."}
+                      </p>
+                      <button
+                        type="button"
+                        className="settings-btn"
+                        onClick={handleCreateWorkstationsForUnassignedMesTerminals}
+                        disabled={mesDeviceSubmitting || !activeCompanyId || unassignedMesTerminals.length === 0}
+                      >
+                        Doplniť pracoviská terminálom
+                      </button>
+                    </article>
+
                     <article className="mes-device-admin-form">
                       <strong>Premenovať vybrané</strong>
                       <label className="workflow-field">

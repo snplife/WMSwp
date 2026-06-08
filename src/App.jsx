@@ -19384,6 +19384,20 @@ function App() {
         : 0;
     const selectedMachineAvailabilityLatest =
       selectedMachineAvailabilitySeries[selectedMachineAvailabilitySeries.length - 1]?.availabilityPct ?? 0;
+    const selectedMachineAvailabilityValues = selectedMachineAvailabilitySeries.map((row) => Number(row.availabilityPct || 0));
+    const selectedMachineAvailabilityMin =
+      selectedMachineAvailabilityValues.length > 0 ? Math.min(...selectedMachineAvailabilityValues) : 0;
+    const selectedMachineAvailabilityMax =
+      selectedMachineAvailabilityValues.length > 0 ? Math.max(...selectedMachineAvailabilityValues) : 0;
+    const selectedMachineAvailabilityPoints = selectedMachineAvailabilitySeries.map((point, index) => {
+      const x = selectedMachineAvailabilitySeries.length === 1 ? 50 : (index / (selectedMachineAvailabilitySeries.length - 1)) * 100;
+      const y = 100 - clampPercent(Number(point.availabilityPct || 0));
+      return {
+        ...point,
+        x,
+        y
+      };
+    });
     const buildProductionSeries = (rangeWindow) => {
       const startAt = new Date(rangeWindow?.startAt || Date.now());
       const endAt = new Date(rangeWindow?.endAt || Date.now());
@@ -19741,19 +19755,56 @@ function App() {
                 </div>
                 <div className="mes-selected-machine-chart" role="img" aria-label="Trend dostupnosti zariadenia">
                   {selectedMachineAvailabilityHasEventData && selectedMachineAvailabilityPolyline ? (
-                    <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-                      <defs>
-                        <linearGradient id="mesAvailabilityFill" x1="0" x2="0" y1="0" y2="1">
-                          <stop offset="0%" stopColor="rgba(22, 165, 92, 0.32)" />
-                          <stop offset="100%" stopColor="rgba(22, 165, 92, 0)" />
-                        </linearGradient>
-                      </defs>
-                      <polyline
-                        className="mes-selected-machine-chart-fill"
-                        points={`0,100 ${selectedMachineAvailabilityPolyline} 100,100`}
-                      />
-                      <polyline className="mes-selected-machine-chart-line" points={selectedMachineAvailabilityPolyline} />
-                    </svg>
+                    <>
+                      <div className="mes-selected-machine-availability-plot">
+                        <div className="mes-selected-machine-availability-axis" aria-hidden="true">
+                          <span>100%</span>
+                          <span>75%</span>
+                          <span>50%</span>
+                          <span>25%</span>
+                          <span>0%</span>
+                        </div>
+                        <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                          <defs>
+                            <linearGradient id="mesAvailabilityFill" x1="0" x2="0" y1="0" y2="1">
+                              <stop offset="0%" stopColor="rgba(22, 165, 92, 0.32)" />
+                              <stop offset="100%" stopColor="rgba(22, 165, 92, 0)" />
+                            </linearGradient>
+                          </defs>
+                          {[0, 25, 50, 75, 100].map((lineY) => (
+                            <line
+                              key={lineY}
+                              className="mes-selected-machine-chart-gridline"
+                              x1="0"
+                              x2="100"
+                              y1={lineY}
+                              y2={lineY}
+                            />
+                          ))}
+                          <polyline
+                            className="mes-selected-machine-chart-fill"
+                            points={`0,100 ${selectedMachineAvailabilityPolyline} 100,100`}
+                          />
+                          <polyline className="mes-selected-machine-chart-line" points={selectedMachineAvailabilityPolyline} />
+                          {selectedMachineAvailabilityPoints.map((point) => (
+                            <circle
+                              key={point.key}
+                              className="mes-selected-machine-chart-point"
+                              cx={point.x}
+                              cy={point.y}
+                              r="1.7"
+                            >
+                              <title>{`${point.label}: ${formatPercentValue(point.availabilityPct)}`}</title>
+                            </circle>
+                          ))}
+                        </svg>
+                      </div>
+                      <div className="mes-selected-machine-availability-summary">
+                        <span>{`Min: ${formatPercentValue(selectedMachineAvailabilityMin)}`}</span>
+                        <span>{`Max: ${formatPercentValue(selectedMachineAvailabilityMax)}`}</span>
+                        <span>{`Posledné: ${formatPercentValue(selectedMachineAvailabilityLatest)}`}</span>
+                      </div>
+                    </>
                   ) : (
                     <p className="hint">Dostupnosť nie je evidovaná.</p>
                   )}

@@ -2814,14 +2814,31 @@ select {
 
 .mes-selected-machine-chart {
   min-height: 220px;
-  padding: 0.7rem;
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.75rem;
   border: 1px solid rgba(23, 71, 100, 0.1);
   border-radius: 12px;
-  background:
-    linear-gradient(rgba(23, 71, 100, 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(23, 71, 100, 0.06) 1px, transparent 1px),
-    rgba(248, 250, 247, 0.9);
-  background-size: 100% 25%, 12.5% 100%, auto;
+  background: rgba(248, 250, 247, 0.94);
+}
+
+.mes-selected-machine-availability-plot {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: stretch;
+}
+
+.mes-selected-machine-availability-axis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 0.1rem 0 0.05rem;
+  color: #63778a;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-align: right;
+  line-height: 1;
 }
 
 .mes-selected-machine-chart svg {
@@ -2829,6 +2846,12 @@ select {
   height: 220px;
   display: block;
   overflow: visible;
+}
+
+.mes-selected-machine-chart-gridline {
+  stroke: rgba(23, 71, 100, 0.13);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
 }
 
 .mes-selected-machine-chart-fill {
@@ -2843,6 +2866,30 @@ select {
   stroke-linecap: round;
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
+}
+
+.mes-selected-machine-chart-point {
+  fill: #ffffff;
+  stroke: #16a55c;
+  stroke-width: 2.6;
+  vector-effect: non-scaling-stroke;
+}
+
+.mes-selected-machine-availability-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  padding-left: calc(46px + 0.55rem);
+}
+
+.mes-selected-machine-availability-summary span {
+  padding: 0.34rem 0.55rem;
+  border: 1px solid rgba(22, 165, 92, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #245c3d;
+  font-size: 0.75rem;
+  font-weight: 800;
 }
 
 .mes-selected-machine-production-fill {

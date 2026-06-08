@@ -32,6 +32,7 @@ export function normalizeMesEventRow(row) {
     ...row,
     company_id: String(row.company_id || "").trim(),
     terminal_id: String(row.terminal_id || "").trim(),
+    terminal_code: String(row.terminal_code || row.payload?.terminal_code || "").trim().toUpperCase(),
     workstation_id: String(row.workstation_id || "").trim(),
     machine_id: String(row.machine_id || "").trim(),
     job_run_id: String(row.job_run_id || "").trim(),

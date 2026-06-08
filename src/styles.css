@@ -3005,6 +3005,13 @@ select {
   color: #7a8b9b;
 }
 
+.mes-selected-machine-hourly-table tfoot td {
+  border-top: 1px solid rgba(23, 71, 100, 0.16);
+  border-bottom: 0;
+  background: rgba(23, 71, 100, 0.04);
+  font-weight: 800;
+}
+
 .mes-selected-machine-hourly-bar {
   height: 12px;
   min-width: 180px;

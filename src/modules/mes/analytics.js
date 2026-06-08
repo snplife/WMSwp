@@ -3,6 +3,10 @@ import { safeRatioPercent } from './formatters';
 
 export const MES_MAX_DOWNTIME_DURATION_MS = 5 * 60 * 60 * 1000;
 export const MES_MAX_CONTINUOUS_RUN_MS = 30 * 60 * 1000;
+const MES_PRODUCTION_DURATION_ADJUSTMENT_SECONDS_BY_TERMINAL_CODE = {
+  "P4-80F1B2D1F87A": 18
+};
+const MES_PRODUCTION_DURATION_EVENT_TYPES = new Set(["start", "resume"]);
 
 export function summarizeMesStateWindow(events, startAt, endAt, fallbackState = "running", options = {}) {
   const startMs = new Date(startAt || 0).getTime();
@@ -115,15 +119,22 @@ export function sumMesEventQuantities(events, eventTypes = []) {
 }
 
 export function getMesEventDurationMs(row) {
+  const eventType = String(row?.event_type || row?.event_code || row?.payload?.compact_event || "").trim().toLowerCase();
+  const terminalCode = String(row?.terminal_code || row?.payload?.terminal_code || "").trim().toUpperCase();
+  const adjustmentSeconds =
+    MES_PRODUCTION_DURATION_EVENT_TYPES.has(eventType)
+      ? Number(MES_PRODUCTION_DURATION_ADJUSTMENT_SECONDS_BY_TERMINAL_CODE[terminalCode] || 0)
+      : 0;
+  const adjustmentMs = Number.isFinite(adjustmentSeconds) && adjustmentSeconds > 0 ? adjustmentSeconds * 1000 : 0;
   const explicitSeconds = Number(row?.duration_seconds || row?.payload?.duration_seconds || 0);
   if (Number.isFinite(explicitSeconds) && explicitSeconds > 0) {
-    return Math.max(0, explicitSeconds * 1000);
+    return Math.max(0, explicitSeconds * 1000 + adjustmentMs);
   }
 
   const timeFromMs = new Date(row?.time_from || row?.payload?.time_from || 0).getTime();
   const timeToMs = new Date(row?.time_to || row?.happened_at || row?.created_at || 0).getTime();
   if (Number.isFinite(timeFromMs) && Number.isFinite(timeToMs) && timeToMs > timeFromMs) {
-    return Math.max(0, timeToMs - timeFromMs);
+    return Math.max(0, timeToMs - timeFromMs + adjustmentMs);
   }
 
   return 0;

@@ -10282,15 +10282,19 @@ function App() {
       }
 
       const jobRunsById = Object.fromEntries((jobRunsData || []).map((row) => [String(row.id || ""), row]));
+      const terminalsById = Object.fromEntries((terminalData || []).map((row) => [String(row.id || ""), normalizeMesTerminalRow(row)]));
+      const getEventTerminalCode = (terminalId) => String(terminalsById[String(terminalId || "")]?.terminal_code || "").trim().toUpperCase();
       const downtimeReasonById = Object.fromEntries((downtimeReasonsData || []).map((row) => [String(row.id || ""), row]));
       const compactEventRows = (eventData || []).map((row) => {
         const run = jobRunsById[String(row.job_run_id || "")] || null;
         const payload = row.payload && typeof row.payload === "object" ? row.payload : {};
         const eventType = normalizeMesCompactEventCode(row.event_code || row.event_type, payload);
+        const terminalId = String(row.terminal_id || run?.terminal_id || "");
         return {
           id: row.id,
           company_id: String(row.company_id || ""),
-          terminal_id: String(row.terminal_id || run?.terminal_id || ""),
+          terminal_id: terminalId,
+          terminal_code: getEventTerminalCode(terminalId),
           workstation_id: String(row.workstation_id || run?.workstation_id || ""),
           machine_id: String(run?.machine_id || ""),
           job_run_id: String(row.job_run_id || ""),
@@ -10319,10 +10323,12 @@ function App() {
         const payload = row.payload && typeof row.payload === "object" ? row.payload : {};
         const reason = downtimeReasonById[String(row.downtime_reason_id || "")] || null;
         const normalizedEventType = normalizeMesCompactEventCode(row.event_type, payload);
+        const terminalId = String(run?.terminal_id || "");
         return {
           id: row.id,
           company_id: String(run?.company_id || ""),
-          terminal_id: String(run?.terminal_id || ""),
+          terminal_id: terminalId,
+          terminal_code: getEventTerminalCode(terminalId),
           workstation_id: String(row.workstation_id || run?.workstation_id || ""),
           machine_id: String(row.machine_id || run?.machine_id || ""),
           job_run_id: String(row.job_run_id || ""),
@@ -17043,7 +17049,7 @@ function App() {
 
     const XLSX = await import("xlsx");
     const exportRows = selectedMesMachineEvents
-      .filter((event) => Number(event.duration_seconds || 0) <= 1000)
+      .filter((event) => getMesEventDurationMs(event) / 1000 <= 1000)
       .map((event) => {
         const eventAt = String(event.happened_at || event.created_at || "").trim();
         const parsedEventAt = new Date(eventAt || 0);
@@ -17060,7 +17066,7 @@ function App() {
         event.payload?.note ||
         JSON.stringify(event.payload || {}),
       Mnozstvo: event.quantity ? Number(event.quantity) : "",
-      Doba_s: Number(event.duration_seconds || 0),
+      Doba_s: getMesEventDurationMs(event) / 1000,
       Operator: event.operator_name || "",
       Terminal: mesTerminalsById[event.terminal_id]?.name || mesTerminalsById[event.terminal_id]?.terminal_code || "",
       Zdroj: event.source || ""
@@ -17152,7 +17158,7 @@ function App() {
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(operatorDowntimeRows), "Prestoje operatorov");
 
     const selectedMachineEventRows = (selectedMesMachineEvents || [])
-      .filter((event) => Number(event.duration_seconds || 0) <= 1000)
+      .filter((event) => getMesEventDurationMs(event) / 1000 <= 1000)
       .map((event) => {
       const eventAt = String(event.happened_at || event.created_at || "").trim();
       const parsedEventAt = new Date(eventAt || 0);
@@ -17163,7 +17169,7 @@ function App() {
       Timestamp_ISO: eventAt || "",
       Udalost: formatMesEventLabel(event.event_type),
       Event_kod: String(event.event_code || event.event_type || ""),
-      Doba_s: Number(event.duration_seconds || 0),
+      Doba_s: getMesEventDurationMs(event) / 1000,
       Dovod: event.downtime_reason_name || event.downtime_reason_code || event.note || "",
       Operator: event.operator_name || event.operator_id || event.operator_user_id || "",
       Terminal: mesTerminalsById[event.terminal_id]?.name || mesTerminalsById[event.terminal_id]?.terminal_code || "",
@@ -19464,6 +19470,8 @@ function App() {
     });
     const selectedMachineHourlyHasData = selectedMachineHourlyStateEvents.length > 0;
     const selectedMachineHourlyTotalMinutes = selectedMachineHourlyRows.reduce((sum, row) => sum + row.productionMinutes, 0);
+    const selectedMachineHourlyShiftMinutes = 8 * 60;
+    const selectedMachineHourlyShiftPct = clampPercent((selectedMachineHourlyTotalMinutes / selectedMachineHourlyShiftMinutes) * 100);
     const buildProductionSeries = (rangeWindow) => {
       const startAt = new Date(rangeWindow?.startAt || Date.now());
       const endAt = new Date(rangeWindow?.endAt || Date.now());
@@ -19938,8 +19946,8 @@ function App() {
                 <div className="mes-selected-machine-chart-head">
                   <div>
                     <span className="workflow-section-kicker">Hodinový prehľad výroby</span>
-                    <h4>{`${new Intl.NumberFormat("sk-SK").format(selectedMachineHourlyTotalMinutes)} min`}</h4>
-                    <p>8 hodín vybranej smeny rozdelených po jednej hodine</p>
+                    <h4>{`${new Intl.NumberFormat("sk-SK").format(selectedMachineHourlyTotalMinutes)} / ${selectedMachineHourlyShiftMinutes} min`}</h4>
+                    <p>{`${formatPercentValue(selectedMachineHourlyShiftPct)} zo smeny, rozdelené po jednej hodine`}</p>
                   </div>
                   <div className="mes-selected-machine-hourly-controls">
                     <select
@@ -19986,6 +19994,20 @@ function App() {
                         </tr>
                       ))}
                     </tbody>
+                    <tfoot>
+                      <tr>
+                        <td>Spolu za smenu</td>
+                        <td>
+                          <strong>{selectedMachineHourlyTotalMinutes}</strong>
+                          <span>{` / ${selectedMachineHourlyShiftMinutes} min`}</span>
+                        </td>
+                        <td>
+                          <div className="mes-selected-machine-hourly-bar" aria-label={`${selectedMachineHourlyTotalMinutes} minút zo smeny`}>
+                            <span style={{ width: `${selectedMachineHourlyShiftPct}%` }} />
+                          </div>
+                        </td>
+                      </tr>
+                    </tfoot>
                   </table>
                 </div>
               </article>

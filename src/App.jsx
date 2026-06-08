@@ -19417,25 +19417,30 @@ function App() {
     )
       ? "stopped"
       : "running";
-    const selectedMachineHourlyRows = Array.from({ length: 24 }, (_, hour) => {
-      const hourStart = new Date(selectedMachineHourlyDayStart);
-      hourStart.setHours(hour, 0, 0, 0);
-      const hourEnd = new Date(hourStart);
-      hourEnd.setHours(hour + 1, 0, 0, 0);
+    const selectedMachineHourlyRows = [0, 8, 16].map((startHour) => {
+      const blockStart = new Date(selectedMachineHourlyDayStart);
+      blockStart.setHours(startHour, 0, 0, 0);
+      const blockEnd = new Date(blockStart);
+      blockEnd.setHours(startHour + 8, 0, 0, 0);
+      const now = new Date(mesNowTs);
+      const effectiveBlockEnd = blockStart.getTime() >= now.getTime()
+        ? blockStart
+        : new Date(Math.min(blockEnd.getTime(), now.getTime()));
       const summary = summarizeMesStateWindow(
         selectedMachineHourlyStateEvents,
-        hourStart.toISOString(),
-        hourEnd.toISOString(),
+        blockStart.toISOString(),
+        effectiveBlockEnd.toISOString(),
         selectedMachineHourlyFallbackState,
         { maxStopSegmentMs: MES_MAX_DOWNTIME_DURATION_MS }
       );
-      const productionMinutes = Math.max(0, Math.min(60, Math.round(summary.runMs / 60000)));
+      const productionMinutes = Math.max(0, Math.min(480, Math.round(summary.runMs / 60000)));
+      const endHour = startHour + 8;
       return {
-        key: `${mesSelectedMachineHourlyDate}-${hour}`,
-        hour,
-        label: `${String(hour).padStart(2, "0")}:00 - ${String(hour + 1).padStart(2, "0")}:00`,
+        key: `${mesSelectedMachineHourlyDate}-${startHour}`,
+        startHour,
+        label: `${String(startHour).padStart(2, "0")}:00 - ${String(endHour).padStart(2, "0")}:00`,
         productionMinutes,
-        productionPct: clampPercent((productionMinutes / 60) * 100)
+        productionPct: clampPercent((productionMinutes / 480) * 100)
       };
     });
     const selectedMachineHourlyHasData = selectedMachineHourlyStateEvents.length > 0;
@@ -19913,9 +19918,9 @@ function App() {
               <article className="mes-selected-machine-hourly-table-card">
                 <div className="mes-selected-machine-chart-head">
                   <div>
-                    <span className="workflow-section-kicker">Hodinový prehľad výroby</span>
+                    <span className="workflow-section-kicker">8-hodinový prehľad výroby</span>
                     <h4>{`${new Intl.NumberFormat("sk-SK").format(selectedMachineHourlyTotalMinutes)} min`}</h4>
-                    <p>koľko minút z každej hodiny bol stroj vo výrobe</p>
+                    <p>koľko minút z každého 8-hodinového bloku bol stroj vo výrobe</p>
                   </div>
                   <input
                     type="date"
@@ -19932,9 +19937,9 @@ function App() {
                   <table className="mes-selected-machine-hourly-table">
                     <thead>
                       <tr>
-                        <th>Hodina</th>
+                        <th>Časový blok</th>
                         <th>Minút vyrábal</th>
-                        <th>Podiel hodiny</th>
+                        <th>Podiel 8 hodín</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -19943,7 +19948,7 @@ function App() {
                           <td>{row.label}</td>
                           <td>
                             <strong>{row.productionMinutes}</strong>
-                            <span> / 60 min</span>
+                            <span> / 480 min</span>
                           </td>
                           <td>
                             <div className="mes-selected-machine-hourly-bar" aria-label={`${row.productionMinutes} minút`}>

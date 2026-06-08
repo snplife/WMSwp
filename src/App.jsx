@@ -5234,6 +5234,7 @@ function App() {
   const [mesSelectedMachineJobsRangeKey, setMesSelectedMachineJobsRangeKey] = useState("current_shift");
   const [mesSelectedMachineAvailabilityRangeKey, setMesSelectedMachineAvailabilityRangeKey] = useState("current_shift");
   const [mesSelectedMachineProductionRangeKey, setMesSelectedMachineProductionRangeKey] = useState("current_shift");
+  const [mesSelectedMachineHourlyDate, setMesSelectedMachineHourlyDate] = useState(() => formatDateInputValue());
   const [mesDeviceRenameNameInput, setMesDeviceRenameNameInput] = useState("");
   const [mesDeviceRenameTerminalNameInput, setMesDeviceRenameTerminalNameInput] = useState("");
   const [mesDeviceRenameTerminalCodeInput, setMesDeviceRenameTerminalCodeInput] = useState("");
@@ -19398,6 +19399,47 @@ function App() {
         y
       };
     });
+    const selectedMachineHourlyDayStart = new Date(`${mesSelectedMachineHourlyDate || formatDateInputValue()}T00:00:00`);
+    const selectedMachineHourlyStateEvents = selectedMesMachineScopedEvents
+      .map((event) => {
+        const happenedMs = new Date(event.happened_at || event.created_at || 0).getTime();
+        const state = getMesStateTransitionFromEvent(event.event_type);
+        return {
+          ...event,
+          happenedMs,
+          state
+        };
+      })
+      .filter((event) => Number.isFinite(event.happenedMs) && event.state)
+      .sort((left, right) => left.happenedMs - right.happenedMs);
+    const selectedMachineHourlyFallbackState = ["paused", "stop", "stopped", "alarm"].includes(
+      String(selectedMachineDetail?.machineStatus || selectedMachineActiveRun?.status || "").toLowerCase()
+    )
+      ? "stopped"
+      : "running";
+    const selectedMachineHourlyRows = Array.from({ length: 24 }, (_, hour) => {
+      const hourStart = new Date(selectedMachineHourlyDayStart);
+      hourStart.setHours(hour, 0, 0, 0);
+      const hourEnd = new Date(hourStart);
+      hourEnd.setHours(hour + 1, 0, 0, 0);
+      const summary = summarizeMesStateWindow(
+        selectedMachineHourlyStateEvents,
+        hourStart.toISOString(),
+        hourEnd.toISOString(),
+        selectedMachineHourlyFallbackState,
+        { maxStopSegmentMs: MES_MAX_DOWNTIME_DURATION_MS }
+      );
+      const productionMinutes = Math.max(0, Math.min(60, Math.round(summary.runMs / 60000)));
+      return {
+        key: `${mesSelectedMachineHourlyDate}-${hour}`,
+        hour,
+        label: `${String(hour).padStart(2, "0")}:00 - ${String(hour + 1).padStart(2, "0")}:00`,
+        productionMinutes,
+        productionPct: clampPercent((productionMinutes / 60) * 100)
+      };
+    });
+    const selectedMachineHourlyHasData = selectedMachineHourlyStateEvents.length > 0;
+    const selectedMachineHourlyTotalMinutes = selectedMachineHourlyRows.reduce((sum, row) => sum + row.productionMinutes, 0);
     const buildProductionSeries = (rangeWindow) => {
       const startAt = new Date(rangeWindow?.startAt || Date.now());
       const endAt = new Date(rangeWindow?.endAt || Date.now());
@@ -19866,6 +19908,53 @@ function App() {
                     ))}
                   </div>
                 )}
+              </article>
+
+              <article className="mes-selected-machine-hourly-table-card">
+                <div className="mes-selected-machine-chart-head">
+                  <div>
+                    <span className="workflow-section-kicker">Hodinový prehľad výroby</span>
+                    <h4>{`${new Intl.NumberFormat("sk-SK").format(selectedMachineHourlyTotalMinutes)} min`}</h4>
+                    <p>koľko minút z každej hodiny bol stroj vo výrobe</p>
+                  </div>
+                  <input
+                    type="date"
+                    value={mesSelectedMachineHourlyDate}
+                    onChange={(event) => setMesSelectedMachineHourlyDate(event.target.value)}
+                  />
+                </div>
+
+                {!selectedMachineHourlyHasData && (
+                  <p className="hint">Pre tento stroj zatiaľ nie sú dostupné stavové udalosti. Tabuľka používa posledný známy stav stroja.</p>
+                )}
+
+                <div className="mes-selected-machine-hourly-table-wrap">
+                  <table className="mes-selected-machine-hourly-table">
+                    <thead>
+                      <tr>
+                        <th>Hodina</th>
+                        <th>Minút vyrábal</th>
+                        <th>Podiel hodiny</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedMachineHourlyRows.map((row) => (
+                        <tr key={row.key}>
+                          <td>{row.label}</td>
+                          <td>
+                            <strong>{row.productionMinutes}</strong>
+                            <span> / 60 min</span>
+                          </td>
+                          <td>
+                            <div className="mes-selected-machine-hourly-bar" aria-label={`${row.productionMinutes} minút`}>
+                              <span style={{ width: `${row.productionPct}%` }} />
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </article>
             </section>
           </>

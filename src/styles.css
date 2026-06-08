@@ -2768,6 +2768,15 @@ select {
     linear-gradient(135deg, rgba(23, 71, 100, 0.06), transparent 44%);
 }
 
+.mes-selected-machine-hourly-table-card {
+  display: grid;
+  gap: 0.85rem;
+  padding: 0.95rem;
+  border: 1px solid rgba(174, 185, 191, 0.58);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.76);
+}
+
 .mes-selected-machine-chart-head {
   display: flex;
   justify-content: space-between;
@@ -2788,6 +2797,15 @@ select {
 }
 
 .mes-selected-machine-chart-head select {
+  min-height: 36px;
+  padding: 0.36rem 0.55rem;
+  border: 1px solid rgba(23, 71, 100, 0.18);
+  border-radius: 10px;
+  background: #fff;
+  color: #17324a;
+}
+
+.mes-selected-machine-chart-head input[type="date"] {
   min-height: 36px;
   padding: 0.36rem 0.55rem;
   border: 1px solid rgba(23, 71, 100, 0.18);
@@ -2920,6 +2938,69 @@ select {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.mes-selected-machine-hourly-table-wrap {
+  overflow-x: auto;
+  border: 1px solid rgba(23, 71, 100, 0.1);
+  border-radius: 12px;
+  background: rgba(248, 250, 247, 0.94);
+}
+
+.mes-selected-machine-hourly-table {
+  width: 100%;
+  min-width: 520px;
+  border-collapse: collapse;
+}
+
+.mes-selected-machine-hourly-table th,
+.mes-selected-machine-hourly-table td {
+  padding: 0.58rem 0.7rem;
+  border-bottom: 1px solid rgba(23, 71, 100, 0.08);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.mes-selected-machine-hourly-table th {
+  color: #63778a;
+  font-size: 0.74rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.mes-selected-machine-hourly-table td {
+  color: #29455f;
+  font-size: 0.84rem;
+}
+
+.mes-selected-machine-hourly-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.mes-selected-machine-hourly-table td strong {
+  color: #16304a;
+  font-size: 0.98rem;
+}
+
+.mes-selected-machine-hourly-table td span {
+  color: #7a8b9b;
+}
+
+.mes-selected-machine-hourly-bar {
+  height: 12px;
+  min-width: 180px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(23, 71, 100, 0.1);
+}
+
+.mes-selected-machine-hourly-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #16a55c, #52c77c);
 }
 
 .mes-machine-toolbar {

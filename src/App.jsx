@@ -7,6 +7,7 @@ import StatusPill from "./components/StatusPill";
 import {
   MES_ANALYTICS_LOOKBACK_DAYS,
   MES_BASE_LOOKBACK_DAYS,
+  MES_MAX_CONTINUOUS_RUN_MS,
   MES_FACTORY_TERMINAL_GRID_COLS,
   MES_FACTORY_TERMINAL_GRID_ROWS,
   MES_DASHBOARD_DEFAULT_KPI_KEYS,
@@ -15629,7 +15630,8 @@ function App() {
       const producedInCycleWindow =
         sumMesEventQuantities(eventsForCycles, ["good_count", "scrap_count"]) || sumMesEventQuantities(eventsForCycles, ["ml"]);
       const machineStateWindow = summarizeMesStateWindow(events, cycleWindow.shiftStartAt, new Date(cycleEndMs).toISOString(), terminalOnline && runningActivityIsFresh ? "running" : "stopped", {
-        maxStopSegmentMs: MES_MAX_DOWNTIME_DURATION_MS
+        maxStopSegmentMs: MES_MAX_DOWNTIME_DURATION_MS,
+        maxRunSegmentMs: MES_MAX_CONTINUOUS_RUN_MS
       });
       const runtimeSamples = runsForCycles
         .map((row) => {
@@ -15988,7 +15990,9 @@ function App() {
         const fallbackState = ["paused", "stop", "stopped", "alarm"].includes(String(currentMachineRow?.machineStatus || activeRun?.status || "").toLowerCase())
           ? "stopped"
           : "running";
-        const sessionWindow = summarizeMesStateWindow(sessionEvents, sessionStartedAt, sessionEndedAt, fallbackState);
+        const sessionWindow = summarizeMesStateWindow(sessionEvents, sessionStartedAt, sessionEndedAt, fallbackState, {
+          maxRunSegmentMs: MES_MAX_CONTINUOUS_RUN_MS
+        });
         const sessionGoodParts = sessionEvents
           .filter((row) => String(row.event_type || "").toLowerCase() === "good_count")
           .reduce((sum, row) => sum + getMesEventQuantity(row), 0);
@@ -16275,7 +16279,9 @@ function App() {
     const fallbackState = ["paused", "stop", "stopped", "alarm"].includes(String(selectedMesMachineOverview?.machineStatus || currentMesMachineRun?.status || "").toLowerCase())
       ? "stopped"
       : "running";
-    const stateWindow = summarizeMesStateWindow(selectedMesMachineScopedEvents, analysisStartAt, analysisEndAt, fallbackState);
+    const stateWindow = summarizeMesStateWindow(selectedMesMachineScopedEvents, analysisStartAt, analysisEndAt, fallbackState, {
+      maxRunSegmentMs: MES_MAX_CONTINUOUS_RUN_MS
+    });
     const producedFromCountEvents = scopedEventsInWindow
       .filter((row) => ["good_count", "scrap_count"].includes(String(row.event_type || "").toLowerCase()))
       .reduce((sum, row) => sum + getMesEventQuantity(row), 0);
@@ -16375,7 +16381,9 @@ function App() {
     const fallbackState = ["paused", "stop", "stopped", "alarm"].includes(String(selectedMesMachineOverview?.machineStatus || currentMesMachineRun?.status || "").toLowerCase())
       ? "stopped"
       : "running";
-    const sessionWindow = summarizeMesStateWindow(sessionEvents, sessionStartedAt, sessionEndedAt, fallbackState);
+    const sessionWindow = summarizeMesStateWindow(sessionEvents, sessionStartedAt, sessionEndedAt, fallbackState, {
+      maxRunSegmentMs: MES_MAX_CONTINUOUS_RUN_MS
+    });
     const sessionGoodParts = sessionEvents
       .filter((row) => String(row.event_type || "").toLowerCase() === "good_count")
       .reduce((sum, row) => sum + getMesEventQuantity(row), 0);
@@ -16480,7 +16488,8 @@ function App() {
       const bucketEndAt = new Date(bucketEndMsForState).toISOString();
       const stateWindow = hasElapsedWindow
         ? summarizeMesStateWindow(selectedMesMachineScopedEvents, bucketStartAt, bucketEndAt, fallbackState, {
-            maxStopSegmentMs: MES_MAX_DOWNTIME_DURATION_MS
+            maxStopSegmentMs: MES_MAX_DOWNTIME_DURATION_MS,
+            maxRunSegmentMs: MES_MAX_CONTINUOUS_RUN_MS
           })
         : { stopMs: 0 };
       const downtimeMs = Math.max(0, Number(stateWindow.stopMs || 0));
@@ -16926,7 +16935,8 @@ function App() {
         ? "stopped"
         : "running";
       const stateWindow = summarizeMesStateWindow(machineEvents, analysisStartAt, analysisEndAt, fallbackState, {
-        maxStopSegmentMs: MES_MAX_DOWNTIME_DURATION_MS
+        maxStopSegmentMs: MES_MAX_DOWNTIME_DURATION_MS,
+        maxRunSegmentMs: MES_MAX_CONTINUOUS_RUN_MS
       });
       let resolvedRunMs = Number(stateWindow.runMs || 0);
       let resolvedStopMs = Number(stateWindow.stopMs || 0);
@@ -19363,7 +19373,10 @@ function App() {
           effectiveStart.toISOString(),
           clippedEnd.toISOString(),
           firstKnownTransition.state,
-          { maxStopSegmentMs: MES_MAX_DOWNTIME_DURATION_MS }
+          {
+            maxStopSegmentMs: MES_MAX_DOWNTIME_DURATION_MS,
+            maxRunSegmentMs: MES_MAX_CONTINUOUS_RUN_MS
+          }
         );
         series.push({
           key: bucketStart.toISOString(),
@@ -19434,7 +19447,10 @@ function App() {
         hourStart.toISOString(),
         effectiveHourEnd.toISOString(),
         selectedMachineHourlyFallbackState,
-        { maxStopSegmentMs: MES_MAX_DOWNTIME_DURATION_MS }
+        {
+          maxStopSegmentMs: MES_MAX_DOWNTIME_DURATION_MS,
+          maxRunSegmentMs: MES_MAX_CONTINUOUS_RUN_MS
+        }
       );
       const productionMinutes = Math.max(0, Math.min(60, Math.round(summary.runMs / 60000)));
       const endHour = startHour + 1;

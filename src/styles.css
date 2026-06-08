@@ -3013,6 +3013,7 @@ select {
 }
 
 .mes-selected-machine-hourly-bar {
+  display: flex;
   height: 12px;
   min-width: 180px;
   overflow: hidden;
@@ -3025,6 +3026,10 @@ select {
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, #16a55c, #52c77c);
+}
+
+.mes-selected-machine-hourly-bar span.downtime {
+  background: linear-gradient(90deg, #f59e0b, #f97316);
 }
 
 .mes-machine-toolbar {

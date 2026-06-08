@@ -19438,6 +19438,44 @@ function App() {
       ? "stopped"
       : "running";
     const selectedMachineHourlyShiftStartHour = mesSelectedMachineHourlyShift === "afternoon" ? 14 : 6;
+    const selectedMachineHourlyBreakStart = new Date(selectedMachineHourlyDayStart);
+    selectedMachineHourlyBreakStart.setHours(mesSelectedMachineHourlyShift === "afternoon" ? 17 : 11, 0, 0, 0);
+    const selectedMachineHourlyBreakEnd = new Date(selectedMachineHourlyBreakStart);
+    selectedMachineHourlyBreakEnd.setMinutes(selectedMachineHourlyBreakEnd.getMinutes() + 30);
+    const getSelectedMachineHourlyWorkSegments = (startAt, endAt) => {
+      const startMs = startAt.getTime();
+      const endMs = endAt.getTime();
+      const breakStartMs = selectedMachineHourlyBreakStart.getTime();
+      const breakEndMs = selectedMachineHourlyBreakEnd.getTime();
+      if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+        return [];
+      }
+      return [
+        [startMs, Math.min(endMs, breakStartMs)],
+        [Math.max(startMs, breakEndMs), endMs]
+      ]
+        .filter(([segmentStartMs, segmentEndMs]) => segmentEndMs > segmentStartMs)
+        .map(([segmentStartMs, segmentEndMs]) => ({
+          startAt: new Date(segmentStartMs),
+          endAt: new Date(segmentEndMs)
+        }));
+    };
+    const summarizeSelectedMachineHourlyWorkRunMs = (startAt, endAt) =>
+      getSelectedMachineHourlyWorkSegments(startAt, endAt).reduce((sum, segment) => {
+        const segmentSummary = summarizeMesStateWindow(
+          selectedMachineHourlyStateEvents,
+          segment.startAt.toISOString(),
+          segment.endAt.toISOString(),
+          selectedMachineHourlyFallbackState,
+          {
+            maxStopSegmentMs: MES_MAX_DOWNTIME_DURATION_MS,
+            maxRunSegmentMs: MES_MAX_CONTINUOUS_RUN_MS
+          }
+        );
+        return sum + Number(segmentSummary.runMs || 0);
+      }, 0);
+    const getSelectedMachineHourlyWorkMs = (startAt, endAt) =>
+      getSelectedMachineHourlyWorkSegments(startAt, endAt).reduce((sum, segment) => sum + Math.max(0, segment.endAt.getTime() - segment.startAt.getTime()), 0);
     const selectedMachineHourlyRows = Array.from({ length: 8 }, (_, index) => {
       const startHour = selectedMachineHourlyShiftStartHour + index;
       const hourStart = new Date(selectedMachineHourlyDayStart);
@@ -19448,30 +19486,32 @@ function App() {
       const effectiveHourEnd = hourStart.getTime() >= now.getTime()
         ? hourStart
         : new Date(Math.min(hourEnd.getTime(), now.getTime()));
-      const summary = summarizeMesStateWindow(
-        selectedMachineHourlyStateEvents,
-        hourStart.toISOString(),
-        effectiveHourEnd.toISOString(),
-        selectedMachineHourlyFallbackState,
-        {
-          maxStopSegmentMs: MES_MAX_DOWNTIME_DURATION_MS,
-          maxRunSegmentMs: MES_MAX_CONTINUOUS_RUN_MS
-        }
-      );
-      const productionMinutes = Math.max(0, Math.min(60, Math.round(summary.runMs / 60000)));
+      const availableMinutes = Math.round(getSelectedMachineHourlyWorkMs(hourStart, hourEnd) / 60000);
+      const elapsedAvailableMinutes = Math.round(getSelectedMachineHourlyWorkMs(hourStart, effectiveHourEnd) / 60000);
+      const productionMinutes = Math.max(0, Math.min(availableMinutes, Math.round(summarizeSelectedMachineHourlyWorkRunMs(hourStart, effectiveHourEnd) / 60000)));
+      const downtimeMinutes = Math.max(0, Math.min(availableMinutes, elapsedAvailableMinutes - productionMinutes));
       const endHour = startHour + 1;
       return {
         key: `${mesSelectedMachineHourlyDate}-${startHour}`,
         startHour,
         label: `${String(startHour).padStart(2, "0")}:00 - ${String(endHour).padStart(2, "0")}:00`,
+        availableMinutes,
+        elapsedAvailableMinutes,
         productionMinutes,
-        productionPct: clampPercent((productionMinutes / 60) * 100)
+        downtimeMinutes,
+        productionPct: availableMinutes > 0 ? clampPercent((productionMinutes / availableMinutes) * 100) : 0,
+        downtimePct: availableMinutes > 0 ? clampPercent((downtimeMinutes / availableMinutes) * 100) : 0
       };
     });
     const selectedMachineHourlyHasData = selectedMachineHourlyStateEvents.length > 0;
     const selectedMachineHourlyTotalMinutes = selectedMachineHourlyRows.reduce((sum, row) => sum + row.productionMinutes, 0);
-    const selectedMachineHourlyShiftMinutes = 8 * 60;
+    const selectedMachineHourlyDowntimeMinutes = selectedMachineHourlyRows.reduce((sum, row) => sum + row.downtimeMinutes, 0);
+    const selectedMachineHourlyShiftMinutes = Math.max(0, Math.round(getSelectedMachineHourlyWorkMs(
+      new Date(selectedMachineHourlyDayStart.getFullYear(), selectedMachineHourlyDayStart.getMonth(), selectedMachineHourlyDayStart.getDate(), selectedMachineHourlyShiftStartHour, 0, 0, 0),
+      new Date(selectedMachineHourlyDayStart.getFullYear(), selectedMachineHourlyDayStart.getMonth(), selectedMachineHourlyDayStart.getDate(), selectedMachineHourlyShiftStartHour + 8, 0, 0, 0)
+    ) / 60000));
     const selectedMachineHourlyShiftPct = clampPercent((selectedMachineHourlyTotalMinutes / selectedMachineHourlyShiftMinutes) * 100);
+    const selectedMachineHourlyDowntimePct = clampPercent((selectedMachineHourlyDowntimeMinutes / selectedMachineHourlyShiftMinutes) * 100);
     const buildProductionSeries = (rangeWindow) => {
       const startAt = new Date(rangeWindow?.startAt || Date.now());
       const endAt = new Date(rangeWindow?.endAt || Date.now());
@@ -19947,7 +19987,7 @@ function App() {
                   <div>
                     <span className="workflow-section-kicker">Hodinový prehľad výroby</span>
                     <h4>{`${new Intl.NumberFormat("sk-SK").format(selectedMachineHourlyTotalMinutes)} / ${selectedMachineHourlyShiftMinutes} min`}</h4>
-                    <p>{`${formatPercentValue(selectedMachineHourlyShiftPct)} zo smeny, rozdelené po jednej hodine`}</p>
+                    <p>{`${formatPercentValue(selectedMachineHourlyShiftPct)} výroba, ${formatPercentValue(selectedMachineHourlyDowntimePct)} státie zo smeny`}</p>
                   </div>
                   <div className="mes-selected-machine-hourly-controls">
                     <select
@@ -19975,6 +20015,7 @@ function App() {
                       <tr>
                         <th>Časový blok</th>
                         <th>Minút vyrábal</th>
+                        <th>Minút stál</th>
                         <th>Podiel hodiny</th>
                       </tr>
                     </thead>
@@ -19984,11 +20025,16 @@ function App() {
                           <td>{row.label}</td>
                           <td>
                             <strong>{row.productionMinutes}</strong>
-                            <span> / 60 min</span>
+                            <span>{` / ${row.availableMinutes} min`}</span>
                           </td>
                           <td>
-                            <div className="mes-selected-machine-hourly-bar" aria-label={`${row.productionMinutes} minút`}>
+                            <strong>{row.downtimeMinutes}</strong>
+                            <span>{` / ${row.availableMinutes} min`}</span>
+                          </td>
+                          <td>
+                            <div className="mes-selected-machine-hourly-bar" aria-label={`${row.productionMinutes} minút výroby a ${row.downtimeMinutes} minút státia`}>
                               <span style={{ width: `${row.productionPct}%` }} />
+                              <span className="downtime" style={{ width: `${row.downtimePct}%` }} />
                             </div>
                           </td>
                         </tr>
@@ -20002,8 +20048,13 @@ function App() {
                           <span>{` / ${selectedMachineHourlyShiftMinutes} min`}</span>
                         </td>
                         <td>
-                          <div className="mes-selected-machine-hourly-bar" aria-label={`${selectedMachineHourlyTotalMinutes} minút zo smeny`}>
+                          <strong>{selectedMachineHourlyDowntimeMinutes}</strong>
+                          <span>{` / ${selectedMachineHourlyShiftMinutes} min`}</span>
+                        </td>
+                        <td>
+                          <div className="mes-selected-machine-hourly-bar" aria-label={`${selectedMachineHourlyTotalMinutes} minút výroby a ${selectedMachineHourlyDowntimeMinutes} minút státia zo smeny`}>
                             <span style={{ width: `${selectedMachineHourlyShiftPct}%` }} />
+                            <span className="downtime" style={{ width: `${selectedMachineHourlyDowntimePct}%` }} />
                           </div>
                         </td>
                       </tr>

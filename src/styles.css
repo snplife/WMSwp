@@ -2814,6 +2814,23 @@ select {
   color: #17324a;
 }
 
+.mes-selected-machine-hourly-controls {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.mes-selected-machine-hourly-controls select,
+.mes-selected-machine-hourly-controls input[type="date"] {
+  min-height: 36px;
+  padding: 0.36rem 0.55rem;
+  border: 1px solid rgba(23, 71, 100, 0.18);
+  border-radius: 10px;
+  background: #fff;
+  color: #17324a;
+}
+
 .mes-selected-machine-production-stats {
   display: flex;
   gap: 0.5rem;

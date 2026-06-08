@@ -5235,6 +5235,7 @@ function App() {
   const [mesSelectedMachineAvailabilityRangeKey, setMesSelectedMachineAvailabilityRangeKey] = useState("current_shift");
   const [mesSelectedMachineProductionRangeKey, setMesSelectedMachineProductionRangeKey] = useState("current_shift");
   const [mesSelectedMachineHourlyDate, setMesSelectedMachineHourlyDate] = useState(() => formatDateInputValue());
+  const [mesSelectedMachineHourlyShift, setMesSelectedMachineHourlyShift] = useState("day");
   const [mesDeviceRenameNameInput, setMesDeviceRenameNameInput] = useState("");
   const [mesDeviceRenameTerminalNameInput, setMesDeviceRenameTerminalNameInput] = useState("");
   const [mesDeviceRenameTerminalCodeInput, setMesDeviceRenameTerminalCodeInput] = useState("");
@@ -19417,30 +19418,32 @@ function App() {
     )
       ? "stopped"
       : "running";
-    const selectedMachineHourlyRows = [0, 8, 16].map((startHour) => {
-      const blockStart = new Date(selectedMachineHourlyDayStart);
-      blockStart.setHours(startHour, 0, 0, 0);
-      const blockEnd = new Date(blockStart);
-      blockEnd.setHours(startHour + 8, 0, 0, 0);
+    const selectedMachineHourlyShiftStartHour = mesSelectedMachineHourlyShift === "afternoon" ? 14 : 6;
+    const selectedMachineHourlyRows = Array.from({ length: 8 }, (_, index) => {
+      const startHour = selectedMachineHourlyShiftStartHour + index;
+      const hourStart = new Date(selectedMachineHourlyDayStart);
+      hourStart.setHours(startHour, 0, 0, 0);
+      const hourEnd = new Date(hourStart);
+      hourEnd.setHours(startHour + 1, 0, 0, 0);
       const now = new Date(mesNowTs);
-      const effectiveBlockEnd = blockStart.getTime() >= now.getTime()
-        ? blockStart
-        : new Date(Math.min(blockEnd.getTime(), now.getTime()));
+      const effectiveHourEnd = hourStart.getTime() >= now.getTime()
+        ? hourStart
+        : new Date(Math.min(hourEnd.getTime(), now.getTime()));
       const summary = summarizeMesStateWindow(
         selectedMachineHourlyStateEvents,
-        blockStart.toISOString(),
-        effectiveBlockEnd.toISOString(),
+        hourStart.toISOString(),
+        effectiveHourEnd.toISOString(),
         selectedMachineHourlyFallbackState,
         { maxStopSegmentMs: MES_MAX_DOWNTIME_DURATION_MS }
       );
-      const productionMinutes = Math.max(0, Math.min(480, Math.round(summary.runMs / 60000)));
-      const endHour = startHour + 8;
+      const productionMinutes = Math.max(0, Math.min(60, Math.round(summary.runMs / 60000)));
+      const endHour = startHour + 1;
       return {
         key: `${mesSelectedMachineHourlyDate}-${startHour}`,
         startHour,
         label: `${String(startHour).padStart(2, "0")}:00 - ${String(endHour).padStart(2, "0")}:00`,
         productionMinutes,
-        productionPct: clampPercent((productionMinutes / 480) * 100)
+        productionPct: clampPercent((productionMinutes / 60) * 100)
       };
     });
     const selectedMachineHourlyHasData = selectedMachineHourlyStateEvents.length > 0;
@@ -19918,15 +19921,24 @@ function App() {
               <article className="mes-selected-machine-hourly-table-card">
                 <div className="mes-selected-machine-chart-head">
                   <div>
-                    <span className="workflow-section-kicker">8-hodinový prehľad výroby</span>
+                    <span className="workflow-section-kicker">Hodinový prehľad výroby</span>
                     <h4>{`${new Intl.NumberFormat("sk-SK").format(selectedMachineHourlyTotalMinutes)} min`}</h4>
-                    <p>koľko minút z každého 8-hodinového bloku bol stroj vo výrobe</p>
+                    <p>8 hodín vybranej smeny rozdelených po jednej hodine</p>
                   </div>
-                  <input
-                    type="date"
-                    value={mesSelectedMachineHourlyDate}
-                    onChange={(event) => setMesSelectedMachineHourlyDate(event.target.value)}
-                  />
+                  <div className="mes-selected-machine-hourly-controls">
+                    <select
+                      value={mesSelectedMachineHourlyShift}
+                      onChange={(event) => setMesSelectedMachineHourlyShift(event.target.value)}
+                    >
+                      <option value="day">Denná 06:00 - 14:00</option>
+                      <option value="afternoon">Poobedná 14:00 - 22:00</option>
+                    </select>
+                    <input
+                      type="date"
+                      value={mesSelectedMachineHourlyDate}
+                      onChange={(event) => setMesSelectedMachineHourlyDate(event.target.value)}
+                    />
+                  </div>
                 </div>
 
                 {!selectedMachineHourlyHasData && (
@@ -19939,7 +19951,7 @@ function App() {
                       <tr>
                         <th>Časový blok</th>
                         <th>Minút vyrábal</th>
-                        <th>Podiel 8 hodín</th>
+                        <th>Podiel hodiny</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -19948,7 +19960,7 @@ function App() {
                           <td>{row.label}</td>
                           <td>
                             <strong>{row.productionMinutes}</strong>
-                            <span> / 480 min</span>
+                            <span> / 60 min</span>
                           </td>
                           <td>
                             <div className="mes-selected-machine-hourly-bar" aria-label={`${row.productionMinutes} minút`}>

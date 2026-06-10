@@ -2927,6 +2927,115 @@ select {
   font-weight: 800;
 }
 
+.mes-selected-machine-availability-shifts {
+  border: 1px solid rgba(23, 71, 100, 0.1);
+  border-radius: 12px;
+  background: rgba(248, 250, 247, 0.72);
+  overflow: hidden;
+}
+
+.mes-selected-machine-availability-shifts > summary,
+.mes-selected-machine-availability-shift > summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+  cursor: pointer;
+  list-style: none;
+}
+
+.mes-selected-machine-availability-shifts > summary::-webkit-details-marker,
+.mes-selected-machine-availability-shift > summary::-webkit-details-marker {
+  display: none;
+}
+
+.mes-selected-machine-availability-shifts > summary {
+  padding: 0.72rem 0.85rem;
+  color: #17324a;
+  font-weight: 900;
+}
+
+.mes-selected-machine-availability-shifts > summary strong {
+  color: #63778a;
+  font-size: 0.78rem;
+}
+
+.mes-selected-machine-availability-shift-grid {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0 0.72rem 0.72rem;
+}
+
+.mes-selected-machine-availability-shift {
+  border: 1px solid rgba(23, 71, 100, 0.1);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.mes-selected-machine-availability-shift > summary {
+  padding: 0.65rem 0.72rem;
+}
+
+.mes-selected-machine-availability-shift > summary span {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.mes-selected-machine-availability-shift > summary strong {
+  color: #17324a;
+}
+
+.mes-selected-machine-availability-shift > summary small {
+  color: #63778a;
+  font-weight: 800;
+}
+
+.mes-selected-machine-availability-shift > summary b {
+  color: #16a55c;
+  font-size: 1.05rem;
+}
+
+.mes-selected-machine-availability-shift-summary {
+  display: flex;
+  gap: 0.42rem;
+  flex-wrap: wrap;
+  padding: 0 0.72rem 0.62rem;
+}
+
+.mes-selected-machine-availability-shift-summary span {
+  padding: 0.28rem 0.48rem;
+  border-radius: 999px;
+  background: rgba(23, 71, 100, 0.06);
+  color: #29455f;
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.mes-selected-machine-availability-shift > .mes-selected-machine-hourly-bar {
+  margin: 0 0.72rem 0.7rem;
+}
+
+.mes-selected-machine-availability-shift-hours {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.62rem 0.72rem 0.72rem;
+  border-top: 1px solid rgba(23, 71, 100, 0.08);
+}
+
+.mes-selected-machine-availability-shift-hour {
+  display: grid;
+  grid-template-columns: minmax(92px, 0.9fr) minmax(82px, auto) minmax(140px, 1.2fr);
+  gap: 0.55rem;
+  align-items: center;
+  color: #29455f;
+  font-size: 0.78rem;
+}
+
+.mes-selected-machine-availability-shift-hour strong {
+  color: #17324a;
+  text-align: right;
+}
+
 .mes-selected-machine-production-fill {
   fill: url("#mesProductionFill");
   stroke: none;

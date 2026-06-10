@@ -19437,16 +19437,26 @@ function App() {
     )
       ? "stopped"
       : "running";
-    const selectedMachineHourlyShiftStartHour = mesSelectedMachineHourlyShift === "afternoon" ? 14 : 6;
-    const selectedMachineHourlyBreakStart = new Date(selectedMachineHourlyDayStart);
-    selectedMachineHourlyBreakStart.setHours(mesSelectedMachineHourlyShift === "afternoon" ? 17 : 11, 0, 0, 0);
-    const selectedMachineHourlyBreakEnd = new Date(selectedMachineHourlyBreakStart);
-    selectedMachineHourlyBreakEnd.setMinutes(selectedMachineHourlyBreakEnd.getMinutes() + 30);
-    const getSelectedMachineHourlyWorkSegments = (startAt, endAt) => {
+    const selectedMachineShiftOptions = [
+      { key: "day", label: "Ranná zmena", timeLabel: "06:00 - 14:00", startHour: 6, breakHour: 11 },
+      { key: "afternoon", label: "Poobedná zmena", timeLabel: "14:00 - 22:00", startHour: 14, breakHour: 17 }
+    ];
+    const getSelectedMachineShiftOption = (shiftKey) =>
+      selectedMachineShiftOptions.find((option) => option.key === shiftKey) || selectedMachineShiftOptions[0];
+    const getSelectedMachineShiftBreakWindow = (shiftKey) => {
+      const shiftOption = getSelectedMachineShiftOption(shiftKey);
+      const breakStart = new Date(selectedMachineHourlyDayStart);
+      breakStart.setHours(shiftOption.breakHour, 0, 0, 0);
+      const breakEnd = new Date(breakStart);
+      breakEnd.setMinutes(breakEnd.getMinutes() + 30);
+      return { breakStart, breakEnd };
+    };
+    const getSelectedMachineShiftWorkSegments = (shiftKey, startAt, endAt) => {
+      const { breakStart, breakEnd } = getSelectedMachineShiftBreakWindow(shiftKey);
       const startMs = startAt.getTime();
       const endMs = endAt.getTime();
-      const breakStartMs = selectedMachineHourlyBreakStart.getTime();
-      const breakEndMs = selectedMachineHourlyBreakEnd.getTime();
+      const breakStartMs = breakStart.getTime();
+      const breakEndMs = breakEnd.getTime();
       if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
         return [];
       }
@@ -19460,8 +19470,8 @@ function App() {
           endAt: new Date(segmentEndMs)
         }));
     };
-    const summarizeSelectedMachineHourlyWorkRunMs = (startAt, endAt) =>
-      getSelectedMachineHourlyWorkSegments(startAt, endAt).reduce((sum, segment) => {
+    const summarizeSelectedMachineShiftWorkRunMs = (shiftKey, startAt, endAt) =>
+      getSelectedMachineShiftWorkSegments(shiftKey, startAt, endAt).reduce((sum, segment) => {
         const segmentSummary = summarizeMesStateWindow(
           selectedMachineHourlyStateEvents,
           segment.startAt.toISOString(),
@@ -19474,44 +19484,69 @@ function App() {
         );
         return sum + Number(segmentSummary.runMs || 0);
       }, 0);
-    const getSelectedMachineHourlyWorkMs = (startAt, endAt) =>
-      getSelectedMachineHourlyWorkSegments(startAt, endAt).reduce((sum, segment) => sum + Math.max(0, segment.endAt.getTime() - segment.startAt.getTime()), 0);
-    const selectedMachineHourlyRows = Array.from({ length: 8 }, (_, index) => {
-      const startHour = selectedMachineHourlyShiftStartHour + index;
-      const hourStart = new Date(selectedMachineHourlyDayStart);
-      hourStart.setHours(startHour, 0, 0, 0);
-      const hourEnd = new Date(hourStart);
-      hourEnd.setHours(startHour + 1, 0, 0, 0);
-      const now = new Date(mesNowTs);
-      const effectiveHourEnd = hourStart.getTime() >= now.getTime()
-        ? hourStart
-        : new Date(Math.min(hourEnd.getTime(), now.getTime()));
-      const availableMinutes = Math.round(getSelectedMachineHourlyWorkMs(hourStart, hourEnd) / 60000);
-      const elapsedAvailableMinutes = Math.round(getSelectedMachineHourlyWorkMs(hourStart, effectiveHourEnd) / 60000);
-      const productionMinutes = Math.max(0, Math.min(availableMinutes, Math.round(summarizeSelectedMachineHourlyWorkRunMs(hourStart, effectiveHourEnd) / 60000)));
-      const downtimeMinutes = Math.max(0, Math.min(availableMinutes, elapsedAvailableMinutes - productionMinutes));
-      const endHour = startHour + 1;
-      return {
-        key: `${mesSelectedMachineHourlyDate}-${startHour}`,
-        startHour,
-        label: `${String(startHour).padStart(2, "0")}:00 - ${String(endHour).padStart(2, "0")}:00`,
-        availableMinutes,
-        elapsedAvailableMinutes,
-        productionMinutes,
-        downtimeMinutes,
-        productionPct: availableMinutes > 0 ? clampPercent((productionMinutes / availableMinutes) * 100) : 0,
-        downtimePct: availableMinutes > 0 ? clampPercent((downtimeMinutes / availableMinutes) * 100) : 0
-      };
-    });
+    const getSelectedMachineShiftWorkMs = (shiftKey, startAt, endAt) =>
+      getSelectedMachineShiftWorkSegments(shiftKey, startAt, endAt).reduce((sum, segment) => sum + Math.max(0, segment.endAt.getTime() - segment.startAt.getTime()), 0);
+    const buildSelectedMachineHourlyRows = (shiftKey) => {
+      const shiftOption = getSelectedMachineShiftOption(shiftKey);
+      return Array.from({ length: 8 }, (_, index) => {
+        const startHour = shiftOption.startHour + index;
+        const hourStart = new Date(selectedMachineHourlyDayStart);
+        hourStart.setHours(startHour, 0, 0, 0);
+        const hourEnd = new Date(hourStart);
+        hourEnd.setHours(startHour + 1, 0, 0, 0);
+        const now = new Date(mesNowTs);
+        const effectiveHourEnd = hourStart.getTime() >= now.getTime()
+          ? hourStart
+          : new Date(Math.min(hourEnd.getTime(), now.getTime()));
+        const availableMinutes = Math.round(getSelectedMachineShiftWorkMs(shiftKey, hourStart, hourEnd) / 60000);
+        const elapsedAvailableMinutes = Math.round(getSelectedMachineShiftWorkMs(shiftKey, hourStart, effectiveHourEnd) / 60000);
+        const productionMinutes = Math.max(0, Math.min(availableMinutes, Math.round(summarizeSelectedMachineShiftWorkRunMs(shiftKey, hourStart, effectiveHourEnd) / 60000)));
+        const downtimeMinutes = Math.max(0, Math.min(availableMinutes, elapsedAvailableMinutes - productionMinutes));
+        const endHour = startHour + 1;
+        return {
+          key: `${mesSelectedMachineHourlyDate}-${shiftKey}-${startHour}`,
+          startHour,
+          label: `${String(startHour).padStart(2, "0")}:00 - ${String(endHour).padStart(2, "0")}:00`,
+          availableMinutes,
+          elapsedAvailableMinutes,
+          productionMinutes,
+          downtimeMinutes,
+          productionPct: availableMinutes > 0 ? clampPercent((productionMinutes / availableMinutes) * 100) : 0,
+          downtimePct: availableMinutes > 0 ? clampPercent((downtimeMinutes / availableMinutes) * 100) : 0
+        };
+      });
+    };
+    const selectedMachineHourlyRows = buildSelectedMachineHourlyRows(mesSelectedMachineHourlyShift);
     const selectedMachineHourlyHasData = selectedMachineHourlyStateEvents.length > 0;
     const selectedMachineHourlyTotalMinutes = selectedMachineHourlyRows.reduce((sum, row) => sum + row.productionMinutes, 0);
     const selectedMachineHourlyDowntimeMinutes = selectedMachineHourlyRows.reduce((sum, row) => sum + row.downtimeMinutes, 0);
-    const selectedMachineHourlyShiftMinutes = Math.max(0, Math.round(getSelectedMachineHourlyWorkMs(
-      new Date(selectedMachineHourlyDayStart.getFullYear(), selectedMachineHourlyDayStart.getMonth(), selectedMachineHourlyDayStart.getDate(), selectedMachineHourlyShiftStartHour, 0, 0, 0),
-      new Date(selectedMachineHourlyDayStart.getFullYear(), selectedMachineHourlyDayStart.getMonth(), selectedMachineHourlyDayStart.getDate(), selectedMachineHourlyShiftStartHour + 8, 0, 0, 0)
+    const selectedMachineHourlyShiftOption = getSelectedMachineShiftOption(mesSelectedMachineHourlyShift);
+    const selectedMachineHourlyShiftMinutes = Math.max(0, Math.round(getSelectedMachineShiftWorkMs(
+      mesSelectedMachineHourlyShift,
+      new Date(selectedMachineHourlyDayStart.getFullYear(), selectedMachineHourlyDayStart.getMonth(), selectedMachineHourlyDayStart.getDate(), selectedMachineHourlyShiftOption.startHour, 0, 0, 0),
+      new Date(selectedMachineHourlyDayStart.getFullYear(), selectedMachineHourlyDayStart.getMonth(), selectedMachineHourlyDayStart.getDate(), selectedMachineHourlyShiftOption.startHour + 8, 0, 0, 0)
     ) / 60000));
     const selectedMachineHourlyShiftPct = clampPercent((selectedMachineHourlyTotalMinutes / selectedMachineHourlyShiftMinutes) * 100);
     const selectedMachineHourlyDowntimePct = clampPercent((selectedMachineHourlyDowntimeMinutes / selectedMachineHourlyShiftMinutes) * 100);
+    const selectedMachineAvailabilityShiftSummaries = selectedMachineShiftOptions.map((shiftOption) => {
+      const rows = buildSelectedMachineHourlyRows(shiftOption.key);
+      const productionMinutes = rows.reduce((sum, row) => sum + row.productionMinutes, 0);
+      const downtimeMinutes = rows.reduce((sum, row) => sum + row.downtimeMinutes, 0);
+      const shiftMinutes = Math.max(0, Math.round(getSelectedMachineShiftWorkMs(
+        shiftOption.key,
+        new Date(selectedMachineHourlyDayStart.getFullYear(), selectedMachineHourlyDayStart.getMonth(), selectedMachineHourlyDayStart.getDate(), shiftOption.startHour, 0, 0, 0),
+        new Date(selectedMachineHourlyDayStart.getFullYear(), selectedMachineHourlyDayStart.getMonth(), selectedMachineHourlyDayStart.getDate(), shiftOption.startHour + 8, 0, 0, 0)
+      ) / 60000));
+      return {
+        ...shiftOption,
+        rows,
+        productionMinutes,
+        downtimeMinutes,
+        shiftMinutes,
+        productionPct: clampPercent((productionMinutes / shiftMinutes) * 100),
+        downtimePct: clampPercent((downtimeMinutes / shiftMinutes) * 100)
+      };
+    });
     const buildProductionSeries = (rangeWindow) => {
       const startAt = new Date(rangeWindow?.startAt || Date.now());
       const endAt = new Date(rangeWindow?.endAt || Date.now());
@@ -19930,6 +19965,49 @@ function App() {
                     ))}
                   </div>
                 )}
+                <details className="mes-selected-machine-availability-shifts">
+                  <summary>
+                    <span>Rozkliknúť rannú a poobednú zmenu</span>
+                    <strong>{mesSelectedMachineHourlyDate}</strong>
+                  </summary>
+                  <div className="mes-selected-machine-availability-shift-grid">
+                    {selectedMachineAvailabilityShiftSummaries.map((shift) => (
+                      <details key={shift.key} className="mes-selected-machine-availability-shift">
+                        <summary>
+                          <span>
+                            <strong>{shift.label}</strong>
+                            <small>{shift.timeLabel}</small>
+                          </span>
+                          <b>{formatPercentValue(shift.productionPct)}</b>
+                        </summary>
+                        <div className="mes-selected-machine-availability-shift-summary">
+                          <span>{`${shift.productionMinutes} min výroba`}</span>
+                          <span>{`${shift.downtimeMinutes} min státie`}</span>
+                          <span>{`${shift.shiftMinutes} min smena`}</span>
+                        </div>
+                        <div
+                          className="mes-selected-machine-hourly-bar"
+                          aria-label={`${shift.productionMinutes} minút výroby a ${shift.downtimeMinutes} minút státia za ${shift.label.toLowerCase()}`}
+                        >
+                          <span style={{ width: `${shift.productionPct}%` }} />
+                          <span className="downtime" style={{ width: `${shift.downtimePct}%` }} />
+                        </div>
+                        <div className="mes-selected-machine-availability-shift-hours">
+                          {shift.rows.map((row) => (
+                            <div key={row.key} className="mes-selected-machine-availability-shift-hour">
+                              <span>{row.label}</span>
+                              <strong>{`${row.productionMinutes}/${row.availableMinutes} min`}</strong>
+                              <div className="mes-selected-machine-hourly-bar" aria-hidden="true">
+                                <span style={{ width: `${row.productionPct}%` }} />
+                                <span className="downtime" style={{ width: `${row.downtimePct}%` }} />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    ))}
+                  </div>
+                </details>
               </article>
 
               <article className="mes-selected-machine-production">
@@ -19994,7 +20072,7 @@ function App() {
                       value={mesSelectedMachineHourlyShift}
                       onChange={(event) => setMesSelectedMachineHourlyShift(event.target.value)}
                     >
-                      <option value="day">Denná 06:00 - 14:00</option>
+                      <option value="day">Ranná 06:00 - 14:00</option>
                       <option value="afternoon">Poobedná 14:00 - 22:00</option>
                     </select>
                     <input

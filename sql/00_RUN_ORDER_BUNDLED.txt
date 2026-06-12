@@ -1,0 +1,36 @@
+RUN ORDER (Supabase SQL Editor)
+
+Fresh install on a new database:
+1) Run: 01_wms_full_stack_bundle.txt
+
+Fresh install with section bundles:
+1) Run: section_bundles/bundle_section_01_stock.txt
+2) Run: section_bundles/bundle_section_02_users_access.txt
+3) Run: section_bundles/bundle_section_03_sales_workflow.txt
+4) Run: section_bundles/bundle_section_04_manufacturing_mes.txt
+5) Run: section_bundles/bundle_section_05_billing.txt
+6) Run: section_bundles/bundle_section_06_attendance.txt
+
+Existing database update path:
+1) Run 02_wms_update_bundle_46_50.txt if your database is missing changes 46 az 50.
+2) Then run any newer missing incremental files manually.
+3) Do not run the full bundle on an already initialized database.
+
+Latest incremental files currently relevant for the current app state:
+- 46_wms_auth_self_signup_company_invites.txt
+- 47_wms_company_billing_stripe.txt
+- 48_wms_company_billing_price_overrides.txt
+- 49_wms_attendance_core.txt
+- 50_wms_attendance_terminal_idempotency.txt
+- 51_wms_attendance_groups_and_schedule.txt
+- 52_wms_attendance_group_shift_and_breaks.txt
+- 53_wms_attendance_group_dynamic_breaks.txt
+- 55_wms_mes_machine_signal_mode.txt
+- 56_wms_mes_terminal_p40_uid_normalization.txt
+- 57_wms_mes_factory_overview_terminal_scoped_runs.txt
+
+Notes:
+- Old check files can still be used manually when needed.
+- 01 bundle is for fresh installs.
+- 02 bundle is for existing databases that need only the latest upgrade block.
+- Section bundles are for a more modular setup by domain.

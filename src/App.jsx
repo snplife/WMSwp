@@ -10485,7 +10485,7 @@ function App() {
     if (!code) {
       return [];
     }
-    const suffix = code.replace(/^(P4-|UID-)/, "");
+    const suffix = code.replace(/^(P40-|P4-|UID-)/, "");
     const variants = [code];
     if (/^[0-9A-F]{12}$/.test(suffix)) {
       variants.push(`P4-${suffix}`, `UID-${suffix}`, suffix);
@@ -10495,7 +10495,7 @@ function App() {
 
   const getMesCanonicalRegistrationCode = (value) => {
     const code = normalizeMesRegistrationCode(value);
-    const suffix = code.replace(/^(P4-|UID-)/, "");
+    const suffix = code.replace(/^(P40-|P4-|UID-)/, "");
     return /^[0-9A-F]{12}$/.test(suffix) ? `P4-${suffix}` : code;
   };
 
@@ -15448,7 +15448,6 @@ function App() {
           jobRunId: key,
           good: 0,
           scrap: 0,
-          mlCycles: 0,
           totalProduced: 0,
           latestEventAt: "",
           latestEvent: null
@@ -15460,10 +15459,8 @@ function App() {
         entry.good += getMesEventQuantity(row);
       } else if (eventType === "scrap_count") {
         entry.scrap += getMesEventQuantity(row);
-      } else if (eventType === "ml") {
-        entry.mlCycles += 1;
       }
-      entry.totalProduced = entry.good + entry.scrap > 0 ? entry.good + entry.scrap : entry.mlCycles;
+      entry.totalProduced = entry.good + entry.scrap;
       const happenedAt = String(row.happened_at || row.created_at || "");
       if (happenedAt && (!entry.latestEventAt || happenedAt > entry.latestEventAt)) {
         entry.latestEventAt = happenedAt;
@@ -15485,7 +15482,6 @@ function App() {
             jobRunId: String(row.job_run_id || "").trim(),
             good: 0,
             scrap: 0,
-            mlCycles: 0,
             totalProduced: 0,
             latestEventAt: "",
             latestEvent: null,
@@ -15499,10 +15495,8 @@ function App() {
           entry.good += getMesEventQuantity(row);
         } else if (eventType === "scrap_count") {
           entry.scrap += getMesEventQuantity(row);
-        } else if (eventType === "ml") {
-          entry.mlCycles += 1;
         }
-        entry.totalProduced = entry.good + entry.scrap > 0 ? entry.good + entry.scrap : entry.mlCycles;
+        entry.totalProduced = entry.good + entry.scrap;
         const happenedAt = String(row.happened_at || row.created_at || "");
         if (happenedAt && (!entry.latestEventAt || happenedAt > entry.latestEventAt)) {
           const nextState = getMesStateTransitionFromEvent(eventType);
@@ -15553,8 +15547,12 @@ function App() {
         (workstation ? mesOverviewByWorkstationId[workstation.id] : null) ||
         null;
       const fallbackKey = String(workstation?.id || "").trim();
-      const terminalKey = String(machine?.terminal_id || "").trim();
-      const resolvedKeys = Array.from(new Set([machineKey, fallbackKey, terminalKey].filter(Boolean)));
+      const preferredWorkstationTerminal =
+        mesPreferredTerminalByWorkstationId[String(workstation?.id || overview?.workstation_id || "").trim()] || null;
+      const terminalKey = String(machine?.terminal_id || overview?.terminal_id || preferredWorkstationTerminal?.id || "").trim();
+      const resolvedKeys = terminalKey
+        ? Array.from(new Set([terminalKey, machineKey].filter(Boolean)))
+        : Array.from(new Set([machineKey, fallbackKey].filter(Boolean)));
       const runs = Array.from(
         new Map(
           resolvedKeys
@@ -15581,8 +15579,6 @@ function App() {
           .map((key) => mesEventSummaryByMachineId[key] || null)
           .find(Boolean) || null;
       const fallbackRun = eventSummary?.jobRunId ? mesJobRunsById[eventSummary.jobRunId] || latestRun : latestRun;
-      const preferredWorkstationTerminal =
-        mesPreferredTerminalByWorkstationId[String(workstation?.id || overview?.workstation_id || fallbackRun?.workstation_id || activeRun?.workstation_id || "").trim()] || null;
       const resolvedTerminalId = String(
         eventSummary?.terminalId ||
           machine?.terminal_id ||
@@ -15634,7 +15630,7 @@ function App() {
         .map((row) => row.durationMs / 1000)
         .filter((value) => Number.isFinite(value) && value > 0);
       const producedInCycleWindow =
-        sumMesEventQuantities(eventsForCycles, ["good_count", "scrap_count"]) || sumMesEventQuantities(eventsForCycles, ["ml"]);
+        sumMesEventQuantities(eventsForCycles, ["good_count", "scrap_count"]);
       const machineStateWindow = summarizeMesStateWindow(events, cycleWindow.shiftStartAt, new Date(cycleEndMs).toISOString(), terminalOnline && runningActivityIsFresh ? "running" : "stopped", {
         maxStopSegmentMs: MES_MAX_DOWNTIME_DURATION_MS,
         maxRunSegmentMs: MES_MAX_CONTINUOUS_RUN_MS
@@ -16005,17 +16001,11 @@ function App() {
         const sessionScrapParts = sessionEvents
           .filter((row) => String(row.event_type || "").toLowerCase() === "scrap_count")
           .reduce((sum, row) => sum + getMesEventQuantity(row), 0);
-        const sessionMlParts = sessionEvents
-          .filter((row) => String(row.event_type || "").toLowerCase() === "ml")
-          .reduce((sum, row) => sum + getMesEventQuantity(row), 0);
         const fallbackSessionGoodParts = Number(activeRun?.good_quantity || 0);
         const fallbackSessionScrapParts = Number(activeRun?.scrap_quantity || 0);
         const resolvedSessionGoodParts = sessionGoodParts > 0 || sessionScrapParts > 0 ? sessionGoodParts : fallbackSessionGoodParts;
         const resolvedSessionScrapParts = sessionGoodParts > 0 || sessionScrapParts > 0 ? sessionScrapParts : fallbackSessionScrapParts;
-        const sessionProducedParts =
-          resolvedSessionGoodParts + resolvedSessionScrapParts > 0
-            ? resolvedSessionGoodParts + resolvedSessionScrapParts
-            : sessionMlParts;
+        const sessionProducedParts = resolvedSessionGoodParts + resolvedSessionScrapParts;
         const sessionTargetParts =
           Number(currentMachineRow?.idealUnitsPerHour || 0) > 0 && sessionWindow.totalMs > 0
             ? (sessionWindow.totalMs / (60 * 60 * 1000)) * Number(currentMachineRow.idealUnitsPerHour)
@@ -16050,9 +16040,6 @@ function App() {
         const totalScrapParts = sessionEvents
           .filter((row) => String(row.event_type || "").toLowerCase() === "scrap_count")
           .reduce((sum, row) => sum + getMesEventQuantity(row), 0);
-        const totalMlParts = sessionEvents
-          .filter((row) => String(row.event_type || "").toLowerCase() === "ml")
-          .reduce((sum, row) => sum + getMesEventQuantity(row), 0);
         const latestEvent = [...sessionEvents].sort((a, b) => new Date(b.happened_at || b.created_at || 0).getTime() - new Date(a.happened_at || a.created_at || 0).getTime())[0] || session.authEvent;
 
         return {
@@ -16074,7 +16061,7 @@ function App() {
           jobCount: relevantRuns.length,
           totalGoodParts,
           totalScrapParts,
-          totalProducedParts: totalGoodParts + totalScrapParts > 0 ? totalGoodParts + totalScrapParts : totalMlParts,
+          totalProducedParts: totalGoodParts + totalScrapParts,
           lastSeenAt: String(latestEvent?.happened_at || latestEvent?.created_at || sessionStartedAt || ""),
           latestEvent,
           sessionStartedAt,
@@ -16396,17 +16383,11 @@ function App() {
     const sessionScrapParts = sessionEvents
       .filter((row) => String(row.event_type || "").toLowerCase() === "scrap_count")
       .reduce((sum, row) => sum + getMesEventQuantity(row), 0);
-    const sessionMlParts = sessionEvents
-      .filter((row) => String(row.event_type || "").toLowerCase() === "ml")
-      .reduce((sum, row) => sum + getMesEventQuantity(row), 0);
     const fallbackSessionGoodParts = Number(currentMesMachineRun?.good_quantity || 0);
     const fallbackSessionScrapParts = Number(currentMesMachineRun?.scrap_quantity || 0);
     const resolvedSessionGoodParts = sessionGoodParts > 0 || sessionScrapParts > 0 ? sessionGoodParts : fallbackSessionGoodParts;
     const resolvedSessionScrapParts = sessionGoodParts > 0 || sessionScrapParts > 0 ? sessionScrapParts : fallbackSessionScrapParts;
-    const sessionProducedParts =
-      resolvedSessionGoodParts + resolvedSessionScrapParts > 0
-        ? resolvedSessionGoodParts + resolvedSessionScrapParts
-        : sessionMlParts;
+    const sessionProducedParts = resolvedSessionGoodParts + resolvedSessionScrapParts;
     const sessionTargetParts =
       Number(selectedMesMachineOverview?.idealUnitsPerHour || 0) > 0 && sessionWindow.totalMs > 0
         ? (sessionWindow.totalMs / (60 * 60 * 1000)) * Number(selectedMesMachineOverview.idealUnitsPerHour)
@@ -16677,7 +16658,7 @@ function App() {
     let hasEventCounts = false;
     mesRecentEventRows.forEach((row) => {
       const eventType = String(row.event_type || "").toLowerCase();
-      if (!["good_count", "scrap_count", "ml"].includes(eventType)) {
+      if (!["good_count", "scrap_count"].includes(eventType)) {
         return;
       }
       if (!matchesSelectedMachine(row)) {
@@ -16952,9 +16933,8 @@ function App() {
       });
       const explicitGoodProduced = sumMesEventQuantities(machineEventsInShift, ["good_count"]);
       const scrapProduced = sumMesEventQuantities(machineEventsInShift, ["scrap_count"]);
-      const mlProduced = sumMesEventQuantities(machineEventsInShift, ["ml"]);
-      const produced = explicitGoodProduced + scrapProduced > 0 ? explicitGoodProduced + scrapProduced : mlProduced;
-      const goodProduced = explicitGoodProduced + scrapProduced > 0 ? explicitGoodProduced : produced;
+      const produced = explicitGoodProduced + scrapProduced;
+      const goodProduced = explicitGoodProduced;
 
       if (resolvedRunMs === 0 && produced > 0 && Number(machineRow?.actualCycleSeconds || 0) > 0) {
         resolvedRunMs = produced * Number(machineRow.actualCycleSeconds) * 1000;
@@ -19279,7 +19259,6 @@ function App() {
     );
     const selectedMachineGoodParts = sumMesEventQuantities(selectedMachineEventsInPartsRange, ["good_count"]);
     const selectedMachineScrapParts = sumMesEventQuantities(selectedMachineEventsInPartsRange, ["scrap_count"]);
-    const selectedMachineMlParts = sumMesEventQuantities(selectedMachineEventsInPartsRange, ["ml"]);
     const selectedMachineRunsInPartsRange = selectedMesMachineRuns.filter((run) =>
       isInRange(run.ended_at || run.updated_at || run.created_at, partsRangeWindow)
     );
@@ -19288,10 +19267,7 @@ function App() {
     const hasSelectedMachineCountEvents = selectedMachineGoodParts + selectedMachineScrapParts > 0;
     const resolvedSelectedMachineGoodParts = hasSelectedMachineCountEvents ? selectedMachineGoodParts : selectedMachineRunGoodParts;
     const resolvedSelectedMachineScrapParts = hasSelectedMachineCountEvents ? selectedMachineScrapParts : selectedMachineRunScrapParts;
-    const selectedMachineProducedParts =
-      resolvedSelectedMachineGoodParts + resolvedSelectedMachineScrapParts > 0
-        ? resolvedSelectedMachineGoodParts + resolvedSelectedMachineScrapParts
-        : selectedMachineMlParts;
+    const selectedMachineProducedParts = resolvedSelectedMachineGoodParts + resolvedSelectedMachineScrapParts;
     const selectedMachineCompletedJobs = Array.from(
       new Map(
         selectedMesMachineRuns

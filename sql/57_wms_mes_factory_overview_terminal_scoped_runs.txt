@@ -1,0 +1,163 @@
+-- Keep factory overview quantities scoped to the terminal selected for the workstation.
+-- Without this, an active run from another terminal on the same workstation can be
+-- displayed under the current HMI terminal.
+
+create or replace function public.mes_factory_overview(p_company_id uuid default null)
+returns table (
+  workstation_id uuid,
+  workstation_code text,
+  workstation_name text,
+  workstation_area text,
+  workstation_active boolean,
+  hmi_enabled boolean,
+  machine_id uuid,
+  machine_code text,
+  machine_name text,
+  machine_state text,
+  machine_last_heartbeat_at timestamptz,
+  terminal_id uuid,
+  terminal_code text,
+  terminal_name text,
+  terminal_last_seen_at timestamptz,
+  job_run_id uuid,
+  production_order_id uuid,
+  job_number text,
+  item_code text,
+  item_name text,
+  job_status text,
+  operator_name text,
+  planned_quantity integer,
+  good_quantity integer,
+  scrap_quantity integer,
+  started_at timestamptz,
+  current_downtime_reason text,
+  latest_event_at timestamptz
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_company_id uuid;
+  v_user_company_id uuid;
+begin
+  v_user_company_id := public.user_company_id(auth.uid());
+
+  if p_company_id is null then
+    v_company_id := v_user_company_id;
+  else
+    v_company_id := p_company_id;
+  end if;
+
+  if v_company_id is null then
+    raise exception 'Company scope is required';
+  end if;
+
+  if not public.is_master(auth.uid()) then
+    if not public.can_access_mes(auth.uid()) then
+      raise exception 'MES access denied';
+    end if;
+
+    if v_company_id <> v_user_company_id then
+      raise exception 'Access denied for company %', v_company_id;
+    end if;
+  end if;
+
+  return query
+  with last_events as (
+    select distinct on (e.job_run_id)
+      e.job_run_id,
+      e.event_type,
+      e.happened_at,
+      dr.name as downtime_reason_name
+    from public.mes_job_run_events e
+    left join public.mes_downtime_reasons dr on dr.id = e.downtime_reason_id
+    order by e.job_run_id, e.happened_at desc, e.created_at desc
+  )
+  select
+    ws.id as workstation_id,
+    ws.code as workstation_code,
+    ws.name as workstation_name,
+    ws.area as workstation_area,
+    ws.is_active as workstation_active,
+    ws.hmi_enabled,
+    m.id as machine_id,
+    m.code as machine_code,
+    m.name as machine_name,
+    m.machine_state,
+    m.last_heartbeat_at as machine_last_heartbeat_at,
+    t.id as terminal_id,
+    t.terminal_code,
+    t.name as terminal_name,
+    t.last_seen_at as terminal_last_seen_at,
+    ar.id as job_run_id,
+    ar.production_order_id,
+    ar.job_number,
+    ar.item_code,
+    ar.item_name,
+    ar.status as job_status,
+    ar.operator_name,
+    ar.planned_quantity,
+    ar.good_quantity,
+    ar.scrap_quantity,
+    ar.started_at,
+    case when le.event_type = 'downtime_start' then le.downtime_reason_name else null end as current_downtime_reason,
+    le.happened_at as latest_event_at
+  from public.mes_workstations ws
+  left join lateral (
+    select mm.id, mm.code, mm.name, mm.machine_state, mm.last_heartbeat_at
+    from public.mes_machines mm
+    where mm.workstation_id = ws.id
+      and mm.is_active = true
+    order by mm.created_at asc
+    limit 1
+  ) m on true
+  left join lateral (
+    select tt.id, tt.terminal_code, tt.name, tt.last_seen_at
+    from public.mes_hmi_terminals tt
+    where tt.workstation_id = ws.id
+      and tt.is_active = true
+    order by tt.last_seen_at desc nulls last, tt.created_at asc
+    limit 1
+  ) t on true
+  left join lateral (
+    select
+      jr.id,
+      jr.company_id,
+      jr.production_order_id,
+      jr.workstation_id,
+      jr.machine_id,
+      jr.terminal_id,
+      jr.job_number,
+      jr.item_code,
+      jr.item_name,
+      jr.status,
+      jr.operator_name,
+      jr.planned_quantity,
+      jr.good_quantity,
+      jr.scrap_quantity,
+      jr.started_at,
+      jr.created_at
+    from public.mes_job_runs jr
+    where jr.company_id = v_company_id
+      and jr.workstation_id = ws.id
+      and jr.status in ('queued', 'running', 'paused')
+      and (
+        t.id is null
+        or jr.terminal_id = t.id
+        or jr.terminal_id is null
+      )
+    order by
+      case when t.id is not null and jr.terminal_id = t.id then 0 else 1 end,
+      case jr.status when 'running' then 0 when 'paused' then 1 else 2 end,
+      coalesce(jr.started_at, jr.created_at) desc
+    limit 1
+  ) ar on true
+  left join last_events le
+    on le.job_run_id = ar.id
+  where ws.company_id = v_company_id
+  order by ws.sort_order asc, ws.name asc;
+end;
+$$;
+
+grant execute on function public.mes_factory_overview(uuid) to authenticated;

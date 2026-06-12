@@ -577,7 +577,7 @@ declare
   v_suffix text;
 begin
   v_code := upper(btrim(coalesce(new.terminal_code, '')));
-  v_suffix := regexp_replace(v_code, '^(P4-|UID-)', '');
+  v_suffix := regexp_replace(v_code, '^(P40-|P4-|UID-)', '');
 
   if v_suffix ~ '^[0-9A-F]{12}$' then
     new.terminal_code := 'P4-' || v_suffix;
@@ -1852,7 +1852,7 @@ as $$
   with input_uid as (
     select
       upper(btrim(p_device_uid)) as raw_uid,
-      regexp_replace(upper(btrim(p_device_uid)), '^(P4-|UID-)', '') as normalized_uid
+      regexp_replace(upper(btrim(p_device_uid)), '^(P40-|P4-|UID-)', '') as normalized_uid
   )
   select
     t.id as terminal_id,
@@ -1871,7 +1871,7 @@ as $$
   where t.is_active is true
     and (
       upper(btrim(t.terminal_code)) = i.raw_uid
-      or regexp_replace(upper(btrim(t.terminal_code)), '^(P4-|UID-)', '') = i.normalized_uid
+      or regexp_replace(upper(btrim(t.terminal_code)), '^(P40-|P4-|UID-)', '') = i.normalized_uid
     )
   order by
     case when upper(btrim(t.terminal_code)) = i.raw_uid then 0 else 1 end,

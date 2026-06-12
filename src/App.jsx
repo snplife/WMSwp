@@ -17048,33 +17048,42 @@ function App() {
     }
 
     const XLSX = await import("xlsx");
-    const exportRows = selectedMesMachineEvents
-      .filter((event) => getMesEventDurationMs(event) / 1000 <= 1000)
-      .map((event) => {
-        const eventAt = String(event.happened_at || event.created_at || "").trim();
-        const parsedEventAt = new Date(eventAt || 0);
-        const isValidEventAt = Number.isFinite(parsedEventAt.getTime());
-        return {
-      Datum: isValidEventAt ? parsedEventAt.toLocaleDateString("sk-SK") : "",
-      Cas: isValidEventAt ? parsedEventAt.toLocaleTimeString("sk-SK") : "",
-      Timestamp_ISO: eventAt || "",
-      Udalost: formatMesEventLabel(event.event_type),
-      Detail:
-        mesDowntimeReasonNameById[event.downtime_reason_id] ||
-        event.payload?.reason ||
-        event.note ||
-        event.payload?.note ||
-        JSON.stringify(event.payload || {}),
-      Mnozstvo: event.quantity ? Number(event.quantity) : "",
-      Doba_s: getMesEventDurationMs(event) / 1000,
-      Operator: event.operator_name || "",
-      Terminal: mesTerminalsById[event.terminal_id]?.name || mesTerminalsById[event.terminal_id]?.terminal_code || "",
-      Zdroj: event.source || ""
-    };
-      });
+    const exportRows = selectedMesMachineEvents.map((event) => {
+      const eventAt = String(event.happened_at || event.created_at || "").trim();
+      const parsedEventAt = new Date(eventAt || 0);
+      const isValidEventAt = Number.isFinite(parsedEventAt.getTime());
+      const durationSeconds = getMesEventDurationMs(event) / 1000;
+      return {
+        Datum: isValidEventAt ? parsedEventAt.toLocaleDateString("sk-SK") : "",
+        Cas: isValidEventAt ? parsedEventAt.toLocaleTimeString("sk-SK") : "",
+        Udalost: formatMesEventLabel(event.event_type),
+        Detail:
+          mesDowntimeReasonNameById[event.downtime_reason_id] ||
+          event.payload?.reason ||
+          event.note ||
+          event.payload?.note ||
+          "",
+        Mnozstvo: event.quantity ? Number(event.quantity) : "",
+        "Doba s": durationSeconds > 0 ? Number(durationSeconds.toFixed(1)) : "",
+        Operator: event.operator_name || event.operator_id || event.operator_user_id || "",
+        Terminal: mesTerminalsById[event.terminal_id]?.name || mesTerminalsById[event.terminal_id]?.terminal_code || "",
+        Zdroj: event.source || ""
+      };
+    });
 
     const workbook = XLSX.utils.book_new();
     const worksheet = XLSX.utils.json_to_sheet(exportRows);
+    worksheet["!cols"] = [
+      { wch: 12 },
+      { wch: 10 },
+      { wch: 24 },
+      { wch: 32 },
+      { wch: 10 },
+      { wch: 10 },
+      { wch: 20 },
+      { wch: 20 },
+      { wch: 14 }
+    ];
     XLSX.utils.book_append_sheet(workbook, worksheet, "MES udalosti");
 
     const machineSlug = String(selectedMesMachineOverview.machineName || selectedMesMachineOverview.machineCode || "stroj")
@@ -17090,25 +17099,33 @@ function App() {
     const workbook = XLSX.utils.book_new();
     const generatedAt = new Date().toISOString();
     const dateStamp = generatedAt.slice(0, 10);
+    const appendSheet = (sheetName, rows, columnWidths = []) => {
+      const worksheet = XLSX.utils.json_to_sheet(rows.length > 0 ? rows : [{}], {
+        skipHeader: rows.length === 0
+      });
+      worksheet["!cols"] = columnWidths.map((width) => ({ wch: width }));
+      XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+    };
 
     const overviewRows = [
       {
-        Vygenerovane: formatDate(generatedAt),
+        Vygenerovane: new Date(generatedAt).toLocaleString("sk-SK"),
+        Firma: currentCompanyLabel || "",
         Obdobie: mesOeeSummary.rangeLabel || "",
-        OEE_pct: Number(mesOeeSummary.oeePct || 0),
-        Dostupnost_pct: Number(mesOeeSummary.availabilityPct || 0),
-        Vykon_pct: Number(mesOeeSummary.performancePct || 0),
-        Kvalita_pct: Number(mesOeeSummary.qualityPct || 0),
-        Odstavenie_min: Number(mesOeeSummary.shiftDowntimeMinutes || 0),
-        Stroje_spolu: Number(machineDashboardRows.length || 0),
-        Stroje_v_prevadzke: Number(mesGlobalKpis.running || 0),
-        Stroje_stop_alarm: Number((mesGlobalKpis.stopped || 0) + (mesGlobalKpis.alarm || 0)),
-        Aktivne_zakazky: Number(mesGlobalKpis.activeOrders || 0),
-        OK_kusy: Number(mesGlobalKpis.goodParts || 0),
-        NOK_kusy: Number(mesGlobalKpis.scrapParts || 0)
+        "OEE %": Number(Number(mesOeeSummary.oeePct || 0).toFixed(1)),
+        "Dostupnost %": Number(Number(mesOeeSummary.availabilityPct || 0).toFixed(1)),
+        "Vykon %": Number(Number(mesOeeSummary.performancePct || 0).toFixed(1)),
+        "Kvalita %": Number(Number(mesOeeSummary.qualityPct || 0).toFixed(1)),
+        "Prestoj min": Number(Number(mesOeeSummary.shiftDowntimeMinutes || 0).toFixed(1)),
+        "Stroje spolu": Number(machineDashboardRows.length || 0),
+        "Stroje v prevadzke": Number(mesGlobalKpis.running || 0),
+        "Stop / alarm": Number((mesGlobalKpis.stopped || 0) + (mesGlobalKpis.alarm || 0)),
+        "Aktivne zakazky": Number(mesGlobalKpis.activeOrders || 0),
+        "OK kusy": Number(mesGlobalKpis.goodParts || 0),
+        "NOK kusy": Number(mesGlobalKpis.scrapParts || 0)
       }
     ];
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(overviewRows), "MES prehlad");
+    appendSheet("Prehlad", overviewRows, [20, 24, 18, 10, 14, 10, 10, 12, 12, 18, 14, 14, 10, 10]);
 
     const machineRows = machineDashboardRows.map((row) => ({
       Stroj: row.machineName || row.machineCode || row.machineId || "-",
@@ -17116,15 +17133,15 @@ function App() {
       Stav: row.statusMeta?.label || row.machineStatus || "-",
       Zakazka: row.currentWorkOrder || "-",
       Operator: row.operatorName || "-",
-      Skutocny_cyklus_s: Number(row.actualCycleSeconds || 0),
-      Cielovy_cyklus_s: Number(row.targetCycleSeconds || 0),
-      Vyrobene_kusy: Number(row.producedParts || 0),
-      OK_kusy: Number(row.goodParts || 0),
-      NOK_kusy: Number(row.scrapParts || 0),
-      Srot_pct: Number(row.scrapRate || 0),
-      Aktualny_prestoj: row.currentDowntimeReason || ""
+      "Vyrobene kusy": Number(row.producedParts || 0),
+      "OK kusy": Number(row.goodParts || 0),
+      "NOK kusy": Number(row.scrapParts || 0),
+      "Srot %": Number(Number(row.scrapRate || 0).toFixed(1)),
+      "Skutocny cyklus s": row.actualCycleSeconds ? Number(Number(row.actualCycleSeconds).toFixed(1)) : "",
+      "Cielovy cyklus s": row.targetCycleSeconds ? Number(Number(row.targetCycleSeconds).toFixed(1)) : "",
+      "Aktualny prestoj": row.currentDowntimeReason || ""
     }));
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(machineRows), "Stroje");
+    appendSheet("Stroje", machineRows, [24, 24, 16, 18, 20, 14, 10, 10, 10, 16, 16, 28]);
 
     const productionRows = mesProductionOrderRows.map((row) => ({
       Zakazka: row.job_number || "-",
@@ -17132,51 +17149,53 @@ function App() {
       Stroj: row.machineLabel || "-",
       Pracovisko: row.workstationLabel || "-",
       Stav: row.status || "-",
-      Plan_kusy: Number(row.planned_quantity || 0),
-      Vyrobene_kusy: Number(row.totalProduced || 0),
-      Dokoncenie_pct: Number(row.completionPct || 0),
-      Odhad_dokoncenia: row.estimatedFinishAt ? formatDate(row.estimatedFinishAt) : ""
+      "Plan kusy": Number(row.planned_quantity || 0),
+      "Vyrobene kusy": Number(row.totalProduced || 0),
+      "Dokoncenie %": Number(Number(row.completionPct || 0).toFixed(1)),
+      "Odhad dokoncenia": row.estimatedFinishAt ? formatDate(row.estimatedFinishAt) : ""
     }));
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(productionRows), "Zakazky");
+    appendSheet("Zakazky", productionRows, [18, 28, 22, 22, 14, 12, 14, 14, 18]);
 
     const downtimeReasonRows = (mesAnalytics.downtimeReasons || []).map((row) => ({
       Dovod: row.reason || "Nezadany",
       Pocet: Number(row.count || 0),
       Naposledy: row.latestAt ? formatDate(row.latestAt) : ""
     }));
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(downtimeReasonRows), "Dovody prestojov");
+    appendSheet("Prestoje", downtimeReasonRows, [34, 10, 18]);
 
     const operatorDowntimeRows = (mesAnalytics.operatorDowntimeStats || []).map((row) => ({
       Operator: row.operatorName || "-",
-      Operator_ID: row.operatorUserId || "",
-      Pocet_prestojov: Number(row.downtimeEvents || 0),
-      Celkom_min: Number(row.totalDowntimeMs || 0) / 60000,
-      Priemer_min: Number(row.averageDowntimeMs || 0) / 60000,
-      Najdlhsi_min: Number(row.longestDowntimeMs || 0) / 60000,
+      "Pocet prestojov": Number(row.downtimeEvents || 0),
+      "Celkom min": Number((Number(row.totalDowntimeMs || 0) / 60000).toFixed(1)),
+      "Priemer min": Number((Number(row.averageDowntimeMs || 0) / 60000).toFixed(1)),
+      "Najdlhsi min": Number((Number(row.longestDowntimeMs || 0) / 60000).toFixed(1)),
       Naposledy: row.latestAt ? formatDate(row.latestAt) : ""
     }));
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(operatorDowntimeRows), "Prestoje operatorov");
+    appendSheet("Operatori", operatorDowntimeRows, [24, 16, 12, 12, 12, 18]);
 
-    const selectedMachineEventRows = (selectedMesMachineEvents || [])
-      .filter((event) => getMesEventDurationMs(event) / 1000 <= 1000)
-      .map((event) => {
+    const selectedMachineEventRows = (selectedMesMachineEvents || []).slice(0, 500).map((event) => {
       const eventAt = String(event.happened_at || event.created_at || "").trim();
       const parsedEventAt = new Date(eventAt || 0);
       const isValidEventAt = Number.isFinite(parsedEventAt.getTime());
+      const durationSeconds = getMesEventDurationMs(event) / 1000;
       return {
-      Datum: isValidEventAt ? parsedEventAt.toLocaleDateString("sk-SK") : "",
-      Cas: isValidEventAt ? parsedEventAt.toLocaleTimeString("sk-SK") : "",
-      Timestamp_ISO: eventAt || "",
-      Udalost: formatMesEventLabel(event.event_type),
-      Event_kod: String(event.event_code || event.event_type || ""),
-      Doba_s: getMesEventDurationMs(event) / 1000,
-      Dovod: event.downtime_reason_name || event.downtime_reason_code || event.note || "",
-      Operator: event.operator_name || event.operator_id || event.operator_user_id || "",
-      Terminal: mesTerminalsById[event.terminal_id]?.name || mesTerminalsById[event.terminal_id]?.terminal_code || "",
-      Job: event.job_number || ""
-    };
-      });
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(selectedMachineEventRows), "Vybrany stroj eventy");
+        Datum: isValidEventAt ? parsedEventAt.toLocaleDateString("sk-SK") : "",
+        Cas: isValidEventAt ? parsedEventAt.toLocaleTimeString("sk-SK") : "",
+        Udalost: formatMesEventLabel(event.event_type),
+        Detail:
+          mesDowntimeReasonNameById[event.downtime_reason_id] ||
+          event.downtime_reason_name ||
+          event.payload?.reason ||
+          event.note ||
+          event.payload?.note ||
+          "",
+        Mnozstvo: event.quantity ? Number(event.quantity) : "",
+        "Doba s": durationSeconds > 0 ? Number(durationSeconds.toFixed(1)) : "",
+        Operator: event.operator_name || event.operator_id || event.operator_user_id || "",
+        Terminal: mesTerminalsById[event.terminal_id]?.name || mesTerminalsById[event.terminal_id]?.terminal_code || ""
+      };
+    });
+    appendSheet("Eventy stroja", selectedMachineEventRows, [12, 10, 24, 32, 10, 10, 20, 20]);
 
     const companySlug = String(currentCompanyLabel || "firma")
       .trim()
@@ -19649,6 +19668,23 @@ function App() {
           <div className="hero-badges">
             <span className="table-badge">{getMesViewRoleLabel(mesViewRole)}</span>
             {mesLoading && <span className="table-badge">načítavam dáta</span>}
+            <button
+              type="button"
+              className="export-btn mes-refresh-button"
+              onClick={handleExportMesDashboardExcel}
+              disabled={mesLoading || sortedMachineTiles.length === 0}
+            >
+              Export XLSX
+            </button>
+            <button
+              type="button"
+              className="settings-btn mes-refresh-button"
+              onClick={loadMesModuleData}
+              disabled={mesLoading}
+            >
+              <RotateCcw size={15} aria-hidden="true" />
+              {mesLoading ? "Obnovujem" : "Obnoviť dáta"}
+            </button>
           </div>
         </div>
         {!activeCompanyId && isMaster ? (

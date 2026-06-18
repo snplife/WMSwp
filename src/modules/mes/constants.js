@@ -11,8 +11,20 @@ export function formatMesDateInputValue(value = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
-export const MES_BASE_LOOKBACK_DAYS = Math.max(1, Number(import.meta.env.VITE_MES_BASE_LOOKBACK_DAYS || 2));
-export const MES_ANALYTICS_LOOKBACK_DAYS = Math.max(MES_BASE_LOOKBACK_DAYS, Number(import.meta.env.VITE_MES_LOOKBACK_DAYS || 30));
+const parseMesPositiveNumber = (value, fallback) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+export const MES_MINIMUM_LOOKBACK_DAYS = 7;
+export const MES_BASE_LOOKBACK_DAYS = Math.max(
+  MES_MINIMUM_LOOKBACK_DAYS,
+  parseMesPositiveNumber(import.meta.env.VITE_MES_BASE_LOOKBACK_DAYS, MES_MINIMUM_LOOKBACK_DAYS)
+);
+export const MES_ANALYTICS_LOOKBACK_DAYS = Math.max(
+  MES_BASE_LOOKBACK_DAYS,
+  parseMesPositiveNumber(import.meta.env.VITE_MES_LOOKBACK_DAYS, 30)
+);
 export const MES_THROUGHPUT_RANGE_OPTIONS = [
   { key: "last_30_minutes", label: "30 min" },
   { key: "last_8_hours", label: "8 hodín" },

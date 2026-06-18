@@ -9976,10 +9976,10 @@ function App() {
 
     try {
       const MES_QUERY_PAGE_SIZE = 500;
-      const configuredMesHistoryMaxRows = Number.parseInt(String(import.meta.env.VITE_MES_HISTORY_MAX_ROWS || "3000"), 10);
+      const configuredMesHistoryMaxRows = Number.parseInt(String(import.meta.env.VITE_MES_HISTORY_MAX_ROWS || "10000"), 10);
       const MES_HISTORY_MAX_ROWS = Number.isFinite(configuredMesHistoryMaxRows)
-        ? Math.min(10000, Math.max(250, configuredMesHistoryMaxRows))
-        : 3000;
+        ? Math.min(50000, Math.max(10000, configuredMesHistoryMaxRows))
+        : 10000;
       const MES_DETAILED_EVENT_JOB_RUN_LIMIT = 500;
       const nowTs = Date.now();
       const throughputWindow = getMesThroughputRangeWindow(

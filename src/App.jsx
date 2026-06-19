@@ -4929,6 +4929,11 @@ function App() {
   const [authError, setAuthError] = useState("");
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [signOutSubmitting, setSignOutSubmitting] = useState(false);
+  const [passwordCurrentInput, setPasswordCurrentInput] = useState("");
+  const [passwordNewInput, setPasswordNewInput] = useState("");
+  const [passwordConfirmInput, setPasswordConfirmInput] = useState("");
+  const [passwordChangeSubmitting, setPasswordChangeSubmitting] = useState(false);
+  const [passwordChangeMessage, setPasswordChangeMessage] = useState("");
   const [managedUsers, setManagedUsers] = useState([]);
   const [managedUsersLoading, setManagedUsersLoading] = useState(false);
   const [managedUsersError, setManagedUsersError] = useState("");
@@ -18072,12 +18077,82 @@ function App() {
     setAuthSubmitting(false);
   };
 
+  const handleChangePassword = async (event) => {
+    event.preventDefault();
+    setPasswordChangeMessage("");
+
+    const currentPassword = String(passwordCurrentInput || "");
+    const nextPassword = String(passwordNewInput || "");
+    const confirmPassword = String(passwordConfirmInput || "");
+    const email = String(authUser?.email || "").trim().toLowerCase();
+
+    if (!email) {
+      setPasswordChangeMessage("Aktuálna relácia nemá email používateľa. Odhlás sa a prihlás znova.");
+      return;
+    }
+
+    if (!currentPassword) {
+      setPasswordChangeMessage("Zadaj aktuálne heslo.");
+      return;
+    }
+
+    if (nextPassword.length < MIN_MANAGED_PASSWORD_LENGTH) {
+      setPasswordChangeMessage(`Nové heslo musí mať aspoň ${MIN_MANAGED_PASSWORD_LENGTH} znakov.`);
+      return;
+    }
+
+    if (nextPassword !== confirmPassword) {
+      setPasswordChangeMessage("Nové heslo a potvrdenie sa nezhodujú.");
+      return;
+    }
+
+    if (currentPassword === nextPassword) {
+      setPasswordChangeMessage("Nové heslo musí byť iné ako aktuálne.");
+      return;
+    }
+
+    setPasswordChangeSubmitting(true);
+    try {
+      const { error: verifyError } = await supabase.auth.signInWithPassword({
+        email,
+        password: currentPassword
+      });
+
+      if (verifyError) {
+        setPasswordChangeMessage("Aktuálne heslo nie je správne.");
+        return;
+      }
+
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: nextPassword
+      });
+
+      if (updateError) {
+        setPasswordChangeMessage(updateError.message || "Heslo sa nepodarilo zmeniť.");
+        return;
+      }
+
+      setPasswordCurrentInput("");
+      setPasswordNewInput("");
+      setPasswordConfirmInput("");
+      setPasswordChangeMessage("Heslo bolo zmenené.");
+    } catch (passwordError) {
+      setPasswordChangeMessage(passwordError?.message || "Heslo sa nepodarilo zmeniť.");
+    } finally {
+      setPasswordChangeSubmitting(false);
+    }
+  };
+
   const handleSignOut = async () => {
     setSignOutSubmitting(true);
     setAuthError("");
     // Optimistic local logout so UI never gets stuck on a broken auth callback/network.
     setIsLoggedIn(false);
     setAuthUser(null);
+    setPasswordCurrentInput("");
+    setPasswordNewInput("");
+    setPasswordConfirmInput("");
+    setPasswordChangeMessage("");
     setUserRole("user");
     setUserCompanyId(null);
     setCanManageOrders(false);
@@ -20689,6 +20764,55 @@ function App() {
                 </div>
               </article>
             </section>
+
+          <form className="workflow-form-section company-settings-section-card" onSubmit={handleChangePassword}>
+            <div className="company-settings-section-head">
+              <div>
+                <span className="company-settings-section-kicker">Môj účet</span>
+                <h3>Zmena hesla</h3>
+              </div>
+            </div>
+            <div className="settings-grid">
+              <label className="settings-field">
+                <span>Aktuálne heslo</span>
+                <input
+                  type="password"
+                  className="search-input"
+                  value={passwordCurrentInput}
+                  onChange={(event) => setPasswordCurrentInput(event.target.value)}
+                  autoComplete="current-password"
+                />
+              </label>
+              <label className="settings-field">
+                <span>Nové heslo</span>
+                <input
+                  type="password"
+                  className="search-input"
+                  value={passwordNewInput}
+                  onChange={(event) => setPasswordNewInput(event.target.value)}
+                  autoComplete="new-password"
+                  minLength={MIN_MANAGED_PASSWORD_LENGTH}
+                />
+              </label>
+              <label className="settings-field">
+                <span>Potvrdiť nové heslo</span>
+                <input
+                  type="password"
+                  className="search-input"
+                  value={passwordConfirmInput}
+                  onChange={(event) => setPasswordConfirmInput(event.target.value)}
+                  autoComplete="new-password"
+                  minLength={MIN_MANAGED_PASSWORD_LENGTH}
+                />
+              </label>
+            </div>
+            <div className="company-settings-submit-row">
+              <button type="submit" className="settings-btn" disabled={passwordChangeSubmitting}>
+                {passwordChangeSubmitting ? "Mením heslo..." : "Zmeniť heslo"}
+              </button>
+            </div>
+            {passwordChangeMessage && <p className="settings-hint">{passwordChangeMessage}</p>}
+          </form>
 
           {(isCompanyAdmin || isMaster) && (
             <div className="company-admin-setup-grid">

@@ -5,7 +5,6 @@ import { Activity, ArrowDownLeft, ArrowRight, ArrowRightLeft, ArrowUpRight, BarC
 import { installHotjar, uninstallHotjar } from "./hotjar";
 import StatusPill from "./components/StatusPill";
 import {
-  MES_ANALYTICS_LOOKBACK_DAYS,
   MES_BASE_LOOKBACK_DAYS,
   MES_MAX_CONTINUOUS_RUN_MS,
   MES_FACTORY_TERMINAL_GRID_COLS,
@@ -32,7 +31,6 @@ import {
   getMesEventOperatorLabel,
   getMesEventQuantity,
   getMesEventScopeKeys,
-  getMesInclusiveLookbackDays,
   getMesOeeRangeWindow,
   getMesShiftWindow,
   getMesStateTransitionFromEvent,
@@ -9981,7 +9979,10 @@ function App() {
         ? Math.min(50000, Math.max(10000, configuredMesHistoryMaxRows))
         : 10000;
       const MES_DETAILED_EVENT_JOB_RUN_LIMIT = 500;
+      const MES_INITIAL_LOOKBACK_MS = 8 * 60 * 60 * 1000;
+      const MES_BACKGROUND_CHUNK_MS = 24 * 60 * 60 * 1000;
       const nowTs = Date.now();
+      const baseMesLookbackStartAt = new Date(nowTs - MES_BASE_LOOKBACK_DAYS * DAY_MS);
       const throughputWindow = getMesThroughputRangeWindow(
         mesThroughputRangeKey,
         mesThroughputCustomStartDate,
@@ -9991,16 +9992,83 @@ function App() {
       );
       const oeeWindow = getMesOeeRangeWindow(mesOeeRangeKey, nowTs);
       const hourlyDowntimeWindow = getMesDailyShiftWindow(mesHourlyDowntimeShiftKey, nowTs, mesHourlyDowntimeDayOffset, nowTs);
-      const requiredMesLookbackDays = Math.min(
-        MES_ANALYTICS_LOOKBACK_DAYS,
-        Math.max(
-          MES_BASE_LOOKBACK_DAYS,
-          getMesInclusiveLookbackDays(throughputWindow.startAt, nowTs),
-          getMesInclusiveLookbackDays(oeeWindow.startAt, nowTs),
-          getMesInclusiveLookbackDays(hourlyDowntimeWindow.startAt, nowTs)
-        )
+      const selectedMachinePartsWindow = getMesThroughputRangeWindow(mesSelectedMachinePartsRangeKey, "", "", "", nowTs);
+      const selectedMachineJobsWindow = getMesThroughputRangeWindow(mesSelectedMachineJobsRangeKey, "", "", "", nowTs);
+      const selectedMachineAvailabilityWindow = getMesThroughputRangeWindow(mesSelectedMachineAvailabilityRangeKey, "", "", "", nowTs);
+      const selectedMachineProductionWindow = getMesThroughputRangeWindow(mesSelectedMachineProductionRangeKey, "", "", "", nowTs);
+      const selectedMachineHourlyDate = mesSelectedMachineHourlyDate ? new Date(`${mesSelectedMachineHourlyDate}T00:00:00`) : new Date(nowTs);
+      const selectedMachineHourlyWindow = getMesDailyShiftWindow(
+        mesSelectedMachineHourlyShift === "afternoon" ? "shift_14_22" : "shift_06_14",
+        Number.isNaN(selectedMachineHourlyDate.getTime()) ? nowTs : selectedMachineHourlyDate.getTime(),
+        0,
+        nowTs
       );
-      const mesLookbackStartAt = new Date(nowTs - requiredMesLookbackDays * DAY_MS).toISOString();
+      const normalizeMesFetchInterval = (startValue, endValue = nowTs) => {
+        const startMs = new Date(startValue || 0).getTime();
+        const endMs = new Date(endValue || nowTs).getTime();
+        if (!Number.isFinite(startMs) || startMs <= 0) {
+          return null;
+        }
+        return {
+          startMs,
+          endMs: Number.isFinite(endMs) && endMs >= startMs ? endMs : startMs
+        };
+      };
+      const mergeMesFetchIntervals = (intervals) => {
+        const sortedIntervals = intervals
+          .filter(Boolean)
+          .sort((a, b) => a.startMs - b.startMs);
+        return sortedIntervals.reduce((merged, interval) => {
+          const previous = merged[merged.length - 1];
+          if (previous && interval.startMs <= previous.endMs) {
+            previous.endMs = Math.max(previous.endMs, interval.endMs);
+            return merged;
+          }
+          merged.push({ ...interval });
+          return merged;
+        }, []);
+      };
+      const splitMesFetchInterval = (interval, chunkMs = MES_BACKGROUND_CHUNK_MS) => {
+        const chunks = [];
+        let endMs = interval.endMs;
+        while (endMs > interval.startMs) {
+          const startMs = Math.max(interval.startMs, endMs - chunkMs);
+          chunks.push({ startMs, endMs });
+          endMs = startMs;
+        }
+        return chunks;
+      };
+      const dedupeMesFetchIntervals = (intervals) => {
+        const seen = new Set();
+        return intervals.filter((interval) => {
+          const key = `${interval.startMs}:${interval.endMs}`;
+          if (seen.has(key)) {
+            return false;
+          }
+          seen.add(key);
+          return true;
+        });
+      };
+      const fullMesFetchIntervals = mergeMesFetchIntervals([
+        normalizeMesFetchInterval(baseMesLookbackStartAt, nowTs),
+        normalizeMesFetchInterval(throughputWindow.startAt, throughputWindow.endAt),
+        normalizeMesFetchInterval(oeeWindow.startAt, oeeWindow.endAt),
+        normalizeMesFetchInterval(hourlyDowntimeWindow.startAt, hourlyDowntimeWindow.endAt),
+        normalizeMesFetchInterval(selectedMachinePartsWindow.startAt, selectedMachinePartsWindow.endAt),
+        normalizeMesFetchInterval(selectedMachineJobsWindow.startAt, selectedMachineJobsWindow.endAt),
+        normalizeMesFetchInterval(selectedMachineAvailabilityWindow.startAt, selectedMachineAvailabilityWindow.endAt),
+        normalizeMesFetchInterval(selectedMachineProductionWindow.startAt, selectedMachineProductionWindow.endAt),
+        normalizeMesFetchInterval(selectedMachineHourlyWindow.startAt, selectedMachineHourlyWindow.endAt)
+      ]);
+      const initialMesFetchInterval = normalizeMesFetchInterval(Math.max(baseMesLookbackStartAt.getTime(), nowTs - MES_INITIAL_LOOKBACK_MS), nowTs);
+      const mesFetchIntervals = dedupeMesFetchIntervals([
+        initialMesFetchInterval,
+        ...fullMesFetchIntervals
+          .flatMap((interval) => splitMesFetchInterval(interval))
+          .sort((a, b) => b.endMs - a.endMs || b.startMs - a.startMs)
+      ].filter(Boolean));
+      const initialMesFetchIntervals = mesFetchIntervals.slice(0, 1);
+      const backgroundMesFetchIntervals = mesFetchIntervals.slice(1);
       const fetchAllMesProductionOrders = async () => {
         const rows = [];
         let from = 0;
@@ -10038,80 +10106,88 @@ function App() {
 
         return rows;
       };
-      const fetchAllMesJobRuns = async () => {
-        const rows = [];
-        let from = 0;
+      const fetchAllMesJobRuns = async (intervals = mesFetchIntervals) => {
+        const rowsById = new Map();
 
-        while (true) {
-          const scopedQuery = scopedCompanyId
-            ? supabase
-                .from("mes_job_runs")
-                .select("id,company_id,production_order_id,workstation_id,machine_id,terminal_id,operator_user_id,job_number,item_code,item_name,operator_name,status,planned_quantity,good_quantity,scrap_quantity,started_at,ended_at,created_at,updated_at,note")
-                .eq("company_id", scopedCompanyId)
-            : supabase
-                .from("mes_job_runs")
-                .select("id,company_id,production_order_id,workstation_id,machine_id,terminal_id,operator_user_id,job_number,item_code,item_name,operator_name,status,planned_quantity,good_quantity,scrap_quantity,started_at,ended_at,created_at,updated_at,note");
-          const rangeTo = Math.min(from + MES_QUERY_PAGE_SIZE - 1, MES_HISTORY_MAX_ROWS - 1);
-          const { data: pageData, error: pageError } = await scopedQuery
-            .gte("created_at", mesLookbackStartAt)
-            .order("created_at", { ascending: false })
-            .range(from, rangeTo);
+        for (const interval of intervals) {
+          let from = 0;
 
-          if (pageError) {
-            if (isRequestedRangeNotSatisfiableError(pageError)) {
+          while (true) {
+            const scopedQuery = scopedCompanyId
+              ? supabase
+                  .from("mes_job_runs")
+                  .select("id,company_id,production_order_id,workstation_id,machine_id,terminal_id,operator_user_id,job_number,item_code,item_name,operator_name,status,planned_quantity,good_quantity,scrap_quantity,started_at,ended_at,created_at,updated_at,note")
+                  .eq("company_id", scopedCompanyId)
+              : supabase
+                  .from("mes_job_runs")
+                  .select("id,company_id,production_order_id,workstation_id,machine_id,terminal_id,operator_user_id,job_number,item_code,item_name,operator_name,status,planned_quantity,good_quantity,scrap_quantity,started_at,ended_at,created_at,updated_at,note");
+            const rangeTo = Math.min(from + MES_QUERY_PAGE_SIZE - 1, MES_HISTORY_MAX_ROWS - 1);
+            const { data: pageData, error: pageError } = await scopedQuery
+              .gte("created_at", new Date(interval.startMs).toISOString())
+              .lte("created_at", new Date(interval.endMs).toISOString())
+              .order("created_at", { ascending: false })
+              .range(from, rangeTo);
+
+            if (pageError) {
+              if (isRequestedRangeNotSatisfiableError(pageError)) {
+                break;
+              }
+              throw pageError;
+            }
+
+            (pageData || []).forEach((row) => rowsById.set(String(row.id || ""), row));
+            if (!pageData || pageData.length < MES_QUERY_PAGE_SIZE || from + pageData.length >= MES_HISTORY_MAX_ROWS) {
               break;
             }
-            throw pageError;
+            from += MES_QUERY_PAGE_SIZE;
           }
-
-          rows.push(...(pageData || []));
-          if (!pageData || pageData.length < MES_QUERY_PAGE_SIZE || rows.length >= MES_HISTORY_MAX_ROWS) {
-            break;
-          }
-          from += MES_QUERY_PAGE_SIZE;
         }
 
-        return rows;
+        return Array.from(rowsById.values()).sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
       };
-      const fetchAllMesEvents = async () => {
-        const rows = [];
-        let from = 0;
+      const fetchAllMesEvents = async (intervals = mesFetchIntervals) => {
+        const rowsById = new Map();
 
-        while (true) {
-          const scopedQuery = scopedCompanyId
-            ? supabase
-                .from("mes_event_log")
-                .select("id,company_id,terminal_id,workstation_id,job_run_id,terminal_event_id,event_code,job_number,duration_seconds,time_from,time_to,operator_id,downtime_reason_code,downtime_reason_name,payload,created_at")
-                .eq("company_id", scopedCompanyId)
-            : supabase
-                .from("mes_event_log")
-                .select("id,company_id,terminal_id,workstation_id,job_run_id,terminal_event_id,event_code,job_number,duration_seconds,time_from,time_to,operator_id,downtime_reason_code,downtime_reason_name,payload,created_at");
-          const rangeTo = Math.min(from + MES_QUERY_PAGE_SIZE - 1, MES_HISTORY_MAX_ROWS - 1);
-          const { data: pageData, error: pageError } = await scopedQuery
-            .gte("created_at", mesLookbackStartAt)
-            .order("created_at", { ascending: false })
-            .range(from, rangeTo);
+        for (const interval of intervals) {
+          let from = 0;
 
-          if (pageError) {
-            if (isRequestedRangeNotSatisfiableError(pageError)) {
+          while (true) {
+            const scopedQuery = scopedCompanyId
+              ? supabase
+                  .from("mes_event_log")
+                  .select("id,company_id,terminal_id,workstation_id,job_run_id,terminal_event_id,event_code,job_number,duration_seconds,time_from,time_to,operator_id,downtime_reason_code,downtime_reason_name,payload,created_at")
+                  .eq("company_id", scopedCompanyId)
+              : supabase
+                  .from("mes_event_log")
+                  .select("id,company_id,terminal_id,workstation_id,job_run_id,terminal_event_id,event_code,job_number,duration_seconds,time_from,time_to,operator_id,downtime_reason_code,downtime_reason_name,payload,created_at");
+            const rangeTo = Math.min(from + MES_QUERY_PAGE_SIZE - 1, MES_HISTORY_MAX_ROWS - 1);
+            const { data: pageData, error: pageError } = await scopedQuery
+              .gte("created_at", new Date(interval.startMs).toISOString())
+              .lte("created_at", new Date(interval.endMs).toISOString())
+              .order("created_at", { ascending: false })
+              .range(from, rangeTo);
+
+            if (pageError) {
+              if (isRequestedRangeNotSatisfiableError(pageError)) {
+                break;
+              }
+              if (isMissingMesEventLogTableError(pageError)) {
+                return [];
+              }
+              throw pageError;
+            }
+
+            (pageData || []).forEach((row) => rowsById.set(String(row.id || ""), row));
+            if (!pageData || pageData.length < MES_QUERY_PAGE_SIZE || from + pageData.length >= MES_HISTORY_MAX_ROWS) {
               break;
             }
-            if (isMissingMesEventLogTableError(pageError)) {
-              return [];
-            }
-            throw pageError;
+            from += MES_QUERY_PAGE_SIZE;
           }
-
-          rows.push(...(pageData || []));
-          if (!pageData || pageData.length < MES_QUERY_PAGE_SIZE || rows.length >= MES_HISTORY_MAX_ROWS) {
-            break;
-          }
-          from += MES_QUERY_PAGE_SIZE;
         }
 
-        return rows;
+        return Array.from(rowsById.values()).sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
       };
-      const fetchAllMesDetailedEvents = async (jobRunIds) => {
+      const fetchAllMesDetailedEvents = async (jobRunIds, intervals = mesFetchIntervals) => {
         const rows = [];
         const uniqueIds = Array.from(new Set((jobRunIds || []).filter(Boolean)));
         if (uniqueIds.length === 0) {
@@ -10120,30 +10196,38 @@ function App() {
           }
           let from = 0;
 
-          while (true) {
-            const rangeTo = Math.min(from + MES_QUERY_PAGE_SIZE - 1, MES_HISTORY_MAX_ROWS - 1);
-            const { data: pageData, error: pageError } = await supabase
-              .from("mes_job_run_events")
-              .select("id,job_run_id,workstation_id,machine_id,downtime_reason_id,event_type,quantity,source,note,payload,happened_at,created_at")
-              .gte("happened_at", mesLookbackStartAt)
-              .order("happened_at", { ascending: false })
-              .range(from, rangeTo);
+          for (const interval of intervals) {
+            from = 0;
 
-            if (pageError) {
-              if (isRequestedRangeNotSatisfiableError(pageError)) {
+            while (true) {
+              const rangeTo = Math.min(from + MES_QUERY_PAGE_SIZE - 1, MES_HISTORY_MAX_ROWS - 1);
+              const { data: pageData, error: pageError } = await supabase
+                .from("mes_job_run_events")
+                .select("id,job_run_id,workstation_id,machine_id,downtime_reason_id,event_type,quantity,source,note,payload,happened_at,created_at")
+                .gte("happened_at", new Date(interval.startMs).toISOString())
+                .lte("happened_at", new Date(interval.endMs).toISOString())
+                .order("happened_at", { ascending: false })
+                .range(from, rangeTo);
+
+              if (pageError) {
+                if (isRequestedRangeNotSatisfiableError(pageError)) {
+                  break;
+                }
+                if (isMissingMesJobRunEventsColumnError(pageError) || isMissingRelationError(pageError, "mes_job_run_events")) {
+                  return [];
+                }
+                throw pageError;
+              }
+
+              rows.push(...(pageData || []));
+              if (!pageData || pageData.length < MES_QUERY_PAGE_SIZE || rows.length >= MES_HISTORY_MAX_ROWS) {
                 break;
               }
-              if (isMissingMesJobRunEventsColumnError(pageError) || isMissingRelationError(pageError, "mes_job_run_events")) {
-                return [];
-              }
-              throw pageError;
+              from += MES_QUERY_PAGE_SIZE;
             }
-
-            rows.push(...(pageData || []));
-            if (!pageData || pageData.length < MES_QUERY_PAGE_SIZE || rows.length >= MES_HISTORY_MAX_ROWS) {
+            if (rows.length >= MES_HISTORY_MAX_ROWS) {
               break;
             }
-            from += MES_QUERY_PAGE_SIZE;
           }
 
           return rows;
@@ -10157,31 +10241,39 @@ function App() {
           const idChunk = limitedIds.slice(chunkStart, chunkStart + 100);
           let from = 0;
 
-          while (true) {
-            const rangeTo = Math.min(from + MES_QUERY_PAGE_SIZE - 1, MES_HISTORY_MAX_ROWS - rows.length - 1);
-            const { data: pageData, error: pageError } = await supabase
-              .from("mes_job_run_events")
-              .select("id,job_run_id,workstation_id,machine_id,downtime_reason_id,event_type,quantity,source,note,payload,happened_at,created_at")
-              .in("job_run_id", idChunk)
-              .gte("happened_at", mesLookbackStartAt)
-              .order("happened_at", { ascending: false })
-              .range(from, rangeTo);
+          for (const interval of intervals) {
+            from = 0;
 
-            if (pageError) {
-              if (isRequestedRangeNotSatisfiableError(pageError)) {
+            while (true) {
+              const rangeTo = Math.min(from + MES_QUERY_PAGE_SIZE - 1, MES_HISTORY_MAX_ROWS - rows.length - 1);
+              const { data: pageData, error: pageError } = await supabase
+                .from("mes_job_run_events")
+                .select("id,job_run_id,workstation_id,machine_id,downtime_reason_id,event_type,quantity,source,note,payload,happened_at,created_at")
+                .in("job_run_id", idChunk)
+                .gte("happened_at", new Date(interval.startMs).toISOString())
+                .lte("happened_at", new Date(interval.endMs).toISOString())
+                .order("happened_at", { ascending: false })
+                .range(from, rangeTo);
+
+              if (pageError) {
+                if (isRequestedRangeNotSatisfiableError(pageError)) {
+                  break;
+                }
+                if (isMissingMesJobRunEventsColumnError(pageError) || isMissingRelationError(pageError, "mes_job_run_events")) {
+                  return [];
+                }
+                throw pageError;
+              }
+
+              rows.push(...(pageData || []));
+              if (!pageData || pageData.length < MES_QUERY_PAGE_SIZE || rows.length >= MES_HISTORY_MAX_ROWS) {
                 break;
               }
-              if (isMissingMesJobRunEventsColumnError(pageError) || isMissingRelationError(pageError, "mes_job_run_events")) {
-                return [];
-              }
-              throw pageError;
+              from += MES_QUERY_PAGE_SIZE;
             }
-
-            rows.push(...(pageData || []));
-            if (!pageData || pageData.length < MES_QUERY_PAGE_SIZE || rows.length >= MES_HISTORY_MAX_ROWS) {
+            if (rows.length >= MES_HISTORY_MAX_ROWS) {
               break;
             }
-            from += MES_QUERY_PAGE_SIZE;
           }
         }
 
@@ -10215,8 +10307,8 @@ function App() {
             })
           : Promise.resolve({ data: [], error: null }),
         fetchAllMesProductionOrders(),
-        fetchAllMesJobRuns(),
-        fetchAllMesEvents(),
+        fetchAllMesJobRuns(initialMesFetchIntervals),
+        fetchAllMesEvents(initialMesFetchIntervals),
         downtimeReasonsQuery,
         workstationsQuery,
         terminalsQuery
@@ -10281,136 +10373,141 @@ function App() {
         machineData = fetchedMachines || [];
       }
 
-      const jobRunsById = Object.fromEntries((jobRunsData || []).map((row) => [String(row.id || ""), row]));
       const terminalsById = Object.fromEntries((terminalData || []).map((row) => [String(row.id || ""), normalizeMesTerminalRow(row)]));
       const getEventTerminalCode = (terminalId) => String(terminalsById[String(terminalId || "")]?.terminal_code || "").trim().toUpperCase();
       const downtimeReasonById = Object.fromEntries((downtimeReasonsData || []).map((row) => [String(row.id || ""), row]));
-      const compactEventRows = (eventData || []).map((row) => {
-        const run = jobRunsById[String(row.job_run_id || "")] || null;
-        const payload = row.payload && typeof row.payload === "object" ? row.payload : {};
-        const eventType = normalizeMesCompactEventCode(row.event_code || row.event_type, payload);
-        const terminalId = String(row.terminal_id || run?.terminal_id || "");
-        return {
-          id: row.id,
-          company_id: String(row.company_id || ""),
-          terminal_id: terminalId,
-          terminal_code: getEventTerminalCode(terminalId),
-          workstation_id: String(row.workstation_id || run?.workstation_id || ""),
-          machine_id: String(run?.machine_id || ""),
-          job_run_id: String(row.job_run_id || ""),
-          operator_user_id: String(run?.operator_user_id || row.operator_id || ""),
-          operator_name: String(run?.operator_name || payload.operator_name || payload.operator_name_text || row.operator_id || ""),
-          event_type: eventType,
-          quantity: getMesPayloadQuantity(payload, eventType),
-          note: String(row.downtime_reason_name || payload.details || payload.title || payload.reason || ""),
-          source: "event_log",
-          payload,
-          happened_at: row.time_to || row.time_from || row.created_at || null,
-          created_at: row.created_at || null,
-          duration_seconds: Number(row.duration_seconds || 0),
-          time_from: row.time_from || null,
-          time_to: row.time_to || null,
-          terminal_event_id: String(row.terminal_event_id || ""),
-          event_code: eventType,
-          job_number: String(row.job_number || run?.job_number || ""),
-          downtime_reason_code: String(row.downtime_reason_code || ""),
-          downtime_reason_name: String(row.downtime_reason_name || "")
+      const buildNormalizedMesEventRows = (jobRunRows, compactRows, detailedRows) => {
+        const jobRunsById = Object.fromEntries((jobRunRows || []).map((row) => [String(row.id || ""), row]));
+        const compactEventRows = (compactRows || []).map((row) => {
+          const run = jobRunsById[String(row.job_run_id || "")] || null;
+          const payload = row.payload && typeof row.payload === "object" ? row.payload : {};
+          const eventType = normalizeMesCompactEventCode(row.event_code || row.event_type, payload);
+          const terminalId = String(row.terminal_id || run?.terminal_id || "");
+          return {
+            id: row.id,
+            company_id: String(row.company_id || ""),
+            terminal_id: terminalId,
+            terminal_code: getEventTerminalCode(terminalId),
+            workstation_id: String(row.workstation_id || run?.workstation_id || ""),
+            machine_id: String(run?.machine_id || ""),
+            job_run_id: String(row.job_run_id || ""),
+            operator_user_id: String(run?.operator_user_id || row.operator_id || ""),
+            operator_name: String(run?.operator_name || payload.operator_name || payload.operator_name_text || row.operator_id || ""),
+            event_type: eventType,
+            quantity: getMesPayloadQuantity(payload, eventType),
+            note: String(row.downtime_reason_name || payload.details || payload.title || payload.reason || ""),
+            source: "event_log",
+            payload,
+            happened_at: row.time_to || row.time_from || row.created_at || null,
+            created_at: row.created_at || null,
+            duration_seconds: Number(row.duration_seconds || 0),
+            time_from: row.time_from || null,
+            time_to: row.time_to || null,
+            terminal_event_id: String(row.terminal_event_id || ""),
+            event_code: eventType,
+            job_number: String(row.job_number || run?.job_number || ""),
+            downtime_reason_code: String(row.downtime_reason_code || ""),
+            downtime_reason_name: String(row.downtime_reason_name || "")
+          };
+        });
+        const detailedEventRows = (detailedRows || []).map((row) => {
+          const run = jobRunsById[String(row.job_run_id || "")] || null;
+          const payload = row.payload && typeof row.payload === "object" ? row.payload : {};
+          const reason = downtimeReasonById[String(row.downtime_reason_id || "")] || null;
+          const normalizedEventType = normalizeMesCompactEventCode(row.event_type, payload);
+          const terminalId = String(run?.terminal_id || "");
+          return {
+            id: row.id,
+            company_id: String(run?.company_id || ""),
+            terminal_id: terminalId,
+            terminal_code: getEventTerminalCode(terminalId),
+            workstation_id: String(row.workstation_id || run?.workstation_id || ""),
+            machine_id: String(row.machine_id || run?.machine_id || ""),
+            job_run_id: String(row.job_run_id || ""),
+            operator_user_id: String(run?.operator_user_id || ""),
+            operator_name: String(run?.operator_name || payload.operator_name || payload.operator_name_text || ""),
+            event_type: normalizedEventType,
+            quantity: Number(row.quantity || 0),
+            note: String(row.note || ""),
+            source: String(row.source || "hmi"),
+            payload,
+            happened_at: row.happened_at || row.created_at || null,
+            created_at: row.created_at || null,
+            duration_seconds: Number(payload.duration_seconds || 0),
+            time_from: payload.time_from || null,
+            time_to: row.happened_at || row.created_at || null,
+            terminal_event_id: String(payload.terminal_event_id || row.id || ""),
+            event_code: normalizedEventType,
+            job_number: String(run?.job_number || ""),
+            downtime_reason_code: String(reason?.code || ""),
+            downtime_reason_name: String(reason?.name || row.note || "")
+          };
+        });
+        const isCountEventType = (value) => ["good_count", "scrap_count"].includes(String(value || "").toLowerCase());
+        const hasPositiveQuantity = (value) => {
+          const numeric = Number(value || 0);
+          return Number.isFinite(numeric) && numeric > 0;
         };
-      });
-      const detailedEventData = await fetchAllMesDetailedEvents((jobRunsData || []).map((row) => row.id));
-      const detailedEventRows = detailedEventData.map((row) => {
-        const run = jobRunsById[String(row.job_run_id || "")] || null;
-        const payload = row.payload && typeof row.payload === "object" ? row.payload : {};
-        const reason = downtimeReasonById[String(row.downtime_reason_id || "")] || null;
-        const normalizedEventType = normalizeMesCompactEventCode(row.event_type, payload);
-        const terminalId = String(run?.terminal_id || "");
-        return {
-          id: row.id,
-          company_id: String(run?.company_id || ""),
-          terminal_id: terminalId,
-          terminal_code: getEventTerminalCode(terminalId),
-          workstation_id: String(row.workstation_id || run?.workstation_id || ""),
-          machine_id: String(row.machine_id || run?.machine_id || ""),
-          job_run_id: String(row.job_run_id || ""),
-          operator_user_id: String(run?.operator_user_id || ""),
-          operator_name: String(run?.operator_name || payload.operator_name || payload.operator_name_text || ""),
-          event_type: normalizedEventType,
-          quantity: Number(row.quantity || 0),
-          note: String(row.note || ""),
-          source: String(row.source || "hmi"),
-          payload,
-          happened_at: row.happened_at || row.created_at || null,
-          created_at: row.created_at || null,
-          duration_seconds: Number(payload.duration_seconds || 0),
-          time_from: payload.time_from || null,
-          time_to: row.happened_at || row.created_at || null,
-          terminal_event_id: String(payload.terminal_event_id || row.id || ""),
-          event_code: normalizedEventType,
-          job_number: String(run?.job_number || ""),
-          downtime_reason_code: String(reason?.code || ""),
-          downtime_reason_name: String(reason?.name || row.note || "")
-        };
-      });
-      const isCountEventType = (value) => ["good_count", "scrap_count"].includes(String(value || "").toLowerCase());
-      const hasPositiveQuantity = (value) => {
-        const numeric = Number(value || 0);
-        return Number.isFinite(numeric) && numeric > 0;
-      };
-      const eventRowsByKey = new Map();
-      compactEventRows.forEach((row) => {
-        const key = String(row.terminal_event_id || row.id || "");
-        if (key) {
-          eventRowsByKey.set(key, row);
-        }
-      });
-      detailedEventRows.forEach((row) => {
-        const key = String(row.terminal_event_id || row.id || "");
-        if (!key) {
-          return;
-        }
-        const existing = eventRowsByKey.get(key);
-        if (!existing) {
-          eventRowsByKey.set(key, row);
-          return;
-        }
-        const normalizedType = String(existing.event_type || row.event_type || "").toLowerCase();
-        const preferDetailedRow =
-          (existing.event_code !== "ml" && row.event_code === "ml") ||
-          (isCountEventType(normalizedType) && !hasPositiveQuantity(existing.quantity) && hasPositiveQuantity(row.quantity));
-        if (preferDetailedRow) {
+        const eventRowsByKey = new Map();
+        compactEventRows.forEach((row) => {
+          const key = String(row.terminal_event_id || row.id || "");
+          if (key) {
+            eventRowsByKey.set(key, row);
+          }
+        });
+        detailedEventRows.forEach((row) => {
+          const key = String(row.terminal_event_id || row.id || "");
+          if (!key) {
+            return;
+          }
+          const existing = eventRowsByKey.get(key);
+          if (!existing) {
+            eventRowsByKey.set(key, row);
+            return;
+          }
+          const normalizedType = String(existing.event_type || row.event_type || "").toLowerCase();
+          const preferDetailedRow =
+            (existing.event_code !== "ml" && row.event_code === "ml") ||
+            (isCountEventType(normalizedType) && !hasPositiveQuantity(existing.quantity) && hasPositiveQuantity(row.quantity));
+          if (preferDetailedRow) {
+            eventRowsByKey.set(key, {
+              ...existing,
+              ...row,
+              source: String(existing.source || row.source || "event_log")
+            });
+            return;
+          }
           eventRowsByKey.set(key, {
-            ...existing,
             ...row,
+            ...existing,
+            machine_id: String(existing.machine_id || row.machine_id || ""),
+            operator_user_id: String(existing.operator_user_id || row.operator_user_id || ""),
+            operator_name: String(existing.operator_name || row.operator_name || ""),
+            quantity: hasPositiveQuantity(existing.quantity) ? Number(existing.quantity || 0) : Number(row.quantity || 0),
+            note: String(existing.note || row.note || ""),
+            downtime_reason_code: String(existing.downtime_reason_code || row.downtime_reason_code || ""),
+            downtime_reason_name: String(existing.downtime_reason_name || row.downtime_reason_name || ""),
+            payload:
+              existing.payload && Object.keys(existing.payload).length > 0
+                ? existing.payload
+                : row.payload && typeof row.payload === "object"
+                  ? row.payload
+                  : {},
+            happened_at: existing.happened_at || row.happened_at || null,
+            created_at: existing.created_at || row.created_at || null,
             source: String(existing.source || row.source || "event_log")
           });
-          return;
-        }
-        eventRowsByKey.set(key, {
-          ...row,
-          ...existing,
-          machine_id: String(existing.machine_id || row.machine_id || ""),
-          operator_user_id: String(existing.operator_user_id || row.operator_user_id || ""),
-          operator_name: String(existing.operator_name || row.operator_name || ""),
-          quantity: hasPositiveQuantity(existing.quantity) ? Number(existing.quantity || 0) : Number(row.quantity || 0),
-          note: String(existing.note || row.note || ""),
-          downtime_reason_code: String(existing.downtime_reason_code || row.downtime_reason_code || ""),
-          downtime_reason_name: String(existing.downtime_reason_name || row.downtime_reason_name || ""),
-          payload:
-            existing.payload && Object.keys(existing.payload).length > 0
-              ? existing.payload
-              : row.payload && typeof row.payload === "object"
-                ? row.payload
-                : {},
-          happened_at: existing.happened_at || row.happened_at || null,
-          created_at: existing.created_at || row.created_at || null,
-          source: String(existing.source || row.source || "event_log")
         });
-      });
-      let eventRows = Array.from(eventRowsByKey.values()).sort((left, right) => {
-        const leftTime = Date.parse(left.happened_at || left.created_at || "") || 0;
-        const rightTime = Date.parse(right.happened_at || right.created_at || "") || 0;
-        return rightTime - leftTime;
-      });
+        return Array.from(eventRowsByKey.values())
+          .sort((left, right) => {
+            const leftTime = Date.parse(left.happened_at || left.created_at || "") || 0;
+            const rightTime = Date.parse(right.happened_at || right.created_at || "") || 0;
+            return rightTime - leftTime;
+          })
+          .map((row) => normalizeMesEventRow(row));
+      };
+      const detailedEventData = await fetchAllMesDetailedEvents((jobRunsData || []).map((row) => row.id), initialMesFetchIntervals);
+      const normalizedInitialEventRows = buildNormalizedMesEventRows(jobRunsData, eventData, detailedEventData);
 
       if (latestMesOverviewRequestRef.current !== requestId) {
         return;
@@ -10422,12 +10519,56 @@ function App() {
       setMesOverviewRows((data || []).map((row) => normalizeMesOverviewRow(row)));
       setMesProductionOrders(productionOrdersData || []);
       setMesRecentJobRuns((jobRunsData || []).map((row) => normalizeMesJobRunRow(row)));
-      setMesRecentEventRows(eventRows.map((row) => normalizeMesEventRow(row)));
+      setMesRecentEventRows(normalizedInitialEventRows);
       setMesDowntimeReasons(downtimeReasonsData || []);
       setMesWorkstations((workstationData || []).map((row) => normalizeMesWorkstationRow(row)));
       setMesMachines((machineData || []).map((row) => normalizeMesMachineCatalogRow(row)));
       setMesTerminals((terminalData || []).map((row) => normalizeMesTerminalRow(row)));
       markViewDataFresh(PRODUCTION_MODULE);
+      setMesLoading(false);
+
+      const accumulatedJobRunsById = new Map((jobRunsData || []).map((row) => [String(row.id || ""), row]));
+      const accumulatedEventsById = new Map(
+        normalizedInitialEventRows.map((row) => [String(row.terminal_event_id || row.id || buildMesEventIdentity(row)), row])
+      );
+      for (const interval of backgroundMesFetchIntervals) {
+        if (latestMesOverviewRequestRef.current !== requestId) {
+          return;
+        }
+        try {
+          const [nextJobRunsData, nextEventData] = await Promise.all([
+            fetchAllMesJobRuns([interval]),
+            fetchAllMesEvents([interval])
+          ]);
+          (nextJobRunsData || []).forEach((row) => accumulatedJobRunsById.set(String(row.id || ""), row));
+          const accumulatedJobRuns = Array.from(accumulatedJobRunsById.values());
+          const nextDetailedEventData = await fetchAllMesDetailedEvents((nextJobRunsData || []).map((row) => row.id), [interval]);
+          const nextEventRows = buildNormalizedMesEventRows(accumulatedJobRuns, nextEventData, nextDetailedEventData);
+          nextEventRows.forEach((row) => {
+            accumulatedEventsById.set(String(row.terminal_event_id || row.id || buildMesEventIdentity(row)), row);
+          });
+
+          if (latestMesOverviewRequestRef.current !== requestId) {
+            return;
+          }
+
+          setMesRecentJobRuns(
+            accumulatedJobRuns
+              .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
+              .map((row) => normalizeMesJobRunRow(row))
+          );
+          setMesRecentEventRows(
+            Array.from(accumulatedEventsById.values()).sort(
+              (left, right) =>
+                (Date.parse(right.happened_at || right.created_at || "") || 0) -
+                (Date.parse(left.happened_at || left.created_at || "") || 0)
+            )
+          );
+        } catch (backgroundMesError) {
+          console.warn("MES background history load skipped", backgroundMesError);
+          break;
+        }
+      }
     } catch (loadMesError) {
       if (latestMesOverviewRequestRef.current !== requestId) {
         return;
@@ -13788,7 +13929,35 @@ function App() {
       window.removeEventListener("focus", handleWindowFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [isLoggedIn, selectedTable, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id, occupancyChartRange, effectiveMaxPositions, activeCompany?.tracks_expiry_date, canAccessOrdersModule, canAccessAttendanceModule, canAccessMesModule, mesOeeRangeKey, mesThroughputRangeKey, mesThroughputCustomStartDate, mesThroughputCustomEndDate, mesThroughputShiftDate, mesHourlyDowntimeShiftKey, mesHourlyDowntimeDayOffset]);
+  }, [
+    isLoggedIn,
+    selectedTable,
+    deadStockDays,
+    authReady,
+    selectedCompanyId,
+    userCompanyId,
+    isMaster,
+    authUser?.id,
+    occupancyChartRange,
+    effectiveMaxPositions,
+    activeCompany?.tracks_expiry_date,
+    canAccessOrdersModule,
+    canAccessAttendanceModule,
+    canAccessMesModule,
+    mesOeeRangeKey,
+    mesThroughputRangeKey,
+    mesThroughputCustomStartDate,
+    mesThroughputCustomEndDate,
+    mesThroughputShiftDate,
+    mesHourlyDowntimeShiftKey,
+    mesHourlyDowntimeDayOffset,
+    mesSelectedMachinePartsRangeKey,
+    mesSelectedMachineJobsRangeKey,
+    mesSelectedMachineAvailabilityRangeKey,
+    mesSelectedMachineProductionRangeKey,
+    mesSelectedMachineHourlyDate,
+    mesSelectedMachineHourlyShift
+  ]);
 
   useEffect(() => {
     if (!authReady || !isLoggedIn) {

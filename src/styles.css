@@ -2814,6 +2814,21 @@ select {
   color: #17324a;
 }
 
+.mes-refresh-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  min-height: 34px;
+  padding: 0.38rem 0.7rem;
+}
+
+.mes-refresh-button:disabled {
+  cursor: wait;
+  opacity: 0.68;
+  transform: none;
+  box-shadow: none;
+}
+
 .mes-selected-machine-hourly-controls {
   display: flex;
   gap: 0.5rem;
@@ -3302,6 +3317,61 @@ select {
 .mes-data-panel-head span {
   font-size: 0.8rem;
   color: #6a7c8f;
+}
+
+.mes-analytics-panel {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem;
+  border: 1px solid rgba(174, 185, 191, 0.68);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(246, 248, 249, 0.94));
+}
+
+.mes-analytics-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.7rem;
+  align-items: end;
+}
+
+.mes-analytics-controls .workflow-field {
+  min-width: 0;
+}
+
+.mes-analytics-controls select,
+.mes-analytics-controls input {
+  width: 100%;
+}
+
+.mes-analytics-export-btn {
+  min-height: 42px;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.mes-analytics-summary {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.mes-analytics-summary span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0.24rem 0.65rem;
+  border: 1px solid rgba(64, 83, 103, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #405367;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.mes-analytics-preview-table th,
+.mes-analytics-preview-table td {
+  white-space: nowrap;
 }
 
 .mes-machine-events {
@@ -8626,6 +8696,14 @@ tbody tr:nth-child(even) {
 
   .mes-throughput-controls {
     justify-content: stretch;
+  }
+
+  .mes-analytics-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .mes-analytics-export-btn {
+    grid-column: 1 / -1;
   }
 
   .mes-kpi-grid,

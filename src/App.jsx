@@ -1,7 +1,7 @@
 ﻿import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { useRef } from "react";
-import { Activity, ArrowDownLeft, ArrowRight, ArrowRightLeft, ArrowUpRight, BarChart3, Boxes, Building2, CheckCircle2, ClipboardList, Clock3, Factory, FileText, History, LogIn, MapPin, MonitorSmartphone, Package, ReceiptText, RotateCcw, Settings2, ShieldCheck, Users, X } from "lucide-react";
+import { Activity, ArrowDownLeft, ArrowRight, ArrowRightLeft, ArrowUpRight, BarChart3, Boxes, Building2, CheckCircle2, ClipboardList, Clock3, Download, Factory, FileText, History, LogIn, MapPin, MonitorSmartphone, Package, ReceiptText, RotateCcw, Settings2, ShieldCheck, Users, X } from "lucide-react";
 import { installHotjar, uninstallHotjar } from "./hotjar";
 import StatusPill from "./components/StatusPill";
 import {
@@ -4579,6 +4579,88 @@ async function readSpreadsheetRows(file) {
   return rows;
 }
 
+function buildMesExportChartDataUrl(title, rows, valueLabel = "Počet kusov") {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1200;
+  canvas.height = 430;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return "";
+  }
+
+  const chartRows = (rows || []).slice(0, 12);
+  const chartLeft = 86;
+  const chartTop = 76;
+  const chartWidth = 1050;
+  const chartHeight = 270;
+  const maxValue = Math.max(1, ...chartRows.map((row) => Number(row.value || 0)));
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = "#17324a";
+  context.font = "700 26px Arial";
+  context.fillText(title, chartLeft, 38);
+  context.fillStyle = "#66788a";
+  context.font = "15px Arial";
+  context.fillText(valueLabel, chartLeft, 62);
+
+  context.strokeStyle = "#dce4ea";
+  context.lineWidth = 1;
+  for (let index = 0; index <= 4; index += 1) {
+    const y = chartTop + (chartHeight / 4) * index;
+    context.beginPath();
+    context.moveTo(chartLeft, y);
+    context.lineTo(chartLeft + chartWidth, y);
+    context.stroke();
+    const tickValue = Math.round(maxValue * (1 - index / 4));
+    context.fillStyle = "#718294";
+    context.font = "13px Arial";
+    context.textAlign = "right";
+    context.fillText(new Intl.NumberFormat("sk-SK").format(tickValue), chartLeft - 12, y + 4);
+  }
+
+  if (chartRows.length === 0) {
+    context.fillStyle = "#718294";
+    context.font = "18px Arial";
+    context.textAlign = "center";
+    context.fillText("Pre zvolené filtre nie sú dostupné dáta.", canvas.width / 2, chartTop + chartHeight / 2);
+    return canvas.toDataURL("image/png");
+  }
+
+  const slotWidth = chartWidth / chartRows.length;
+  const barWidth = Math.max(18, Math.min(62, slotWidth * 0.58));
+  chartRows.forEach((row, index) => {
+    const value = Math.max(0, Number(row.value || 0));
+    const barHeight = (value / maxValue) * chartHeight;
+    const x = chartLeft + index * slotWidth + (slotWidth - barWidth) / 2;
+    const y = chartTop + chartHeight - barHeight;
+    context.fillStyle = index % 2 === 0 ? "#157a6e" : "#2d6f9f";
+    context.fillRect(x, y, barWidth, barHeight);
+    context.fillStyle = "#17324a";
+    context.font = "700 13px Arial";
+    context.textAlign = "center";
+    context.fillText(new Intl.NumberFormat("sk-SK").format(value), x + barWidth / 2, Math.max(chartTop + 14, y - 8));
+    const label = String(row.label || "-");
+    const shortLabel = label.length > 15 ? `${label.slice(0, 14)}…` : label;
+    context.fillStyle = "#53687b";
+    context.font = "12px Arial";
+    context.fillText(shortLabel, x + barWidth / 2, chartTop + chartHeight + 24);
+  });
+
+  return canvas.toDataURL("image/png");
+}
+
+function downloadBrowserFile(buffer, fileName, mimeType) {
+  const blob = new Blob([buffer], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function normalizeForSearch(value) {
   return String(value ?? "")
     .toLowerCase()
@@ -5234,6 +5316,13 @@ function App() {
   const [mesThroughputCustomStartDate, setMesThroughputCustomStartDate] = useState(() => formatDateInputValue(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)));
   const [mesThroughputCustomEndDate, setMesThroughputCustomEndDate] = useState(() => formatDateInputValue());
   const [mesThroughputShiftDate, setMesThroughputShiftDate] = useState(() => formatDateInputValue());
+  const [mesAnalyticsRangeKey, setMesAnalyticsRangeKey] = useState("last_7_days");
+  const [mesAnalyticsReportType, setMesAnalyticsReportType] = useState("overview");
+  const [mesAnalyticsMachineId, setMesAnalyticsMachineId] = useState("all");
+  const [mesAnalyticsOperatorKey, setMesAnalyticsOperatorKey] = useState("all");
+  const [mesAnalyticsCustomStartDate, setMesAnalyticsCustomStartDate] = useState(() => formatDateInputValue(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)));
+  const [mesAnalyticsCustomEndDate, setMesAnalyticsCustomEndDate] = useState(() => formatDateInputValue());
+  const [mesAnalyticsExporting, setMesAnalyticsExporting] = useState(false);
   const [mesSelectedMachinePartsRangeKey, setMesSelectedMachinePartsRangeKey] = useState("current_shift");
   const [mesSelectedMachineJobsRangeKey, setMesSelectedMachineJobsRangeKey] = useState("current_shift");
   const [mesSelectedMachineAvailabilityRangeKey, setMesSelectedMachineAvailabilityRangeKey] = useState("current_shift");
@@ -9995,6 +10084,13 @@ function App() {
         mesThroughputShiftDate,
         nowTs
       );
+      const analyticsWindow = getMesThroughputRangeWindow(
+        mesAnalyticsRangeKey,
+        mesAnalyticsCustomStartDate,
+        mesAnalyticsCustomEndDate,
+        "",
+        nowTs
+      );
       const oeeWindow = getMesOeeRangeWindow(mesOeeRangeKey, nowTs);
       const hourlyDowntimeWindow = getMesDailyShiftWindow(mesHourlyDowntimeShiftKey, nowTs, mesHourlyDowntimeDayOffset, nowTs);
       const selectedMachinePartsWindow = getMesThroughputRangeWindow(mesSelectedMachinePartsRangeKey, "", "", "", nowTs);
@@ -10057,6 +10153,7 @@ function App() {
       const fullMesFetchIntervals = mergeMesFetchIntervals([
         normalizeMesFetchInterval(baseMesLookbackStartAt, nowTs),
         normalizeMesFetchInterval(throughputWindow.startAt, throughputWindow.endAt),
+        normalizeMesFetchInterval(analyticsWindow.startAt, analyticsWindow.endAt),
         normalizeMesFetchInterval(oeeWindow.startAt, oeeWindow.endAt),
         normalizeMesFetchInterval(hourlyDowntimeWindow.startAt, hourlyDowntimeWindow.endAt),
         normalizeMesFetchInterval(selectedMachinePartsWindow.startAt, selectedMachinePartsWindow.endAt),
@@ -13875,6 +13972,26 @@ function App() {
   }, [selectedTable, isLoggedIn, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id, occupancyChartRange, effectiveMaxPositions, activeCompany?.tracks_expiry_date, canAccessOrdersModule, canAccessAttendanceModule, canAccessMesModule]);
 
   useEffect(() => {
+    if (!authReady || !isLoggedIn || !isProductionModule(selectedTable) || !canAccessMesModule) {
+      return undefined;
+    }
+    const reloadTimer = window.setTimeout(() => {
+      loadMesModuleData();
+    }, 250);
+    return () => window.clearTimeout(reloadTimer);
+  }, [
+    authReady,
+    isLoggedIn,
+    selectedTable,
+    canAccessMesModule,
+    activeCompanyId,
+    userCompanyId,
+    mesAnalyticsRangeKey,
+    mesAnalyticsCustomStartDate,
+    mesAnalyticsCustomEndDate
+  ]);
+
+  useEffect(() => {
     if (!authReady || !isLoggedIn) {
       return undefined;
     }
@@ -16307,6 +16424,187 @@ function App() {
       .filter((row) => row.operatorName || row.operatorUserId)
       .sort((a, b) => String(a.operatorName || a.operatorUserId).localeCompare(String(b.operatorName || b.operatorUserId), "sk-SK", { sensitivity: "base" }));
   }, [mesRecentEventRows, mesRecentJobRuns, mesOperatorRows]);
+  const mesAnalyticsRangeWindow = useMemo(
+    () => getMesThroughputRangeWindow(mesAnalyticsRangeKey, mesAnalyticsCustomStartDate, mesAnalyticsCustomEndDate, "", mesNowTs),
+    [mesAnalyticsRangeKey, mesAnalyticsCustomStartDate, mesAnalyticsCustomEndDate, mesNowTs]
+  );
+  const mesAnalyticsSelectedMachine = useMemo(
+    () =>
+      mesAnalyticsMachineId === "all"
+        ? null
+        : machineDashboardRows.find((row) => String(row.machineId || "") === String(mesAnalyticsMachineId || "")) || null,
+    [machineDashboardRows, mesAnalyticsMachineId]
+  );
+  const mesAnalyticsSelectedOperator = useMemo(
+    () =>
+      mesAnalyticsOperatorKey === "all"
+        ? null
+        : mesThroughputOperatorOptions.find((row) => row.key === mesAnalyticsOperatorKey) || null,
+    [mesAnalyticsOperatorKey, mesThroughputOperatorOptions]
+  );
+  const mesAnalyticsExportRows = useMemo(() => {
+    const startMs = new Date(mesAnalyticsRangeWindow.startAt || 0).getTime();
+    const endMs = new Date(mesAnalyticsRangeWindow.endAt || 0).getTime();
+    const selectedMachine = mesAnalyticsSelectedMachine;
+    const selectedOperator = mesAnalyticsSelectedOperator;
+    const resolveMachine = (row) => {
+      const machineId = String(row?.machine_id || "").trim();
+      const workstationId = String(row?.workstation_id || "").trim();
+      const terminalId = String(row?.terminal_id || "").trim();
+      return (
+        machineDashboardRows.find(
+          (machine) =>
+            (machineId && String(machine.machineId || "") === machineId) ||
+            (workstationId && String(machine.workstationId || "") === workstationId) ||
+            (terminalId && String(machine.terminalId || "") === terminalId)
+        ) || null
+      );
+    };
+    const matchesSelectedMachine = (row) => {
+      if (!selectedMachine) {
+        return true;
+      }
+      const machineId = String(row?.machine_id || "").trim();
+      const workstationId = String(row?.workstation_id || "").trim();
+      const terminalId = String(row?.terminal_id || "").trim();
+      return (
+        (machineId && machineId === String(selectedMachine.machineId || "").trim()) ||
+        (workstationId && workstationId === String(selectedMachine.workstationId || "").trim()) ||
+        (terminalId && terminalId === String(selectedMachine.terminalId || "").trim())
+      );
+    };
+    const matchesSelectedOperator = (row) => {
+      if (!selectedOperator) {
+        return true;
+      }
+      const operatorUserId = String(row?.operator_user_id || row?.operator_id || "").trim();
+      const operatorName = getMesEventOperatorLabel(row) || String(row?.operator_name || "").trim();
+      return (
+        (operatorUserId && operatorUserId === selectedOperator.operatorUserId) ||
+        buildMesOperatorKey(operatorUserId, operatorName) === selectedOperator.key ||
+        (operatorName && normalizeMesOperatorLookupValue(operatorName) === normalizeMesOperatorLookupValue(selectedOperator.operatorName))
+      );
+    };
+    const isInAnalyticsRange = (value) => {
+      const valueMs = new Date(value || 0).getTime();
+      return Number.isFinite(valueMs) && Number.isFinite(startMs) && Number.isFinite(endMs) && valueMs >= startMs && valueMs <= endMs;
+    };
+    const makeDateParts = (value) => {
+      const parsed = new Date(value || 0);
+      if (!Number.isFinite(parsed.getTime())) {
+        return { date: "", time: "" };
+      }
+      return {
+        date: parsed,
+        time: parsed.toLocaleTimeString("sk-SK", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+      };
+    };
+    const buildExportRow = ({ sourceRow, eventRow = null, machineRow = null, happenedAt, quantity = 0, durationMs = 0, isSetup = false }) => {
+      const machine = machineRow || resolveMachine(sourceRow) || {};
+      const run = eventRow?.job_run_id ? mesJobRunsById[String(eventRow.job_run_id || "")] || sourceRow : sourceRow;
+      const dateParts = makeDateParts(happenedAt);
+      const operationCode = String(
+        eventRow?.payload?.operation_code ||
+          eventRow?.payload?.operation_number ||
+          run?.payload?.operation_code ||
+          run?.operation_code ||
+          ""
+      ).trim();
+      const machineNr = String(machine.machineCode || machine.machineName || sourceRow?.machine_id || sourceRow?.workstation_id || "").trim();
+      const targetCycleSeconds =
+        Number(machine.targetCycleSeconds || 0) > 0
+          ? Number(machine.targetCycleSeconds)
+          : Number(machine.idealUnitsPerHour || 0) > 0
+            ? 3600 / Number(machine.idealUnitsPerHour)
+            : 0;
+      const resolvedQuantity = Math.max(0, Number(quantity || 0));
+      const durationMinutes = Number(durationMs || 0) > 0 ? Number(durationMs || 0) / 60000 : 0;
+      const planMinutesPerPiece = targetCycleSeconds > 0 ? targetCycleSeconds / 60 : "";
+      const actualMinutesPerPiece = resolvedQuantity > 0 && durationMinutes > 0 ? durationMinutes / resolvedQuantity : "";
+      const plannedDurationMinutes = Number(planMinutesPerPiece || 0) * (resolvedQuantity || 1);
+      const diffMinutes = durationMinutes > 0 && plannedDurationMinutes > 0 ? durationMinutes - plannedDurationMinutes : "";
+      return {
+        "Číslo zákazky": String(run?.job_number || eventRow?.job_number || "").trim(),
+        "Operácia": operationCode,
+        "Stroj": machineNr,
+        "Operátor": String(run?.operator_name || eventRow?.operator_name || eventRow?.operator_id || eventRow?.operator_user_id || "").trim(),
+        "Kód položky": String(run?.item_code || eventRow?.payload?.item_code || "").trim(),
+        "Popis operácie": String(run?.item_name || eventRow?.payload?.operation_text || eventRow?.note || eventRow?.downtime_reason_name || "").trim(),
+        "IST kusy": resolvedQuantity,
+        "Dátum ukončenia": dateParts.date,
+        "Čas ukončenia": dateParts.time,
+        "Plánovaný čas / ks": planMinutesPerPiece === "" ? "" : Number(planMinutesPerPiece.toFixed(2)),
+        "Skutočný čas / ks": actualMinutesPerPiece === "" ? "" : Number(actualMinutesPerPiece.toFixed(2)),
+        "Skutočný čas spolu": durationMinutes > 0 ? Number(durationMinutes.toFixed(2)) : "",
+        "Rozdiel v min": diffMinutes === "" ? "" : Number(diffMinutes.toFixed(2)),
+        "Nastavenie": isSetup ? "Áno" : "Nie"
+      };
+    };
+
+    const rows = [];
+    const exportEventTypes = new Set(["good_count", "scrap_count", "ml", "setup_start", "setup_end", "start", "complete"]);
+    mesRecentEventRows.forEach((eventRow) => {
+      const eventType = String(eventRow.event_type || "").toLowerCase();
+      if (!exportEventTypes.has(eventType) || !matchesSelectedMachine(eventRow) || !matchesSelectedOperator(eventRow)) {
+        return;
+      }
+      const happenedAt = eventRow.happened_at || eventRow.created_at;
+      if (!isInAnalyticsRange(happenedAt)) {
+        return;
+      }
+      const machineRow = resolveMachine(eventRow);
+      const quantity = ["good_count", "scrap_count", "ml"].includes(eventType) ? getMesEventQuantity(eventRow) : 0;
+      rows.push(
+        buildExportRow({
+          sourceRow: mesJobRunsById[String(eventRow.job_run_id || "")] || eventRow,
+          eventRow,
+          machineRow,
+          happenedAt,
+          quantity,
+          durationMs: getMesEventDurationMs(eventRow),
+          isSetup: eventType === "setup_start" || eventRow.payload?.is_setup === true
+        })
+      );
+    });
+
+    if (rows.length === 0) {
+      mesRecentJobRuns.forEach((run) => {
+        if (!matchesSelectedMachine(run) || !matchesSelectedOperator(run)) {
+          return;
+        }
+        const happenedAt = run.ended_at || run.updated_at || run.created_at;
+        if (!isInAnalyticsRange(happenedAt)) {
+          return;
+        }
+        const startMsValue = new Date(run.started_at || run.created_at || 0).getTime();
+        const endMsValue = new Date(happenedAt || 0).getTime();
+        rows.push(
+          buildExportRow({
+            sourceRow: run,
+            machineRow: resolveMachine(run),
+            happenedAt,
+            quantity: Number(run.good_quantity || 0) + Number(run.scrap_quantity || 0),
+            durationMs: Number.isFinite(startMsValue) && Number.isFinite(endMsValue) && endMsValue > startMsValue ? endMsValue - startMsValue : 0,
+            isSetup: false
+          })
+        );
+      });
+    }
+
+    return rows.sort((left, right) => {
+      const leftDate = left["Dátum ukončenia"] instanceof Date ? left["Dátum ukončenia"].getTime() : 0;
+      const rightDate = right["Dátum ukončenia"] instanceof Date ? right["Dátum ukončenia"].getTime() : 0;
+      return leftDate - rightDate || String(left["Čas ukončenia"] || "").localeCompare(String(right["Čas ukončenia"] || ""));
+    });
+  }, [
+    machineDashboardRows,
+    mesAnalyticsRangeWindow,
+    mesAnalyticsSelectedMachine,
+    mesAnalyticsSelectedOperator,
+    mesJobRunsById,
+    mesRecentEventRows,
+    mesRecentJobRuns
+  ]);
   const mesActiveOperatorLookup = useMemo(() => {
     const byProfileId = {};
     const byLinkedUserId = {};
@@ -17357,6 +17655,154 @@ function App() {
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "") || "firma";
     XLSX.writeFile(workbook, `mes-dashboard-${companySlug}-${dateStamp}.xlsx`);
+  };
+  const handleExportMesAnalyticsExcel = async () => {
+    if (mesAnalyticsExporting || mesAnalyticsExportRows.length === 0) {
+      return;
+    }
+    setMesAnalyticsExporting(true);
+    setMesError("");
+    try {
+      const ExcelJSModule = await import("exceljs");
+      const ExcelJS = ExcelJSModule.default || ExcelJSModule;
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator = "MES LULA";
+      workbook.created = new Date();
+      workbook.modified = new Date();
+
+      const totalQuantity = mesAnalyticsExportRows.reduce((sum, row) => sum + Number(row["IST kusy"] || 0), 0);
+      const totalDurationMinutes = mesAnalyticsExportRows.reduce((sum, row) => sum + Number(row["Skutočný čas spolu"] || 0), 0);
+      const setupCount = mesAnalyticsExportRows.filter((row) => row["Nastavenie"] === "Áno").length;
+      const uniqueJobs = new Set(mesAnalyticsExportRows.map((row) => String(row["Číslo zákazky"] || "").trim()).filter(Boolean)).size;
+      const aggregateRows = (getKey) => {
+        const values = new Map();
+        mesAnalyticsExportRows.forEach((row) => {
+          const key = String(getKey(row) || "Neurčené").trim() || "Neurčené";
+          values.set(key, Number(values.get(key) || 0) + Number(row["IST kusy"] || 0));
+        });
+        return Array.from(values.entries())
+          .map(([label, value]) => ({ label, value }))
+          .sort((left, right) => right.value - left.value || left.label.localeCompare(right.label, "sk-SK"));
+      };
+      const dailyRows = aggregateRows((row) =>
+        row["Dátum ukončenia"] instanceof Date ? row["Dátum ukončenia"].toLocaleDateString("sk-SK") : "Bez dátumu"
+      ).sort((left, right) => {
+        const [leftDay, leftMonth, leftYear] = left.label.split(".").map(Number);
+        const [rightDay, rightMonth, rightYear] = right.label.split(".").map(Number);
+        return new Date(leftYear || 0, (leftMonth || 1) - 1, leftDay || 1) - new Date(rightYear || 0, (rightMonth || 1) - 1, rightDay || 1);
+      });
+      const machineRows = aggregateRows((row) => row["Stroj"]);
+      const operatorRows = aggregateRows((row) => row["Operátor"]);
+      const reportTypeConfig = {
+        overview: { label: "Súhrnný report", breakdownTitle: "Výroba podľa strojov", breakdownRows: machineRows },
+        machines: { label: "Report podľa strojov", breakdownTitle: "Výroba podľa strojov", breakdownRows: machineRows },
+        operators: { label: "Report podľa operátorov", breakdownTitle: "Výroba podľa operátorov", breakdownRows: operatorRows }
+      };
+      const reportConfig = reportTypeConfig[mesAnalyticsReportType] || reportTypeConfig.overview;
+      const summarySheet = workbook.addWorksheet("Súhrn", {
+        views: [{ showGridLines: false }],
+        pageSetup: { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 }
+      });
+      summarySheet.columns = Array.from({ length: 8 }, () => ({ width: 18 }));
+      summarySheet.mergeCells("A1:H2");
+      const titleCell = summarySheet.getCell("A1");
+      titleCell.value = `MES report | ${currentCompanyLabel || "Firma"}`;
+      titleCell.font = { name: "Arial", size: 22, bold: true, color: { argb: "FFFFFFFF" } };
+      titleCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF17324A" } };
+      titleCell.alignment = { vertical: "middle", horizontal: "left" };
+
+      const filterRows = [
+        ["Typ reportu", reportConfig.label, "Obdobie", mesAnalyticsRangeWindow.label],
+        ["Stroj", mesAnalyticsSelectedMachine?.machineName || mesAnalyticsSelectedMachine?.machineCode || "Všetky stroje", "Operátor", mesAnalyticsSelectedOperator?.operatorName || "Všetci operátori"]
+      ];
+      filterRows.forEach((values, index) => {
+        const row = summarySheet.getRow(4 + index);
+        row.values = values;
+        row.height = 24;
+        [1, 3].forEach((column) => {
+          row.getCell(column).font = { bold: true, color: { argb: "FF63788B" } };
+        });
+        [2, 4].forEach((column) => {
+          row.getCell(column).font = { bold: true, color: { argb: "FF17324A" } };
+        });
+      });
+
+      const kpis = [
+        { range: "A7:B8", label: "Vyrobené kusy", value: new Intl.NumberFormat("sk-SK").format(totalQuantity) },
+        { range: "C7:D8", label: "Zákazky", value: new Intl.NumberFormat("sk-SK").format(uniqueJobs) },
+        { range: "E7:F8", label: "Skutočný čas", value: `${new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 }).format(totalDurationMinutes)} min` },
+        { range: "G7:H8", label: "Nastavenia", value: new Intl.NumberFormat("sk-SK").format(setupCount) }
+      ];
+      kpis.forEach((kpi) => {
+        summarySheet.mergeCells(kpi.range);
+        const cell = summarySheet.getCell(kpi.range.split(":")[0]);
+        cell.value = `${kpi.label}\n${kpi.value}`;
+        cell.font = { name: "Arial", size: 15, bold: true, color: { argb: "FF17324A" } };
+        cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFEAF1F4" } };
+        cell.border = {
+          top: { style: "thin", color: { argb: "FFCAD7DF" } },
+          left: { style: "thin", color: { argb: "FFCAD7DF" } },
+          bottom: { style: "thin", color: { argb: "FFCAD7DF" } },
+          right: { style: "thin", color: { argb: "FFCAD7DF" } }
+        };
+      });
+
+      const dailyChartUrl = buildMesExportChartDataUrl("Výroba v čase", dailyRows);
+      const breakdownChartUrl = buildMesExportChartDataUrl(reportConfig.breakdownTitle, reportConfig.breakdownRows);
+      if (dailyChartUrl) {
+        const imageId = workbook.addImage({ base64: dailyChartUrl, extension: "png" });
+        summarySheet.addImage(imageId, "A10:H25");
+      }
+      if (breakdownChartUrl) {
+        const imageId = workbook.addImage({ base64: breakdownChartUrl, extension: "png" });
+        summarySheet.addImage(imageId, "A27:H42");
+      }
+
+      const detailSheet = workbook.addWorksheet("Detailné dáta", {
+        views: [{ state: "frozen", ySplit: 1 }],
+        pageSetup: { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 }
+      });
+      const detailColumns = [
+        ["Číslo zákazky", 18], ["Operácia", 14], ["Stroj", 20], ["Operátor", 24], ["Kód položky", 18], ["Popis operácie", 34],
+        ["IST kusy", 12], ["Dátum ukončenia", 16], ["Čas ukončenia", 14], ["Plánovaný čas / ks", 18], ["Skutočný čas / ks", 18],
+        ["Skutočný čas spolu", 20], ["Rozdiel v min", 16], ["Nastavenie", 12]
+      ];
+      detailSheet.columns = detailColumns.map(([header, width]) => ({ header, key: header, width }));
+      mesAnalyticsExportRows.forEach((row) => detailSheet.addRow(row));
+      detailSheet.autoFilter = { from: "A1", to: "N1" };
+      const detailHeader = detailSheet.getRow(1);
+      detailHeader.height = 28;
+      detailHeader.eachCell((cell) => {
+        cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF17324A" } };
+        cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+      });
+      detailSheet.getColumn("Dátum ukončenia").numFmt = "dd.mm.yyyy";
+      ["IST kusy", "Plánovaný čas / ks", "Skutočný čas / ks", "Skutočný čas spolu", "Rozdiel v min"].forEach((columnName) => {
+        detailSheet.getColumn(columnName).numFmt = "0.00";
+      });
+      detailSheet.eachRow((row, rowNumber) => {
+        if (rowNumber > 1 && rowNumber % 2 === 1) {
+          row.eachCell((cell) => {
+            cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF4F7F8" } };
+          });
+        }
+      });
+
+      const companySlug = String(currentCompanyLabel || "firma").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "firma";
+      const dateStamp = new Date().toISOString().slice(0, 10);
+      const buffer = await workbook.xlsx.writeBuffer();
+      downloadBrowserFile(
+        buffer,
+        `mes-report-${companySlug}-${dateStamp}.xlsx`,
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      );
+    } catch (exportError) {
+      setMesError(exportError?.message || "MES Excel report sa nepodarilo vytvoriť.");
+    } finally {
+      setMesAnalyticsExporting(false);
+    }
   };
   const mesFactoryMap = useMemo(() => {
     const areas = {};
@@ -19876,6 +20322,12 @@ function App() {
     const selectedMachineProductionMaxValue = Math.max(1, ...selectedMachineProductionSeries.map((point) => Number(point.cumulative || 0)));
     const selectedMachineProductionPolyline = buildSimplePolyline(selectedMachineProductionSeries, "cumulative", selectedMachineProductionMaxValue);
     const selectedMachineProductionHasData = selectedMachineProductionSeries.some((point) => Number(point.total || 0) > 0);
+    const analyticsRangeOptions = MES_THROUGHPUT_RANGE_OPTIONS.filter((option) =>
+      ["current_shift", "today", "yesterday", "last_7_days", "custom"].includes(option.key)
+    );
+    const mesAnalyticsExportQuantity = mesAnalyticsExportRows.reduce((sum, row) => sum + Number(row["IST kusy"] || 0), 0);
+    const mesAnalyticsSetupRows = mesAnalyticsExportRows.filter((row) => row["Nastavenie"] === "Áno").length;
+    const mesAnalyticsPreviewRows = mesAnalyticsExportRows.slice(0, 8);
 
     return (
       <article className="orders-panel-card workflow-card workflow-card-list mes-dashboard-card">
@@ -20055,6 +20507,115 @@ function App() {
                 )}
               </section>
             )}
+
+            <section className="mes-analytics-panel" aria-label="MES analytika">
+              <div className="mes-data-panel-head">
+                <span className="workflow-section-kicker">Analytika</span>
+                <strong>Export podľa stroja a operátora</strong>
+                <span>{`Formát exportu používa stĺpce zo vzoru: zákazka, operácia, stroj, operátor, kusy, dátum, čas a rozdiel voči plánu.`}</span>
+              </div>
+              <div className="mes-analytics-controls">
+                <label className="workflow-field">
+                  <span className="workflow-field-label">Typ reportu</span>
+                  <select value={mesAnalyticsReportType} onChange={(event) => setMesAnalyticsReportType(event.target.value)}>
+                    <option value="overview">Súhrnný report</option>
+                    <option value="machines">Podľa strojov</option>
+                    <option value="operators">Podľa operátorov</option>
+                  </select>
+                </label>
+                <label className="workflow-field">
+                  <span className="workflow-field-label">Obdobie</span>
+                  <select value={mesAnalyticsRangeKey} onChange={(event) => setMesAnalyticsRangeKey(event.target.value)}>
+                    {analyticsRangeOptions.map((option) => (
+                      <option key={option.key} value={option.key}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+                {mesAnalyticsRangeKey === "custom" && (
+                  <>
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Od</span>
+                      <input type="date" value={mesAnalyticsCustomStartDate} onChange={(event) => setMesAnalyticsCustomStartDate(event.target.value)} />
+                    </label>
+                    <label className="workflow-field">
+                      <span className="workflow-field-label">Do</span>
+                      <input type="date" value={mesAnalyticsCustomEndDate} onChange={(event) => setMesAnalyticsCustomEndDate(event.target.value)} />
+                    </label>
+                  </>
+                )}
+                <label className="workflow-field">
+                  <span className="workflow-field-label">Stroj</span>
+                  <select value={mesAnalyticsMachineId} onChange={(event) => setMesAnalyticsMachineId(event.target.value)}>
+                    <option value="all">Všetky stroje</option>
+                    {mesMachineOptions.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {`${option.label} | ${option.workstationName}`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="workflow-field">
+                  <span className="workflow-field-label">Operátor</span>
+                  <select value={mesAnalyticsOperatorKey} onChange={(event) => setMesAnalyticsOperatorKey(event.target.value)}>
+                    <option value="all">Všetci operátori</option>
+                    {mesThroughputOperatorOptions.map((option) => (
+                      <option key={option.key} value={option.key}>
+                        {option.operatorName || option.operatorUserId}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  className="export-btn mes-analytics-export-btn"
+                  onClick={handleExportMesAnalyticsExcel}
+                  disabled={mesLoading || mesAnalyticsExporting || mesAnalyticsExportRows.length === 0}
+                >
+                  <Download size={16} aria-hidden="true" />
+                  {mesAnalyticsExporting ? "Generujem report..." : "Exportovať XLSX"}
+                </button>
+              </div>
+              <div className="mes-analytics-summary">
+                <span>{mesAnalyticsRangeWindow.label}</span>
+                <span>{`${new Intl.NumberFormat("sk-SK").format(mesAnalyticsExportRows.length)} riadkov`}</span>
+                <span>{`${new Intl.NumberFormat("sk-SK").format(mesAnalyticsExportQuantity)} ks`}</span>
+                <span>{`${new Intl.NumberFormat("sk-SK").format(mesAnalyticsSetupRows)} nastavení`}</span>
+              </div>
+              {mesAnalyticsPreviewRows.length === 0 ? (
+                <p className="hint">Pre zvolené filtre zatiaľ nie sú dostupné dáta na export.</p>
+              ) : (
+                <div className="table-wrap">
+                  <table className="mes-analytics-preview-table">
+                    <thead>
+                      <tr>
+                        <th>Číslo zákazky</th>
+                        <th>Stroj</th>
+                        <th>Operátor</th>
+                        <th>Kód položky</th>
+                        <th>IST kusy</th>
+                        <th>Dátum ukončenia</th>
+                        <th>Čas ukončenia</th>
+                        <th>Nastavenie</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {mesAnalyticsPreviewRows.map((row, index) => (
+                        <tr key={`${row["Číslo zákazky"]}-${row["Stroj"]}-${row["Čas ukončenia"]}-${index}`}>
+                          <td>{row["Číslo zákazky"] || "-"}</td>
+                          <td>{row["Stroj"] || "-"}</td>
+                          <td>{row["Operátor"] || "-"}</td>
+                          <td>{row["Kód položky"] || "-"}</td>
+                          <td>{new Intl.NumberFormat("sk-SK").format(Number(row["IST kusy"] || 0))}</td>
+                          <td>{row["Dátum ukončenia"] instanceof Date ? row["Dátum ukončenia"].toLocaleDateString("sk-SK") : "-"}</td>
+                          <td>{row["Čas ukončenia"] || "-"}</td>
+                          <td>{row["Nastavenie"] || "Nie"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
 
             <section className="mes-machine-status-panel" aria-label="Dostupné MES terminály">
               {sortedMachineTiles.map((machine) => {

@@ -25,6 +25,9 @@ export default defineConfig({
           if (id.includes("xlsx")) {
             return "xlsx";
           }
+          if (id.includes("exceljs")) {
+            return "exceljs";
+          }
           return "vendor";
         }
       }

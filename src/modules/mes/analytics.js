@@ -2,7 +2,7 @@
 import { safeRatioPercent } from './formatters';
 
 export const MES_MAX_DOWNTIME_DURATION_MS = 5 * 60 * 60 * 1000;
-export const MES_MAX_CONTINUOUS_RUN_MS = 30 * 60 * 1000;
+export const MES_MAX_CONTINUOUS_RUN_MS = 10 * 60 * 1000;
 const MES_PRODUCTION_DURATION_ADJUSTMENT_SECONDS_BY_TERMINAL_CODE = {
   "P4-80F1B2D1F87A": 18
 };
@@ -35,15 +35,18 @@ export function summarizeMesStateWindow(events, startAt, endAt, fallbackState = 
     .sort((a, b) => new Date(a.happened_at || 0).getTime() - new Date(b.happened_at || 0).getTime());
 
   let currentState = fallbackState === "stopped" ? "stopped" : "running";
+  let currentStateStartedMs = startMs;
   let cursorMs = startMs;
   let runMs = 0;
   let stopMs = 0;
-  const addStateDuration = (state, durationMs) => {
+  const addStateDuration = (state, segmentStartMs, segmentEndMs, stateStartedMs) => {
+    const durationMs = Math.max(0, segmentEndMs - segmentStartMs);
     if (durationMs <= 0) {
       return;
     }
     if (state === "running") {
-      const cappedRunMs = Math.min(durationMs, maxRunSegmentMs);
+      const runDeadlineMs = stateStartedMs + maxRunSegmentMs;
+      const cappedRunMs = Math.max(0, Math.min(segmentEndMs, runDeadlineMs) - segmentStartMs);
       runMs += cappedRunMs;
       stopMs += Math.max(0, durationMs - cappedRunMs);
     } else if (durationMs <= maxStopSegmentMs) {
@@ -62,19 +65,19 @@ export function summarizeMesStateWindow(events, startAt, endAt, fallbackState = 
     }
     if (happenedMs <= startMs) {
       currentState = nextState;
+      currentStateStartedMs = happenedMs;
       return;
     }
     if (happenedMs >= endMs) {
       return;
     }
-    const segmentDurationMs = Math.max(0, happenedMs - cursorMs);
-    addStateDuration(currentState, segmentDurationMs);
+    addStateDuration(currentState, cursorMs, happenedMs, currentStateStartedMs);
     cursorMs = happenedMs;
     currentState = nextState;
+    currentStateStartedMs = happenedMs;
   });
 
-  const tailDurationMs = Math.max(0, endMs - cursorMs);
-  addStateDuration(currentState, tailDurationMs);
+  addStateDuration(currentState, cursorMs, endMs, currentStateStartedMs);
 
   const totalMs = Math.max(0, endMs - startMs);
   return {

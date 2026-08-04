@@ -89,6 +89,7 @@ const QUOTES_MODULE = "__quotes__";
 const INVOICES_MODULE = "__invoices__";
 const ORDERS_MODULE = "__orders__";
 const PRODUCTION_MODULE = "__production__";
+const MES_ANALYTICS_MODULE = "__mes_analytics__";
 const ATTENDANCE_MODULE = "__attendance__";
 const ATTENDANCE_GROUPS_MODULE = "__attendance_groups__";
 const ATTENDANCE_SETTINGS_MODULE = "__attendance_settings__";
@@ -378,6 +379,14 @@ function isProductionModule(table) {
   return String(table || "").trim() === PRODUCTION_MODULE;
 }
 
+function isMesAnalyticsModule(table) {
+  return String(table || "").trim() === MES_ANALYTICS_MODULE;
+}
+
+function isMesWorkspaceModule(table) {
+  return isProductionModule(table) || isMesAnalyticsModule(table);
+}
+
 function isEmployeesModule(table) {
   return String(table || "").trim() === ROLE_TABLE;
 }
@@ -403,7 +412,8 @@ function isWorkflowModule(table) {
     isAttendanceModule(table) ||
     isAttendanceGroupsModule(table) ||
     isAttendanceSettingsModule(table) ||
-    isProductionModule(table)
+    isProductionModule(table) ||
+    isMesAnalyticsModule(table)
   );
 }
 
@@ -453,6 +463,9 @@ function getTableLabel(table) {
   }
   if (isProductionModule(table)) {
     return "Prehľad výroby";
+  }
+  if (isMesAnalyticsModule(table)) {
+    return "Analytika a reporty";
   }
   if (isDailyOverviewTable(table)) {
     return "Denný prehľad";
@@ -5492,7 +5505,8 @@ function App() {
           ATTENDANCE_MODULE,
           ATTENDANCE_GROUPS_MODULE,
           ATTENDANCE_SETTINGS_MODULE,
-          PRODUCTION_MODULE
+          PRODUCTION_MODULE,
+          MES_ANALYTICS_MODULE
         ])
       );
     }
@@ -5520,7 +5534,7 @@ function App() {
         ...(canAccessAttendanceModule ? [ATTENDANCE_MODULE] : []),
         ...(canAccessAttendanceModule ? [ATTENDANCE_GROUPS_MODULE] : []),
         ...(canAccessAttendanceModule ? [ATTENDANCE_SETTINGS_MODULE] : []),
-        ...(canAccessMesModule ? [PRODUCTION_MODULE] : [])
+        ...(canAccessMesModule ? [PRODUCTION_MODULE, MES_ANALYTICS_MODULE] : [])
       ])
     );
   }, [isMaster, isActiveCompanyBasicFree, canAccessOrdersModule, canAccessAttendanceModule, canAccessMesModule]);
@@ -10627,6 +10641,7 @@ function App() {
       setMesMachines((machineData || []).map((row) => normalizeMesMachineCatalogRow(row)));
       setMesTerminals((terminalData || []).map((row) => normalizeMesTerminalRow(row)));
       markViewDataFresh(PRODUCTION_MODULE);
+      markViewDataFresh(MES_ANALYTICS_MODULE);
       setMesLoading(false);
 
       const accumulatedJobRunsById = new Map((jobRunsData || []).map((row) => [String(row.id || ""), row]));
@@ -13879,14 +13894,14 @@ function App() {
       };
     }
 
-    if (isProductionModule(selectedTable)) {
+    if (isMesWorkspaceModule(selectedTable)) {
       setRows([]);
       setStockSnapshotRows([]);
       setDeadStockByKey({});
       setStockAgeStats({ avgDays: null, sampleCount: 0 });
       setOccupancySeries([]);
       setLoading(false);
-      if (canAccessOrdersModule) {
+      if (isProductionModule(selectedTable) && canAccessOrdersModule) {
         loadProductionModuleData();
       } else {
         setProductionOrders([]);
@@ -13913,14 +13928,14 @@ function App() {
           window.clearTimeout(reloadTimer);
         }
         reloadTimer = window.setTimeout(() => {
-          if (canAccessOrdersModule) {
+          if (isProductionModule(selectedTable) && canAccessOrdersModule) {
             loadProductionModuleData();
           }
         }, 350);
       };
 
       const subscriptionTables = [];
-      if (canAccessOrdersModule) {
+      if (isProductionModule(selectedTable) && canAccessOrdersModule) {
         subscriptionTables.push("production_orders", "production_order_inputs", "production_order_outputs", "stock", "stock_history");
       }
 
@@ -13972,7 +13987,7 @@ function App() {
   }, [selectedTable, isLoggedIn, deadStockDays, authReady, selectedCompanyId, userCompanyId, isMaster, authUser?.id, occupancyChartRange, effectiveMaxPositions, activeCompany?.tracks_expiry_date, canAccessOrdersModule, canAccessAttendanceModule, canAccessMesModule]);
 
   useEffect(() => {
-    if (!authReady || !isLoggedIn || !isProductionModule(selectedTable) || !canAccessMesModule) {
+    if (!authReady || !isLoggedIn || !isMesWorkspaceModule(selectedTable) || !canAccessMesModule) {
       return undefined;
     }
     const reloadTimer = window.setTimeout(() => {
@@ -14026,9 +14041,12 @@ function App() {
         loadInvoicesModuleData();
         return;
       }
-      if (isProductionModule(selectedTable)) {
-        if (canAccessOrdersModule) {
+      if (isMesWorkspaceModule(selectedTable)) {
+        if (isProductionModule(selectedTable) && canAccessOrdersModule) {
           loadProductionModuleData();
+        }
+        if (canAccessMesModule) {
+          loadMesModuleData();
         }
         return;
       }
@@ -17830,7 +17848,7 @@ function App() {
       "stock",
       ...Array.from(TRANSACTION_TABLE_ALIASES)
     ].filter((table) => visibleTableNames.includes(table));
-    const mesItems = [PRODUCTION_MODULE].filter((table) => visibleTableNames.includes(table));
+    const mesItems = [PRODUCTION_MODULE, MES_ANALYTICS_MODULE].filter((table) => visibleTableNames.includes(table));
     const attendanceItems = [ROLE_TABLE, ATTENDANCE_MODULE, ATTENDANCE_GROUPS_MODULE, ATTENDANCE_SETTINGS_MODULE].filter((table) =>
       visibleTableNames.includes(table)
     );
@@ -19895,6 +19913,108 @@ function App() {
     );
   }
 
+  const analyticsRangeOptions = MES_THROUGHPUT_RANGE_OPTIONS.filter((option) =>
+    ["current_shift", "today", "yesterday", "last_7_days", "custom"].includes(option.key)
+  );
+  const mesAnalyticsExportQuantity = mesAnalyticsExportRows.reduce((sum, row) => sum + Number(row["IST kusy"] || 0), 0);
+  const mesAnalyticsSetupRows = mesAnalyticsExportRows.filter((row) => row["Nastavenie"] === "Áno").length;
+  const mesAnalyticsPreviewRows = mesAnalyticsExportRows.slice(0, 8);
+  const renderMesAnalyticsReports = () => (
+    <section className="mes-analytics-panel" aria-label="MES analytika">
+      <div className="mes-data-panel-head">
+        <span className="workflow-section-kicker">Analytika</span>
+        <strong>Export podľa stroja a operátora</strong>
+        <span>Filtrovaný Excel report so súhrnom, grafmi a detailnými výrobnými dátami.</span>
+      </div>
+      <div className="mes-analytics-controls">
+        <label className="workflow-field">
+          <span className="workflow-field-label">Typ reportu</span>
+          <select value={mesAnalyticsReportType} onChange={(event) => setMesAnalyticsReportType(event.target.value)}>
+            <option value="overview">Súhrnný report</option>
+            <option value="machines">Podľa strojov</option>
+            <option value="operators">Podľa operátorov</option>
+          </select>
+        </label>
+        <label className="workflow-field">
+          <span className="workflow-field-label">Obdobie</span>
+          <select value={mesAnalyticsRangeKey} onChange={(event) => setMesAnalyticsRangeKey(event.target.value)}>
+            {analyticsRangeOptions.map((option) => (
+              <option key={option.key} value={option.key}>{option.label}</option>
+            ))}
+          </select>
+        </label>
+        {mesAnalyticsRangeKey === "custom" && (
+          <>
+            <label className="workflow-field">
+              <span className="workflow-field-label">Od</span>
+              <input type="date" value={mesAnalyticsCustomStartDate} onChange={(event) => setMesAnalyticsCustomStartDate(event.target.value)} />
+            </label>
+            <label className="workflow-field">
+              <span className="workflow-field-label">Do</span>
+              <input type="date" value={mesAnalyticsCustomEndDate} onChange={(event) => setMesAnalyticsCustomEndDate(event.target.value)} />
+            </label>
+          </>
+        )}
+        <label className="workflow-field">
+          <span className="workflow-field-label">Stroj</span>
+          <select value={mesAnalyticsMachineId} onChange={(event) => setMesAnalyticsMachineId(event.target.value)}>
+            <option value="all">Všetky stroje</option>
+            {mesMachineOptions.map((option) => (
+              <option key={option.id} value={option.id}>{`${option.label} | ${option.workstationName}`}</option>
+            ))}
+          </select>
+        </label>
+        <label className="workflow-field">
+          <span className="workflow-field-label">Operátor</span>
+          <select value={mesAnalyticsOperatorKey} onChange={(event) => setMesAnalyticsOperatorKey(event.target.value)}>
+            <option value="all">Všetci operátori</option>
+            {mesThroughputOperatorOptions.map((option) => (
+              <option key={option.key} value={option.key}>{option.operatorName || option.operatorUserId}</option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          className="export-btn mes-analytics-export-btn"
+          onClick={handleExportMesAnalyticsExcel}
+          disabled={mesLoading || mesAnalyticsExporting || mesAnalyticsExportRows.length === 0}
+        >
+          <Download size={16} aria-hidden="true" />
+          {mesAnalyticsExporting ? "Generujem report..." : "Exportovať XLSX"}
+        </button>
+      </div>
+      <div className="mes-analytics-summary">
+        <span>{mesAnalyticsRangeWindow.label}</span>
+        <span>{`${new Intl.NumberFormat("sk-SK").format(mesAnalyticsExportRows.length)} riadkov`}</span>
+        <span>{`${new Intl.NumberFormat("sk-SK").format(mesAnalyticsExportQuantity)} ks`}</span>
+        <span>{`${new Intl.NumberFormat("sk-SK").format(mesAnalyticsSetupRows)} nastavení`}</span>
+      </div>
+      {mesAnalyticsPreviewRows.length === 0 ? (
+        <p className="hint">Pre zvolené filtre zatiaľ nie sú dostupné dáta na export.</p>
+      ) : (
+        <div className="table-wrap">
+          <table className="mes-analytics-preview-table">
+            <thead>
+              <tr>
+                <th>Číslo zákazky</th><th>Stroj</th><th>Operátor</th><th>Kód položky</th><th>IST kusy</th><th>Dátum ukončenia</th><th>Čas ukončenia</th><th>Nastavenie</th>
+              </tr>
+            </thead>
+            <tbody>
+              {mesAnalyticsPreviewRows.map((row, index) => (
+                <tr key={`${row["Číslo zákazky"]}-${row["Stroj"]}-${row["Čas ukončenia"]}-${index}`}>
+                  <td>{row["Číslo zákazky"] || "-"}</td><td>{row["Stroj"] || "-"}</td><td>{row["Operátor"] || "-"}</td><td>{row["Kód položky"] || "-"}</td>
+                  <td>{new Intl.NumberFormat("sk-SK").format(Number(row["IST kusy"] || 0))}</td>
+                  <td>{row["Dátum ukončenia"] instanceof Date ? row["Dátum ukončenia"].toLocaleDateString("sk-SK") : "-"}</td>
+                  <td>{row["Čas ukončenia"] || "-"}</td><td>{row["Nastavenie"] || "Nie"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+
   const renderMesDashboard = () => {
     const getMesMachineTileState = (machine) => {
       const statusTone = machine?.statusMeta?.tone || getMesStatusMeta(machine?.machineStatus).tone;
@@ -20322,13 +20442,6 @@ function App() {
     const selectedMachineProductionMaxValue = Math.max(1, ...selectedMachineProductionSeries.map((point) => Number(point.cumulative || 0)));
     const selectedMachineProductionPolyline = buildSimplePolyline(selectedMachineProductionSeries, "cumulative", selectedMachineProductionMaxValue);
     const selectedMachineProductionHasData = selectedMachineProductionSeries.some((point) => Number(point.total || 0) > 0);
-    const analyticsRangeOptions = MES_THROUGHPUT_RANGE_OPTIONS.filter((option) =>
-      ["current_shift", "today", "yesterday", "last_7_days", "custom"].includes(option.key)
-    );
-    const mesAnalyticsExportQuantity = mesAnalyticsExportRows.reduce((sum, row) => sum + Number(row["IST kusy"] || 0), 0);
-    const mesAnalyticsSetupRows = mesAnalyticsExportRows.filter((row) => row["Nastavenie"] === "Áno").length;
-    const mesAnalyticsPreviewRows = mesAnalyticsExportRows.slice(0, 8);
-
     return (
       <article className="orders-panel-card workflow-card workflow-card-list mes-dashboard-card">
         <div className="panel-head workflow-section-head">
@@ -20507,115 +20620,6 @@ function App() {
                 )}
               </section>
             )}
-
-            <section className="mes-analytics-panel" aria-label="MES analytika">
-              <div className="mes-data-panel-head">
-                <span className="workflow-section-kicker">Analytika</span>
-                <strong>Export podľa stroja a operátora</strong>
-                <span>{`Formát exportu používa stĺpce zo vzoru: zákazka, operácia, stroj, operátor, kusy, dátum, čas a rozdiel voči plánu.`}</span>
-              </div>
-              <div className="mes-analytics-controls">
-                <label className="workflow-field">
-                  <span className="workflow-field-label">Typ reportu</span>
-                  <select value={mesAnalyticsReportType} onChange={(event) => setMesAnalyticsReportType(event.target.value)}>
-                    <option value="overview">Súhrnný report</option>
-                    <option value="machines">Podľa strojov</option>
-                    <option value="operators">Podľa operátorov</option>
-                  </select>
-                </label>
-                <label className="workflow-field">
-                  <span className="workflow-field-label">Obdobie</span>
-                  <select value={mesAnalyticsRangeKey} onChange={(event) => setMesAnalyticsRangeKey(event.target.value)}>
-                    {analyticsRangeOptions.map((option) => (
-                      <option key={option.key} value={option.key}>{option.label}</option>
-                    ))}
-                  </select>
-                </label>
-                {mesAnalyticsRangeKey === "custom" && (
-                  <>
-                    <label className="workflow-field">
-                      <span className="workflow-field-label">Od</span>
-                      <input type="date" value={mesAnalyticsCustomStartDate} onChange={(event) => setMesAnalyticsCustomStartDate(event.target.value)} />
-                    </label>
-                    <label className="workflow-field">
-                      <span className="workflow-field-label">Do</span>
-                      <input type="date" value={mesAnalyticsCustomEndDate} onChange={(event) => setMesAnalyticsCustomEndDate(event.target.value)} />
-                    </label>
-                  </>
-                )}
-                <label className="workflow-field">
-                  <span className="workflow-field-label">Stroj</span>
-                  <select value={mesAnalyticsMachineId} onChange={(event) => setMesAnalyticsMachineId(event.target.value)}>
-                    <option value="all">Všetky stroje</option>
-                    {mesMachineOptions.map((option) => (
-                      <option key={option.id} value={option.id}>
-                        {`${option.label} | ${option.workstationName}`}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="workflow-field">
-                  <span className="workflow-field-label">Operátor</span>
-                  <select value={mesAnalyticsOperatorKey} onChange={(event) => setMesAnalyticsOperatorKey(event.target.value)}>
-                    <option value="all">Všetci operátori</option>
-                    {mesThroughputOperatorOptions.map((option) => (
-                      <option key={option.key} value={option.key}>
-                        {option.operatorName || option.operatorUserId}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  type="button"
-                  className="export-btn mes-analytics-export-btn"
-                  onClick={handleExportMesAnalyticsExcel}
-                  disabled={mesLoading || mesAnalyticsExporting || mesAnalyticsExportRows.length === 0}
-                >
-                  <Download size={16} aria-hidden="true" />
-                  {mesAnalyticsExporting ? "Generujem report..." : "Exportovať XLSX"}
-                </button>
-              </div>
-              <div className="mes-analytics-summary">
-                <span>{mesAnalyticsRangeWindow.label}</span>
-                <span>{`${new Intl.NumberFormat("sk-SK").format(mesAnalyticsExportRows.length)} riadkov`}</span>
-                <span>{`${new Intl.NumberFormat("sk-SK").format(mesAnalyticsExportQuantity)} ks`}</span>
-                <span>{`${new Intl.NumberFormat("sk-SK").format(mesAnalyticsSetupRows)} nastavení`}</span>
-              </div>
-              {mesAnalyticsPreviewRows.length === 0 ? (
-                <p className="hint">Pre zvolené filtre zatiaľ nie sú dostupné dáta na export.</p>
-              ) : (
-                <div className="table-wrap">
-                  <table className="mes-analytics-preview-table">
-                    <thead>
-                      <tr>
-                        <th>Číslo zákazky</th>
-                        <th>Stroj</th>
-                        <th>Operátor</th>
-                        <th>Kód položky</th>
-                        <th>IST kusy</th>
-                        <th>Dátum ukončenia</th>
-                        <th>Čas ukončenia</th>
-                        <th>Nastavenie</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {mesAnalyticsPreviewRows.map((row, index) => (
-                        <tr key={`${row["Číslo zákazky"]}-${row["Stroj"]}-${row["Čas ukončenia"]}-${index}`}>
-                          <td>{row["Číslo zákazky"] || "-"}</td>
-                          <td>{row["Stroj"] || "-"}</td>
-                          <td>{row["Operátor"] || "-"}</td>
-                          <td>{row["Kód položky"] || "-"}</td>
-                          <td>{new Intl.NumberFormat("sk-SK").format(Number(row["IST kusy"] || 0))}</td>
-                          <td>{row["Dátum ukončenia"] instanceof Date ? row["Dátum ukončenia"].toLocaleDateString("sk-SK") : "-"}</td>
-                          <td>{row["Čas ukončenia"] || "-"}</td>
-                          <td>{row["Nastavenie"] || "Nie"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
 
             <section className="mes-machine-status-panel" aria-label="Dostupné MES terminály">
               {sortedMachineTiles.map((machine) => {
@@ -21075,7 +21079,7 @@ function App() {
       </aside>
 
       <div className="dashboard-main">
-      {!isProductionModule(selectedTable) && (
+      {!isMesWorkspaceModule(selectedTable) && (
       <section className="hero dashboard-hero">
         <div className="hero-grid">
           <div className="hero-primary">
@@ -21169,8 +21173,8 @@ function App() {
                       loadInvoicesModuleData();
                       return;
                     }
-                    if (isProductionModule(selectedTable)) {
-                      if (canAccessOrdersModule) {
+                    if (isMesWorkspaceModule(selectedTable)) {
+                      if (isProductionModule(selectedTable) && canAccessOrdersModule) {
                         loadProductionModuleData();
                       }
                       if (canAccessMesModule) {
@@ -27009,6 +27013,30 @@ function App() {
               </article>
             </div>
           </div>
+        </section>
+      )}
+
+      {isMesAnalyticsModule(selectedTable) && canAccessMesModule && (
+        <section className="panel workflow-shell workflow-shell-production">
+          <div className="panel-head workflow-header">
+            <div>
+              <p className="workflow-eyebrow">MES reporting</p>
+              <h2>Analytika a reporty</h2>
+              <p className="panel-meta">
+                {activeCompanyId
+                  ? `Excel reporty a výrobné dáta pre firmu ${currentCompanyLabel}`
+                  : "Vyber konkrétnu firmu, aby sa zobrazili MES reporty."}
+              </p>
+            </div>
+          </div>
+          {mesError && <p className="error">{mesError}</p>}
+          {!activeCompanyId && isMaster ? (
+            <p className="hint">Vyber konkrétnu firmu v hornom filtri.</p>
+          ) : mesLoading ? (
+            <p className="hint">Načítavam dáta pre MES reporty...</p>
+          ) : (
+            renderMesAnalyticsReports()
+          )}
         </section>
       )}
 

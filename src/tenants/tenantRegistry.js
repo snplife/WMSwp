@@ -16,6 +16,21 @@ const tenantDefinitions = [
     features: { overview: true, activity: true },
     refreshIntervalMs: 30_000,
     loadApp: () => import("./scherdel/ScherdelMesApp")
+  },
+  {
+    id: "mlproduktion",
+    hostnames: ["mlproduktion.meslula.sk"],
+    companyId: String(import.meta.env.VITE_TENANT_MLPRODUKTION_COMPANY_ID || "").trim(),
+    companyNameFragments: ["ml produktion"],
+    branding: {
+      productName: "ML Produktion MES",
+      eyebrow: "Manufacturing Execution System",
+      accent: "#245a8d",
+      accentStrong: "#163d63"
+    },
+    features: { overview: true, activity: true },
+    refreshIntervalMs: 30_000,
+    loadApp: () => import("./mlproduktion/MLProduktionMesApp")
   }
 ];
 

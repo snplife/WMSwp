@@ -19,7 +19,7 @@ function formatDateTime(value) {
 }
 
 function getRowKey(row) {
-  return String(row.machine_id || row.workstation_id || "");
+  return String(row?.machine_id || row?.workstation_id || "");
 }
 
 function getTileState(row) {

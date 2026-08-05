@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Activity, AlertTriangle, BarChart3, CheckCircle2, Clock3, Factory, LogOut, PlayCircle, RefreshCw, ShieldCheck, UserRound } from "lucide-react";
 import { clearSupabaseAuthStorage, supabase } from "../../supabaseClient";
+import FactoryOsMesDashboard from "./FactoryOsMesDashboard";
 import "./mesTenant.css";
 
 const INTERNAL_LOGIN_DOMAIN = String(import.meta.env.VITE_INTERNAL_LOGIN_DOMAIN || "wms.local").trim().toLowerCase();
@@ -143,7 +144,7 @@ export default function MesTenantApp({ tenant }) {
       const [overviewResult, runsResult] = await Promise.all([
         supabase.rpc("mes_factory_overview", { p_company_id: companyId }),
         supabase.from("mes_job_runs")
-          .select("id,job_number,item_code,item_name,operator_name,status,planned_quantity,good_quantity,scrap_quantity,started_at,ended_at,created_at")
+          .select("id,workstation_id,machine_id,terminal_id,job_number,item_code,item_name,operator_name,status,planned_quantity,good_quantity,scrap_quantity,started_at,ended_at,created_at")
           .eq("company_id", companyId).order("created_at", { ascending: false }).limit(75)
       ]);
       if (overviewResult.error) throw overviewResult.error;
@@ -233,6 +234,22 @@ export default function MesTenantApp({ tenant }) {
 
   if (authState === "denied") {
     return <main className="mes-tenant mes-tenant-centered" style={tenantStyle}><AlertTriangle size={34} /><h1>Prístup zamietnutý</h1><p>{authError}</p><button type="button" className="mes-tenant-secondary-button" onClick={handleSignOut}>Odhlásiť účet</button></main>;
+  }
+
+  if (tenant.uiVariant === "factory-os") {
+    return (
+      <FactoryOsMesDashboard
+        tenant={tenant}
+        accessContext={accessContext}
+        overviewRows={overviewRows}
+        jobRuns={jobRuns}
+        dataLoading={dataLoading}
+        dataError={dataError}
+        lastLoadedAt={lastLoadedAt}
+        onRefresh={loadMesData}
+        onSignOut={handleSignOut}
+      />
+    );
   }
 
   return (

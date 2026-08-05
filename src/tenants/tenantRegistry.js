@@ -28,6 +28,7 @@ const tenantDefinitions = [
       accent: "#245a8d",
       accentStrong: "#163d63"
     },
+    uiVariant: "factory-os",
     features: { overview: true, activity: true },
     refreshIntervalMs: 30_000,
     loadApp: () => import("./mlproduktion/MLProduktionMesApp")

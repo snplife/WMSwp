@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Factory, LogOut, RefreshCw } from "lucide-react";
 import { supabase } from "../../supabaseClient";
+import MesCharts from "./MesCharts";
 import "./factoryOsMesDashboard.css";
 
 const formatNumber = (value) => new Intl.NumberFormat("sk-SK").format(Number(value || 0));
@@ -57,6 +58,7 @@ export default function FactoryOsMesDashboard({
   accessContext,
   overviewRows,
   jobRuns,
+  mesEvents,
   dataLoading,
   dataError,
   lastLoadedAt,
@@ -279,6 +281,7 @@ export default function FactoryOsMesDashboard({
                   <article className="mes-selected-machine-metric"><span>Vyrobené zákazky</span><strong>{formatNumber(completedRuns.length)}</strong><p>dokončené zákazky v načítanej histórii</p></article>
                   <article className="mes-selected-machine-metric"><span>Posledná aktivita</span><strong>{formatDateTime(selectedRow.latest_event_at || selectedRow.machine_last_heartbeat_at)}</strong><p>posledný známy signál zariadenia</p></article>
                 </div>
+                <MesCharts selectedRow={selectedRow} selectedRuns={selectedRuns} mesEvents={mesEvents} />
               </section>
             )}
           </>

@@ -51,6 +51,7 @@ export default function MesTenantApp({ tenant }) {
   const [activeView, setActiveView] = useState("overview");
   const [overviewRows, setOverviewRows] = useState([]);
   const [jobRuns, setJobRuns] = useState([]);
+  const [mesEvents, setMesEvents] = useState([]);
   const [dataLoading, setDataLoading] = useState(false);
   const [dataError, setDataError] = useState("");
   const [lastLoadedAt, setLastLoadedAt] = useState(null);
@@ -141,20 +142,37 @@ export default function MesTenantApp({ tenant }) {
     setDataLoading(true);
     setDataError("");
     try {
-      const [overviewResult, runsResult] = await Promise.all([
+      const historyStartAt = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const [overviewResult, runsResult, eventsResult] = await Promise.all([
         supabase.rpc("mes_factory_overview", { p_company_id: companyId }),
         supabase.from("mes_job_runs")
           .select("id,workstation_id,machine_id,terminal_id,job_number,item_code,item_name,operator_name,status,planned_quantity,good_quantity,scrap_quantity,started_at,ended_at,created_at")
-          .eq("company_id", companyId).order("created_at", { ascending: false }).limit(75)
+          .eq("company_id", companyId).order("created_at", { ascending: false }).limit(500),
+        supabase.from("mes_event_log")
+          .select("id,terminal_id,workstation_id,job_run_id,event_code,duration_seconds,time_from,time_to,operator_id,payload,created_at")
+          .eq("company_id", companyId).gte("created_at", historyStartAt).order("created_at", { ascending: false }).limit(5000)
       ]);
       if (overviewResult.error) throw overviewResult.error;
       if (runsResult.error) throw runsResult.error;
       setOverviewRows(overviewResult.data || []);
       setJobRuns(runsResult.data || []);
+      const runById = new Map((runsResult.data || []).map((run) => [String(run.id || ""), run]));
+      setMesEvents((eventsResult.data || []).map((event) => {
+        const run = runById.get(String(event.job_run_id || "")) || null;
+        return {
+          ...event,
+          event_type: event.event_code,
+          happened_at: event.time_to || event.created_at,
+          machine_id: run?.machine_id || "",
+          workstation_id: event.workstation_id || run?.workstation_id || "",
+          terminal_id: event.terminal_id || run?.terminal_id || ""
+        };
+      }));
       setLastLoadedAt(new Date());
     } catch (error) {
       setOverviewRows([]);
       setJobRuns([]);
+      setMesEvents([]);
       setDataError(error?.message || "MES dáta sa nepodarilo načítať.");
     } finally {
       setDataLoading(false);
@@ -204,6 +222,7 @@ export default function MesTenantApp({ tenant }) {
     await supabase.auth.signOut({ scope: "local" });
     setOverviewRows([]);
     setJobRuns([]);
+    setMesEvents([]);
     setAccessContext(null);
   };
 
@@ -215,7 +234,7 @@ export default function MesTenantApp({ tenant }) {
 
   if (authState === "anonymous") {
     return (
-      <main className="mes-tenant mes-tenant-login" style={tenantStyle}>
+      <main className={`mes-tenant mes-tenant-login ${tenant.uiVariant === "factory-os" ? "factory-os-login" : ""}`} style={tenantStyle}>
         <section className="mes-tenant-login-card">
           <div className="mes-tenant-brandmark"><Factory size={26} /></div>
           <p className="mes-tenant-eyebrow">{branding.eyebrow || "MES"}</p>
@@ -243,6 +262,7 @@ export default function MesTenantApp({ tenant }) {
         accessContext={accessContext}
         overviewRows={overviewRows}
         jobRuns={jobRuns}
+        mesEvents={mesEvents}
         dataLoading={dataLoading}
         dataError={dataError}
         lastLoadedAt={lastLoadedAt}

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { Factory, LogOut, RefreshCw } from "lucide-react";
+import { Factory, FileSpreadsheet, LayoutDashboard, LogOut, RefreshCw } from "lucide-react";
 import { supabase } from "../../supabaseClient";
+import MesAnalyticsExports from "./MesAnalyticsExports";
 import MesCharts from "./MesCharts";
 import "./factoryOsMesDashboard.css";
 
@@ -59,6 +60,7 @@ export default function FactoryOsMesDashboard({
   overviewRows,
   jobRuns,
   mesEvents,
+  workstations,
   dataLoading,
   dataError,
   lastLoadedAt,
@@ -66,6 +68,7 @@ export default function FactoryOsMesDashboard({
   onSignOut
 }) {
   const [selectedMachineKey, setSelectedMachineKey] = useState("");
+  const [activeSection, setActiveSection] = useState("dashboard");
   const [isDeviceAdminOpen, setIsDeviceAdminOpen] = useState(false);
   const [renameName, setRenameName] = useState("");
   const [renameTerminalName, setRenameTerminalName] = useState("");
@@ -204,10 +207,16 @@ export default function FactoryOsMesDashboard({
       </header>
 
       <section className="factory-os-mes-hero">
-        <div><p className="workflow-section-kicker">Manufacturing</p><h1>MES dashboard</h1><p>Prehľad strojov, výrobných zákaziek a aktuálneho stavu prevádzky.</p></div>
+        <div><p className="workflow-section-kicker">Manufacturing</p><h1>{activeSection === "dashboard" ? "MES dashboard" : "Analytika a exporty"}</h1><p>{activeSection === "dashboard" ? "Prehľad strojov, výrobných zákaziek a aktuálneho stavu prevádzky." : "Reporty výroby pripravené na náhľad a export do Excelu."}</p></div>
         <div className="hero-badges"><span className="table-badge">MES používateľ</span><span className="table-badge">{accessContext.company.name}</span></div>
       </section>
 
+      <nav className="factory-os-mes-navigation" aria-label="Navigácia MES">
+        <button type="button" className={activeSection === "dashboard" ? "is-active" : ""} onClick={() => setActiveSection("dashboard")}><LayoutDashboard size={17} />Dashboard</button>
+        <button type="button" className={activeSection === "analytics" ? "is-active" : ""} onClick={() => setActiveSection("analytics")}><FileSpreadsheet size={17} />Analytika a exporty</button>
+      </nav>
+
+      {activeSection === "dashboard" ? <>
       <article className="orders-panel-card workflow-card workflow-card-list mes-dashboard-card factory-os-mes-panel">
         <div className="panel-head workflow-section-head">
           <div><p className="workflow-section-kicker">MES</p><h2>Nový MES dashboard</h2><p className="panel-meta">Dostupné MES terminály a stroje podľa aktuálneho stavu.</p></div>
@@ -292,6 +301,15 @@ export default function FactoryOsMesDashboard({
         <div className="panel-head workflow-section-head"><div><p className="workflow-section-kicker">Výroba</p><h2>Posledné výrobné behy</h2><p className="panel-meta">Aktuálne a nedávno ukončené výrobné zákazky.</p></div><span className="table-badge">aktualizované {formatDateTime(lastLoadedAt)}</span></div>
         <div className="table-wrap"><table><thead><tr><th>Zákazka</th><th>Výrobok</th><th>Operátor</th><th>Stav</th><th>Plán</th><th>OK</th><th>NOK</th><th>Začiatok</th></tr></thead><tbody>{jobRuns.map((run) => <tr key={run.id}><td>{run.job_number || "-"}</td><td>{run.item_name || run.item_code || "-"}</td><td>{run.operator_name || "-"}</td><td><span className="table-badge">{run.status || "-"}</span></td><td>{formatNumber(run.planned_quantity)}</td><td>{formatNumber(run.good_quantity)}</td><td>{formatNumber(run.scrap_quantity)}</td><td>{formatDateTime(run.started_at || run.created_at)}</td></tr>)}</tbody></table></div>
       </article>
+      </> : (
+        <MesAnalyticsExports
+          companyName={accessContext.company.name}
+          overviewRows={overviewRows}
+          jobRuns={jobRuns}
+          mesEvents={mesEvents}
+          workstations={workstations}
+        />
+      )}
     </main>
   );
 }

@@ -52,6 +52,7 @@ export default function MesTenantApp({ tenant }) {
   const [overviewRows, setOverviewRows] = useState([]);
   const [jobRuns, setJobRuns] = useState([]);
   const [mesEvents, setMesEvents] = useState([]);
+  const [workstations, setWorkstations] = useState([]);
   const [dataLoading, setDataLoading] = useState(false);
   const [dataError, setDataError] = useState("");
   const [lastLoadedAt, setLastLoadedAt] = useState(null);
@@ -142,20 +143,26 @@ export default function MesTenantApp({ tenant }) {
     setDataLoading(true);
     setDataError("");
     try {
-      const historyStartAt = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-      const [overviewResult, runsResult, eventsResult] = await Promise.all([
+      const historyStartAt = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+      const [overviewResult, runsResult, eventsResult, workstationsResult] = await Promise.all([
         supabase.rpc("mes_factory_overview", { p_company_id: companyId }),
         supabase.from("mes_job_runs")
-          .select("id,workstation_id,machine_id,terminal_id,job_number,item_code,item_name,operator_name,status,planned_quantity,good_quantity,scrap_quantity,started_at,ended_at,created_at")
+          .select("id,workstation_id,machine_id,terminal_id,operator_user_id,job_number,item_code,item_name,operator_name,status,planned_quantity,good_quantity,scrap_quantity,setup_started_at,started_at,ended_at,note,created_at,updated_at")
           .eq("company_id", companyId).order("created_at", { ascending: false }).limit(500),
         supabase.from("mes_event_log")
-          .select("id,terminal_id,workstation_id,job_run_id,event_code,duration_seconds,time_from,time_to,operator_id,payload,created_at")
-          .eq("company_id", companyId).gte("created_at", historyStartAt).order("created_at", { ascending: false }).limit(5000)
+          .select("id,terminal_id,workstation_id,job_run_id,event_code,job_number,duration_seconds,time_from,time_to,operator_id,downtime_reason_code,downtime_reason_name,payload,created_at")
+          .eq("company_id", companyId).gte("created_at", historyStartAt).order("created_at", { ascending: false }).limit(5000),
+        supabase.from("mes_workstations")
+          .select("id,code,name,area,target_cycle_seconds,ideal_units_per_hour")
+          .eq("company_id", companyId).eq("is_active", true)
       ]);
       if (overviewResult.error) throw overviewResult.error;
       if (runsResult.error) throw runsResult.error;
+      if (eventsResult.error) throw eventsResult.error;
+      if (workstationsResult.error) throw workstationsResult.error;
       setOverviewRows(overviewResult.data || []);
       setJobRuns(runsResult.data || []);
+      setWorkstations(workstationsResult.data || []);
       const runById = new Map((runsResult.data || []).map((run) => [String(run.id || ""), run]));
       setMesEvents((eventsResult.data || []).map((event) => {
         const run = runById.get(String(event.job_run_id || "")) || null;
@@ -163,6 +170,7 @@ export default function MesTenantApp({ tenant }) {
           ...event,
           event_type: event.event_code,
           happened_at: event.time_to || event.created_at,
+          operator_name: event.payload?.operator_name || "",
           machine_id: run?.machine_id || "",
           workstation_id: event.workstation_id || run?.workstation_id || "",
           terminal_id: event.terminal_id || run?.terminal_id || ""
@@ -173,6 +181,7 @@ export default function MesTenantApp({ tenant }) {
       setOverviewRows([]);
       setJobRuns([]);
       setMesEvents([]);
+      setWorkstations([]);
       setDataError(error?.message || "MES dáta sa nepodarilo načítať.");
     } finally {
       setDataLoading(false);
@@ -223,6 +232,7 @@ export default function MesTenantApp({ tenant }) {
     setOverviewRows([]);
     setJobRuns([]);
     setMesEvents([]);
+    setWorkstations([]);
     setAccessContext(null);
   };
 
@@ -263,6 +273,7 @@ export default function MesTenantApp({ tenant }) {
         overviewRows={overviewRows}
         jobRuns={jobRuns}
         mesEvents={mesEvents}
+        workstations={workstations}
         dataLoading={dataLoading}
         dataError={dataError}
         lastLoadedAt={lastLoadedAt}

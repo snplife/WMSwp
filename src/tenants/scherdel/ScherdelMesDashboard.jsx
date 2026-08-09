@@ -303,7 +303,12 @@ export default function ScherdelMesDashboard({
   return (
     <main className="scherdel-mes" style={{ "--scherdel-accent": tenant.branding?.accent || "#0067a8" }}>
       <header className="scherdel-topbar">
-        <div className="scherdel-brand"><span className="scherdel-mark">S</span><div><strong>SCHERDEL</strong><small>MESLULA Manufacturing Execution System</small></div></div>
+        <div className="scherdel-brand">
+          <img className="scherdel-company-logo" src={tenant.branding?.companyLogo} alt="SCHERDEL" />
+          <span aria-hidden="true" />
+          <img className="scherdel-platform-logo" src={tenant.branding?.platformLogo} alt="MESLULA" />
+          <small>Manufacturing Execution System</small>
+        </div>
         <div className="scherdel-user"><span><ShieldCheck size={15} />{SCHERDEL_ROLE_LABELS[role] || role}</span><div><strong>{accessContext.profile.username || accessContext.profile.email}</strong><small>{accessContext.company.name}</small></div><button type="button" onClick={onSignOut} aria-label="Odhlásiť"><LogOut size={18} /></button></div>
       </header>
 

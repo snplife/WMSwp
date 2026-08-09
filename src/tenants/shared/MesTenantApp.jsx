@@ -283,7 +283,13 @@ export default function MesTenantApp({ tenant }) {
     return (
       <main className={`mes-tenant mes-tenant-login ${tenant.uiVariant === "factory-os" ? "factory-os-login" : ""}`} style={tenantStyle}>
         <section className="mes-tenant-login-card">
-          <div className="mes-tenant-brandmark"><Factory size={26} /></div>
+          {branding.companyLogo ? (
+            <div className="mes-tenant-login-logos" aria-label="Scherdel a MESLULA">
+              <img className="mes-tenant-company-logo" src={branding.companyLogo} alt="SCHERDEL" />
+              {branding.platformLogo ? <span aria-hidden="true" /> : null}
+              {branding.platformLogo ? <img className="mes-tenant-platform-logo" src={branding.platformLogo} alt="MESLULA" /> : null}
+            </div>
+          ) : <div className="mes-tenant-brandmark"><Factory size={26} /></div>}
           <p className="mes-tenant-eyebrow">{branding.eyebrow || "MES"}</p>
           <h1>{branding.productName || "MES"}</h1>
           <p className="mes-tenant-login-copy">Prihlásenie do výrobného prostredia firmy.</p>

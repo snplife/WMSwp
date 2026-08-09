@@ -11,7 +11,9 @@ const tenantDefinitions = [
       productName: "Scherdel MES",
       eyebrow: "Manufacturing Execution System",
       accent: "#0067a8",
-      accentStrong: "#004c7a"
+      accentStrong: "#004c7a",
+      companyLogo: "/brands/scherdel-logo.png",
+      platformLogo: "/brands/meslula-logo.png"
     },
     features: { overview: true, activity: true },
     refreshIntervalMs: 30_000,

@@ -1,0 +1,27 @@
+.factory-os-mes-company-logo {
+  display: block;
+  width: clamp(150px, 18vw, 230px);
+  height: 42px;
+  object-fit: contain;
+  object-position: left center;
+}
+
+.factory-os-mes-brand-logo > div {
+  padding-left: 0.8rem;
+  border-left: 1px solid #d4dee4;
+}
+
+@media (max-width: 700px) {
+  .factory-os-mes-company-logo {
+    width: 135px;
+    height: 34px;
+  }
+
+  .factory-os-mes-brand-logo > div {
+    padding-left: 0.6rem;
+  }
+
+  .factory-os-mes-brand-logo > div p {
+    display: none;
+  }
+}

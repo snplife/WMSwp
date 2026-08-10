@@ -284,8 +284,8 @@ export default function MesTenantApp({ tenant }) {
       <main className={`mes-tenant mes-tenant-login ${tenant.uiVariant === "factory-os" ? "factory-os-login" : ""}`} style={tenantStyle}>
         <section className="mes-tenant-login-card">
           {branding.companyLogo ? (
-            <div className="mes-tenant-login-logos" aria-label="Scherdel a MESLULA">
-              <img className="mes-tenant-company-logo" src={branding.companyLogo} alt="SCHERDEL" />
+            <div className="mes-tenant-login-logos" aria-label={`${branding.companyName || branding.productName || "Firma"} a MESLULA`}>
+              <img className="mes-tenant-company-logo" src={branding.companyLogo} alt={branding.companyName || branding.productName || "Firemné logo"} />
               {branding.platformLogo ? <span aria-hidden="true" /> : null}
               {branding.platformLogo ? <img className="mes-tenant-platform-logo" src={branding.platformLogo} alt="MESLULA" /> : null}
             </div>

@@ -64,7 +64,7 @@ function downloadFile(buffer, fileName) {
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function buildChartDataUrl(title, rows) {
@@ -203,6 +203,22 @@ export default function MesAnalyticsExports({ companyName, overviewRows, jobRuns
         }));
       });
     }
+    if (!rows.length) {
+      overviewRows.forEach((row) => {
+        if (!matchesFilters(row)) return;
+        const happenedAt = row.latest_event_at || row.started_at || new Date().toISOString();
+        const happenedMs = new Date(happenedAt).getTime();
+        if (happenedMs < rangeWindow.startMs || happenedMs > rangeWindow.endMs) return;
+        const startedMs = new Date(row.started_at || 0).getTime();
+        rows.push(makeRow({
+          source: row,
+          happenedAt,
+          quantity: Number(row.good_quantity || 0) + Number(row.scrap_quantity || 0),
+          durationMs: Number.isFinite(startedMs) && happenedMs > startedMs ? happenedMs - startedMs : 0,
+          isSetup: String(row.machine_state || row.job_status || "").toLowerCase() === "setup"
+        }));
+      });
+    }
     return rows.sort((left, right) => new Date(left["Dátum ukončenia"] || 0) - new Date(right["Dátum ukončenia"] || 0));
   }, [jobRuns, mesEvents, overviewRows, rangeWindow, runById, selectedMachineKey, selectedOperator, workstationById]);
 
@@ -212,6 +228,29 @@ export default function MesAnalyticsExports({ companyName, overviewRows, jobRuns
     setups: exportRows.filter((row) => row["Nastavenie"] === "Áno").length,
     jobs: new Set(exportRows.map((row) => row["Číslo zákazky"]).filter(Boolean)).size
   }), [exportRows]);
+
+  const exportBasicWorkbook = async (fileName) => {
+    const module = await import("xlsx");
+    const XLSX = module.default || module;
+    const workbook = XLSX.utils.book_new();
+    const summaryRows = [
+      ["MES report", companyName || "Firma"],
+      ["Obdobie", rangeWindow.label],
+      ["Vyrobené kusy", summary.quantity],
+      ["Zákazky", summary.jobs],
+      ["Skutočný čas (min)", summary.duration],
+      ["Nastavenia", summary.setups]
+    ];
+    const detailRows = exportRows.map((row) => ({
+      ...row,
+      "Dátum ukončenia": row["Dátum ukončenia"] instanceof Date
+        ? row["Dátum ukončenia"].toLocaleDateString("sk-SK")
+        : row["Dátum ukončenia"]
+    }));
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(summaryRows), "Súhrn");
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(detailRows, { header: DETAIL_COLUMNS.map(([header]) => header) }), "Detailné dáta");
+    XLSX.writeFile(workbook, fileName);
+  };
 
   const handleExport = async () => {
     if (exporting || !exportRows.length) return;
@@ -295,7 +334,12 @@ export default function MesAnalyticsExports({ companyName, overviewRows, jobRuns
       const slug = String(companyName || "firma").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "firma";
       downloadFile(await workbook.xlsx.writeBuffer(), `mes-report-${slug}-${new Date().toISOString().slice(0, 10)}.xlsx`);
     } catch (error) {
-      setExportError(error?.message || "Excel report sa nepodarilo vytvoriť.");
+      try {
+        const slug = String(companyName || "firma").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "firma";
+        await exportBasicWorkbook(`mes-report-${slug}-${new Date().toISOString().slice(0, 10)}.xlsx`);
+      } catch (fallbackError) {
+        setExportError(fallbackError?.message || error?.message || "Excel report sa nepodarilo vytvoriť.");
+      }
     } finally {
       setExporting(false);
     }

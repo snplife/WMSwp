@@ -34,6 +34,16 @@ function isCompanyAllowed(tenant, company) {
   return (tenant.companyNameFragments || []).some((fragment) => companyName.includes(normalizeName(fragment)));
 }
 
+function isMissingMesObjectError(error, objectName) {
+  const message = String(error?.message || error || "").toLowerCase();
+  const normalizedObjectName = String(objectName || "").toLowerCase();
+  return message.includes(normalizedObjectName) && (
+    message.includes("does not exist") ||
+    message.includes("schema cache") ||
+    message.includes("could not find")
+  );
+}
+
 function getMachineState(row) {
   const state = String(row.machine_state || row.job_status || "idle").toLowerCase();
   if (state === "running") return { key: "running", label: "Výroba" };
@@ -60,6 +70,7 @@ export default function MesTenantApp({ tenant }) {
   const [dataError, setDataError] = useState("");
   const [lastLoadedAt, setLastLoadedAt] = useState(null);
   const hydrationIdRef = useRef(0);
+  const dataLoadInFlightRef = useRef(false);
   const branding = tenant.branding || {};
 
   useEffect(() => {
@@ -142,21 +153,19 @@ export default function MesTenantApp({ tenant }) {
 
   const loadMesData = useCallback(async () => {
     const companyId = accessContext?.company?.id;
-    if (!companyId) return;
+    if (!companyId || dataLoadInFlightRef.current) return;
+    dataLoadInFlightRef.current = true;
     setDataLoading(true);
     setDataError("");
     try {
       const historyStartAt = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
-      const [overviewResult, runsResult, eventsResult, runEventsResult, workstationsResult, downtimeReasonsResult, productionOrdersResult] = await Promise.all([
+      const [overviewResult, runsResult, eventsResult, workstationsResult, downtimeReasonsResult, productionOrdersResult] = await Promise.all([
         supabase.rpc("mes_factory_overview", { p_company_id: companyId }),
         supabase.from("mes_job_runs")
           .select("id,workstation_id,machine_id,terminal_id,operator_user_id,job_number,item_code,item_name,operator_name,status,planned_quantity,good_quantity,scrap_quantity,setup_started_at,started_at,ended_at,note,created_at,updated_at")
           .eq("company_id", companyId).order("created_at", { ascending: false }).limit(500),
         supabase.from("mes_event_log")
           .select("id,terminal_id,workstation_id,job_run_id,event_code,job_number,duration_seconds,time_from,time_to,operator_id,downtime_reason_code,downtime_reason_name,payload,created_at")
-          .eq("company_id", companyId).gte("created_at", historyStartAt).order("created_at", { ascending: false }).limit(5000),
-        supabase.from("mes_job_run_events")
-          .select("id,job_run_id,workstation_id,machine_id,terminal_id,downtime_reason_id,operator_user_id,operator_name,event_type,quantity,source,note,payload,happened_at,created_at")
           .eq("company_id", companyId).gte("created_at", historyStartAt).order("created_at", { ascending: false }).limit(5000),
         supabase.from("mes_workstations")
           .select("id,code,name,area,target_cycle_seconds,ideal_units_per_hour")
@@ -170,17 +179,33 @@ export default function MesTenantApp({ tenant }) {
       ]);
       if (overviewResult.error) throw overviewResult.error;
       if (runsResult.error) throw runsResult.error;
-      if (eventsResult.error) throw eventsResult.error;
-      if (runEventsResult.error) throw runEventsResult.error;
+      if (eventsResult.error && !isMissingMesObjectError(eventsResult.error, "mes_event_log")) throw eventsResult.error;
       if (workstationsResult.error) throw workstationsResult.error;
       if (downtimeReasonsResult.error) throw downtimeReasonsResult.error;
       if (productionOrdersResult.error) throw productionOrdersResult.error;
+      const runs = runsResult.data || [];
+      const runEvents = [];
+      const runIds = runs.map((run) => run.id).filter(Boolean);
+      for (let index = 0; index < runIds.length; index += 100) {
+        const { data, error } = await supabase.from("mes_job_run_events")
+          .select("id,job_run_id,workstation_id,machine_id,downtime_reason_id,event_type,quantity,source,note,payload,happened_at,created_at")
+          .in("job_run_id", runIds.slice(index, index + 100))
+          .gte("happened_at", historyStartAt)
+          .order("happened_at", { ascending: false })
+          .limit(5000);
+        if (error) {
+          if (isMissingMesObjectError(error, "mes_job_run_events")) break;
+          throw error;
+        }
+        runEvents.push(...(data || []));
+        if (runEvents.length >= 5000) break;
+      }
       setOverviewRows(overviewResult.data || []);
-      setJobRuns(runsResult.data || []);
+      setJobRuns(runs);
       setWorkstations(workstationsResult.data || []);
       setDowntimeReasons(downtimeReasonsResult.data || []);
       setProductionOrders(productionOrdersResult.data || []);
-      const runById = new Map((runsResult.data || []).map((run) => [String(run.id || ""), run]));
+      const runById = new Map(runs.map((run) => [String(run.id || ""), run]));
       const compactEvents = (eventsResult.data || []).map((event) => {
         const run = runById.get(String(event.job_run_id || "")) || null;
         return {
@@ -193,14 +218,21 @@ export default function MesTenantApp({ tenant }) {
           terminal_id: event.terminal_id || run?.terminal_id || ""
         };
       });
-      const durableEvents = (runEventsResult.data || []).map((event) => ({
-        ...event,
-        event_code: event.event_type,
-        happened_at: event.happened_at || event.created_at,
-        duration_seconds: Number(event.payload?.duration_seconds || 0),
-        time_from: event.payload?.time_from || "",
-        time_to: event.payload?.time_to || event.happened_at || event.created_at
-      }));
+      const durableEvents = runEvents.map((event) => {
+        const run = runById.get(String(event.job_run_id || "")) || null;
+        return {
+          ...event,
+          event_code: event.event_type,
+          happened_at: event.happened_at || event.created_at,
+          duration_seconds: Number(event.payload?.duration_seconds || 0),
+          time_from: event.payload?.time_from || "",
+          time_to: event.payload?.time_to || event.happened_at || event.created_at,
+          operator_name: event.payload?.operator_name || run?.operator_name || "",
+          machine_id: event.machine_id || run?.machine_id || "",
+          workstation_id: event.workstation_id || run?.workstation_id || "",
+          terminal_id: run?.terminal_id || ""
+        };
+      });
       const eventByKey = new Map();
       [...compactEvents, ...durableEvents].forEach((event) => {
         const key = String(event.id || `${event.job_run_id}-${event.event_type}-${event.happened_at}`);
@@ -219,6 +251,7 @@ export default function MesTenantApp({ tenant }) {
       setProductionOrders([]);
       setDataError(error?.message || "MES dáta sa nepodarilo načítať.");
     } finally {
+      dataLoadInFlightRef.current = false;
       setDataLoading(false);
     }
   }, [accessContext?.company?.id]);

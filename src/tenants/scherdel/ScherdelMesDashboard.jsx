@@ -19,6 +19,15 @@ import "./scherdelMesDashboard.css";
 const ACTIVE_RUN_STATUSES = new Set(["queued", "running", "paused"]);
 const numberFormatter = new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 });
 
+function isMissingMesEventColumnError(error) {
+  const message = String(error?.message || error || "").toLowerCase();
+  return message.includes("mes_job_run_events") && (
+    message.includes("does not exist") ||
+    message.includes("schema cache") ||
+    message.includes("could not find")
+  );
+}
+
 function formatNumber(value) {
   return numberFormatter.format(Number(value || 0));
 }
@@ -169,7 +178,29 @@ export default function ScherdelMesDashboard({
       created_by: accessContext.profile.user_id
     };
     const { error } = await supabase.from("mes_job_run_events").insert(payload);
-    if (error) throw error;
+    if (!error) return;
+    if (!isMissingMesEventColumnError(error)) throw error;
+
+    const legacyPayload = {
+      job_run_id: payload.job_run_id,
+      workstation_id: payload.workstation_id,
+      machine_id: payload.machine_id,
+      downtime_reason_id: payload.downtime_reason_id,
+      event_type: payload.event_type,
+      quantity: payload.quantity,
+      source: payload.source,
+      note: payload.note,
+      payload: {
+        ...payload.payload,
+        operator_name: payload.operator_name,
+        operator_user_id: payload.operator_user_id,
+        terminal_id: payload.terminal_id
+      },
+      happened_at: payload.happened_at,
+      created_by: payload.created_by
+    };
+    const { error: legacyError } = await supabase.from("mes_job_run_events").insert(legacyPayload);
+    if (legacyError) throw legacyError;
   };
 
   const updateMachineState = async (machineId, state) => {

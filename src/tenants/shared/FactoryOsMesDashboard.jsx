@@ -306,6 +306,7 @@ export default function FactoryOsMesDashboard({
       </article>
       </> : (
         <MesAnalyticsExports
+          companyId={accessContext.company.id}
           companyName={accessContext.company.name}
           overviewRows={overviewRows}
           jobRuns={jobRuns}

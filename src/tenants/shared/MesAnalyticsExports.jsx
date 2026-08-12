@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Download, FileSpreadsheet } from "lucide-react";
+import { supabase } from "../../supabaseClient";
 import { getMesEventDurationMs, getMesEventQuantity } from "../../modules/mes/analytics";
 import "./mesAnalyticsExports.css";
 
@@ -103,7 +104,18 @@ function buildChartDataUrl(title, rows) {
   return canvas.toDataURL("image/png");
 }
 
-export default function MesAnalyticsExports({ companyName, overviewRows, jobRuns, mesEvents, workstations }) {
+const JOB_RUN_SELECT = "id,workstation_id,machine_id,terminal_id,operator_user_id,job_number,item_code,item_name,operator_name,status,planned_quantity,good_quantity,scrap_quantity,setup_started_at,started_at,ended_at,note,created_at,updated_at";
+const COMPACT_EVENT_SELECT = "id,terminal_id,workstation_id,job_run_id,event_code,job_number,duration_seconds,time_from,time_to,operator_id,downtime_reason_code,downtime_reason_name,payload,created_at";
+const DURABLE_EVENT_SELECT = "id,job_run_id,workstation_id,machine_id,downtime_reason_id,event_type,quantity,source,note,payload,happened_at,created_at";
+
+function isMissingTableError(error, tableName) {
+  const message = String(error?.message || error || "").toLowerCase();
+  return message.includes(String(tableName || "").toLowerCase()) && (
+    message.includes("does not exist") || message.includes("schema cache") || message.includes("could not find")
+  );
+}
+
+export default function MesAnalyticsExports({ companyId, companyName, overviewRows, jobRuns, mesEvents, workstations }) {
   const today = toDateInputValue(new Date());
   const [reportType, setReportType] = useState("overview");
   const [rangeKey, setRangeKey] = useState("last_7_days");
@@ -113,18 +125,145 @@ export default function MesAnalyticsExports({ companyName, overviewRows, jobRuns
   const [selectedOperator, setSelectedOperator] = useState("all");
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState("");
+  const [rangeJobRuns, setRangeJobRuns] = useState(jobRuns);
+  const [rangeMesEvents, setRangeMesEvents] = useState(mesEvents);
+  const [rangeLoading, setRangeLoading] = useState(false);
+  const [rangeError, setRangeError] = useState("");
+  const rangeRequestIdRef = useRef(0);
 
   const rangeWindow = useMemo(() => getRangeWindow(rangeKey, customStart, customEnd), [rangeKey, customStart, customEnd]);
-  const runById = useMemo(() => new Map(jobRuns.map((run) => [String(run.id || ""), run])), [jobRuns]);
+  const runById = useMemo(() => new Map(rangeJobRuns.map((run) => [String(run.id || ""), run])), [rangeJobRuns]);
   const workstationById = useMemo(() => new Map(workstations.map((row) => [String(row.id || ""), row])), [workstations]);
   const machineOptions = useMemo(() => overviewRows.map((row) => ({
     key: machineKey(row),
     label: row.machine_name || row.workstation_name || row.machine_code || row.workstation_code || "Stroj"
   })).filter((row) => row.key), [overviewRows]);
   const operatorOptions = useMemo(() => Array.from(new Set([
-    ...jobRuns.map(operatorLabel),
-    ...mesEvents.map((event) => operatorLabel(runById.get(String(event.job_run_id || ""))) || operatorLabel(event))
-  ].filter(Boolean))).sort((left, right) => left.localeCompare(right, "sk-SK", { sensitivity: "base" })), [jobRuns, mesEvents, runById]);
+    ...rangeJobRuns.map(operatorLabel),
+    ...rangeMesEvents.map((event) => operatorLabel(runById.get(String(event.job_run_id || ""))) || operatorLabel(event))
+  ].filter(Boolean))).sort((left, right) => left.localeCompare(right, "sk-SK", { sensitivity: "base" })), [rangeJobRuns, rangeMesEvents, runById]);
+
+  useEffect(() => {
+    if (!companyId) {
+      setRangeJobRuns(jobRuns);
+      setRangeMesEvents(mesEvents);
+      return undefined;
+    }
+    if (!Number.isFinite(rangeWindow.startMs) || !Number.isFinite(rangeWindow.endMs) || rangeWindow.startMs > rangeWindow.endMs) {
+      setRangeJobRuns([]);
+      setRangeMesEvents([]);
+      setRangeError("Dátum od musí byť skorší alebo rovnaký ako dátum do.");
+      return undefined;
+    }
+
+    const requestId = ++rangeRequestIdRef.current;
+    setRangeLoading(true);
+    setRangeError("");
+    setRangeJobRuns([]);
+    setRangeMesEvents([]);
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const startIso = new Date(rangeWindow.startMs).toISOString();
+        const endIso = new Date(rangeWindow.endMs).toISOString();
+        const [runsResult, compactEventsResult] = await Promise.all([
+          supabase.from("mes_job_runs")
+            .select(JOB_RUN_SELECT)
+            .eq("company_id", companyId)
+            .lte("created_at", endIso)
+            .or(`ended_at.gte.${startIso},ended_at.is.null,updated_at.gte.${startIso}`)
+            .order("created_at", { ascending: false })
+            .limit(10_000),
+          supabase.from("mes_event_log")
+            .select(COMPACT_EVENT_SELECT)
+            .eq("company_id", companyId)
+            .or(`and(time_to.gte.${startIso},time_to.lte.${endIso}),and(time_to.is.null,created_at.gte.${startIso},created_at.lte.${endIso})`)
+            .order("created_at", { ascending: false })
+            .limit(10_000)
+        ]);
+        if (runsResult.error) throw runsResult.error;
+        if (compactEventsResult.error && !isMissingTableError(compactEventsResult.error, "mes_event_log")) throw compactEventsResult.error;
+
+        const runs = [...(runsResult.data || [])];
+        const loadedRunIds = new Set(runs.map((run) => String(run.id || "")));
+        const missingRunIds = Array.from(new Set((compactEventsResult.data || [])
+          .map((event) => String(event.job_run_id || ""))
+          .filter((id) => id && !loadedRunIds.has(id))));
+        for (let index = 0; index < missingRunIds.length; index += 100) {
+          const missingRunsResult = await supabase.from("mes_job_runs")
+            .select(JOB_RUN_SELECT)
+            .eq("company_id", companyId)
+            .in("id", missingRunIds.slice(index, index + 100));
+          if (missingRunsResult.error) throw missingRunsResult.error;
+          runs.push(...(missingRunsResult.data || []));
+        }
+        const runByLoadedId = new Map(runs.map((run) => [String(run.id || ""), run]));
+        const compactEvents = (compactEventsResult.data || []).map((event) => {
+          const run = runByLoadedId.get(String(event.job_run_id || "")) || null;
+          return {
+            ...event,
+            event_type: event.event_code,
+            happened_at: event.time_to || event.created_at,
+            operator_name: event.payload?.operator_name || run?.operator_name || "",
+            machine_id: run?.machine_id || "",
+            workstation_id: event.workstation_id || run?.workstation_id || "",
+            terminal_id: event.terminal_id || run?.terminal_id || ""
+          };
+        });
+
+        const durableEvents = [];
+        const runIds = runs.map((run) => run.id).filter(Boolean);
+        for (let index = 0; index < runIds.length; index += 100) {
+          const result = await supabase.from("mes_job_run_events")
+            .select(DURABLE_EVENT_SELECT)
+            .in("job_run_id", runIds.slice(index, index + 100))
+            .gte("happened_at", startIso)
+            .lte("happened_at", endIso)
+            .order("happened_at", { ascending: false })
+            .limit(10_000);
+          if (result.error) {
+            if (isMissingTableError(result.error, "mes_job_run_events")) break;
+            throw result.error;
+          }
+          durableEvents.push(...(result.data || []).map((event) => {
+            const run = runByLoadedId.get(String(event.job_run_id || "")) || null;
+            return {
+              ...event,
+              event_code: event.event_type,
+              happened_at: event.happened_at || event.created_at,
+              duration_seconds: Number(event.payload?.duration_seconds || 0),
+              time_from: event.payload?.time_from || "",
+              time_to: event.payload?.time_to || event.happened_at || event.created_at,
+              operator_name: event.payload?.operator_name || run?.operator_name || "",
+              machine_id: event.machine_id || run?.machine_id || "",
+              workstation_id: event.workstation_id || run?.workstation_id || "",
+              terminal_id: run?.terminal_id || ""
+            };
+          }));
+        }
+
+        if (requestId !== rangeRequestIdRef.current) return;
+        const eventByKey = new Map();
+        [...compactEvents, ...durableEvents].forEach((event) => {
+          const key = String(event.id || `${event.job_run_id}-${event.event_type}-${event.happened_at}`);
+          if (!eventByKey.has(key)) eventByKey.set(key, event);
+        });
+        setRangeJobRuns(runs);
+        setRangeMesEvents(Array.from(eventByKey.values()));
+      } catch (error) {
+        if (requestId !== rangeRequestIdRef.current) return;
+        setRangeJobRuns([]);
+        setRangeMesEvents([]);
+        setRangeError(error?.message || "Dáta pre zvolené obdobie sa nepodarilo načítať zo SQL.");
+      } finally {
+        if (requestId === rangeRequestIdRef.current) setRangeLoading(false);
+      }
+    }, 300);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      rangeRequestIdRef.current += 1;
+    };
+  }, [companyId, rangeWindow.startMs, rangeWindow.endMs]);
 
   const exportRows = useMemo(() => {
     const resolveMachine = (row) => overviewRows.find((machine) =>
@@ -173,7 +312,7 @@ export default function MesAnalyticsExports({ companyName, overviewRows, jobRuns
     };
 
     const allowedEventTypes = new Set(["good_count", "scrap_count", "ml", "setup_start", "setup_end", "start", "complete"]);
-    const rows = mesEvents.flatMap((event) => {
+    const rows = rangeMesEvents.flatMap((event) => {
       const eventType = String(event.event_type || event.event_code || "").toLowerCase();
       const happenedAt = event.happened_at || event.created_at;
       const happenedMs = new Date(happenedAt || 0).getTime();
@@ -189,7 +328,7 @@ export default function MesAnalyticsExports({ companyName, overviewRows, jobRuns
     });
 
     if (!rows.length) {
-      jobRuns.forEach((run) => {
+      rangeJobRuns.forEach((run) => {
         const happenedAt = run.ended_at || run.updated_at || run.created_at;
         const happenedMs = new Date(happenedAt || 0).getTime();
         if (happenedMs < rangeWindow.startMs || happenedMs > rangeWindow.endMs || !matchesFilters(run)) return;
@@ -220,7 +359,7 @@ export default function MesAnalyticsExports({ companyName, overviewRows, jobRuns
       });
     }
     return rows.sort((left, right) => new Date(left["Dátum ukončenia"] || 0) - new Date(right["Dátum ukončenia"] || 0));
-  }, [jobRuns, mesEvents, overviewRows, rangeWindow, runById, selectedMachineKey, selectedOperator, workstationById]);
+  }, [rangeJobRuns, rangeMesEvents, overviewRows, rangeWindow, runById, selectedMachineKey, selectedOperator, workstationById]);
 
   const summary = useMemo(() => ({
     quantity: exportRows.reduce((sum, row) => sum + Number(row["IST kusy"] || 0), 0),
@@ -349,7 +488,7 @@ export default function MesAnalyticsExports({ companyName, overviewRows, jobRuns
     <article className="orders-panel-card workflow-card workflow-card-list factory-os-mes-panel factory-mes-export-panel">
       <div className="panel-head workflow-section-head">
         <div><p className="workflow-section-kicker">Analytika</p><h2>Analytika a exporty</h2><p className="panel-meta">Samostatný Excel report v rovnakom formáte ako v hlavnej aplikácii.</p></div>
-        <button type="button" className="settings-btn factory-mes-export-button" onClick={handleExport} disabled={exporting || exportRows.length === 0}><Download size={16} />{exporting ? "Vytváram Excel..." : "Exportovať Excel"}</button>
+        <button type="button" className="settings-btn factory-mes-export-button" onClick={handleExport} disabled={rangeLoading || exporting || exportRows.length === 0}><Download size={16} />{rangeLoading ? "Načítavam dáta..." : exporting ? "Vytváram Excel..." : "Exportovať Excel"}</button>
       </div>
       <section className="factory-mes-export-filters">
         <label><span>Typ reportu</span><select value={reportType} onChange={(event) => setReportType(event.target.value)}><option value="overview">Súhrnný report</option><option value="machines">Podľa strojov</option><option value="operators">Podľa operátorov</option></select></label>
@@ -364,6 +503,8 @@ export default function MesAnalyticsExports({ companyName, overviewRows, jobRuns
         <article><span>Zákazky</span><strong>{numberFormatter.format(summary.jobs)}</strong></article>
         <article><span>Nastavenia</span><strong>{numberFormatter.format(summary.setups)}</strong></article>
       </section>
+      {rangeLoading ? <p className="hint">Načítavam dáta zo SQL pre zvolené obdobie…</p> : null}
+      {rangeError ? <p className="error">{rangeError}</p> : null}
       {exportError ? <p className="error">{exportError}</p> : null}
       <div className="factory-mes-export-preview-head"><div><FileSpreadsheet size={19} /><strong>Náhľad detailných dát</strong></div><span>{rangeWindow.label} · {exportRows.length} riadkov</span></div>
       <div className="table-wrap factory-mes-export-table"><table><thead><tr>{DETAIL_COLUMNS.slice(0, 8).map(([column]) => <th key={column}>{column}</th>)}</tr></thead><tbody>{exportRows.slice(0, 100).map((row, index) => <tr key={`${row["Číslo zákazky"]}-${index}`}>{DETAIL_COLUMNS.slice(0, 8).map(([column]) => <td key={column}>{column === "Dátum ukončenia" && row[column] instanceof Date ? row[column].toLocaleDateString("sk-SK") : row[column] || "-"}</td>)}</tr>)}</tbody></table></div>

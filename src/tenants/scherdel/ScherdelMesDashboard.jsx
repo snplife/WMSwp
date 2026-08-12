@@ -427,7 +427,7 @@ export default function ScherdelMesDashboard({
         <div className="scherdel-oee-head"><div><p>OEE · dnešná výroba</p><h2>Výkon výrobných zariadení</h2></div><strong>{formatNumber(oee.value)} %</strong></div>
         <div className="scherdel-oee-formula"><article><Clock3 /><span>A · Dostupnosť</span><strong>{formatNumber(oee.availability)} %</strong></article><i>×</i><article><BarChart3 /><span>P · Výkonnosť</span><strong>{formatNumber(oee.performance)} %</strong></article><i>×</i><article><CheckCircle2 /><span>Q · Kvalita</span><strong>{formatNumber(oee.quality)} %</strong></article><i>=</i><article className="result"><Gauge /><span>OEE</span><strong>{formatNumber(oee.value)} %</strong></article></div>
         <p className="scherdel-note">Výkonnosť používa normu <b>ideálne kusy/hod.</b> nastavenú na pracovisku. Bez normy zostáva P a OEE na 0 %.</p>
-        <MesAnalyticsExports companyName={accessContext.company.name} overviewRows={overviewRows} jobRuns={jobRuns} mesEvents={mesEvents} workstations={workstations} />
+        <MesAnalyticsExports companyId={accessContext.company.id} companyName={accessContext.company.name} overviewRows={overviewRows} jobRuns={jobRuns} mesEvents={mesEvents} workstations={workstations} />
       </section> : null}
 
       {activeSection === "catalogs" ? <section className="scherdel-catalogs">

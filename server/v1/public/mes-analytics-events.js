@@ -2,8 +2,10 @@ import { requireAuthenticatedUser } from "../../../api/_lib/userAuth.js";
 import { sendJson, sendMethodNotAllowed } from "../../../api/_lib/http.js";
 
 const PAGE_SIZE = 1000;
-const MAX_RUNS = 100_000;
-const RUN_SELECT = "id,workstation_id,machine_id,terminal_id,operator_name,job_number,good_quantity,scrap_quantity,started_at,ended_at";
+const MAX_EVENTS = 500_000;
+const EVENT_SELECT = "workstation_id,terminal_id,operator_id,duration_seconds,payload,created_at";
+const CACHE_TTL_MS = 5 * 60 * 1000;
+const reportCache = new Map();
 const SHIFT_TIME_FORMATTER = new Intl.DateTimeFormat("en-CA", {
   timeZone: "Europe/Bratislava",
   year: "numeric",
@@ -38,57 +40,74 @@ function getShiftBucket(value) {
   return { date: dateKey, key: "night", label: "Nočná 22:00 – 06:00", order: 3 };
 }
 
-function summarizeRuns(runs) {
+function eventQuantity(event) {
+  const payload = event?.payload && typeof event.payload === "object" ? event.payload : {};
+  const candidates = [payload.quantity, payload.qty, payload.count];
+  const quantity = Number(candidates.find((value) => Number.isFinite(Number(value)) && Number(value) > 0) || 1);
+  return Math.max(1, quantity);
+}
+
+function summarizeProductionCycles(events) {
   const grouped = new Map();
-  runs.forEach((run) => {
-    const shift = getShiftBucket(run.ended_at);
+  events.forEach((event) => {
+    const shift = getShiftBucket(event.created_at);
     if (!shift) return;
-    const operator = String(run.operator_name || "Neurčený operátor").trim() || "Neurčený operátor";
-    const machineId = String(run.machine_id || "");
-    const workstationId = String(run.workstation_id || "");
-    const terminalId = String(run.terminal_id || "");
-    const key = `${shift.date}|${shift.key}|${operator}|${machineId}|${workstationId}|${terminalId}`;
+    const operator = String(event.payload?.operator || event.payload?.operator_name || event.operator_id || "Neurčený operátor").trim() || "Neurčený operátor";
+    const workstationId = String(event.workstation_id || event.payload?.workstation_id || "");
+    const terminalId = String(event.terminal_id || "");
+    const key = `${shift.date}|${shift.key}|${operator}|${workstationId}|${terminalId}`;
     if (!grouped.has(key)) grouped.set(key, {
       key,
       date: shift.date,
       shift: shift.label,
       shift_order: shift.order,
       operator,
-      machine_id: machineId,
       workstation_id: workstationId,
       terminal_id: terminalId,
-      good: 0,
-      scrap: 0,
-      runtime_minutes: 0,
-      job_numbers: new Set()
+      pieces: 0,
+      runtime_minutes: 0
     });
     const group = grouped.get(key);
-    group.good += Math.max(0, Number(run.good_quantity || 0));
-    group.scrap += Math.max(0, Number(run.scrap_quantity || 0));
-    const startedAt = parseDate(run.started_at);
-    const endedAt = parseDate(run.ended_at);
-    if (startedAt && endedAt && endedAt > startedAt) {
-      group.runtime_minutes += (endedAt.getTime() - startedAt.getTime()) / 60_000;
-    }
-    const jobNumber = String(run.job_number || "").trim();
-    if (jobNumber) group.job_numbers.add(jobNumber);
+    group.pieces += eventQuantity(event);
+    group.runtime_minutes += Math.max(0, Number(event.duration_seconds || event.payload?.duration_seconds || 0)) / 60;
   });
   return Array.from(grouped.values())
-    .map((group) => ({
-      ...group,
-      runtime_minutes: Number(group.runtime_minutes.toFixed(2)),
-      job_numbers: Array.from(group.job_numbers)
-    }))
+    .map((group) => ({ ...group, runtime_minutes: Number(group.runtime_minutes.toFixed(2)) }))
     .sort((left, right) => left.date.localeCompare(right.date) || left.shift_order - right.shift_order || left.operator.localeCompare(right.operator, "sk-SK"));
+}
+
+async function loadProductionCycles(supabase, companyId, start, end) {
+  const baseQuery = () => supabase.from("mes_event_log")
+    .select(EVENT_SELECT, { count: "exact" })
+    .eq("company_id", companyId)
+    .eq("event_code", "ml")
+    .gte("created_at", start.toISOString())
+    .lte("created_at", end.toISOString())
+    .order("created_at", { ascending: true });
+  const firstResult = await baseQuery().range(0, PAGE_SIZE - 1);
+  if (firstResult.error) throw new Error(`MES production query failed: ${firstResult.error.message}`);
+  const total = Number(firstResult.count || 0);
+  if (total > MAX_EVENTS) throw new Error(`Obdobie obsahuje viac ako ${MAX_EVENTS} výrobných cyklov.`);
+  const events = [...(firstResult.data || [])];
+  for (let from = PAGE_SIZE; from < total; from += PAGE_SIZE * 8) {
+    const batch = [];
+    for (let pageFrom = from; pageFrom < Math.min(total, from + PAGE_SIZE * 8); pageFrom += PAGE_SIZE) {
+      batch.push(baseQuery().range(pageFrom, pageFrom + PAGE_SIZE - 1));
+    }
+    const results = await Promise.all(batch);
+    results.forEach((result) => {
+      if (result.error) throw new Error(`MES production query failed: ${result.error.message}`);
+      events.push(...(result.data || []));
+    });
+  }
+  return { events, total };
 }
 
 export default async function handler(req, res) {
   if (req.method !== "GET") return sendMethodNotAllowed(res, ["GET"]);
-
   try {
     const auth = await requireAuthenticatedUser(req);
     if (!auth.ok) return sendJson(res, auth.status, { ok: false, error: auth.error });
-
     const appUser = auth.appUser;
     const isMaster = String(appUser?.role || "").toLowerCase() === "master";
     const requestedCompanyId = String(req.query.company_id || "").trim();
@@ -96,35 +115,21 @@ export default async function handler(req, res) {
     if (!appUser || !companyId || (!isMaster && String(appUser.company_id || "") !== companyId)) {
       return sendJson(res, 403, { ok: false, error: "Firma v requeste nesedí s prihláseným používateľom." });
     }
-    if (!isMaster && !appUser.can_access_mes) {
-      return sendJson(res, 403, { ok: false, error: "Používateľ nemá povolený prístup do MES." });
-    }
+    if (!isMaster && !appUser.can_access_mes) return sendJson(res, 403, { ok: false, error: "Používateľ nemá povolený prístup do MES." });
 
     const start = parseDate(req.query.start);
     const end = parseDate(req.query.end);
-    if (!start || !end || start > end) return sendJson(res, 400, { ok: false, error: "Neplatné obdobie exportu." });
-    if (end.getTime() - start.getTime() > 366 * 24 * 60 * 60 * 1000) {
-      return sendJson(res, 400, { ok: false, error: "Jednorazový export môže obsahovať najviac 366 dní." });
-    }
+    if (!start || !end || start > end) return sendJson(res, 400, { ok: false, error: "Neplatné obdobie reportu." });
+    if (end.getTime() - start.getTime() > 366 * 24 * 60 * 60 * 1000) return sendJson(res, 400, { ok: false, error: "Report môže obsahovať najviac 366 dní." });
 
-    const runs = [];
-    for (let from = 0; from < MAX_RUNS; from += PAGE_SIZE) {
-      const { data, error } = await auth.supabase.from("mes_job_runs")
-        .select(RUN_SELECT)
-        .eq("company_id", companyId)
-        .gte("ended_at", start.toISOString())
-        .lte("ended_at", end.toISOString())
-        .order("ended_at", { ascending: true })
-        .order("id", { ascending: true })
-        .range(from, from + PAGE_SIZE - 1);
-      if (error) throw new Error(`MES run query failed: ${error.message}`);
-      const page = data || [];
-      runs.push(...page);
-      if (page.length < PAGE_SIZE) break;
-      if (runs.length >= MAX_RUNS) throw new Error(`Obdobie obsahuje viac ako ${MAX_RUNS} výrobných behov.`);
-    }
+    const cacheKey = `${companyId}|${start.toISOString()}|${end.toISOString()}`;
+    const cached = reportCache.get(cacheKey);
+    if (cached && Date.now() - cached.createdAt < CACHE_TTL_MS) return sendJson(res, 200, { ...cached.payload, cached: true });
 
-    return sendJson(res, 200, { ok: true, summary_rows: summarizeRuns(runs), run_count: runs.length });
+    const { events, total } = await loadProductionCycles(auth.supabase, companyId, start, end);
+    const payload = { ok: true, summary_rows: summarizeProductionCycles(events), cycle_count: total };
+    reportCache.set(cacheKey, { createdAt: Date.now(), payload });
+    return sendJson(res, 200, payload);
   } catch (error) {
     return sendJson(res, 500, { ok: false, error: error instanceof Error ? error.message : String(error) });
   }

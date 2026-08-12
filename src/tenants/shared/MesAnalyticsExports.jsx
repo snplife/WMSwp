@@ -4,11 +4,13 @@ import { supabase } from "../../supabaseClient";
 import "./mesAnalyticsExports.css";
 
 const DETAIL_COLUMNS = [
-  ["Dátum", 14], ["Zmena", 22], ["Operátor", 24], ["Stroj", 20], ["OK kusy", 12],
-  ["NOK kusy", 12], ["Spolu kusy", 14], ["Zákazky", 12], ["Výrobný čas (min)", 20]
+  ["Dátum", 14], ["Zmena", 22], ["Operátor", 24], ["Stroj", 20],
+  ["Vyrobené kusy", 16], ["Výrobný čas (min)", 20]
 ];
 
 const numberFormatter = new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 2 });
+const clientReportCache = new Map();
+const CLIENT_CACHE_TTL_MS = 5 * 60 * 1000;
 
 function toDateInputValue(date) {
   const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
@@ -101,6 +103,16 @@ function buildChartDataUrl(title, rows) {
 
 
 async function fetchMesShiftSummary(companyId, startIso, endIso) {
+  const cacheKey = `${companyId}|${startIso}|${endIso}`;
+  const cached = clientReportCache.get(cacheKey);
+  if (cached && Date.now() - cached.createdAt < CLIENT_CACHE_TTL_MS) return cached.promise;
+  const promise = fetchMesShiftSummaryUncached(companyId, startIso, endIso);
+  clientReportCache.set(cacheKey, { createdAt: Date.now(), promise });
+  promise.catch(() => clientReportCache.delete(cacheKey));
+  return promise;
+}
+
+async function fetchMesShiftSummaryUncached(companyId, startIso, endIso) {
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
   if (sessionError || !sessionData?.session?.access_token) {
     throw new Error(sessionError?.message || "Prihlásenie vypršalo. Obnov stránku a prihlás sa znova.");
@@ -112,7 +124,7 @@ async function fetchMesShiftSummary(companyId, startIso, endIso) {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || !payload.ok) throw new Error(payload.error || `MES prepočet zlyhal (${response.status}).`);
-  return { rows: payload.summary_rows || [], runCount: Number(payload.run_count || 0) };
+  return { rows: payload.summary_rows || [], cycleCount: Number(payload.cycle_count || 0) };
 }
 
 export default function MesAnalyticsExports({ companyId, companyName, overviewRows, workstations }) {
@@ -128,7 +140,7 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
   const [rangeShiftRows, setRangeShiftRows] = useState([]);
   const [rangeLoading, setRangeLoading] = useState(false);
   const [rangeError, setRangeError] = useState("");
-  const [processedRunCount, setProcessedRunCount] = useState(0);
+  const [processedCycleCount, setProcessedCycleCount] = useState(0);
   const rangeRequestIdRef = useRef(0);
 
   const rangeWindow = useMemo(() => getRangeWindow(rangeKey, customStart, customEnd), [rangeKey, customStart, customEnd]);
@@ -156,7 +168,7 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
       setRangeLoading(true);
       setRangeError("");
       setRangeShiftRows([]);
-      setProcessedRunCount(0);
+      setProcessedCycleCount(0);
       const timeoutId = window.setTimeout(async () => {
         try {
           const result = await fetchMesShiftSummary(
@@ -166,7 +178,7 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
           );
           if (requestId !== rangeRequestIdRef.current) return;
           setRangeShiftRows(result.rows);
-          setProcessedRunCount(result.runCount);
+          setProcessedCycleCount(result.cycleCount);
         } catch (error) {
           if (requestId !== rangeRequestIdRef.current) return;
           setRangeShiftRows([]);
@@ -203,25 +215,18 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
           "Zmena": row.shift,
           "Operátor": row.operator,
           "Stroj": machine.machine_name || machine.machine_code || machine.workstation_name || machine.workstation_code || workstation.name || workstation.code || row.machine_id || row.workstation_id || "Neurčený stroj",
-          "OK kusy": Number(row.good || 0),
-          "NOK kusy": Number(row.scrap || 0),
-          "Spolu kusy": Number(row.good || 0) + Number(row.scrap || 0),
-          "Zákazky": (row.job_numbers || []).length,
+          "Vyrobené kusy": Number(row.pieces || 0),
           "Výrobný čas (min)": Number(row.runtime_minutes || 0),
-          __shiftOrder: Number(row.shift_order || 0),
-          __jobNumbers: row.job_numbers || []
+          __shiftOrder: Number(row.shift_order || 0)
         };
       })
-      .filter((row) => row["Spolu kusy"] > 0)
+      .filter((row) => row["Vyrobené kusy"] > 0)
       .sort((left, right) => left["Dátum"] - right["Dátum"] || left.__shiftOrder - right.__shiftOrder || left["Operátor"].localeCompare(right["Operátor"], "sk-SK"));
   }, [rangeShiftRows, overviewRows, selectedMachineKey, selectedOperator, workstationById]);
 
   const summary = useMemo(() => ({
-    quantity: exportRows.reduce((sum, row) => sum + Number(row["Spolu kusy"] || 0), 0),
-    good: exportRows.reduce((sum, row) => sum + Number(row["OK kusy"] || 0), 0),
-    scrap: exportRows.reduce((sum, row) => sum + Number(row["NOK kusy"] || 0), 0),
-    duration: exportRows.reduce((sum, row) => sum + Number(row["Výrobný čas (min)"] || 0), 0),
-    jobs: new Set(exportRows.flatMap((row) => row.__jobNumbers || [])).size
+    quantity: exportRows.reduce((sum, row) => sum + Number(row["Vyrobené kusy"] || 0), 0),
+    duration: exportRows.reduce((sum, row) => sum + Number(row["Výrobný čas (min)"] || 0), 0)
   }), [exportRows]);
 
   const exportBasicWorkbook = async (fileName) => {
@@ -231,10 +236,7 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
     const summaryRows = [
       ["MES report", companyName || "Firma"],
       ["Obdobie", rangeWindow.label],
-      ["Vyrobené spolu", summary.quantity],
-      ["OK kusy", summary.good],
-      ["NOK kusy", summary.scrap],
-      ["Zákazky", summary.jobs],
+      ["Vyrobené kusy", summary.quantity],
       ["Výrobný čas (min)", summary.duration]
     ];
     const detailRows = exportRows.map((row) => ({
@@ -261,7 +263,7 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
         const values = new Map();
         exportRows.forEach((row) => {
           const label = String(key(row) || "Neurčené");
-          values.set(label, Number(values.get(label) || 0) + Number(row["Spolu kusy"] || 0));
+          values.set(label, Number(values.get(label) || 0) + Number(row["Vyrobené kusy"] || 0));
         });
         return Array.from(values, ([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
       };
@@ -292,10 +294,10 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
         [2, 4].forEach((column) => { row.getCell(column).font = { bold: true, color: { argb: "FF17324A" } }; });
       });
       [
-        ["A7:B8", "Vyrobené spolu", numberFormatter.format(summary.quantity)],
-        ["C7:D8", "OK kusy", numberFormatter.format(summary.good)],
-        ["E7:F8", "NOK kusy", numberFormatter.format(summary.scrap)],
-        ["G7:H8", "Operátori", numberFormatter.format(new Set(exportRows.map((row) => row["Operátor"])).size)]
+        ["A7:B8", "Vyrobené kusy", numberFormatter.format(summary.quantity)],
+        ["C7:D8", "Výrobný čas", `${numberFormatter.format(summary.duration)} min`],
+        ["E7:F8", "Operátori", numberFormatter.format(new Set(exportRows.map((row) => row["Operátor"])).size)],
+        ["G7:H8", "Zmeny", numberFormatter.format(new Set(exportRows.map((row) => `${row["Dátum"]}-${row["Zmena"]}`)).size)]
       ].forEach(([range, label, value]) => {
         summarySheet.mergeCells(range);
         const cell = summarySheet.getCell(range.split(":")[0]);
@@ -313,7 +315,7 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
       const detailSheet = workbook.addWorksheet("Výroba po zmenách", { views: [{ state: "frozen", ySplit: 1 }], pageSetup: { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 } });
       detailSheet.columns = DETAIL_COLUMNS.map(([header, width]) => ({ header, key: header, width }));
       exportRows.forEach((row) => detailSheet.addRow(row));
-      detailSheet.autoFilter = { from: "A1", to: "I1" };
+      detailSheet.autoFilter = { from: "A1", to: "F1" };
       const header = detailSheet.getRow(1);
       header.height = 28;
       header.eachCell((cell) => {
@@ -322,7 +324,7 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
         cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
       });
       detailSheet.getColumn("Dátum").numFmt = "dd.mm.yyyy";
-      ["OK kusy", "NOK kusy", "Spolu kusy", "Zákazky", "Výrobný čas (min)"].forEach((name) => { detailSheet.getColumn(name).numFmt = "0.00"; });
+      ["Vyrobené kusy", "Výrobný čas (min)"].forEach((name) => { detailSheet.getColumn(name).numFmt = "0.00"; });
       detailSheet.eachRow((row, rowNumber) => {
         if (rowNumber > 1 && rowNumber % 2 === 1) row.eachCell((cell) => { cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF4F7F8" } }; });
       });
@@ -343,8 +345,8 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
   return (
     <article className="orders-panel-card workflow-card workflow-card-list factory-os-mes-panel factory-mes-export-panel">
       <div className="panel-head workflow-section-head">
-        <div><p className="workflow-section-kicker">Analytika</p><h2>Výroba po zmenách</h2><p className="panel-meta">Prepočet hotových výrobných behov podľa dňa a zmeny. Záznamy udalostí sa vôbec nečítajú.</p></div>
-        <button type="button" className="settings-btn factory-mes-export-button" onClick={handleExport} disabled={rangeLoading || exporting || exportRows.length === 0}><Download size={16} />{rangeLoading ? "Prepočítavam runy..." : exporting ? "Vytváram Excel..." : "Exportovať Excel"}</button>
+        <div><p className="workflow-section-kicker">Analytika</p><h2>Výroba po zmenách</h2><p className="panel-meta">Kusy a výrobný čas z reálnych strojových cyklov, zoskupené podľa dňa, zmeny a operátora.</p></div>
+        <button type="button" className="settings-btn factory-mes-export-button" onClick={handleExport} disabled={rangeLoading || exporting || exportRows.length === 0}><Download size={16} />{rangeLoading ? "Pripravujem report..." : exporting ? "Vytváram Excel..." : "Exportovať Excel"}</button>
       </div>
       <section className="factory-mes-export-filters">
         <label><span>Typ reportu</span><select value={reportType} onChange={(event) => setReportType(event.target.value)}><option value="overview">Súhrnný report</option><option value="machines">Podľa strojov</option><option value="operators">Podľa operátorov</option></select></label>
@@ -355,11 +357,11 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
       </section>
       <section className="factory-mes-export-summary">
         <article><span>Súhrnné riadky</span><strong>{numberFormatter.format(exportRows.length)}</strong></article>
-        <article><span>Vyrobené spolu</span><strong>{numberFormatter.format(summary.quantity)}</strong></article>
-        <article><span>OK kusy</span><strong>{numberFormatter.format(summary.good)}</strong></article>
-        <article><span>NOK kusy</span><strong>{numberFormatter.format(summary.scrap)}</strong></article>
+        <article><span>Vyrobené kusy</span><strong>{numberFormatter.format(summary.quantity)}</strong></article>
+        <article><span>Výrobný čas</span><strong>{numberFormatter.format(summary.duration)} min</strong></article>
+        <article><span>Operátori</span><strong>{numberFormatter.format(new Set(exportRows.map((row) => row["Operátor"])).size)}</strong></article>
       </section>
-      {!rangeLoading && processedRunCount > 0 ? <p className="hint">Prepočítané z {numberFormatter.format(processedRunCount)} ukončených výrobných behov. MES udalosti sa nenačítavali.</p> : null}
+      {!rangeLoading && processedCycleCount > 0 ? <p className="hint">Report zohľadňuje {numberFormatter.format(processedCycleCount)} výrobných cyklov. Do prehliadača prišli iba súhrnné riadky.</p> : null}
       {rangeError ? <p className="error">{rangeError}</p> : null}
       {exportError ? <p className="error">{exportError}</p> : null}
       <div className="factory-mes-export-preview-head"><div><FileSpreadsheet size={19} /><strong>Náhľad výroby po zmenách</strong></div><span>{rangeWindow.label} · {exportRows.length} súhrnných riadkov</span></div>

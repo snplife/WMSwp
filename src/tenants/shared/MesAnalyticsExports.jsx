@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Download, FileSpreadsheet } from "lucide-react";
 import { supabase } from "../../supabaseClient";
-import { getMesEventDurationMs, getMesEventQuantity } from "../../modules/mes/analytics";
 import "./mesAnalyticsExports.css";
 
 const DETAIL_COLUMNS = [
@@ -56,6 +55,86 @@ function operatorLabel(row) {
   return String(row?.operator_name || row?.payload?.operator_name || row?.operator_id || row?.operator_user_id || "").trim();
 }
 
+function eventTypeOf(row) {
+  return String(row?.event_type || row?.event_code || "").trim().toLowerCase();
+}
+
+function eventTimeMs(row) {
+  return new Date(row?.happened_at || row?.time_to || row?.created_at || 0).getTime();
+}
+
+function countEventQuantity(row) {
+  const payload = row?.payload && typeof row.payload === "object" ? row.payload : {};
+  const eventType = eventTypeOf(row);
+  const candidates = eventType === "good_count"
+    ? [row?.quantity, payload.good_quantity, payload.ok_qty, payload.quantity, payload.qty, payload.count]
+    : [row?.quantity, payload.scrap_quantity, payload.nok_qty, payload.quantity, payload.qty, payload.count];
+  const value = Number(candidates.find((candidate) => Number.isFinite(Number(candidate)) && Number(candidate) > 0) || 0);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function productionStateAfterEvent(row) {
+  const eventType = eventTypeOf(row);
+  if (["start", "resume", "setup_end", "downtime_end"].includes(eventType)) return "running";
+  if (["pause", "stop", "ml", "downtime_start", "setup_start", "complete", "cancel"].includes(eventType)) return "stopped";
+  return "";
+}
+
+function calculateRunProductionMs(run, runEvents, rangeWindow) {
+  const transitions = (runEvents || [])
+    .map((event) => ({ event, timestamp: eventTimeMs(event), state: productionStateAfterEvent(event) }))
+    .filter((row) => row.state && Number.isFinite(row.timestamp))
+    .sort((left, right) => left.timestamp - right.timestamp);
+  const firstRunningEvent = transitions.find((row) => row.state === "running")?.timestamp;
+  const storedStartMs = new Date(run?.started_at || 0).getTime();
+  const runStartMs = Number.isFinite(storedStartMs) && storedStartMs > 0
+    ? storedStartMs
+    : Number.isFinite(firstRunningEvent) ? firstRunningEvent : 0;
+  if (!Number.isFinite(runStartMs) || runStartMs <= 0) return 0;
+
+  const storedEndMs = new Date(run?.ended_at || 0).getTime();
+  const updatedMs = new Date(run?.updated_at || 0).getTime();
+  const latestEventMs = (runEvents || []).reduce((latest, event) => {
+    const timestamp = eventTimeMs(event);
+    return Number.isFinite(timestamp) && timestamp <= rangeWindow.endMs ? Math.max(latest, timestamp) : latest;
+  }, 0);
+  const status = String(run?.status || "").toLowerCase();
+  let runEndMs;
+  if (Number.isFinite(storedEndMs) && storedEndMs > runStartMs) {
+    runEndMs = storedEndMs;
+  } else if (["completed", "cancelled"].includes(status) && Number.isFinite(updatedMs) && updatedMs > runStartMs && updatedMs <= rangeWindow.endMs) {
+    runEndMs = updatedMs;
+  } else {
+    // An unfinished stale run must not count as production until the end of the selected month.
+    const updatedInsideRangeMs = Number.isFinite(updatedMs) && updatedMs <= rangeWindow.endMs ? updatedMs : 0;
+    const latestActivityMs = Math.max(runStartMs, updatedInsideRangeMs, latestEventMs);
+    runEndMs = Math.min(rangeWindow.endMs, Date.now(), latestActivityMs + 10 * 60_000);
+  }
+
+  const clippedStartMs = Math.max(runStartMs, rangeWindow.startMs);
+  const clippedEndMs = Math.min(runEndMs, rangeWindow.endMs, Date.now());
+  if (!Number.isFinite(clippedEndMs) || clippedEndMs <= clippedStartMs) return 0;
+
+  const transitionsBeforeStart = transitions.filter((row) => row.timestamp <= clippedStartMs);
+  let state = transitionsBeforeStart.at(-1)?.state || "running";
+  if (transitionsBeforeStart.length === 0 && runStartMs < clippedStartMs) {
+    const firstTransitionInRange = transitions.find((row) => row.timestamp > clippedStartMs && row.timestamp < clippedEndMs);
+    // A resume/start as the first known transition means the machine was stopped before it.
+    if (firstTransitionInRange?.state === "running") state = "stopped";
+  }
+
+  let cursorMs = clippedStartMs;
+  let productionMs = 0;
+  transitions.forEach((transition) => {
+    if (transition.timestamp <= clippedStartMs || transition.timestamp >= clippedEndMs) return;
+    if (state === "running") productionMs += Math.max(0, transition.timestamp - cursorMs);
+    cursorMs = transition.timestamp;
+    state = transition.state;
+  });
+  if (state === "running") productionMs += Math.max(0, clippedEndMs - cursorMs);
+  return productionMs;
+}
+
 function downloadFile(buffer, fileName) {
   const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const url = URL.createObjectURL(blob);
@@ -105,7 +184,7 @@ function buildChartDataUrl(title, rows) {
 }
 
 const JOB_RUN_SELECT = "id,workstation_id,machine_id,terminal_id,operator_user_id,job_number,item_code,item_name,operator_name,status,planned_quantity,good_quantity,scrap_quantity,setup_started_at,started_at,ended_at,note,created_at,updated_at";
-const COMPACT_EVENT_SELECT = "id,terminal_id,workstation_id,job_run_id,event_code,job_number,duration_seconds,time_from,time_to,operator_id,downtime_reason_code,downtime_reason_name,payload,created_at";
+const COMPACT_EVENT_SELECT = "id,terminal_id,workstation_id,job_run_id,terminal_event_id,event_code,job_number,duration_seconds,time_from,time_to,operator_id,downtime_reason_code,downtime_reason_name,payload,created_at";
 const DURABLE_EVENT_SELECT = "id,job_run_id,workstation_id,machine_id,downtime_reason_id,event_type,quantity,source,note,payload,happened_at,created_at";
 
 function isMissingTableError(error, tableName) {
@@ -197,7 +276,30 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
           runs.push(...(missingRunsResult.data || []));
         }
         const runByLoadedId = new Map(runs.map((run) => [String(run.id || ""), run]));
-        const compactEvents = (compactEventsResult.data || []).map((event) => {
+        const compactSourceEvents = [...(compactEventsResult.data || [])];
+        const runIds = runs.map((run) => run.id).filter(Boolean);
+        for (let index = 0; index < runIds.length; index += 100) {
+          const predecessorResult = await supabase.from("mes_event_log")
+            .select(COMPACT_EVENT_SELECT)
+            .eq("company_id", companyId)
+            .in("job_run_id", runIds.slice(index, index + 100))
+            .lt("created_at", startIso)
+            .order("created_at", { ascending: false })
+            .limit(10_000);
+          if (predecessorResult.error) {
+            if (isMissingTableError(predecessorResult.error, "mes_event_log")) break;
+            throw predecessorResult.error;
+          }
+          const latestTransitionByRun = new Map();
+          (predecessorResult.data || []).forEach((event) => {
+            const runId = String(event.job_run_id || "");
+            if (runId && productionStateAfterEvent({ ...event, event_type: event.event_code }) && !latestTransitionByRun.has(runId)) {
+              latestTransitionByRun.set(runId, event);
+            }
+          });
+          compactSourceEvents.push(...latestTransitionByRun.values());
+        }
+        const compactEvents = compactSourceEvents.map((event) => {
           const run = runByLoadedId.get(String(event.job_run_id || "")) || null;
           return {
             ...event,
@@ -211,20 +313,36 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
         });
 
         const durableEvents = [];
-        const runIds = runs.map((run) => run.id).filter(Boolean);
         for (let index = 0; index < runIds.length; index += 100) {
-          const result = await supabase.from("mes_job_run_events")
-            .select(DURABLE_EVENT_SELECT)
-            .in("job_run_id", runIds.slice(index, index + 100))
-            .gte("happened_at", startIso)
-            .lte("happened_at", endIso)
-            .order("happened_at", { ascending: false })
-            .limit(10_000);
-          if (result.error) {
-            if (isMissingTableError(result.error, "mes_job_run_events")) break;
-            throw result.error;
+          const batchIds = runIds.slice(index, index + 100);
+          const [result, predecessorResult] = await Promise.all([
+            supabase.from("mes_job_run_events")
+              .select(DURABLE_EVENT_SELECT)
+              .in("job_run_id", batchIds)
+              .gte("happened_at", startIso)
+              .lte("happened_at", endIso)
+              .order("happened_at", { ascending: false })
+              .limit(10_000),
+            supabase.from("mes_job_run_events")
+              .select(DURABLE_EVENT_SELECT)
+              .in("job_run_id", batchIds)
+              .lt("happened_at", startIso)
+              .order("happened_at", { ascending: false })
+              .limit(10_000)
+          ]);
+          if (result.error || predecessorResult.error) {
+            const error = result.error || predecessorResult.error;
+            if (isMissingTableError(error, "mes_job_run_events")) break;
+            throw error;
           }
-          durableEvents.push(...(result.data || []).map((event) => {
+          const latestTransitionByRun = new Map();
+          (predecessorResult.data || []).forEach((event) => {
+            const runId = String(event.job_run_id || "");
+            if (runId && productionStateAfterEvent(event) && !latestTransitionByRun.has(runId)) {
+              latestTransitionByRun.set(runId, event);
+            }
+          });
+          durableEvents.push(...[...(result.data || []), ...latestTransitionByRun.values()].map((event) => {
             const run = runByLoadedId.get(String(event.job_run_id || "")) || null;
             return {
               ...event,
@@ -244,7 +362,10 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
         if (requestId !== rangeRequestIdRef.current) return;
         const eventByKey = new Map();
         [...compactEvents, ...durableEvents].forEach((event) => {
-          const key = String(event.id || `${event.job_run_id}-${event.event_type}-${event.happened_at}`);
+          const key = String(
+            event.terminal_event_id || event.payload?.terminal_event_id ||
+            `${event.job_run_id}-${event.event_type}-${event.happened_at}-${event.quantity || event.payload?.quantity || ""}`
+          );
           if (!eventByKey.has(key)) eventByKey.set(key, event);
         });
         setRangeJobRuns(runs);
@@ -311,37 +432,51 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
       };
     };
 
-    const allowedEventTypes = new Set(["good_count", "scrap_count", "ml", "setup_start", "setup_end", "start", "complete"]);
-    const rows = rangeMesEvents.flatMap((event) => {
-      const eventType = String(event.event_type || event.event_code || "").toLowerCase();
-      const happenedAt = event.happened_at || event.created_at;
-      const happenedMs = new Date(happenedAt || 0).getTime();
-      if (!allowedEventTypes.has(eventType) || happenedMs < rangeWindow.startMs || happenedMs > rangeWindow.endMs || !matchesFilters(event)) return [];
-      return [makeRow({
-        source: runById.get(String(event.job_run_id || "")) || event,
-        event,
-        happenedAt,
-        quantity: ["good_count", "scrap_count", "ml"].includes(eventType) ? getMesEventQuantity(event) : 0,
-        durationMs: getMesEventDurationMs(event),
-        isSetup: eventType === "setup_start" || event.payload?.is_setup === true
-      })];
+    const eventsByRunId = new Map();
+    rangeMesEvents.forEach((event) => {
+      const runId = String(event.job_run_id || "");
+      if (!runId) return;
+      if (!eventsByRunId.has(runId)) eventsByRunId.set(runId, []);
+      eventsByRunId.get(runId).push(event);
     });
 
-    if (!rows.length) {
-      rangeJobRuns.forEach((run) => {
-        const happenedAt = run.ended_at || run.updated_at || run.created_at;
-        const happenedMs = new Date(happenedAt || 0).getTime();
-        if (happenedMs < rangeWindow.startMs || happenedMs > rangeWindow.endMs || !matchesFilters(run)) return;
-        const startedMs = new Date(run.started_at || run.created_at || 0).getTime();
-        rows.push(makeRow({
-          source: run,
-          happenedAt,
-          quantity: Number(run.good_quantity || 0) + Number(run.scrap_quantity || 0),
-          durationMs: Number.isFinite(startedMs) && happenedMs > startedMs ? happenedMs - startedMs : 0,
-          isSetup: false
-        }));
+    const rows = [];
+    rangeJobRuns.forEach((run) => {
+      const runEvents = eventsByRunId.get(String(run.id || "")) || [];
+      const runStartMs = new Date(run.started_at || run.created_at || 0).getTime();
+      const runEndMs = new Date(run.ended_at || run.updated_at || 0).getTime();
+      const overlapsRange = Number.isFinite(runStartMs) && runStartMs <= rangeWindow.endMs &&
+        (!Number.isFinite(runEndMs) || runEndMs >= rangeWindow.startMs);
+      if (!overlapsRange || !matchesFilters(run)) return;
+
+      const countEvents = runEvents.filter((event) => {
+        const timestamp = eventTimeMs(event);
+        return Number.isFinite(timestamp) && timestamp >= rangeWindow.startMs && timestamp <= rangeWindow.endMs;
       });
-    }
+      const goodEvents = countEvents.filter((event) => eventTypeOf(event) === "good_count");
+      const scrapEvents = countEvents.filter((event) => eventTypeOf(event) === "scrap_count");
+      const hasCountEvents = goodEvents.length > 0 || scrapEvents.length > 0;
+      const runFullyInsideRange = runStartMs >= rangeWindow.startMs && Number.isFinite(runEndMs) && runEndMs <= rangeWindow.endMs;
+      const goodQuantity = hasCountEvents
+        ? goodEvents.reduce((sum, event) => sum + countEventQuantity(event), 0)
+        : runFullyInsideRange ? Number(run.good_quantity || 0) : 0;
+      const durationMs = calculateRunProductionMs(run, runEvents, rangeWindow);
+      const hasSetup = countEvents.some((event) => eventTypeOf(event) === "setup_start" || event.payload?.is_setup === true);
+      if (durationMs <= 0 && goodQuantity <= 0 && !hasSetup) return;
+      const completedAt = Math.min(
+        rangeWindow.endMs,
+        new Date(run.ended_at || run.updated_at || Date.now()).getTime(),
+        Date.now()
+      );
+      rows.push(makeRow({
+        source: run,
+        happenedAt: Number.isFinite(completedAt) ? completedAt : run.updated_at || run.created_at,
+        quantity: goodQuantity,
+        durationMs,
+        isSetup: hasSetup
+      }));
+    });
+
     if (!rows.length) {
       overviewRows.forEach((row) => {
         if (!matchesFilters(row)) return;
@@ -352,7 +487,7 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
         rows.push(makeRow({
           source: row,
           happenedAt,
-          quantity: Number(row.good_quantity || 0) + Number(row.scrap_quantity || 0),
+          quantity: Number(row.good_quantity || 0),
           durationMs: Number.isFinite(startedMs) && happenedMs > startedMs ? happenedMs - startedMs : 0,
           isSetup: String(row.machine_state || row.job_status || "").toLowerCase() === "setup"
         }));

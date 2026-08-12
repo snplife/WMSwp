@@ -207,6 +207,33 @@ async function fetchAllSqlRows(makeQuery, maxRows = 100_000) {
   return { data: [], error: new Error(`SQL výber prekročil bezpečnostný limit ${maxRows} riadkov. Zvoľ kratšie obdobie.`) };
 }
 
+async function fetchAllMesEventLogRows(companyId, startIso, endIso, onProgress) {
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError || !sessionData?.session?.access_token) {
+    throw new Error(sessionError?.message || "Prihlásenie vypršalo. Obnov stránku a prihlás sa znova.");
+  }
+  const events = [];
+  let cursor = null;
+  do {
+    const params = new URLSearchParams({ company_id: companyId, start: startIso, end: endIso });
+    if (cursor) {
+      params.set("cursor_created_at", cursor.created_at);
+      params.set("cursor_id", cursor.id);
+    }
+    const response = await fetch(`/api/v1/mes-analytics-events?${params}`, {
+      headers: { Authorization: `Bearer ${sessionData.session.access_token}` },
+      cache: "no-store"
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.ok) throw new Error(payload.error || `MES export API zlyhalo (${response.status}).`);
+    events.push(...(payload.events || []));
+    onProgress?.(events.length);
+    cursor = payload.next_cursor || null;
+    if (events.length > 500_000) throw new Error("Export prekročil limit 500 000 udalostí. Zvoľ kratšie obdobie.");
+  } while (cursor);
+  return events;
+}
+
 export default function MesAnalyticsExports({ companyId, companyName, overviewRows, jobRuns, mesEvents, workstations }) {
   const today = toDateInputValue(new Date());
   const [reportType, setReportType] = useState("overview");
@@ -221,6 +248,7 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
   const [rangeMesEvents, setRangeMesEvents] = useState(mesEvents);
   const [rangeLoading, setRangeLoading] = useState(false);
   const [rangeError, setRangeError] = useState("");
+  const [loadedEventCount, setLoadedEventCount] = useState(0);
   const rangeRequestIdRef = useRef(0);
 
   const rangeWindow = useMemo(() => getRangeWindow(rangeKey, customStart, customEnd), [rangeKey, customStart, customEnd]);
@@ -253,29 +281,25 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
     setRangeError("");
     setRangeJobRuns([]);
     setRangeMesEvents([]);
+    setLoadedEventCount(0);
     const timeoutId = window.setTimeout(async () => {
       try {
         const startIso = new Date(rangeWindow.startMs).toISOString();
         const endIso = new Date(rangeWindow.endMs).toISOString();
-        const [runsResult, compactEventsResult] = await Promise.all([
+        const [runsResult, compactEventData] = await Promise.all([
           fetchAllSqlRows(() => supabase.from("mes_job_runs")
             .select(JOB_RUN_SELECT)
             .eq("company_id", companyId)
             .lte("created_at", endIso)
             .or(`ended_at.gte.${startIso},ended_at.is.null,updated_at.gte.${startIso}`)
             .order("created_at", { ascending: false })),
-          fetchAllSqlRows(() => supabase.from("mes_event_log")
-            .select(COMPACT_EVENT_SELECT)
-            .eq("company_id", companyId)
-            .or(`and(time_to.gte.${startIso},time_to.lte.${endIso}),and(time_to.is.null,created_at.gte.${startIso},created_at.lte.${endIso})`)
-            .order("created_at", { ascending: false }))
+          fetchAllMesEventLogRows(companyId, startIso, endIso, setLoadedEventCount)
         ]);
         if (runsResult.error) throw runsResult.error;
-        if (compactEventsResult.error && !isMissingTableError(compactEventsResult.error, "mes_event_log")) throw compactEventsResult.error;
 
         const runs = [...(runsResult.data || [])];
         const loadedRunIds = new Set(runs.map((run) => String(run.id || "")));
-        const missingRunIds = Array.from(new Set((compactEventsResult.data || [])
+        const missingRunIds = Array.from(new Set((compactEventData || [])
           .map((event) => String(event.job_run_id || ""))
           .filter((id) => id && !loadedRunIds.has(id))));
         for (let index = 0; index < missingRunIds.length; index += 100) {
@@ -287,7 +311,7 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
           runs.push(...(missingRunsResult.data || []));
         }
         const runByLoadedId = new Map(runs.map((run) => [String(run.id || ""), run]));
-        const compactSourceEvents = [...(compactEventsResult.data || [])];
+        const compactSourceEvents = [...(compactEventData || [])];
         const runIds = runs.map((run) => run.id).filter(Boolean);
         for (let index = 0; index < runIds.length; index += 100) {
           const predecessorResult = await supabase.from("mes_event_log")
@@ -690,7 +714,7 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
         <article><span>Zákazky</span><strong>{numberFormatter.format(summary.jobs)}</strong></article>
         <article><span>Nastavenia</span><strong>{numberFormatter.format(summary.setups)}</strong></article>
       </section>
-      {rangeLoading ? <p className="hint">Načítavam dáta zo SQL pre zvolené obdobie…</p> : null}
+      {rangeLoading ? <p className="hint">Načítavam dáta zo SQL pre zvolené obdobie… {loadedEventCount ? `${numberFormatter.format(loadedEventCount)} udalostí` : ""}</p> : null}
       {rangeError ? <p className="error">{rangeError}</p> : null}
       {exportError ? <p className="error">{exportError}</p> : null}
       <div className="factory-mes-export-preview-head"><div><FileSpreadsheet size={19} /><strong>Náhľad detailných dát</strong></div><span>{rangeWindow.label} · {exportRows.length} riadkov</span></div>

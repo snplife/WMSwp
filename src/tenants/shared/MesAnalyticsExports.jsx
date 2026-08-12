@@ -5,7 +5,7 @@ import "./mesAnalyticsExports.css";
 
 const DETAIL_COLUMNS = [
   ["Dátum", 14], ["Zmena", 22], ["Operátor", 24], ["Stroj", 20], ["OK kusy", 12],
-  ["NOK kusy", 12], ["Spolu kusy", 14], ["Zákazky", 12], ["Výrobný čas (min)", 20], ["Nastavenia", 14]
+  ["NOK kusy", 12], ["Spolu kusy", 14], ["Zákazky", 12], ["Nastavenia", 14]
 ];
 
 const numberFormatter = new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 2 });
@@ -251,39 +251,17 @@ function buildChartDataUrl(title, rows) {
   return canvas.toDataURL("image/png");
 }
 
-const JOB_RUN_SELECT = "id,workstation_id,machine_id,terminal_id,operator_user_id,job_number,item_code,item_name,operator_name,status,planned_quantity,good_quantity,scrap_quantity,setup_started_at,started_at,ended_at,note,created_at,updated_at";
-const COMPACT_EVENT_SELECT = "id,terminal_id,workstation_id,job_run_id,terminal_event_id,event_code,job_number,duration_seconds,time_from,time_to,operator_id,downtime_reason_code,downtime_reason_name,payload,created_at";
-const DURABLE_EVENT_SELECT = "id,job_run_id,workstation_id,machine_id,downtime_reason_id,event_type,quantity,source,note,payload,happened_at,created_at";
 
-function isMissingTableError(error, tableName) {
-  const message = String(error?.message || error || "").toLowerCase();
-  return message.includes(String(tableName || "").toLowerCase()) && (
-    message.includes("does not exist") || message.includes("schema cache") || message.includes("could not find")
-  );
-}
-
-async function fetchAllSqlRows(makeQuery, maxRows = 100_000) {
-  const pageSize = 1_000;
-  const rows = [];
-  for (let from = 0; from < maxRows; from += pageSize) {
-    const { data, error } = await makeQuery().range(from, from + pageSize - 1);
-    if (error) return { data: [], error };
-    const page = data || [];
-    rows.push(...page);
-    if (page.length < pageSize) return { data: rows, error: null };
-  }
-  return { data: [], error: new Error(`SQL výber prekročil bezpečnostný limit ${maxRows} riadkov. Zvoľ kratšie obdobie.`) };
-}
-
-async function fetchAllMesEventLogRows(companyId, startIso, endIso, onProgress) {
+async function fetchMesShiftSummary(companyId, startIso, endIso, onProgress) {
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
   if (sessionError || !sessionData?.session?.access_token) {
     throw new Error(sessionError?.message || "Prihlásenie vypršalo. Obnov stránku a prihlás sa znova.");
   }
-  const events = [];
+  const grouped = new Map();
   let cursor = null;
+  let scannedCount = 0;
   do {
-    const params = new URLSearchParams({ company_id: companyId, start: startIso, end: endIso });
+    const params = new URLSearchParams({ company_id: companyId, start: startIso, end: endIso, mode: "shift_summary" });
     if (cursor) {
       params.set("cursor_created_at", cursor.created_at);
       params.set("cursor_id", cursor.id);
@@ -294,12 +272,20 @@ async function fetchAllMesEventLogRows(companyId, startIso, endIso, onProgress) 
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok || !payload.ok) throw new Error(payload.error || `MES export API zlyhalo (${response.status}).`);
-    events.push(...(payload.events || []));
-    onProgress?.(events.length);
+    (payload.summary_rows || []).forEach((row) => {
+      if (!grouped.has(row.key)) grouped.set(row.key, { ...row, good: 0, scrap: 0, setups: 0, job_numbers: new Set() });
+      const group = grouped.get(row.key);
+      group.good += Number(row.good || 0);
+      group.scrap += Number(row.scrap || 0);
+      group.setups += Number(row.setups || 0);
+      (row.job_numbers || []).forEach((jobNumber) => group.job_numbers.add(String(jobNumber)));
+    });
+    scannedCount += Number(payload.scanned_count || 0);
+    onProgress?.(scannedCount);
     cursor = payload.next_cursor || null;
-    if (events.length > 500_000) throw new Error("Export prekročil limit 500 000 udalostí. Zvoľ kratšie obdobie.");
+    if (scannedCount > 500_000) throw new Error("Export prekročil limit 500 000 udalostí. Zvoľ kratšie obdobie.");
   } while (cursor);
-  return events;
+  return Array.from(grouped.values()).map((row) => ({ ...row, job_numbers: Array.from(row.job_numbers) }));
 }
 
 export default function MesAnalyticsExports({ companyId, companyName, overviewRows, jobRuns, mesEvents, workstations }) {
@@ -314,6 +300,7 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
   const [exportError, setExportError] = useState("");
   const [rangeJobRuns, setRangeJobRuns] = useState(jobRuns);
   const [rangeMesEvents, setRangeMesEvents] = useState(mesEvents);
+  const [rangeShiftRows, setRangeShiftRows] = useState(null);
   const [rangeLoading, setRangeLoading] = useState(false);
   const [rangeError, setRangeError] = useState("");
   const [loadedEventCount, setLoadedEventCount] = useState(0);
@@ -328,164 +315,57 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
   })).filter((row) => row.key), [overviewRows]);
   const operatorOptions = useMemo(() => Array.from(new Set([
     ...rangeJobRuns.map(operatorLabel),
-    ...rangeMesEvents.map((event) => operatorLabel(runById.get(String(event.job_run_id || ""))) || operatorLabel(event))
-  ].filter(Boolean))).sort((left, right) => left.localeCompare(right, "sk-SK", { sensitivity: "base" })), [rangeJobRuns, rangeMesEvents, runById]);
+    ...rangeMesEvents.map((event) => operatorLabel(runById.get(String(event.job_run_id || ""))) || operatorLabel(event)),
+    ...(rangeShiftRows || []).map((row) => row.operator)
+  ].filter(Boolean))).sort((left, right) => left.localeCompare(right, "sk-SK", { sensitivity: "base" })), [rangeJobRuns, rangeMesEvents, rangeShiftRows, runById]);
 
   useEffect(() => {
     if (!companyId) {
       setRangeJobRuns(jobRuns);
       setRangeMesEvents(mesEvents);
+      setRangeShiftRows(null);
       return undefined;
     }
     if (!Number.isFinite(rangeWindow.startMs) || !Number.isFinite(rangeWindow.endMs) || rangeWindow.startMs > rangeWindow.endMs) {
       setRangeJobRuns([]);
       setRangeMesEvents([]);
+      setRangeShiftRows([]);
       setRangeError("Dátum od musí byť skorší alebo rovnaký ako dátum do.");
       return undefined;
     }
 
-    const requestId = ++rangeRequestIdRef.current;
-    setRangeLoading(true);
-    setRangeError("");
-    setRangeJobRuns([]);
-    setRangeMesEvents([]);
-    setLoadedEventCount(0);
-    const timeoutId = window.setTimeout(async () => {
-      try {
-        const startIso = new Date(rangeWindow.startMs).toISOString();
-        const endIso = new Date(rangeWindow.endMs).toISOString();
-        const [runsResult, compactEventData] = await Promise.all([
-          fetchAllSqlRows(() => supabase.from("mes_job_runs")
-            .select(JOB_RUN_SELECT)
-            .eq("company_id", companyId)
-            .lte("created_at", endIso)
-            .or(`ended_at.gte.${startIso},ended_at.is.null,updated_at.gte.${startIso}`)
-            .order("created_at", { ascending: false })),
-          fetchAllMesEventLogRows(companyId, startIso, endIso, setLoadedEventCount)
-        ]);
-        if (runsResult.error) throw runsResult.error;
-
-        const runs = [...(runsResult.data || [])];
-        const loadedRunIds = new Set(runs.map((run) => String(run.id || "")));
-        const missingRunIds = Array.from(new Set((compactEventData || [])
-          .map((event) => String(event.job_run_id || ""))
-          .filter((id) => id && !loadedRunIds.has(id))));
-        for (let index = 0; index < missingRunIds.length; index += 100) {
-          const missingRunsResult = await supabase.from("mes_job_runs")
-            .select(JOB_RUN_SELECT)
-            .eq("company_id", companyId)
-            .in("id", missingRunIds.slice(index, index + 100));
-          if (missingRunsResult.error) throw missingRunsResult.error;
-          runs.push(...(missingRunsResult.data || []));
-        }
-        const runByLoadedId = new Map(runs.map((run) => [String(run.id || ""), run]));
-        const compactSourceEvents = [...(compactEventData || [])];
-        const runIds = runs.map((run) => run.id).filter(Boolean);
-        for (let index = 0; index < runIds.length; index += 100) {
-          const predecessorResult = await supabase.from("mes_event_log")
-            .select(COMPACT_EVENT_SELECT)
-            .eq("company_id", companyId)
-            .in("job_run_id", runIds.slice(index, index + 100))
-            .lt("created_at", startIso)
-            .order("created_at", { ascending: false })
-            .limit(10_000);
-          if (predecessorResult.error) {
-            if (isMissingTableError(predecessorResult.error, "mes_event_log")) break;
-            throw predecessorResult.error;
-          }
-          const latestTransitionByRun = new Map();
-          (predecessorResult.data || []).forEach((event) => {
-            const runId = String(event.job_run_id || "");
-            if (runId && productionStateAfterEvent({ ...event, event_type: event.event_code }) && !latestTransitionByRun.has(runId)) {
-              latestTransitionByRun.set(runId, event);
-            }
-          });
-          compactSourceEvents.push(...latestTransitionByRun.values());
-        }
-        const compactEvents = compactSourceEvents.map((event) => {
-          const run = runByLoadedId.get(String(event.job_run_id || "")) || null;
-          return {
-            ...event,
-            event_type: event.event_code,
-            happened_at: event.time_to || event.created_at,
-            operator_name: event.payload?.operator_name || run?.operator_name || "",
-            machine_id: run?.machine_id || "",
-            workstation_id: event.workstation_id || run?.workstation_id || "",
-            terminal_id: event.terminal_id || run?.terminal_id || ""
-          };
-        });
-
-        const durableEvents = [];
-        for (let index = 0; index < runIds.length; index += 100) {
-          const batchIds = runIds.slice(index, index + 100);
-          const [result, predecessorResult] = await Promise.all([
-            fetchAllSqlRows(() => supabase.from("mes_job_run_events")
-              .select(DURABLE_EVENT_SELECT)
-              .in("job_run_id", batchIds)
-              .gte("happened_at", startIso)
-              .lte("happened_at", endIso)
-              .order("happened_at", { ascending: false })),
-            supabase.from("mes_job_run_events")
-              .select(DURABLE_EVENT_SELECT)
-              .in("job_run_id", batchIds)
-              .lt("happened_at", startIso)
-              .order("happened_at", { ascending: false })
-              .limit(10_000)
-          ]);
-          if (result.error || predecessorResult.error) {
-            const error = result.error || predecessorResult.error;
-            if (isMissingTableError(error, "mes_job_run_events")) break;
-            throw error;
-          }
-          const latestTransitionByRun = new Map();
-          (predecessorResult.data || []).forEach((event) => {
-            const runId = String(event.job_run_id || "");
-            if (runId && productionStateAfterEvent(event) && !latestTransitionByRun.has(runId)) {
-              latestTransitionByRun.set(runId, event);
-            }
-          });
-          durableEvents.push(...[...(result.data || []), ...latestTransitionByRun.values()].map((event) => {
-            const run = runByLoadedId.get(String(event.job_run_id || "")) || null;
-            return {
-              ...event,
-              event_code: event.event_type,
-              happened_at: event.happened_at || event.created_at,
-              duration_seconds: Number(event.payload?.duration_seconds || 0),
-              time_from: event.payload?.time_from || "",
-              time_to: event.payload?.time_to || event.happened_at || event.created_at,
-              operator_name: event.payload?.operator_name || run?.operator_name || "",
-              machine_id: event.machine_id || run?.machine_id || "",
-              workstation_id: event.workstation_id || run?.workstation_id || "",
-              terminal_id: run?.terminal_id || ""
-            };
-          }));
-        }
-
-        if (requestId !== rangeRequestIdRef.current) return;
-        const eventByKey = new Map();
-        [...compactEvents, ...durableEvents].forEach((event) => {
-          const key = String(
-            event.terminal_event_id || event.payload?.terminal_event_id ||
-            `${event.job_run_id}-${event.event_type}-${event.happened_at}-${event.quantity || event.payload?.quantity || ""}`
+    {
+      const requestId = ++rangeRequestIdRef.current;
+      setRangeLoading(true);
+      setRangeError("");
+      setRangeJobRuns([]);
+      setRangeMesEvents([]);
+      setRangeShiftRows([]);
+      setLoadedEventCount(0);
+      const timeoutId = window.setTimeout(async () => {
+        try {
+          const rows = await fetchMesShiftSummary(
+            companyId,
+            new Date(rangeWindow.startMs).toISOString(),
+            new Date(rangeWindow.endMs).toISOString(),
+            setLoadedEventCount
           );
-          if (!eventByKey.has(key)) eventByKey.set(key, event);
-        });
-        setRangeJobRuns(runs);
-        setRangeMesEvents(Array.from(eventByKey.values()));
-      } catch (error) {
-        if (requestId !== rangeRequestIdRef.current) return;
-        setRangeJobRuns([]);
-        setRangeMesEvents([]);
-        setRangeError(error?.message || "Dáta pre zvolené obdobie sa nepodarilo načítať zo SQL.");
-      } finally {
-        if (requestId === rangeRequestIdRef.current) setRangeLoading(false);
-      }
-    }, 300);
+          if (requestId !== rangeRequestIdRef.current) return;
+          setRangeShiftRows(rows);
+        } catch (error) {
+          if (requestId !== rangeRequestIdRef.current) return;
+          setRangeShiftRows([]);
+          setRangeError(error?.message || "Súhrn pre zvolené obdobie sa nepodarilo spracovať zo SQL.");
+        } finally {
+          if (requestId === rangeRequestIdRef.current) setRangeLoading(false);
+        }
+      }, 300);
+      return () => {
+        window.clearTimeout(timeoutId);
+        rangeRequestIdRef.current += 1;
+      };
+    }
 
-    return () => {
-      window.clearTimeout(timeoutId);
-      rangeRequestIdRef.current += 1;
-    };
   }, [companyId, rangeWindow.startMs, rangeWindow.endMs]);
 
   const exportRows = useMemo(() => {
@@ -494,6 +374,34 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
       (row?.workstation_id && String(machine.workstation_id || "") === String(row.workstation_id)) ||
       (row?.terminal_id && String(machine.terminal_id || "") === String(row.terminal_id))
     ) || null;
+    if (Array.isArray(rangeShiftRows)) {
+      return rangeShiftRows
+        .filter((row) => {
+          const rowMachineKey = machineKey(resolveMachine(row) || row);
+          return (selectedMachineKey === "all" || rowMachineKey === selectedMachineKey) &&
+            (selectedOperator === "all" || row.operator === selectedOperator);
+        })
+        .map((row) => {
+          const machine = resolveMachine(row) || {};
+          const workstation = workstationById.get(String(row.workstation_id || "")) || {};
+          return {
+            "Dátum": new Date(`${row.date}T12:00:00`),
+            "Zmena": row.shift,
+            "Operátor": row.operator,
+            "Stroj": machine.machine_name || machine.machine_code || machine.workstation_name || machine.workstation_code || workstation.name || workstation.code || row.machine_id || row.workstation_id || "Neurčený stroj",
+            "OK kusy": Number(row.good || 0),
+            "NOK kusy": Number(row.scrap || 0),
+            "Spolu kusy": Number(row.good || 0) + Number(row.scrap || 0),
+            "Zákazky": (row.job_numbers || []).length,
+            "Výrobný čas (min)": 0,
+            "Nastavenia": Number(row.setups || 0),
+            __shiftOrder: Number(row.shift_order || 0),
+            __jobNumbers: row.job_numbers || []
+          };
+        })
+        .filter((row) => row["Spolu kusy"] > 0 || row["Nastavenia"] > 0)
+        .sort((left, right) => left["Dátum"] - right["Dátum"] || left.__shiftOrder - right.__shiftOrder || left["Operátor"].localeCompare(right["Operátor"], "sk-SK"));
+    }
     const matchesFilters = (row) => {
       const machine = resolveMachine(row);
       const rowMachineKey = machineKey(machine || row);
@@ -638,13 +546,12 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
       });
     }
     return aggregateShiftRows(rows);
-  }, [rangeJobRuns, rangeMesEvents, overviewRows, rangeWindow, runById, selectedMachineKey, selectedOperator, workstationById]);
+  }, [rangeJobRuns, rangeMesEvents, rangeShiftRows, overviewRows, rangeWindow, runById, selectedMachineKey, selectedOperator, workstationById]);
 
   const summary = useMemo(() => ({
     quantity: exportRows.reduce((sum, row) => sum + Number(row["Spolu kusy"] || 0), 0),
     good: exportRows.reduce((sum, row) => sum + Number(row["OK kusy"] || 0), 0),
     scrap: exportRows.reduce((sum, row) => sum + Number(row["NOK kusy"] || 0), 0),
-    duration: exportRows.reduce((sum, row) => sum + Number(row["Výrobný čas (min)"] || 0), 0),
     setups: exportRows.reduce((sum, row) => sum + Number(row["Nastavenia"] || 0), 0),
     jobs: new Set(exportRows.flatMap((row) => row.__jobNumbers || [])).size
   }), [exportRows]);
@@ -660,7 +567,6 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
       ["OK kusy", summary.good],
       ["NOK kusy", summary.scrap],
       ["Zákazky", summary.jobs],
-      ["Skutočný čas (min)", summary.duration],
       ["Nastavenia", summary.setups]
     ];
     const detailRows = exportRows.map((row) => ({
@@ -739,7 +645,7 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
       const detailSheet = workbook.addWorksheet("Výroba po zmenách", { views: [{ state: "frozen", ySplit: 1 }], pageSetup: { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 } });
       detailSheet.columns = DETAIL_COLUMNS.map(([header, width]) => ({ header, key: header, width }));
       exportRows.forEach((row) => detailSheet.addRow(row));
-      detailSheet.autoFilter = { from: "A1", to: "J1" };
+      detailSheet.autoFilter = { from: "A1", to: "I1" };
       const header = detailSheet.getRow(1);
       header.height = 28;
       header.eachCell((cell) => {
@@ -748,7 +654,7 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
         cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
       });
       detailSheet.getColumn("Dátum").numFmt = "dd.mm.yyyy";
-      ["OK kusy", "NOK kusy", "Spolu kusy", "Zákazky", "Výrobný čas (min)", "Nastavenia"].forEach((name) => { detailSheet.getColumn(name).numFmt = "0.00"; });
+      ["OK kusy", "NOK kusy", "Spolu kusy", "Zákazky", "Nastavenia"].forEach((name) => { detailSheet.getColumn(name).numFmt = "0.00"; });
       detailSheet.eachRow((row, rowNumber) => {
         if (rowNumber > 1 && rowNumber % 2 === 1) row.eachCell((cell) => { cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF4F7F8" } }; });
       });
@@ -785,7 +691,7 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
         <article><span>OK kusy</span><strong>{numberFormatter.format(summary.good)}</strong></article>
         <article><span>NOK kusy</span><strong>{numberFormatter.format(summary.scrap)}</strong></article>
       </section>
-      {rangeLoading ? <p className="hint">Načítavam dáta zo SQL pre zvolené obdobie… {loadedEventCount ? `${numberFormatter.format(loadedEventCount)} udalostí` : ""}</p> : null}
+      {rangeLoading ? <p className="hint">Server spracúva SQL záznamy pre zvolené obdobie… {loadedEventCount ? `${numberFormatter.format(loadedEventCount)} zohľadnených udalostí` : ""}</p> : null}
       {rangeError ? <p className="error">{rangeError}</p> : null}
       {exportError ? <p className="error">{exportError}</p> : null}
       <div className="factory-mes-export-preview-head"><div><FileSpreadsheet size={19} /><strong>Náhľad výroby po zmenách</strong></div><span>{rangeWindow.label} · {exportRows.length} súhrnných riadkov</span></div>

@@ -194,6 +194,19 @@ function isMissingTableError(error, tableName) {
   );
 }
 
+async function fetchAllSqlRows(makeQuery, maxRows = 100_000) {
+  const pageSize = 1_000;
+  const rows = [];
+  for (let from = 0; from < maxRows; from += pageSize) {
+    const { data, error } = await makeQuery().range(from, from + pageSize - 1);
+    if (error) return { data: [], error };
+    const page = data || [];
+    rows.push(...page);
+    if (page.length < pageSize) return { data: rows, error: null };
+  }
+  return { data: [], error: new Error(`SQL výber prekročil bezpečnostný limit ${maxRows} riadkov. Zvoľ kratšie obdobie.`) };
+}
+
 export default function MesAnalyticsExports({ companyId, companyName, overviewRows, jobRuns, mesEvents, workstations }) {
   const today = toDateInputValue(new Date());
   const [reportType, setReportType] = useState("overview");
@@ -245,19 +258,17 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
         const startIso = new Date(rangeWindow.startMs).toISOString();
         const endIso = new Date(rangeWindow.endMs).toISOString();
         const [runsResult, compactEventsResult] = await Promise.all([
-          supabase.from("mes_job_runs")
+          fetchAllSqlRows(() => supabase.from("mes_job_runs")
             .select(JOB_RUN_SELECT)
             .eq("company_id", companyId)
             .lte("created_at", endIso)
             .or(`ended_at.gte.${startIso},ended_at.is.null,updated_at.gte.${startIso}`)
-            .order("created_at", { ascending: false })
-            .limit(10_000),
-          supabase.from("mes_event_log")
+            .order("created_at", { ascending: false })),
+          fetchAllSqlRows(() => supabase.from("mes_event_log")
             .select(COMPACT_EVENT_SELECT)
             .eq("company_id", companyId)
             .or(`and(time_to.gte.${startIso},time_to.lte.${endIso}),and(time_to.is.null,created_at.gte.${startIso},created_at.lte.${endIso})`)
-            .order("created_at", { ascending: false })
-            .limit(10_000)
+            .order("created_at", { ascending: false }))
         ]);
         if (runsResult.error) throw runsResult.error;
         if (compactEventsResult.error && !isMissingTableError(compactEventsResult.error, "mes_event_log")) throw compactEventsResult.error;
@@ -316,13 +327,12 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
         for (let index = 0; index < runIds.length; index += 100) {
           const batchIds = runIds.slice(index, index + 100);
           const [result, predecessorResult] = await Promise.all([
-            supabase.from("mes_job_run_events")
+            fetchAllSqlRows(() => supabase.from("mes_job_run_events")
               .select(DURABLE_EVENT_SELECT)
               .in("job_run_id", batchIds)
               .gte("happened_at", startIso)
               .lte("happened_at", endIso)
-              .order("happened_at", { ascending: false })
-              .limit(10_000),
+              .order("happened_at", { ascending: false })),
             supabase.from("mes_job_run_events")
               .select(DURABLE_EVENT_SELECT)
               .in("job_run_id", batchIds)
@@ -441,7 +451,27 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
     });
 
     const rows = [];
+    const allowedEventTypes = new Set([
+      "start", "resume", "pause", "stop", "ml", "downtime_start", "downtime_end",
+      "good_count", "scrap_count", "setup_start", "setup_end", "complete", "cancel"
+    ]);
+    const lastEventByRunId = new Map();
+    const eligibleEvents = rangeMesEvents
+      .filter((event) => {
+        const timestamp = eventTimeMs(event);
+        return allowedEventTypes.has(eventTypeOf(event)) && Number.isFinite(timestamp) &&
+          timestamp >= rangeWindow.startMs && timestamp <= rangeWindow.endMs && matchesFilters(event);
+      })
+      .sort((left, right) => eventTimeMs(left) - eventTimeMs(right));
+    eligibleEvents.forEach((event) => {
+      const runId = String(event.job_run_id || "");
+      if (runId) lastEventByRunId.set(runId, event);
+    });
+
+    const durationByRunId = new Map();
+    const fallbackQuantityByRunId = new Map();
     rangeJobRuns.forEach((run) => {
+      const runId = String(run.id || "");
       const runEvents = eventsByRunId.get(String(run.id || "")) || [];
       const runStartMs = new Date(run.started_at || run.created_at || 0).getTime();
       const runEndMs = new Date(run.ended_at || run.updated_at || 0).getTime();
@@ -463,6 +493,31 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
       const durationMs = calculateRunProductionMs(run, runEvents, rangeWindow);
       const hasSetup = countEvents.some((event) => eventTypeOf(event) === "setup_start" || event.payload?.is_setup === true);
       if (durationMs <= 0 && goodQuantity <= 0 && !hasSetup) return;
+      durationByRunId.set(runId, durationMs);
+      if (!hasCountEvents && goodQuantity > 0) fallbackQuantityByRunId.set(runId, goodQuantity);
+    });
+
+    eligibleEvents.forEach((event) => {
+      const runId = String(event.job_run_id || "");
+      const isLastRunEvent = Boolean(runId) && lastEventByRunId.get(runId) === event;
+      const eventType = eventTypeOf(event);
+      rows.push(makeRow({
+        source: runById.get(runId) || event,
+        event,
+        happenedAt: event.happened_at || event.time_to || event.created_at,
+        quantity: eventType === "good_count"
+          ? countEventQuantity(event)
+          : isLastRunEvent ? Number(fallbackQuantityByRunId.get(runId) || 0) : 0,
+        // Store the consolidated run duration once, on its last detail event, so the detail sum equals the report summary.
+        durationMs: isLastRunEvent ? Number(durationByRunId.get(runId) || 0) : 0,
+        isSetup: eventType === "setup_start" || event.payload?.is_setup === true
+      }));
+    });
+
+    // A run without any event inside the selected interval still needs one detail row for its measured duration.
+    rangeJobRuns.forEach((run) => {
+      const runId = String(run.id || "");
+      if (lastEventByRunId.has(runId) || !durationByRunId.has(runId)) return;
       const completedAt = Math.min(
         rangeWindow.endMs,
         new Date(run.ended_at || run.updated_at || Date.now()).getTime(),
@@ -471,9 +526,9 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
       rows.push(makeRow({
         source: run,
         happenedAt: Number.isFinite(completedAt) ? completedAt : run.updated_at || run.created_at,
-        quantity: goodQuantity,
-        durationMs,
-        isSetup: hasSetup
+        quantity: Number(fallbackQuantityByRunId.get(runId) || 0),
+        durationMs: Number(durationByRunId.get(runId) || 0),
+        isSetup: false
       }));
     });
 

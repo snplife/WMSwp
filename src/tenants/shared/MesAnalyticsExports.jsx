@@ -4,7 +4,7 @@ import { supabase } from "../../supabaseClient";
 import "./mesAnalyticsExports.css";
 
 const DETAIL_COLUMNS = [
-  ["Číslo zákazky", 18], ["Operácia", 14], ["Stroj", 20], ["Operátor", 24], ["Kód položky", 18], ["Popis operácie", 34],
+  ["Číslo zákazky", 18], ["Operácia", 14], ["Typ udalosti", 18], ["Stroj", 20], ["Operátor", 24], ["Kód položky", 18], ["Popis operácie", 34],
   ["IST kusy", 12], ["Dátum ukončenia", 16], ["Čas ukončenia", 14], ["Plánovaný čas / ks", 18], ["Skutočný čas / ks", 18],
   ["Skutočný čas spolu", 20], ["Rozdiel v min", 16], ["Nastavenie", 12]
 ];
@@ -427,6 +427,7 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
       return {
         "Číslo zákazky": String(run?.job_number || event?.job_number || "").trim(),
         "Operácia": operationCode,
+        "Typ udalosti": event ? (eventTypeOf(event) || "neuvedené") : "výrobný_beh",
         "Stroj": String(machine.machine_code || machine.machine_name || machine.workstation_name || source?.machine_id || source?.workstation_id || "").trim(),
         "Operátor": operatorLabel(run) || operatorLabel(event),
         "Kód položky": String(run?.item_code || event?.payload?.item_code || "").trim(),
@@ -451,15 +452,11 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
     });
 
     const rows = [];
-    const allowedEventTypes = new Set([
-      "start", "resume", "pause", "stop", "ml", "downtime_start", "downtime_end",
-      "good_count", "scrap_count", "setup_start", "setup_end", "complete", "cancel"
-    ]);
     const lastEventByRunId = new Map();
     const eligibleEvents = rangeMesEvents
       .filter((event) => {
         const timestamp = eventTimeMs(event);
-        return allowedEventTypes.has(eventTypeOf(event)) && Number.isFinite(timestamp) &&
+        return Number.isFinite(timestamp) &&
           timestamp >= rangeWindow.startMs && timestamp <= rangeWindow.endMs && matchesFilters(event);
       })
       .sort((left, right) => eventTimeMs(left) - eventTimeMs(right));
@@ -647,7 +644,7 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
       const detailSheet = workbook.addWorksheet("Detailné dáta", { views: [{ state: "frozen", ySplit: 1 }], pageSetup: { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 } });
       detailSheet.columns = DETAIL_COLUMNS.map(([header, width]) => ({ header, key: header, width }));
       exportRows.forEach((row) => detailSheet.addRow(row));
-      detailSheet.autoFilter = { from: "A1", to: "N1" };
+      detailSheet.autoFilter = { from: "A1", to: "O1" };
       const header = detailSheet.getRow(1);
       header.height = 28;
       header.eachCell((cell) => {
@@ -697,7 +694,7 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
       {rangeError ? <p className="error">{rangeError}</p> : null}
       {exportError ? <p className="error">{exportError}</p> : null}
       <div className="factory-mes-export-preview-head"><div><FileSpreadsheet size={19} /><strong>Náhľad detailných dát</strong></div><span>{rangeWindow.label} · {exportRows.length} riadkov</span></div>
-      <div className="table-wrap factory-mes-export-table"><table><thead><tr>{DETAIL_COLUMNS.slice(0, 8).map(([column]) => <th key={column}>{column}</th>)}</tr></thead><tbody>{exportRows.slice(0, 100).map((row, index) => <tr key={`${row["Číslo zákazky"]}-${index}`}>{DETAIL_COLUMNS.slice(0, 8).map(([column]) => <td key={column}>{column === "Dátum ukončenia" && row[column] instanceof Date ? row[column].toLocaleDateString("sk-SK") : row[column] || "-"}</td>)}</tr>)}</tbody></table></div>
+      <div className="table-wrap factory-mes-export-table"><table><thead><tr>{DETAIL_COLUMNS.slice(0, 9).map(([column]) => <th key={column}>{column}</th>)}</tr></thead><tbody>{exportRows.slice(0, 100).map((row, index) => <tr key={`${row["Číslo zákazky"]}-${index}`}>{DETAIL_COLUMNS.slice(0, 9).map(([column]) => <td key={column}>{column === "Dátum ukončenia" && row[column] instanceof Date ? row[column].toLocaleDateString("sk-SK") : row[column] || "-"}</td>)}</tr>)}</tbody></table></div>
       {!exportRows.length ? <p className="hint">Pre vybrané filtre nie sú dostupné dáta na export.</p> : null}
     </article>
   );

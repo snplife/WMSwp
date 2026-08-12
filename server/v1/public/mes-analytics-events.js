@@ -1,5 +1,5 @@
-import { requireAuthenticatedUser } from "../_lib/userAuth.js";
-import { sendJson, sendMethodNotAllowed } from "../_lib/http.js";
+import { requireAuthenticatedUser } from "../../../api/_lib/userAuth.js";
+import { sendJson, sendMethodNotAllowed } from "../../../api/_lib/http.js";
 
 const PAGE_SIZE = 1000;
 const EVENT_SELECT = "id,terminal_id,workstation_id,job_run_id,terminal_event_id,event_code,job_number,duration_seconds,time_from,time_to,operator_id,downtime_reason_code,downtime_reason_name,payload,created_at";
@@ -67,3 +67,4 @@ export default async function handler(req, res) {
     return sendJson(res, 500, { ok: false, error: error instanceof Error ? error.message : String(error) });
   }
 }
+

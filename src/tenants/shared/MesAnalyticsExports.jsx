@@ -220,7 +220,7 @@ async function fetchAllMesEventLogRows(companyId, startIso, endIso, onProgress) 
       params.set("cursor_created_at", cursor.created_at);
       params.set("cursor_id", cursor.id);
     }
-    const response = await fetch(`/api/v1/mes-analytics-events?${params}`, {
+    const response = await fetch(`/api/v1/public/mes-analytics-events?${params}`, {
       headers: { Authorization: `Bearer ${sessionData.session.access_token}` },
       cache: "no-store"
     });

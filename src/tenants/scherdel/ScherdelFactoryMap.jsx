@@ -202,7 +202,7 @@ export default function ScherdelFactoryMap({
 
       <div className="scherdel-map-stage">
         <div className="scherdel-map-scroll">
-          <div className="scherdel-map-canvas" style={{ width: `${zoom * 100}%` }}>
+          <div className="scherdel-map-canvas" style={{ width: `${zoom * 100}%`, maxWidth: `${1180 * zoom}px` }}>
             <img src="/brands/scherdel-hala2-layout.png" alt="Pôdorys výrobnej haly 2 Scherdel" draggable="false" />
             <div className="scherdel-map-grid" aria-hidden="true" />
             <div className="scherdel-map-hall-label"><span>02</span><div>VÝROBNÁ HALA<strong>MYJAVA · LIVE</strong></div></div>

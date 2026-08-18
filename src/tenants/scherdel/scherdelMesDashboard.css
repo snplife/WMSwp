@@ -6,6 +6,7 @@
 @media(max-width:760px){.scherdel-brand{gap:9px}.scherdel-brand>.scherdel-company-logo{width:132px}.scherdel-brand>.scherdel-platform-logo{width:44px;height:28px}.scherdel-brand>span{height:24px}}
 
 /* Live factory map */
+.scherdel-map-shell+.scherdel-kpis{margin-top:15px}
 .scherdel-map-shell{max-width:1580px;margin:auto;overflow:hidden;border:1px solid #17344b;border-radius:18px;background:#06131f;color:#e8f4ff;box-shadow:0 26px 70px rgba(5,25,40,.18)}
 .scherdel-map-header{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:24px 26px;border-bottom:1px solid rgba(151,190,219,.14);background:linear-gradient(115deg,#081c2d,#0b2539)}
 .scherdel-map-title>span{display:flex;align-items:center;gap:7px;margin-bottom:7px;color:#48b8ff;font-size:10px;font-weight:850;letter-spacing:.14em;text-transform:uppercase}

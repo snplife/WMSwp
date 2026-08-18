@@ -2,11 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Activity, AlertTriangle, BarChart3, CheckCircle2, ClipboardList, Clock3,
   Factory, Gauge, LogOut, PackageCheck, PauseCircle, PlayCircle,
-  RefreshCw, ScanLine, Settings2, ShieldCheck, Square, Tags, UserRound, Wrench
+  MapPinned, RefreshCw, ScanLine, Settings2, ShieldCheck, Square, Tags, UserRound, Wrench
 } from "lucide-react";
 import { supabase } from "../../supabaseClient";
 import { summarizeMesStateWindow } from "../../modules/mes/analytics";
 import MesAnalyticsExports from "../shared/MesAnalyticsExports";
+import ScherdelFactoryMap from "./ScherdelFactoryMap";
 import {
   SCHERDEL_DEFECT_REASONS,
   SCHERDEL_DOWNTIME_REASONS,
@@ -76,7 +77,7 @@ export default function ScherdelMesDashboard({
   tenant, accessContext, overviewRows, jobRuns, mesEvents, workstations, downtimeReasons,
   productionOrders, dataLoading, dataError, lastLoadedAt, onRefresh, onSignOut
 }) {
-  const [activeSection, setActiveSection] = useState("live");
+  const [activeSection, setActiveSection] = useState("map");
   const [selectedMachineKey, setSelectedMachineKey] = useState("");
   const [selectedOrderId, setSelectedOrderId] = useState("");
   const [manualJobNumber, setManualJobNumber] = useState("");
@@ -327,7 +328,7 @@ export default function ScherdelMesDashboard({
 
   const role = getProfileRole(accessContext.profile);
   const navigation = [
-    ["live", Activity, "Živá výroba"], ["terminal", ScanLine, "Operátorský terminál"],
+    ["map", MapPinned, "Mapa haly"], ["live", Activity, "Živá výroba"], ["terminal", ScanLine, "Operátorský terminál"],
     ["oee", Gauge, "OEE a exporty"], ["catalogs", Tags, "Číselníky C.E.P."]
   ];
 
@@ -354,6 +355,15 @@ export default function ScherdelMesDashboard({
 
       {dataError ? <p className="scherdel-alert error"><AlertTriangle size={17} />{dataError}</p> : null}
       {message ? <p className={`scherdel-alert ${message.tone}`}><CheckCircle2 size={17} />{message.text}</p> : null}
+
+      {activeSection === "map" ? <ScherdelFactoryMap
+        rows={sortedRows}
+        selectedMachineKey={selectedMachineKey}
+        onSelectMachine={setSelectedMachineKey}
+        onOpenTerminal={() => setActiveSection("terminal")}
+        resolveStatus={machineStatus}
+        loading={dataLoading}
+      /> : null}
 
       {activeSection === "live" ? <>
         <section className="scherdel-kpis">

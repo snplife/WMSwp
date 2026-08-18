@@ -98,6 +98,7 @@ export default function ScherdelMesDashboard({
   ), [overviewRows]);
 
   useEffect(() => {
+    if (selectedMachineKey.startsWith("slot:")) return;
     if (!sortedRows.some((row) => getMachineKey(row) === selectedMachineKey)) {
       setSelectedMachineKey(getMachineKey(sortedRows[0]));
     }
@@ -363,7 +364,9 @@ export default function ScherdelMesDashboard({
           onSelectMachine={setSelectedMachineKey}
           onOpenTerminal={() => setActiveSection("terminal")}
           resolveStatus={machineStatus}
-          loading={dataLoading}
+          companyId={accessContext.company.id}
+          userId={accessContext.profile.user_id}
+          onRefresh={onRefresh}
         />
         <section className="scherdel-kpis">
           <article><Factory /><span>Stroje</span><strong>{formatNumber(summary.total)}</strong></article>

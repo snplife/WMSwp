@@ -6,16 +6,16 @@ import {
 import { supabase } from "../../supabaseClient";
 
 const STATIC_MACHINE_SLOTS = [
-  ["F16", "BMS36", 7.6, 28, 6, 33], ["F04", "BMS4", 14.2, 28, 6, 33],
-  ["F02", "BMS4", 20.8, 28, 6, 33], ["F11", "Numalliance R2106", 27.3, 28, 5, 33],
-  ["F14", "BMS31", 34, 28, 6, 33], ["F09", "BMS31", 41.1, 28, 6, 33],
-  ["F20", "Numalliance R2110", 47.6, 28, 5, 33], ["A33", "BT3.2", 54.6, 28, 6, 33],
-  ["F22", "BMS4", 63.6, 28, 6, 33], ["F21", "BMS4", 71.6, 28, 6, 33],
-  ["F18", "Manipulátor", 79.3, 19, 8, 9], ["F23", "BMS4", 92, 16.5, 13, 12],
-  ["F15", "B3", 81.5, 27, 8.5, 5.5], ["F12", "B3", 81.5, 35.5, 8.5, 5.5],
-  ["F13", "B3", 81.5, 43.5, 8.5, 5.5], ["F17", "BM41", 30.4, 73.5, 4.5, 22],
-  ["F07", "BM3", 36.2, 73.5, 4.5, 22], ["F06", "BM41", 42, 73.5, 4.5, 22],
-  ["F08", "BM30", 47.9, 73.5, 4.5, 22], ["F10", "BM30", 53.8, 73.5, 4.5, 22]
+  ["F16", "BMS36", 7.52, 29.1, 6.05, 30.9], ["F04", "BMS4", 14.71, 29.1, 6, 30.9],
+  ["F02", "BMS4", 21.81, 29.1, 6.1, 30.9], ["F11", "Numalliance R2106", 28.65, 29.1, 4.82, 30.9],
+  ["F14", "BMS31", 35.25, 29.1, 6.05, 30.9], ["F09", "BMS31", 42.58, 29.1, 6.1, 30.9],
+  ["F20", "Numalliance R2110", 49.35, 29.1, 4.82, 30.9], ["A33", "BT3.2", 56.15, 29.1, 5.92, 30.9],
+  ["F22", "BMS4", 64.71, 29.1, 6.1, 30.9], ["F21", "BMS4", 72.75, 29.1, 6.18, 30.9],
+  ["F18", "Manipulátor", 82.05, 16.8, 9.3, 10.8], ["F23", "BMS4", 92.55, 15.9, 12.82, 11],
+  ["F15", "B3", 82.45, 25.34, 8.14, 5], ["F12", "B3", 82.45, 33.06, 8.14, 5],
+  ["F13", "B3", 82.45, 40.82, 8.14, 5.1], ["F17", "BM41", 30.63, 71.97, 4.23, 20.9],
+  ["F07", "BM3", 36.69, 71.97, 4.1, 20.9], ["F06", "BM41", 42.58, 71.97, 4.17, 20.9],
+  ["F08", "BM30", 48.47, 71.97, 4.23, 20.9], ["F10", "BM30", 54.33, 71.97, 4.23, 20.9]
 ].map(([code, name, left, top, width, height], index) => ({ code, name, layout: [left, top, width, height], sortOrder: (index + 1) * 10 }));
 
 const SLOT_CODE_SET = new Set(STATIC_MACHINE_SLOTS.map((slot) => slot.code));
@@ -202,7 +202,7 @@ export default function ScherdelFactoryMap({
 
       <div className="scherdel-map-stage">
         <div className="scherdel-map-scroll">
-          <div className="scherdel-map-canvas" style={{ width: `${zoom * 100}%`, maxWidth: `${1180 * zoom}px` }}>
+          <div className="scherdel-map-canvas" style={{ height: `${zoom * 100}%`, maxHeight: `${860 * zoom}px` }}>
             <img src="/brands/scherdel-hala2-layout.png" alt="Pôdorys výrobnej haly 2 Scherdel" draggable="false" />
             <div className="scherdel-map-grid" aria-hidden="true" />
             <div className="scherdel-map-hall-label"><span>02</span><div>VÝROBNÁ HALA<strong>MYJAVA · LIVE</strong></div></div>

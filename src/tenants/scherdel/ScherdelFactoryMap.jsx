@@ -4,18 +4,18 @@ import {
   Minus, PackageCheck, Plus, Search, UserRound, X
 } from "lucide-react";
 
-const MACHINE_POSITIONS = {
-  F16: [7.6, 28], F04: [14.2, 28], F02: [20.8, 28], F11: [27.3, 28],
-  F14: [34, 28], F09: [41.1, 28], F20: [47.6, 28], A33: [54.6, 28],
-  F22: [63.6, 28], F21: [71.6, 28], F18: [79.3, 20], F23: [91.8, 25],
-  F15: [81.5, 27.5], F12: [81.5, 35.5], F13: [81.5, 43.5],
-  F17: [30, 73.5], F07: [36, 73.5], F06: [42, 73.5],
-  F08: [48, 73.5], F10: [54, 73.5]
+const MACHINE_LAYOUT = {
+  F16: [7.6, 28, 6, 33], F04: [14.2, 28, 6, 33], F02: [20.8, 28, 6, 33], F11: [27.3, 28, 5, 33],
+  F14: [34, 28, 6, 33], F09: [41.1, 28, 6, 33], F20: [47.6, 28, 5, 33], A33: [54.6, 28, 6, 33],
+  F22: [63.6, 28, 6, 33], F21: [71.6, 28, 6, 33], F18: [79.3, 19, 8, 9], F23: [92, 16.5, 13, 12],
+  F15: [81.5, 27, 8.5, 5.5], F12: [81.5, 35.5, 8.5, 5.5], F13: [81.5, 43.5, 8.5, 5.5],
+  F17: [30.4, 73.5, 4.5, 22], F07: [36.2, 73.5, 4.5, 22], F06: [42, 73.5, 4.5, 22],
+  F08: [47.9, 73.5, 4.5, 22], F10: [53.8, 73.5, 4.5, 22]
 };
 
 const FILTERS = [
   ["all", "Všetky"], ["running", "V prevádzke"], ["downtime", "Prestoj"],
-  ["setup", "Nastavenie"], ["offline", "Offline"]
+  ["setup", "Nastavenie"], ["unassigned", "Bez terminálu"], ["offline", "Offline"]
 ];
 
 function normalizeCode(row) {
@@ -28,7 +28,12 @@ function getMachineKey(row) {
 }
 
 function fallbackPosition(index) {
-  return [6 + (index % 10) * 8.6, 88 + Math.floor(index / 10) * 5];
+  return [6 + (index % 10) * 8.6, 91 + Math.floor(index / 10) * 5, 6, 6];
+}
+
+function getMapStatus(row, resolveStatus) {
+  if (!row?.terminal_id) return { key: "unassigned", label: "Bez terminálu" };
+  return resolveStatus(row);
 }
 
 export default function ScherdelFactoryMap({
@@ -38,18 +43,28 @@ export default function ScherdelFactoryMap({
   const [query, setQuery] = useState("");
   const [zoom, setZoom] = useState(1);
 
+  const mapRows = useMemo(() => rows.map((row, index) => {
+    const code = normalizeCode(row);
+    return {
+      row,
+      code,
+      status: getMapStatus(row, resolveStatus),
+      layout: MACHINE_LAYOUT[code] || fallbackPosition(index)
+    };
+  }), [resolveStatus, rows]);
+
   const visibleRows = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase("sk-SK");
-    return rows.filter((row) => {
-      const status = resolveStatus(row).key;
-      const matchesFilter = filter === "all" || status === filter;
+    return mapRows.filter(({ row, status }) => {
+      const matchesFilter = filter === "all" || status.key === filter;
       const haystack = `${row.machine_code || ""} ${row.workstation_code || ""} ${row.machine_name || ""} ${row.workstation_name || ""} ${row.job_number || ""}`.toLocaleLowerCase("sk-SK");
       return matchesFilter && (!normalizedQuery || haystack.includes(normalizedQuery));
     });
-  }, [filter, query, resolveStatus, rows]);
+  }, [filter, mapRows, query]);
 
-  const selectedRow = rows.find((row) => getMachineKey(row) === selectedMachineKey) || null;
-  const selectedStatus = selectedRow ? resolveStatus(selectedRow) : null;
+  const selectedMapRow = mapRows.find(({ row }) => getMachineKey(row) === selectedMachineKey) || null;
+  const selectedRow = selectedMapRow?.row || null;
+  const selectedStatus = selectedMapRow?.status || null;
   const completion = selectedRow && Number(selectedRow.planned_quantity) > 0
     ? Math.min(100, Number(selectedRow.good_quantity || 0) / Number(selectedRow.planned_quantity) * 100)
     : 0;
@@ -84,23 +99,23 @@ export default function ScherdelFactoryMap({
             <img src="/brands/scherdel-hala2-layout.png" alt="Pôdorys výrobnej haly 2 Scherdel" draggable="false" />
             <div className="scherdel-map-grid" aria-hidden="true" />
             <div className="scherdel-map-hall-label"><span>02</span><div>VÝROBNÁ HALA<strong>MYJAVA · LIVE</strong></div></div>
-            {visibleRows.map((row, index) => {
-              const status = resolveStatus(row);
-              const code = normalizeCode(row);
-              const [left, top] = MACHINE_POSITIONS[code] || fallbackPosition(index);
+            {visibleRows.map(({ row, code, status, layout }) => {
+              const [left, top, width, height] = layout;
               const isSelected = getMachineKey(row) === selectedMachineKey;
               return (
                 <button
                   type="button"
                   key={getMachineKey(row)}
                   className={`scherdel-map-marker ${status.key} ${isSelected ? "selected" : ""}`}
-                  style={{ left: `${left}%`, top: `${top}%` }}
+                  style={{ left: `${left}%`, top: `${top}%`, width: `${width}%`, height: `${height}%` }}
                   onClick={() => onSelectMachine(getMachineKey(row))}
                   aria-label={`${code || row.machine_name}: ${status.label}`}
                 >
-                  <span className="pulse" />
-                  <b>{code || row.machine_code || "MES"}</b>
-                  <small>{status.label}</small>
+                  <span className="scherdel-map-marker-label">
+                    <i />
+                    <b>{code || row.machine_code || "MES"}</b>
+                    <small>{status.label}</small>
+                  </span>
                 </button>
               );
             })}
@@ -126,7 +141,7 @@ export default function ScherdelFactoryMap({
         {!loading && rows.length === 0 ? <div className="scherdel-map-empty"><LocateFixed /><strong>Žiadne zariadenia</strong><span>Po pridaní MES strojov sa zobrazia priamo v pôdoryse.</span></div> : null}
       </div>
 
-      <footer className="scherdel-map-legend"><span><i className="running" />Automatický cyklus</span><span><i className="setup" />Nastavenie</span><span><i className="downtime" />Prestoj</span><span><i className="maintenance" />Servis</span><span><i className="offline" />Offline</span></footer>
+      <footer className="scherdel-map-legend"><span><i className="running" />Automatický cyklus</span><span><i className="setup" />Nastavenie</span><span><i className="downtime" />Prestoj</span><span><i className="maintenance" />Servis</span><span><i className="unassigned" />Bez terminálu</span><span><i className="offline" />Offline</span></footer>
     </section>
   );
 }

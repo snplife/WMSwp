@@ -182,7 +182,6 @@ export default function ScherdelFactoryMap({
         <div className="scherdel-map-title">
           <span><MapPinned size={16} /> Digitálny pôdorys · Hala 2</span>
           <h2>Live factory map</h2>
-          <p>Aktuálny stav výrobných zariadení v reálnom čase</p>
         </div>
         <div className="scherdel-map-live"><i /> LIVE <small>{assignedCount} / {mapRows.length} priradených</small></div>
       </header>

@@ -1938,3 +1938,257 @@ begin
   end if;
 end $$;
 
+-- >>> BEGIN 58_wms_mes_scherdel_requirements.txt
+-- 58_wms_mes_scherdel_requirements.txt
+-- Additive Scherdel MES extension for requirements dated 12.06.2026.
+-- Run after 39_wms_mes_core.txt and 40_wms_mes_access_control.txt.
+-- The migration stores only a SHA-256 badge hash, never a raw RFID/fingerprint identifier.
+
+create extension if not exists pgcrypto;
+
+alter table public.app_users
+  add column if not exists mes_role text not null default 'operator';
+
+alter table public.app_users
+  drop constraint if exists app_users_mes_role_check;
+
+alter table public.app_users
+  add constraint app_users_mes_role_check
+  check (mes_role in ('operator', 'setter', 'management', 'maintenance', 'admin'));
+
+update public.app_users
+set mes_role = 'admin'
+where role = 'master' and mes_role = 'operator';
+
+create table if not exists public.mes_operator_badges (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  badge_hash text not null,
+  credential_type text not null default 'rfid'
+    check (credential_type in ('rfid', 'fingerprint', 'other')),
+  label text not null default '',
+  is_active boolean not null default true,
+  last_used_at timestamptz,
+  created_by uuid references auth.users (id) on delete set null,
+  created_at timestamptz not null default now(),
+  constraint mes_operator_badges_company_hash_unique unique (company_id, badge_hash)
+);
+
+create table if not exists public.mes_defect_reasons (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies (id) on delete cascade,
+  code text not null,
+  name text not null,
+  standard text not null default 'C.E.P. Scherdel',
+  sort_order integer not null default 0,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint mes_defect_reasons_company_code_unique unique (company_id, code)
+);
+
+create table if not exists public.mes_overhead_reasons (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies (id) on delete cascade,
+  code text not null,
+  name text not null,
+  scope text not null default 'off_machine'
+    check (scope in ('machine', 'off_machine')),
+  is_planned boolean not null default true,
+  sort_order integer not null default 0,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint mes_overhead_reasons_company_code_unique unique (company_id, code)
+);
+
+create table if not exists public.mes_scherdel_activities (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies (id) on delete cascade,
+  workstation_id uuid references public.mes_workstations (id) on delete set null,
+  machine_id uuid references public.mes_machines (id) on delete set null,
+  job_run_id uuid references public.mes_job_runs (id) on delete set null,
+  operator_user_id uuid references auth.users (id) on delete set null,
+  operator_name text not null default '',
+  activity_code text not null,
+  activity_name text not null,
+  note text not null default '',
+  started_at timestamptz not null default now(),
+  ended_at timestamptz,
+  created_by uuid references auth.users (id) on delete set null,
+  created_at timestamptz not null default now(),
+  check (ended_at is null or ended_at >= started_at)
+);
+
+create index if not exists idx_mes_operator_badges_company_user
+  on public.mes_operator_badges (company_id, user_id) where is_active = true;
+create index if not exists idx_mes_defect_reasons_company_sort
+  on public.mes_defect_reasons (company_id, sort_order, code) where is_active = true;
+create index if not exists idx_mes_overhead_reasons_company_sort
+  on public.mes_overhead_reasons (company_id, scope, sort_order, code) where is_active = true;
+create index if not exists idx_mes_scherdel_activities_company_started
+  on public.mes_scherdel_activities (company_id, started_at desc);
+create index if not exists idx_mes_scherdel_activities_operator_started
+  on public.mes_scherdel_activities (operator_user_id, started_at desc);
+
+alter table public.mes_operator_badges enable row level security;
+alter table public.mes_defect_reasons enable row level security;
+alter table public.mes_overhead_reasons enable row level security;
+alter table public.mes_scherdel_activities enable row level security;
+
+drop policy if exists mes_operator_badges_select_auth on public.mes_operator_badges;
+drop policy if exists mes_operator_badges_manage_admin on public.mes_operator_badges;
+create policy mes_operator_badges_select_auth on public.mes_operator_badges
+for select to authenticated using (
+  public.is_master(auth.uid())
+  or (company_id = public.user_company_id(auth.uid()) and user_id = auth.uid())
+);
+create policy mes_operator_badges_manage_admin on public.mes_operator_badges
+for all to authenticated using (
+  public.is_master(auth.uid())
+  or exists (
+    select 1 from public.app_users au
+    where au.user_id = auth.uid() and au.company_id = mes_operator_badges.company_id
+      and au.can_access_mes = true and au.mes_role = 'admin'
+  )
+) with check (
+  public.is_master(auth.uid())
+  or exists (
+    select 1 from public.app_users au
+    where au.user_id = auth.uid() and au.company_id = mes_operator_badges.company_id
+      and au.can_access_mes = true and au.mes_role = 'admin'
+  )
+);
+
+drop policy if exists mes_defect_reasons_read on public.mes_defect_reasons;
+drop policy if exists mes_defect_reasons_manage on public.mes_defect_reasons;
+create policy mes_defect_reasons_read on public.mes_defect_reasons
+for select to authenticated using (
+  public.is_master(auth.uid())
+  or (company_id = public.user_company_id(auth.uid()) and public.can_access_mes(auth.uid()))
+);
+create policy mes_defect_reasons_manage on public.mes_defect_reasons
+for all to authenticated using (
+  public.is_master(auth.uid())
+  or exists (select 1 from public.app_users au where au.user_id = auth.uid() and au.company_id = mes_defect_reasons.company_id and au.mes_role = 'admin')
+) with check (
+  public.is_master(auth.uid())
+  or exists (select 1 from public.app_users au where au.user_id = auth.uid() and au.company_id = mes_defect_reasons.company_id and au.mes_role = 'admin')
+);
+
+drop policy if exists mes_overhead_reasons_read on public.mes_overhead_reasons;
+drop policy if exists mes_overhead_reasons_manage on public.mes_overhead_reasons;
+create policy mes_overhead_reasons_read on public.mes_overhead_reasons
+for select to authenticated using (
+  public.is_master(auth.uid())
+  or (company_id = public.user_company_id(auth.uid()) and public.can_access_mes(auth.uid()))
+);
+create policy mes_overhead_reasons_manage on public.mes_overhead_reasons
+for all to authenticated using (
+  public.is_master(auth.uid())
+  or exists (select 1 from public.app_users au where au.user_id = auth.uid() and au.company_id = mes_overhead_reasons.company_id and au.mes_role = 'admin')
+) with check (
+  public.is_master(auth.uid())
+  or exists (select 1 from public.app_users au where au.user_id = auth.uid() and au.company_id = mes_overhead_reasons.company_id and au.mes_role = 'admin')
+);
+
+drop policy if exists mes_scherdel_activities_read on public.mes_scherdel_activities;
+drop policy if exists mes_scherdel_activities_write on public.mes_scherdel_activities;
+create policy mes_scherdel_activities_read on public.mes_scherdel_activities
+for select to authenticated using (
+  public.is_master(auth.uid())
+  or (company_id = public.user_company_id(auth.uid()) and public.can_access_mes(auth.uid()))
+);
+create policy mes_scherdel_activities_write on public.mes_scherdel_activities
+for insert to authenticated with check (
+  company_id = public.user_company_id(auth.uid())
+  and public.can_access_mes(auth.uid())
+  and (operator_user_id is null or operator_user_id = auth.uid() or public.is_master(auth.uid()))
+);
+
+create or replace function public.mes_seed_scherdel_catalogs(p_company_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_master(auth.uid()) then
+    if not exists (
+      select 1 from public.app_users au
+      where au.user_id = auth.uid() and au.company_id = p_company_id
+        and au.can_access_mes = true and au.mes_role = 'admin'
+    ) then
+      raise exception 'MES admin access required';
+    end if;
+  end if;
+
+  insert into public.mes_downtime_reasons (company_id, code, name, category, is_planned, sort_order)
+  select p_company_id, v.code, v.name, v.category, v.is_planned, v.sort_order
+  from (values
+    ('1','Nastavenie stroja','setup',true,1), ('2','Uvoľnenie výroby','planned',true,2),
+    ('3','Donastavenie','setup',true,3), ('4','Výmena nástroja','setup',true,4),
+    ('5','Úprava nástroja / výmena dielu','maintenance',false,5),
+    ('6','Porucha elektroniky alebo CNC programu','maintenance',false,6),
+    ('7','Elektrická porucha stroja','maintenance',false,7), ('8','Čakanie na elektrikára','maintenance',false,8),
+    ('9','Mechanická porucha stroja','maintenance',false,9), ('10','Čakanie na údržbára','maintenance',false,10),
+    ('11','Porucha chladenia','maintenance',false,11), ('12','Výpadok energie','unplanned',false,12),
+    ('13','Chýbajúci materiál alebo polotovar','material',false,13), ('14','Chýbajúci personál','unplanned',false,14),
+    ('15','Neexistujúca objednávka','unplanned',false,15), ('16','Výmena materiálu','planned',true,16),
+    ('17','Chýbajúca viacobslužnosť','unplanned',false,17), ('18','Zlá norma','quality',false,18),
+    ('19','Nenakomisionované polotovary','material',false,19), ('20','Porucha senzorov','maintenance',false,20),
+    ('21','Čakanie na zoraďovača','setup',false,21), ('98','Zapracovanie (žiak)','planned',true,98),
+    ('99','Iné','other',false,99)
+  ) as v(code,name,category,is_planned,sort_order)
+  on conflict (company_id, code) do update
+  set name = excluded.name, category = excluded.category, is_planned = excluded.is_planned,
+      sort_order = excluded.sort_order, is_active = true, updated_at = now();
+
+  insert into public.mes_defect_reasons (company_id, code, name, sort_order)
+  select p_company_id, v.code, v.name, v.sort_order
+  from (values
+    ('A','Chybne založený diel',1),('B','Chýbajúci polotovar',2),('C','Chybný alebo nedostatočný studený zvar',3),
+    ('D','Chýbajúci zvar',4),('E','Diel nie je v lôžku',5),('F','Prepálený plech',6),('G','Chybný polotovar',7),
+    ('H','Nesúhlasí priemer drôtu',8),('CH','Chýbajúce diely v balení',9),('I','Nekvalitná povrchová úprava',10),
+    ('J','Neprípustný grad alebo otrep',11),('K','Chýbajúci ohyb',12),('L','Laboratórna skúška',13),
+    ('M','Chybne zmontovaný diel',14),('N','Chybne zanitovaný diel',15),('O','Chybná dĺžka dielu',16),
+    ('P','Diel z nastavenia',17),('S','Diel na skúšky',18),('T','Otvorené očko',19),('U','Diel bez očka',20),
+    ('V','Krivý diel',21),('Z','Zlomený alebo prasknutý diel',22),('X','Nedolisovaný alebo nedostreknutý diel',23),
+    ('Y','Prestrekutý diel',24),('Q','Nečistota',25),('AA','Farebnosť nezodpovedá vzorkovníku',26),
+    ('NA','Navyše diely v balení',27),('PO','Pomiešané diely v balení',28),('PD','Prepálený drôt',29),
+    ('ND','Neoznačený diel',30),('DS','Diely zobraté na sorting',31),('W','Iné',32)
+  ) as v(code,name,sort_order)
+  on conflict (company_id, code) do update
+  set name = excluded.name, sort_order = excluded.sort_order, is_active = true, updated_at = now();
+
+  insert into public.mes_overhead_reasons (company_id, code, name, scope, sort_order)
+  select p_company_id, v.code, v.name, v.scope, v.sort_order
+  from (values
+    ('BXXX','Nastavenie stroja podľa ABK','machine',1),('B906','Donastavenie','machine',2),
+    ('B907','Výmena nástroja','machine',3),('B908','Oprava nástroja alebo stroja','machine',4),
+    ('B909','Výmena materiálu','machine',5),('B910','Oprava dielov','off_machine',10),
+    ('B911','Počítanie dielov','off_machine',11),('B912','Čistenie dielov','off_machine',12),
+    ('B902','100 % kontrola z reklamácie','off_machine',20),('B903','100 % kontrola stála','off_machine',21),
+    ('B904','100 % kontrola po novom pracovníkovi','off_machine',22),('B905','100 % kontrola novej výroby','off_machine',23),
+    ('B920','Zapracovanie (učiteľ)','off_machine',30),('B921','Školenie alebo porada','off_machine',31),
+    ('B922','Administratíva alebo zastupovanie majstra','off_machine',32),
+    ('B923','Upratovanie a čistenie pracoviska','off_machine',33),('B924','Medzioperačná kontrola','off_machine',34),
+    ('B925','Konečná kontrola','off_machine',35),('B926','Prebaľovanie dielov','off_machine',36),
+    ('B927','Vzorky','off_machine',37),('B928','Ručné obrusovanie zvarov','off_machine',38),
+    ('B929','Rozdelenie úloh alebo pracovných činností','off_machine',39),
+    ('B930','Nákup, príjem alebo výdaj dielov zo skladu ND','off_machine',40),
+    ('B931','Kontrola na ľu pri stroji','off_machine',41),('B990','Preprava dielov','off_machine',42),
+    ('B999','Iné','off_machine',99)
+  ) as v(code,name,scope,sort_order)
+  on conflict (company_id, code) do update
+  set name = excluded.name, scope = excluded.scope, sort_order = excluded.sort_order,
+      is_active = true, updated_at = now();
+end;
+$$;
+
+grant execute on function public.mes_seed_scherdel_catalogs(uuid) to authenticated;
+
+-- After applying the migration, seed the catalogs once as a MES admin:
+-- select public.mes_seed_scherdel_catalogs('SCHERDEL-COMPANY-UUID');
+-- <<< END 58_wms_mes_scherdel_requirements.txt

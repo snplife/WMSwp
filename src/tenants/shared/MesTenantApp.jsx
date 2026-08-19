@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Activity, AlertTriangle, BarChart3, CheckCircle2, Clock3, Factory, LogOut, PlayCircle, RefreshCw, ShieldCheck, UserRound } from "lucide-react";
 import { clearSupabaseAuthStorage, supabase } from "../../supabaseClient";
 import FactoryOsMesDashboard from "./FactoryOsMesDashboard";
+import ScherdelMesDashboard from "../scherdel/ScherdelMesDashboard";
 import "./mesTenant.css";
 
 const INTERNAL_LOGIN_DOMAIN = String(import.meta.env.VITE_INTERNAL_LOGIN_DOMAIN || "wms.local").trim().toLowerCase();
@@ -33,6 +34,16 @@ function isCompanyAllowed(tenant, company) {
   return (tenant.companyNameFragments || []).some((fragment) => companyName.includes(normalizeName(fragment)));
 }
 
+function isMissingMesObjectError(error, objectName) {
+  const message = String(error?.message || error || "").toLowerCase();
+  const normalizedObjectName = String(objectName || "").toLowerCase();
+  return message.includes(normalizedObjectName) && (
+    message.includes("does not exist") ||
+    message.includes("schema cache") ||
+    message.includes("could not find")
+  );
+}
+
 function getMachineState(row) {
   const state = String(row.machine_state || row.job_status || "idle").toLowerCase();
   if (state === "running") return { key: "running", label: "Výroba" };
@@ -53,10 +64,13 @@ export default function MesTenantApp({ tenant }) {
   const [jobRuns, setJobRuns] = useState([]);
   const [mesEvents, setMesEvents] = useState([]);
   const [workstations, setWorkstations] = useState([]);
+  const [downtimeReasons, setDowntimeReasons] = useState([]);
+  const [productionOrders, setProductionOrders] = useState([]);
   const [dataLoading, setDataLoading] = useState(false);
   const [dataError, setDataError] = useState("");
   const [lastLoadedAt, setLastLoadedAt] = useState(null);
   const hydrationIdRef = useRef(0);
+  const dataLoadInFlightRef = useRef(false);
   const branding = tenant.branding || {};
 
   useEffect(() => {
@@ -139,12 +153,13 @@ export default function MesTenantApp({ tenant }) {
 
   const loadMesData = useCallback(async () => {
     const companyId = accessContext?.company?.id;
-    if (!companyId) return;
+    if (!companyId || dataLoadInFlightRef.current) return;
+    dataLoadInFlightRef.current = true;
     setDataLoading(true);
     setDataError("");
     try {
       const historyStartAt = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
-      const [overviewResult, runsResult, eventsResult, workstationsResult] = await Promise.all([
+      const [overviewResult, runsResult, eventsResult, workstationsResult, downtimeReasonsResult, productionOrdersResult] = await Promise.all([
         supabase.rpc("mes_factory_overview", { p_company_id: companyId }),
         supabase.from("mes_job_runs")
           .select("id,workstation_id,machine_id,terminal_id,operator_user_id,job_number,item_code,item_name,operator_name,status,planned_quantity,good_quantity,scrap_quantity,setup_started_at,started_at,ended_at,note,created_at,updated_at")
@@ -154,17 +169,44 @@ export default function MesTenantApp({ tenant }) {
           .eq("company_id", companyId).gte("created_at", historyStartAt).order("created_at", { ascending: false }).limit(5000),
         supabase.from("mes_workstations")
           .select("id,code,name,area,target_cycle_seconds,ideal_units_per_hour")
-          .eq("company_id", companyId).eq("is_active", true)
+          .eq("company_id", companyId).eq("is_active", true),
+        supabase.from("mes_downtime_reasons")
+          .select("id,code,name,category,is_planned,sort_order,is_active")
+          .eq("company_id", companyId).eq("is_active", true).order("sort_order", { ascending: true }),
+        supabase.from("production_orders")
+          .select("id,production_number,title,status,note,created_at,production_order_outputs(id,material_code,output_quantity,position,line_note)")
+          .eq("company_id", companyId).order("created_at", { ascending: false }).limit(500)
       ]);
       if (overviewResult.error) throw overviewResult.error;
       if (runsResult.error) throw runsResult.error;
-      if (eventsResult.error) throw eventsResult.error;
+      if (eventsResult.error && !isMissingMesObjectError(eventsResult.error, "mes_event_log")) throw eventsResult.error;
       if (workstationsResult.error) throw workstationsResult.error;
+      if (downtimeReasonsResult.error) throw downtimeReasonsResult.error;
+      if (productionOrdersResult.error) throw productionOrdersResult.error;
+      const runs = runsResult.data || [];
+      const runEvents = [];
+      const runIds = runs.map((run) => run.id).filter(Boolean);
+      for (let index = 0; index < runIds.length; index += 100) {
+        const { data, error } = await supabase.from("mes_job_run_events")
+          .select("id,job_run_id,workstation_id,machine_id,downtime_reason_id,event_type,quantity,source,note,payload,happened_at,created_at")
+          .in("job_run_id", runIds.slice(index, index + 100))
+          .gte("happened_at", historyStartAt)
+          .order("happened_at", { ascending: false })
+          .limit(5000);
+        if (error) {
+          if (isMissingMesObjectError(error, "mes_job_run_events")) break;
+          throw error;
+        }
+        runEvents.push(...(data || []));
+        if (runEvents.length >= 5000) break;
+      }
       setOverviewRows(overviewResult.data || []);
-      setJobRuns(runsResult.data || []);
+      setJobRuns(runs);
       setWorkstations(workstationsResult.data || []);
-      const runById = new Map((runsResult.data || []).map((run) => [String(run.id || ""), run]));
-      setMesEvents((eventsResult.data || []).map((event) => {
+      setDowntimeReasons(downtimeReasonsResult.data || []);
+      setProductionOrders(productionOrdersResult.data || []);
+      const runById = new Map(runs.map((run) => [String(run.id || ""), run]));
+      const compactEvents = (eventsResult.data || []).map((event) => {
         const run = runById.get(String(event.job_run_id || "")) || null;
         return {
           ...event,
@@ -175,15 +217,41 @@ export default function MesTenantApp({ tenant }) {
           workstation_id: event.workstation_id || run?.workstation_id || "",
           terminal_id: event.terminal_id || run?.terminal_id || ""
         };
-      }));
+      });
+      const durableEvents = runEvents.map((event) => {
+        const run = runById.get(String(event.job_run_id || "")) || null;
+        return {
+          ...event,
+          event_code: event.event_type,
+          happened_at: event.happened_at || event.created_at,
+          duration_seconds: Number(event.payload?.duration_seconds || 0),
+          time_from: event.payload?.time_from || "",
+          time_to: event.payload?.time_to || event.happened_at || event.created_at,
+          operator_name: event.payload?.operator_name || run?.operator_name || "",
+          machine_id: event.machine_id || run?.machine_id || "",
+          workstation_id: event.workstation_id || run?.workstation_id || "",
+          terminal_id: run?.terminal_id || ""
+        };
+      });
+      const eventByKey = new Map();
+      [...compactEvents, ...durableEvents].forEach((event) => {
+        const key = String(event.id || `${event.job_run_id}-${event.event_type}-${event.happened_at}`);
+        if (!eventByKey.has(key)) eventByKey.set(key, event);
+      });
+      setMesEvents(Array.from(eventByKey.values()).sort((left, right) =>
+        new Date(right.happened_at || right.created_at || 0) - new Date(left.happened_at || left.created_at || 0)
+      ));
       setLastLoadedAt(new Date());
     } catch (error) {
       setOverviewRows([]);
       setJobRuns([]);
       setMesEvents([]);
       setWorkstations([]);
+      setDowntimeReasons([]);
+      setProductionOrders([]);
       setDataError(error?.message || "MES dáta sa nepodarilo načítať.");
     } finally {
+      dataLoadInFlightRef.current = false;
       setDataLoading(false);
     }
   }, [accessContext?.company?.id]);
@@ -233,6 +301,8 @@ export default function MesTenantApp({ tenant }) {
     setJobRuns([]);
     setMesEvents([]);
     setWorkstations([]);
+    setDowntimeReasons([]);
+    setProductionOrders([]);
     setAccessContext(null);
   };
 
@@ -246,7 +316,13 @@ export default function MesTenantApp({ tenant }) {
     return (
       <main className={`mes-tenant mes-tenant-login ${tenant.uiVariant === "factory-os" ? "factory-os-login" : ""}`} style={tenantStyle}>
         <section className="mes-tenant-login-card">
-          <div className="mes-tenant-brandmark"><Factory size={26} /></div>
+          {branding.companyLogo ? (
+            <div className="mes-tenant-login-logos" aria-label={`${branding.companyName || branding.productName || "Firma"} a MESLULA`}>
+              <img className="mes-tenant-company-logo" src={branding.companyLogo} alt={branding.companyName || branding.productName || "Firemné logo"} />
+              {branding.platformLogo ? <span aria-hidden="true" /> : null}
+              {branding.platformLogo ? <img className="mes-tenant-platform-logo" src={branding.platformLogo} alt="MESLULA" /> : null}
+            </div>
+          ) : <div className="mes-tenant-brandmark"><Factory size={26} /></div>}
           <p className="mes-tenant-eyebrow">{branding.eyebrow || "MES"}</p>
           <h1>{branding.productName || "MES"}</h1>
           <p className="mes-tenant-login-copy">Prihlásenie do výrobného prostredia firmy.</p>
@@ -274,6 +350,26 @@ export default function MesTenantApp({ tenant }) {
         jobRuns={jobRuns}
         mesEvents={mesEvents}
         workstations={workstations}
+        dataLoading={dataLoading}
+        dataError={dataError}
+        lastLoadedAt={lastLoadedAt}
+        onRefresh={loadMesData}
+        onSignOut={handleSignOut}
+      />
+    );
+  }
+
+  if (tenant.id === "scherdel") {
+    return (
+      <ScherdelMesDashboard
+        tenant={tenant}
+        accessContext={accessContext}
+        overviewRows={overviewRows}
+        jobRuns={jobRuns}
+        mesEvents={mesEvents}
+        workstations={workstations}
+        downtimeReasons={downtimeReasons}
+        productionOrders={productionOrders}
         dataLoading={dataLoading}
         dataError={dataError}
         lastLoadedAt={lastLoadedAt}

@@ -10,8 +10,11 @@ const tenantDefinitions = [
     branding: {
       productName: "Scherdel MES",
       eyebrow: "Manufacturing Execution System",
-      accent: "#146c5a",
-      accentStrong: "#0a4f41"
+      accent: "#0067a8",
+      accentStrong: "#004c7a",
+      companyName: "SCHERDEL",
+      companyLogo: "/brands/scherdel-logo.png",
+      platformLogo: "/brands/meslula-logo.png"
     },
     features: { overview: true, activity: true },
     refreshIntervalMs: 30_000,
@@ -26,7 +29,10 @@ const tenantDefinitions = [
       productName: "ML Produktion MES",
       eyebrow: "Manufacturing Execution System",
       accent: "#245a8d",
-      accentStrong: "#163d63"
+      accentStrong: "#163d63",
+      companyName: "ML Produktion",
+      companyLogo: "/brands/ml-produktion-logo.svg",
+      platformLogo: "/brands/meslula-logo.png"
     },
     uiVariant: "factory-os",
     features: { overview: true, activity: true },

@@ -236,7 +236,7 @@ export default function ScherdelFactoryMap({
             {selectedStatus.key === "unassigned" ? <form className="scherdel-terminal-register" onSubmit={handleRegisterTerminal}>
               <p>Priraď terminál jednorazovo. Pracovisko a stroj sa pri prvom použití vytvoria automaticky.</p>
               <label><span>UID / kód terminálu</span><input value={terminalCode} onChange={(event) => setTerminalCode(event.target.value)} placeholder="P4-AABBCCDDEEFF" autoFocus /></label>
-              <label><span>Typ zariadenia</span><select value={terminalPlatform} onChange={(event) => setTerminalPlatform(event.target.value)}><option value="raspberry_pi">Raspberry Pi</option><option value="android">Android</option><option value="web_kiosk">Web kiosk</option><option value="other">Iné</option></select></label>
+              <label><span>Typ zariadenia</span><select value={terminalPlatform} onChange={(event) => setTerminalPlatform(event.target.value)}><option value="raspberry_pi">lula terminál V7.1</option><option value="android">lula terminál V7</option><option value="web_kiosk">Web kiosk</option><option value="other">Iné</option></select></label>
               {registrationState.error ? <small className="error">{registrationState.error}</small> : null}
               {registrationState.success ? <small className="success">{registrationState.success}</small> : null}
               <button type="submit" disabled={registrationState.saving}>{registrationState.saving ? "Priraďujem…" : "Pridať terminál"}<ArrowRight size={16} /></button>

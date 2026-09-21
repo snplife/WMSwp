@@ -34,6 +34,19 @@ function isCompanyAllowed(tenant, company) {
   return (tenant.companyNameFragments || []).some((fragment) => companyName.includes(normalizeName(fragment)));
 }
 
+function resolveTenantMachineName(tenant, value) {
+  const name = String(value || "").trim();
+  if (!name) return value;
+  return tenant.machineNameAliases?.[normalizeName(name)] || value;
+}
+
+function applyTenantMachineAliases(tenant, row, fields) {
+  return fields.reduce((result, field) => ({
+    ...result,
+    [field]: resolveTenantMachineName(tenant, result[field])
+  }), { ...row });
+}
+
 function isMissingMesObjectError(error, objectName) {
   const message = String(error?.message || error || "").toLowerCase();
   const normalizedObjectName = String(objectName || "").toLowerCase();
@@ -200,9 +213,13 @@ export default function MesTenantApp({ tenant }) {
         runEvents.push(...(data || []));
         if (runEvents.length >= 5000) break;
       }
-      setOverviewRows(overviewResult.data || []);
+      setOverviewRows((overviewResult.data || []).map((row) =>
+        applyTenantMachineAliases(tenant, row, ["machine_name", "workstation_name", "terminal_name"])
+      ));
       setJobRuns(runs);
-      setWorkstations(workstationsResult.data || []);
+      setWorkstations((workstationsResult.data || []).map((row) =>
+        applyTenantMachineAliases(tenant, row, ["name"])
+      ));
       setDowntimeReasons(downtimeReasonsResult.data || []);
       setProductionOrders(productionOrdersResult.data || []);
       const runById = new Map(runs.map((run) => [String(run.id || ""), run]));
@@ -254,7 +271,7 @@ export default function MesTenantApp({ tenant }) {
       dataLoadInFlightRef.current = false;
       setDataLoading(false);
     }
-  }, [accessContext?.company?.id]);
+  }, [accessContext?.company?.id, tenant]);
 
   useEffect(() => {
     if (authState !== "authenticated") return undefined;

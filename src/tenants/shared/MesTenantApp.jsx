@@ -33,6 +33,18 @@ function isCompanyAllowed(tenant, company) {
   return (tenant.companyNameFragments || []).some((fragment) => companyName.includes(normalizeName(fragment)));
 }
 
+function resolveTenantMachineName(tenant, value) {
+  const name = String(value || "").trim();
+  if (!name) return value;
+  return tenant.machineNameAliases?.[normalizeName(name)] || value;
+}
+
+function applyTenantMachineAliases(tenant, row, fields) {
+  return fields.reduce((result, field) => ({
+    ...result,
+    [field]: resolveTenantMachineName(tenant, result[field])
+  }), { ...row });
+}
 function getMachineState(row) {
   const state = String(row.machine_state || row.job_status || "idle").toLowerCase();
   if (state === "running") return { key: "running", label: "Výroba" };
@@ -160,9 +172,13 @@ export default function MesTenantApp({ tenant }) {
       if (runsResult.error) throw runsResult.error;
       if (eventsResult.error) throw eventsResult.error;
       if (workstationsResult.error) throw workstationsResult.error;
-      setOverviewRows(overviewResult.data || []);
+      setOverviewRows((overviewResult.data || []).map((row) =>
+        applyTenantMachineAliases(tenant, row, ["machine_name", "workstation_name", "terminal_name"])
+      ));
       setJobRuns(runsResult.data || []);
-      setWorkstations(workstationsResult.data || []);
+      setWorkstations((workstationsResult.data || []).map((row) =>
+        applyTenantMachineAliases(tenant, row, ["name"])
+      ));
       const runById = new Map((runsResult.data || []).map((run) => [String(run.id || ""), run]));
       setMesEvents((eventsResult.data || []).map((event) => {
         const run = runById.get(String(event.job_run_id || "")) || null;
@@ -186,7 +202,7 @@ export default function MesTenantApp({ tenant }) {
     } finally {
       setDataLoading(false);
     }
-  }, [accessContext?.company?.id]);
+  }, [accessContext?.company?.id, tenant]);
 
   useEffect(() => {
     if (authState !== "authenticated") return undefined;

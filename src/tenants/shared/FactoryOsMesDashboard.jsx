@@ -288,7 +288,7 @@ export default function FactoryOsMesDashboard({
                   <article className="mes-selected-machine-metric"><span>Prihlásený</span><strong>{activeRun?.operator_name || selectedRow.operator_name || "Operátor nie je prihlásený"}</strong><p>údaj z poslednej známej aktivity stroja</p></article>
                   <article className="mes-selected-machine-metric"><span>Vyrobené kusy</span><strong>{formatNumber(selectedGood + selectedScrap || Number(selectedRow.good_quantity || 0) + Number(selectedRow.scrap_quantity || 0))}</strong><p>{formatNumber(selectedGood || selectedRow.good_quantity)} OK | {formatNumber(selectedScrap || selectedRow.scrap_quantity)} NOK</p></article>
                   <article className="mes-selected-machine-metric"><span>Vyrobené zákazky</span><strong>{formatNumber(completedRuns.length)}</strong><p>dokončené zákazky v načítanej histórii</p></article>
-                  <article className="mes-selected-machine-metric"><span>Posledná aktivita</span><strong>{formatDateTime(selectedRow.latest_event_at || selectedRow.machine_last_heartbeat_at)}</strong><p>posledný známy signál zariadenia</p></article>
+                  {tenant.features?.lastActivity !== false ? <article className="mes-selected-machine-metric"><span>Posledná aktivita</span><strong>{formatDateTime(selectedRow.latest_event_at || selectedRow.machine_last_heartbeat_at)}</strong><p>posledný známy signál zariadenia</p></article> : null}
                 </div>
                 <MesCharts selectedRow={selectedRow} selectedRuns={selectedRuns} mesEvents={mesEvents} />
               </section>

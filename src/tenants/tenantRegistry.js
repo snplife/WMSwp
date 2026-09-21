@@ -29,7 +29,8 @@ const tenantDefinitions = [
       accentStrong: "#163d63"
     },
     uiVariant: "factory-os",
-    features: { overview: true, activity: true },
+    features: { overview: true, activity: true, lastActivity: false },
+    machineNameAliases: { roundtakt: "DMG Mori" },
     refreshIntervalMs: 30_000,
     loadApp: () => import("./mlproduktion/MLProduktionMesApp")
   }

@@ -1,0 +1,32 @@
+-- Rename the ML Produktion machine to CMX 1100 V.
+-- Handles both names used previously and is safe to run repeatedly.
+
+begin;
+
+update public.mes_machines as machine
+set name = 'CMX 1100 V',
+    updated_at = now()
+from public.mes_workstations as workstation
+join public.companies as company
+  on company.id = workstation.company_id
+where machine.workstation_id = workstation.id
+  and lower(trim(company.name)) = 'ml produktion'
+  and lower(regexp_replace(trim(machine.name), '[^a-z0-9]+', '', 'g')) in ('roundtakt', 'dmgmori');
+
+update public.mes_hmi_terminals as terminal
+set name = 'CMX 1100 V',
+    updated_at = now()
+from public.companies as company
+where terminal.company_id = company.id
+  and lower(trim(company.name)) = 'ml produktion'
+  and lower(regexp_replace(trim(terminal.name), '[^a-z0-9]+', '', 'g')) in ('roundtakt', 'dmgmori');
+
+update public.mes_workstations as workstation
+set name = 'CMX 1100 V',
+    updated_at = now()
+from public.companies as company
+where workstation.company_id = company.id
+  and lower(trim(company.name)) = 'ml produktion'
+  and lower(regexp_replace(trim(workstation.name), '[^a-z0-9]+', '', 'g')) in ('roundtakt', 'dmgmori');
+
+commit;

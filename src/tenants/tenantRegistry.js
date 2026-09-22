@@ -36,7 +36,7 @@ const tenantDefinitions = [
     },
     uiVariant: "factory-os",
     features: { overview: true, activity: true, lastActivity: false },
-    machineNameAliases: { roundtakt: "DMG Mori" },
+    machineNameAliases: { roundtakt: "CMX 1100 V", "dmg mori": "CMX 1100 V" },
     refreshIntervalMs: 30_000,
     loadApp: () => import("./mlproduktion/MLProduktionMesApp")
   }

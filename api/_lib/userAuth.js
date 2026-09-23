@@ -37,7 +37,7 @@ export async function requireAuthenticatedUser(req) {
 
   const { data: appUser, error: appUserError } = await supabase
     .from(ROLE_TABLE)
-    .select("user_id,company_id,role,can_manage_orders,email,username")
+    .select("user_id,company_id,role,can_manage_orders,can_access_mes,email,username")
     .eq("user_id", user.id)
     .maybeSingle();
 

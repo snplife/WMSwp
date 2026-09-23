@@ -134,8 +134,14 @@ export function getMesEventDurationMs(row) {
     return Math.max(0, explicitSeconds * 1000 + adjustmentMs);
   }
 
-  const timeFromMs = new Date(row?.time_from || row?.payload?.time_from || 0).getTime();
-  const timeToMs = new Date(row?.time_to || row?.happened_at || row?.created_at || 0).getTime();
+  const timeFrom = row?.time_from || row?.payload?.time_from;
+  const timeTo = row?.time_to || row?.payload?.time_to || row?.happened_at || row?.created_at;
+  if (!timeFrom || !timeTo) {
+    return 0;
+  }
+
+  const timeFromMs = new Date(timeFrom).getTime();
+  const timeToMs = new Date(timeTo).getTime();
   if (Number.isFinite(timeFromMs) && Number.isFinite(timeToMs) && timeToMs > timeFromMs) {
     return Math.max(0, timeToMs - timeFromMs + adjustmentMs);
   }

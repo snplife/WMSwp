@@ -4,6 +4,7 @@ import { supabase } from "../../supabaseClient";
 import MesAnalyticsExports from "./MesAnalyticsExports";
 import MesCharts from "./MesCharts";
 import "./factoryOsMesDashboard.css";
+import "./mlProduktionBrand.css";
 
 const formatNumber = (value) => new Intl.NumberFormat("sk-SK").format(Number(value || 0));
 
@@ -196,8 +197,10 @@ export default function FactoryOsMesDashboard({
   return (
     <main className="factory-os-mes-tenant">
       <header className="factory-os-mes-topbar">
-        <div className="factory-os-mes-brand">
-          <span><Factory size={22} /></span>
+        <div className={`factory-os-mes-brand${tenant.branding?.companyLogo ? " factory-os-mes-brand-logo" : ""}`}>
+          {tenant.branding?.companyLogo
+            ? <img className="factory-os-mes-company-logo" src={tenant.branding.companyLogo} alt={tenant.branding.companyName || tenant.branding.productName || "Firemné logo"} />
+            : <span><Factory size={22} /></span>}
           <div><strong>Factory OS</strong><p>{tenant.branding?.productName || "MES"}</p></div>
         </div>
         <div className="factory-os-mes-user">
@@ -303,6 +306,7 @@ export default function FactoryOsMesDashboard({
       </article>
       </> : (
         <MesAnalyticsExports
+          companyId={accessContext.company.id}
           companyName={accessContext.company.name}
           overviewRows={overviewRows}
           jobRuns={jobRuns}

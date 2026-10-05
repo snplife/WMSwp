@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity, AlertTriangle, BarChart3, CheckCircle2, ClipboardList, Clock3,
   Factory, Gauge, LogOut, PackageCheck, PauseCircle, PlayCircle,
@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { supabase } from "../../supabaseClient";
 import { summarizeMesStateWindow } from "../../modules/mes/analytics";
+import { getMesMachineFaultState } from "../../modules/mes/events";
 import MesAnalyticsExports from "../shared/MesAnalyticsExports";
 import ScherdelFactoryMap from "./ScherdelFactoryMap";
 import {
@@ -122,16 +123,29 @@ export default function ScherdelMesDashboard({
     return { ...reason, id: stored?.id || null, category: stored?.category || "unplanned", isPlanned: Boolean(stored?.is_planned) };
   }), [downtimeReasons]);
 
+  const faultStateByMachine = useMemo(() => new Map(sortedRows.map((row) => [
+    getMachineKey(row),
+    getMesMachineFaultState(mesEvents.filter((event) => matchesMachine(event, row)))
+  ])), [mesEvents, sortedRows]);
+
+  const resolveMachineStatus = useCallback((row) => {
+    if (faultStateByMachine.get(getMachineKey(row))) {
+      return { key: "fault", label: "Porucha" };
+    }
+    return machineStatus(row);
+  }, [faultStateByMachine]);
+
   const summary = useMemo(() => sortedRows.reduce((result, row) => {
-    const status = machineStatus(row).key;
+    const status = resolveMachineStatus(row).key;
     result.total += 1;
     result.running += status === "running" ? 1 : 0;
+    result.fault += status === "fault" ? 1 : 0;
     result.downtime += status === "downtime" ? 1 : 0;
     result.setup += status === "setup" ? 1 : 0;
     result.good += Number(row.good_quantity || 0);
     result.scrap += Number(row.scrap_quantity || 0);
     return result;
-  }, { total: 0, running: 0, downtime: 0, setup: 0, good: 0, scrap: 0 }), [sortedRows]);
+  }, { total: 0, running: 0, fault: 0, downtime: 0, setup: 0, good: 0, scrap: 0 }), [resolveMachineStatus, sortedRows]);
 
   const oee = useMemo(() => {
     const startAt = new Date();
@@ -363,7 +377,7 @@ export default function ScherdelMesDashboard({
           selectedMachineKey={selectedMachineKey}
           onSelectMachine={setSelectedMachineKey}
           onOpenTerminal={() => setActiveSection("terminal")}
-          resolveStatus={machineStatus}
+          resolveStatus={resolveMachineStatus}
           companyId={accessContext.company.id}
           userId={accessContext.profile.user_id}
           onRefresh={onRefresh}
@@ -371,13 +385,14 @@ export default function ScherdelMesDashboard({
         <section className="scherdel-kpis">
           <article><Factory /><span>Stroje</span><strong>{formatNumber(summary.total)}</strong></article>
           <article className="running"><PlayCircle /><span>Automatický cyklus</span><strong>{formatNumber(summary.running)}</strong></article>
+          <article className="fault"><AlertTriangle /><span>Poruchy</span><strong>{formatNumber(summary.fault)}</strong></article>
           <article className="setup"><Settings2 /><span>Nastavenie</span><strong>{formatNumber(summary.setup)}</strong></article>
           <article className="down"><Clock3 /><span>Prestoje</span><strong>{formatNumber(summary.downtime)}</strong></article>
           <article><PackageCheck /><span>i.O. / n.i.O.</span><strong>{formatNumber(summary.good)} / {formatNumber(summary.scrap)}</strong></article>
         </section>
         <section className="scherdel-machine-grid">
           {sortedRows.map((row) => {
-            const status = machineStatus(row);
+            const status = resolveMachineStatus(row);
             const completion = Number(row.planned_quantity || 0) > 0 ? Math.min(100, Number(row.good_quantity || 0) / Number(row.planned_quantity) * 100) : 0;
             const requiresReason = status.key === "downtime" && !row.current_downtime_reason;
             return <button type="button" className={`scherdel-machine-card ${status.key} ${getMachineKey(row) === selectedMachineKey ? "selected" : ""}`} key={getMachineKey(row)} onClick={() => setSelectedMachineKey(getMachineKey(row))}>
@@ -398,7 +413,7 @@ export default function ScherdelMesDashboard({
           <div className="scherdel-section-title"><ScanLine /><div><span>RFID relácia</span><h2>Identifikácia obsluhy</h2></div></div>
           <div className="scherdel-rfid"><UserRound /><div><strong>{accessContext.profile.username || accessContext.profile.email}</strong><span>{SCHERDEL_ROLE_LABELS[role] || role}</span></div><b>Autorizované</b></div>
           <label><span>Stroj / pracovisko</span><select value={selectedMachineKey} onChange={(event) => setSelectedMachineKey(event.target.value)}>{sortedRows.map((row) => <option key={getMachineKey(row)} value={getMachineKey(row)}>{row.machine_name || row.workstation_name}</option>)}</select></label>
-          <div className="scherdel-selected-state"><span>Aktuálny stav</span><strong className={machineStatus(selectedRow).key}>{machineStatus(selectedRow).label}</strong><small>{selectedRow?.machine_name || selectedRow?.workstation_name || "Nie je vybraný stroj"}</small></div>
+          <div className="scherdel-selected-state"><span>Aktuálny stav</span><strong className={resolveMachineStatus(selectedRow).key}>{resolveMachineStatus(selectedRow).label}</strong><small>{selectedRow?.machine_name || selectedRow?.workstation_name || "Nie je vybraný stroj"}</small></div>
         </aside>
 
         <div className="scherdel-terminal-main">

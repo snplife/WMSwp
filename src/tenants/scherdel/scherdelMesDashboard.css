@@ -38,3 +38,15 @@
 @media(max-width:1100px){.scherdel-map-stage:has(>.scherdel-map-detail){grid-template-columns:1fr}.scherdel-map-detail{position:relative;top:auto;margin:0 16px 18px}.scherdel-map-scroll{height:clamp(410px,52vh,560px)}.scherdel-map-toolbar{flex-wrap:wrap}.scherdel-map-search{flex:1}.scherdel-map-filters{order:3;flex-basis:100%}}
 @media(max-width:760px){.scherdel-map-stage{min-height:440px}.scherdel-map-scroll{align-items:center;justify-content:flex-start;height:460px}.scherdel-map-canvas{min-width:690px;margin:0}.scherdel-map-marker-label{min-width:52px;padding:4px 6px}.scherdel-map-marker-label b{font-size:9px}}
 @media(max-width:600px){.scherdel-map-header{align-items:flex-start;padding:18px}.scherdel-map-live small{display:none}.scherdel-map-toolbar{padding:10px}.scherdel-map-search{min-width:190px}.scherdel-map-zoom{margin-left:auto}.scherdel-map-legend{justify-content:flex-start;overflow-x:auto}.scherdel-map-legend span{flex:none}}
+
+/* GPIO26 machine-fault state */
+.scherdel-kpis{grid-template-columns:repeat(6,minmax(0,1fr))}
+.scherdel-kpis .fault svg{color:#d71920}
+.scherdel-machine-card.fault{border-left-color:#d71920;background:linear-gradient(135deg,#fff 72%,#fff0f0)}
+.scherdel-machine-card .state.fault{background:#ffe3e3;color:#a70810}
+.scherdel-selected-state strong.fault{color:#d71920}
+.scherdel-map-marker.fault{--state:#ff2438;animation:scherdel-map-alert 1.15s ease-in-out infinite}
+.scherdel-map-detail.fault{--state:#ff2438}
+.scherdel-map-legend i.fault{background:#ff2438;box-shadow:0 0 8px rgba(255,36,56,.58)}
+@media(max-width:1100px){.scherdel-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:760px){.scherdel-kpis{grid-template-columns:1fr}}

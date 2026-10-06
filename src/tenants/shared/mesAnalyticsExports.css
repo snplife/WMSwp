@@ -61,6 +61,39 @@
   font: inherit;
 }
 
+.factory-mes-shift-windows {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.85rem;
+  margin: 0 0 1rem;
+}
+
+.factory-mes-shift-window {
+  --shift-accent: #2d729c;
+  display: grid;
+  gap: 0.8rem;
+  min-width: 0;
+  padding: 1rem;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--shift-accent) 28%, #d8e2e7);
+  border-top: 4px solid var(--shift-accent);
+  border-radius: 14px;
+  background: linear-gradient(145deg, #fff 62%, color-mix(in srgb, var(--shift-accent) 8%, #fff));
+}
+
+.factory-mes-shift-window.afternoon { --shift-accent: #d98212; }
+.factory-mes-shift-window.night { --shift-accent: #514a9d; }
+.factory-mes-shift-window header { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
+.factory-mes-shift-window header span { display: flex; align-items: center; gap: 0.45rem; color: var(--shift-accent); font-size: 0.82rem; font-weight: 900; }
+.factory-mes-shift-window header small { color: #71838f; font-size: 0.7rem; font-weight: 800; white-space: nowrap; }
+.factory-mes-shift-window > strong { color: #17324a; font-size: clamp(1.55rem, 3vw, 2.15rem); line-height: 1; }
+.factory-mes-shift-window dl { display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem; margin: 0; }
+.factory-mes-shift-window dl div { min-width: 0; }
+.factory-mes-shift-window dt { margin-bottom: 0.2rem; color: #71838f; font-size: 0.65rem; font-weight: 800; text-transform: uppercase; }
+.factory-mes-shift-window dd { margin: 0; overflow: hidden; color: #29485d; font-size: 0.82rem; font-weight: 850; text-overflow: ellipsis; white-space: nowrap; }
+.factory-mes-shift-share { height: 6px; overflow: hidden; border-radius: 999px; background: #e5ebef; }
+.factory-mes-shift-share span { display: block; height: 100%; border-radius: inherit; background: var(--shift-accent); }
+
 .factory-mes-export-summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -87,6 +120,7 @@
 
 @media (max-width: 900px) {
   .factory-mes-export-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .factory-mes-shift-windows { grid-template-columns: 1fr; }
   .factory-mes-export-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 

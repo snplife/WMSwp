@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Download, FileSpreadsheet } from "lucide-react";
+import { Download, FileSpreadsheet, Moon, Sun, Sunset } from "lucide-react";
 import { supabase } from "../../supabaseClient";
 import "./mesAnalyticsExports.css";
 
@@ -11,6 +11,11 @@ const DETAIL_COLUMNS = [
 const numberFormatter = new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 2 });
 const clientReportCache = new Map();
 const CLIENT_CACHE_TTL_MS = 5 * 60 * 1000;
+const SHIFT_WINDOWS = [
+  { order: 1, label: "Ranná zmena", time: "06:00 – 14:00", tone: "morning", Icon: Sun },
+  { order: 2, label: "Poobedná zmena", time: "14:00 – 22:00", tone: "afternoon", Icon: Sunset },
+  { order: 3, label: "Nočná zmena", time: "22:00 – 06:00", tone: "night", Icon: Moon }
+];
 
 function toDateInputValue(date) {
   const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
@@ -229,6 +234,28 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
     duration: exportRows.reduce((sum, row) => sum + Number(row["Výrobný čas (min)"] || 0), 0)
   }), [exportRows]);
 
+  const shiftWindows = useMemo(() => {
+    const values = new Map(SHIFT_WINDOWS.map((shift) => [shift.order, {
+      ...shift,
+      quantity: 0,
+      duration: 0,
+      dates: new Set()
+    }]));
+    exportRows.forEach((row) => {
+      const shift = values.get(Number(row.__shiftOrder || 0));
+      if (!shift) return;
+      shift.quantity += Number(row["Vyrobené kusy"] || 0);
+      shift.duration += Number(row["Výrobný čas (min)"] || 0);
+      if (row["Dátum"] instanceof Date) shift.dates.add(row["Dátum"].toISOString().slice(0, 10));
+    });
+    return Array.from(values.values(), (shift) => ({
+      ...shift,
+      duration: Number(shift.duration.toFixed(2)),
+      dayCount: shift.dates.size,
+      share: summary.quantity > 0 ? Math.min(100, shift.quantity / summary.quantity * 100) : 0
+    }));
+  }, [exportRows, summary.quantity]);
+
   const exportBasicWorkbook = async (fileName) => {
     const module = await import("xlsx");
     const XLSX = module.default || module;
@@ -354,6 +381,19 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
         <label><span>Stroj</span><select value={selectedMachineKey} onChange={(event) => setSelectedMachineKey(event.target.value)}><option value="all">Všetky stroje</option>{machineOptions.map((row) => <option key={row.key} value={row.key}>{row.label}</option>)}</select></label>
         <label><span>Operátor</span><select value={selectedOperator} onChange={(event) => setSelectedOperator(event.target.value)}><option value="all">Všetci operátori</option>{operatorOptions.map((operator) => <option key={operator} value={operator}>{operator}</option>)}</select></label>
         {rangeKey === "custom" ? <><label><span>Dátum od</span><input type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} /></label><label><span>Dátum do</span><input type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} /></label></> : null}
+      </section>
+      <section className="factory-mes-shift-windows" aria-label="Výsledky rannej, poobednej a nočnej zmeny">
+        {shiftWindows.map(({ order, label, time, tone, Icon, quantity, duration, dayCount, share }) => (
+          <article className={`factory-mes-shift-window ${tone}`} key={order}>
+            <header><span><Icon size={18} />{label}</span><small>{time}</small></header>
+            <strong>{rangeLoading ? "…" : `${numberFormatter.format(quantity)} ks`}</strong>
+            <dl>
+              <div><dt>Výrobný čas</dt><dd>{rangeLoading ? "–" : `${numberFormatter.format(duration)} min`}</dd></div>
+              <div><dt>Dní s výrobou</dt><dd>{rangeLoading ? "–" : numberFormatter.format(dayCount)}</dd></div>
+            </dl>
+            <div className="factory-mes-shift-share" aria-label={`${numberFormatter.format(share)} percent z výroby vo vybranom období`}><span style={{ width: `${share}%` }} /></div>
+          </article>
+        ))}
       </section>
       <section className="factory-mes-export-summary">
         <article><span>Súhrnné riadky</span><strong>{numberFormatter.format(exportRows.length)}</strong></article>

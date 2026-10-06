@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { supabase } from "../../supabaseClient";
 import { summarizeMesStateWindow } from "../../modules/mes/analytics";
-import { getMesMachineFaultState, getMesMachineRunningState } from "../../modules/mes/events";
+import { getMesMachineFaultState } from "../../modules/mes/events";
 import MesAnalyticsExports from "../shared/MesAnalyticsExports";
 import ScherdelFactoryMap from "./ScherdelFactoryMap";
 import {
@@ -58,12 +58,12 @@ function matchesMachine(row, selectedRow) {
 
 function machineStatus(row) {
   const state = String(row?.machine_state || row?.job_status || "idle").toLowerCase();
-  if (state === "running") return { key: "production", label: "Produkcia" };
+  if (state === "running") return { key: "running", label: "Automatický cyklus" };
   if (state === "setup" || state === "queued") return { key: "setup", label: "Nastavenie" };
   if (state === "maintenance") return { key: "maintenance", label: "Servisný zásah" };
-  if (state === "down" || state === "paused" || row?.current_downtime_reason) return { key: "stop", label: "Stop" };
+  if (state === "down" || state === "paused" || row?.current_downtime_reason) return { key: "downtime", label: "Prestoj" };
   if (state === "offline") return { key: "offline", label: "Offline" };
-  return { key: "stop", label: "Stop" };
+  return { key: "undefined", label: "Nedefinovaná výroba" };
 }
 
 function orderOutput(order) {
@@ -123,35 +123,29 @@ export default function ScherdelMesDashboard({
     return { ...reason, id: stored?.id || null, category: stored?.category || "unplanned", isPlanned: Boolean(stored?.is_planned) };
   }), [downtimeReasons]);
 
-  const signalStateByMachine = useMemo(() => new Map(sortedRows.map((row) => {
-    const rowEvents = mesEvents.filter((event) => matchesMachine(event, row));
-    return [getMachineKey(row), {
-      faulted: getMesMachineFaultState(rowEvents),
-      running: getMesMachineRunningState(rowEvents)
-    }];
-  })), [mesEvents, sortedRows]);
+  const faultStateByMachine = useMemo(() => new Map(sortedRows.map((row) => [
+    getMachineKey(row),
+    getMesMachineFaultState(mesEvents.filter((event) => matchesMachine(event, row)))
+  ])), [mesEvents, sortedRows]);
 
   const resolveMachineStatus = useCallback((row) => {
-    const signal = signalStateByMachine.get(getMachineKey(row));
-    if (signal?.faulted) {
+    if (faultStateByMachine.get(getMachineKey(row))) {
       return { key: "fault", label: "Porucha" };
     }
-    if (signal?.running === true) return { key: "production", label: "Produkcia" };
-    if (signal?.running === false) return { key: "stop", label: "Stop" };
     return machineStatus(row);
-  }, [signalStateByMachine]);
+  }, [faultStateByMachine]);
 
   const summary = useMemo(() => sortedRows.reduce((result, row) => {
     const status = resolveMachineStatus(row).key;
     result.total += 1;
-    result.production += status === "production" ? 1 : 0;
+    result.running += status === "running" ? 1 : 0;
     result.fault += status === "fault" ? 1 : 0;
-    result.stop += status === "stop" ? 1 : 0;
+    result.downtime += status === "downtime" ? 1 : 0;
     result.setup += status === "setup" ? 1 : 0;
     result.good += Number(row.good_quantity || 0);
     result.scrap += Number(row.scrap_quantity || 0);
     return result;
-  }, { total: 0, production: 0, fault: 0, stop: 0, setup: 0, good: 0, scrap: 0 }), [resolveMachineStatus, sortedRows]);
+  }, { total: 0, running: 0, fault: 0, downtime: 0, setup: 0, good: 0, scrap: 0 }), [resolveMachineStatus, sortedRows]);
 
   const oee = useMemo(() => {
     const startAt = new Date();
@@ -162,7 +156,7 @@ export default function ScherdelMesDashboard({
     let theoreticalPieces = 0;
     sortedRows.forEach((row) => {
       const rowEvents = mesEvents.filter((event) => matchesMachine(event, row));
-      const state = machineStatus(row).key === "production" ? "running" : "stopped";
+      const state = machineStatus(row).key === "running" ? "running" : "stopped";
       const window = summarizeMesStateWindow(rowEvents, startAt, endAt, state);
       runMs += window.runMs;
       totalMs += window.totalMs;
@@ -388,11 +382,19 @@ export default function ScherdelMesDashboard({
           userId={accessContext.profile.user_id}
           onRefresh={onRefresh}
         />
+        <section className="scherdel-kpis">
+          <article><Factory /><span>Stroje</span><strong>{formatNumber(summary.total)}</strong></article>
+          <article className="running"><PlayCircle /><span>Automatický cyklus</span><strong>{formatNumber(summary.running)}</strong></article>
+          <article className="fault"><AlertTriangle /><span>Poruchy</span><strong>{formatNumber(summary.fault)}</strong></article>
+          <article className="setup"><Settings2 /><span>Nastavenie</span><strong>{formatNumber(summary.setup)}</strong></article>
+          <article className="down"><Clock3 /><span>Prestoje</span><strong>{formatNumber(summary.downtime)}</strong></article>
+          <article><PackageCheck /><span>i.O. / n.i.O.</span><strong>{formatNumber(summary.good)} / {formatNumber(summary.scrap)}</strong></article>
+        </section>
         <section className="scherdel-machine-grid">
           {sortedRows.map((row) => {
             const status = resolveMachineStatus(row);
             const completion = Number(row.planned_quantity || 0) > 0 ? Math.min(100, Number(row.good_quantity || 0) / Number(row.planned_quantity) * 100) : 0;
-            const requiresReason = status.key === "stop" && !row.current_downtime_reason;
+            const requiresReason = status.key === "downtime" && !row.current_downtime_reason;
             return <button type="button" className={`scherdel-machine-card ${status.key} ${getMachineKey(row) === selectedMachineKey ? "selected" : ""}`} key={getMachineKey(row)} onClick={() => setSelectedMachineKey(getMachineKey(row))}>
               <div className="scherdel-machine-head"><span>{row.workstation_code || "Pracovisko"}</span><b className={`state ${status.key}`}>{status.label}</b></div>
               <h2>{row.machine_name || row.workstation_name}</h2>
@@ -449,14 +451,6 @@ export default function ScherdelMesDashboard({
       </section> : null}
 
       {activeSection === "oee" ? <section className="scherdel-oee">
-        <section className="scherdel-kpis scherdel-signal-kpis" aria-label="Stavy strojov podľa GPIO">
-          <article><Factory /><span>Stroje</span><strong>{formatNumber(summary.total)}</strong></article>
-          <article className="production"><PlayCircle /><span>Produkcia · GPIO19</span><strong>{formatNumber(summary.production)}</strong></article>
-          <article className="stop"><Square /><span>Stop · GPIO19</span><strong>{formatNumber(summary.stop)}</strong></article>
-          <article className="fault"><AlertTriangle /><span>Porucha · GPIO26</span><strong>{formatNumber(summary.fault)}</strong></article>
-          <article className="setup"><Settings2 /><span>Nastavenie</span><strong>{formatNumber(summary.setup)}</strong></article>
-          <article><PackageCheck /><span>i.O. / n.i.O.</span><strong>{formatNumber(summary.good)} / {formatNumber(summary.scrap)}</strong></article>
-        </section>
         <div className="scherdel-oee-head"><div><p>OEE · dnešná výroba</p><h2>Výkon výrobných zariadení</h2></div><strong>{formatNumber(oee.value)} %</strong></div>
         <div className="scherdel-oee-formula"><article><Clock3 /><span>A · Dostupnosť</span><strong>{formatNumber(oee.availability)} %</strong></article><i>×</i><article><BarChart3 /><span>P · Výkonnosť</span><strong>{formatNumber(oee.performance)} %</strong></article><i>×</i><article><CheckCircle2 /><span>Q · Kvalita</span><strong>{formatNumber(oee.quality)} %</strong></article><i>=</i><article className="result"><Gauge /><span>OEE</span><strong>{formatNumber(oee.value)} %</strong></article></div>
         <p className="scherdel-note">Výkonnosť používa normu <b>ideálne kusy/hod.</b> nastavenú na pracovisku. Bez normy zostáva P a OEE na 0 %.</p>

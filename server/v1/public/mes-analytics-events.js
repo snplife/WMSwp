@@ -3,6 +3,8 @@ import { sendJson, sendMethodNotAllowed } from "../../../api/_lib/http.js";
 
 const PAGE_SIZE = 1000;
 const MAX_EVENTS = 500_000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const SHORT_RANGE_LIMIT_MS = 31 * DAY_MS;
 const EVENT_SELECT = "workstation_id,terminal_id,operator_id,duration_seconds,payload,created_at";
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const reportCache = new Map();
@@ -47,7 +49,7 @@ function eventQuantity(event) {
   return Math.max(1, quantity);
 }
 
-function summarizeProductionCycles(events) {
+export function summarizeProductionCycles(events) {
   const grouped = new Map();
   events.forEach((event) => {
     const shift = getShiftBucket(event.created_at);
@@ -76,36 +78,34 @@ function summarizeProductionCycles(events) {
     .sort((left, right) => left.date.localeCompare(right.date) || left.shift_order - right.shift_order || left.operator.localeCompare(right.operator, "sk-SK"));
 }
 
-async function loadProductionCycles(supabase, companyId, start, end) {
-  const baseQuery = () => supabase.from("mes_event_log")
-    .select(EVENT_SELECT)
-    .eq("company_id", companyId)
-    .eq("event_code", "ml")
-    .gte("created_at", start.toISOString())
-    .lte("created_at", end.toISOString())
-    .order("created_at", { ascending: true });
+export async function loadProductionCycles(supabase, companyId, start, end) {
+  const events = [];
+  const endExclusiveMs = end.getTime() + 1;
+  const chunkMs = endExclusiveMs - start.getTime() <= SHORT_RANGE_LIMIT_MS ? DAY_MS : 7 * DAY_MS;
 
-  const firstResult = await baseQuery().range(0, PAGE_SIZE - 1);
-  if (firstResult.error) throw new Error(`MES production query failed: ${firstResult.error.message}`);
-  const events = [...(firstResult.data || [])];
-  if (events.length < PAGE_SIZE) return { events, total: events.length };
-
-  for (let from = PAGE_SIZE; from < MAX_EVENTS; from += PAGE_SIZE * 8) {
-    const pageStarts = [];
-    for (let pageFrom = from; pageFrom < Math.min(MAX_EVENTS, from + PAGE_SIZE * 8); pageFrom += PAGE_SIZE) {
-      pageStarts.push(pageFrom);
-    }
-    const results = await Promise.all(pageStarts.map((pageFrom) =>
-      baseQuery().range(pageFrom, pageFrom + PAGE_SIZE - 1)
-    ));
-    for (const result of results) {
+  for (let chunkStartMs = start.getTime(); chunkStartMs < endExclusiveMs; chunkStartMs += chunkMs) {
+    const chunkEndMs = Math.min(endExclusiveMs, chunkStartMs + chunkMs);
+    let from = 0;
+    while (events.length <= MAX_EVENTS) {
+      const result = await supabase.from("mes_event_log")
+        .select(EVENT_SELECT)
+        .eq("company_id", companyId)
+        .eq("event_code", "ml")
+        .gte("created_at", new Date(chunkStartMs).toISOString())
+        .lt("created_at", new Date(chunkEndMs).toISOString())
+        .order("created_at", { ascending: true })
+        .range(from, from + PAGE_SIZE - 1);
       if (result.error) throw new Error(`MES production query failed: ${result.error.message}`);
       const page = result.data || [];
       events.push(...page);
-      if (page.length < PAGE_SIZE) return { events, total: events.length };
+      if (events.length > MAX_EVENTS) {
+        throw new Error(`Obdobie obsahuje viac ako ${MAX_EVENTS} výrobných cyklov.`);
+      }
+      if (page.length < PAGE_SIZE) break;
+      from += PAGE_SIZE;
     }
   }
-  throw new Error(`Obdobie obsahuje viac ako ${MAX_EVENTS} výrobných cyklov.`);
+  return { events, total: events.length };
 }
 
 export default async function handler(req, res) {
@@ -136,6 +136,12 @@ export default async function handler(req, res) {
     reportCache.set(cacheKey, { createdAt: Date.now(), payload });
     return sendJson(res, 200, payload);
   } catch (error) {
-    return sendJson(res, 500, { ok: false, error: error instanceof Error ? error.message : String(error) });
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("MES shift analytics failed", {
+      message,
+      start: String(req.query.start || ""),
+      end: String(req.query.end || "")
+    });
+    return sendJson(res, 500, { ok: false, error: message });
   }
 }

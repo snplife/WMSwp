@@ -78,29 +78,34 @@ function summarizeProductionCycles(events) {
 
 async function loadProductionCycles(supabase, companyId, start, end) {
   const baseQuery = () => supabase.from("mes_event_log")
-    .select(EVENT_SELECT, { count: "exact" })
+    .select(EVENT_SELECT)
     .eq("company_id", companyId)
     .eq("event_code", "ml")
     .gte("created_at", start.toISOString())
     .lte("created_at", end.toISOString())
     .order("created_at", { ascending: true });
+
   const firstResult = await baseQuery().range(0, PAGE_SIZE - 1);
   if (firstResult.error) throw new Error(`MES production query failed: ${firstResult.error.message}`);
-  const total = Number(firstResult.count || 0);
-  if (total > MAX_EVENTS) throw new Error(`Obdobie obsahuje viac ako ${MAX_EVENTS} výrobných cyklov.`);
   const events = [...(firstResult.data || [])];
-  for (let from = PAGE_SIZE; from < total; from += PAGE_SIZE * 8) {
-    const batch = [];
-    for (let pageFrom = from; pageFrom < Math.min(total, from + PAGE_SIZE * 8); pageFrom += PAGE_SIZE) {
-      batch.push(baseQuery().range(pageFrom, pageFrom + PAGE_SIZE - 1));
+  if (events.length < PAGE_SIZE) return { events, total: events.length };
+
+  for (let from = PAGE_SIZE; from < MAX_EVENTS; from += PAGE_SIZE * 8) {
+    const pageStarts = [];
+    for (let pageFrom = from; pageFrom < Math.min(MAX_EVENTS, from + PAGE_SIZE * 8); pageFrom += PAGE_SIZE) {
+      pageStarts.push(pageFrom);
     }
-    const results = await Promise.all(batch);
-    results.forEach((result) => {
+    const results = await Promise.all(pageStarts.map((pageFrom) =>
+      baseQuery().range(pageFrom, pageFrom + PAGE_SIZE - 1)
+    ));
+    for (const result of results) {
       if (result.error) throw new Error(`MES production query failed: ${result.error.message}`);
-      events.push(...(result.data || []));
-    });
+      const page = result.data || [];
+      events.push(...page);
+      if (page.length < PAGE_SIZE) return { events, total: events.length };
+    }
   }
-  return { events, total };
+  throw new Error(`Obdobie obsahuje viac ako ${MAX_EVENTS} výrobných cyklov.`);
 }
 
 export default async function handler(req, res) {

@@ -14,6 +14,7 @@ const SHIFT_TIME_FORMATTER = new Intl.DateTimeFormat("en-CA", {
   month: "2-digit",
   day: "2-digit",
   hour: "2-digit",
+  minute: "2-digit",
   hourCycle: "h23"
 });
 
@@ -35,11 +36,17 @@ function getShiftBucket(value) {
     .filter((part) => part.type !== "literal")
     .map((part) => [part.type, part.value]));
   const hour = Number(parts.hour);
+  const minute = Number(parts.minute);
+  const minutesOfDay = hour * 60 + minute;
   let dateKey = `${parts.year}-${parts.month}-${parts.day}`;
-  if (hour >= 6 && hour < 14) return { date: dateKey, key: "morning", label: "Ranná 06:00 – 14:00", order: 1 };
-  if (hour >= 14 && hour < 22) return { date: dateKey, key: "afternoon", label: "Poobedná 14:00 – 22:00", order: 2 };
-  if (hour < 6) dateKey = previousDateKey(dateKey);
-  return { date: dateKey, key: "night", label: "Nočná 22:00 – 06:00", order: 3 };
+  if (minutesOfDay >= 6 * 60 + 30 && minutesOfDay < 14 * 60 + 30) {
+    return { date: dateKey, key: "morning", label: "Ranná 06:30 – 14:30", order: 1 };
+  }
+  if (minutesOfDay >= 14 * 60 + 30 && minutesOfDay < 22 * 60 + 30) {
+    return { date: dateKey, key: "afternoon", label: "Poobedná 14:30 – 22:30", order: 2 };
+  }
+  if (minutesOfDay < 6 * 60 + 30) dateKey = previousDateKey(dateKey);
+  return { date: dateKey, key: "night", label: "Nočná 22:30 – 06:30", order: 3 };
 }
 
 function eventQuantity(event) {
@@ -132,7 +139,15 @@ export default async function handler(req, res) {
     if (cached && Date.now() - cached.createdAt < CACHE_TTL_MS) return sendJson(res, 200, { ...cached.payload, cached: true });
 
     const { events, total } = await loadProductionCycles(auth.supabase, companyId, start, end);
-    const payload = { ok: true, summary_rows: summarizeProductionCycles(events), cycle_count: total };
+    const summaryRows = summarizeProductionCycles(events);
+    const runtimeMinutes = summaryRows.reduce((sum, row) => sum + Number(row.runtime_minutes || 0), 0);
+    const payload = {
+      ok: true,
+      summary_rows: summaryRows,
+      cycle_count: total,
+      runtime_minutes: Number(runtimeMinutes.toFixed(2)),
+      quality: { good: 0, scrap: 0 }
+    };
     reportCache.set(cacheKey, { createdAt: Date.now(), payload });
     return sendJson(res, 200, payload);
   } catch (error) {

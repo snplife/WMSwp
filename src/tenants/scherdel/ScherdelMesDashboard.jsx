@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity, AlertTriangle, BarChart3, CheckCircle2, ClipboardList, Clock3,
-  Factory, Gauge, LogOut, PackageCheck, PauseCircle, PlayCircle,
+  ChevronLeft, ChevronRight, Factory, Gauge, LogOut, PackageCheck, PauseCircle, PlayCircle,
   RefreshCw, ScanLine, Settings2, ShieldCheck, Square, Tags, UserRound, Wrench
 } from "lucide-react";
 import { supabase } from "../../supabaseClient";
-import { summarizeMesStateWindow } from "../../modules/mes/analytics";
 import { getMesMachineFaultState } from "../../modules/mes/events";
-import MesAnalyticsExports from "../shared/MesAnalyticsExports";
+import MesAnalyticsExports, { getMesAnalyticsRangeWindow, toDateInputValue } from "../shared/MesAnalyticsExports";
 import ScherdelFactoryMap from "./ScherdelFactoryMap";
 import {
   SCHERDEL_DEFECT_REASONS,
@@ -20,6 +19,33 @@ import "./scherdelMesDashboard.css";
 
 const ACTIVE_RUN_STATUSES = new Set(["queued", "running", "paused"]);
 const numberFormatter = new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 });
+const SCHERDEL_SHIFTS = [
+  { key: "morning", order: 1, name: "Ranná", time: "06:30 – 14:30", startHour: 6, startMinute: 30 },
+  { key: "afternoon", order: 2, name: "Poobedná", time: "14:30 – 22:30", startHour: 14, startMinute: 30 },
+  { key: "night", order: 3, name: "Nočná", time: "22:30 – 06:30", startHour: 22, startMinute: 30 }
+];
+
+function getShiftWindowMinutes(rangeWindow, shift) {
+  const startMs = Number(rangeWindow?.startMs || 0);
+  const endMs = Number(rangeWindow?.endMs || 0);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return 0;
+  const cursor = new Date(startMs);
+  cursor.setDate(cursor.getDate() - 1);
+  cursor.setHours(0, 0, 0, 0);
+  const lastDay = new Date(endMs);
+  lastDay.setHours(0, 0, 0, 0);
+  let minutes = 0;
+  while (cursor <= lastDay) {
+    const shiftStart = new Date(cursor);
+    shiftStart.setHours(shift.startHour, shift.startMinute, 0, 0);
+    const shiftEnd = new Date(shiftStart.getTime() + 8 * 60 * 60 * 1000);
+    const overlapStart = Math.max(startMs, shiftStart.getTime());
+    const overlapEnd = Math.min(endMs, shiftEnd.getTime());
+    minutes += Math.max(0, overlapEnd - overlapStart) / 60_000;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return minutes;
+}
 
 function isMissingMesEventColumnError(error) {
   const message = String(error?.message || error || "").toLowerCase();
@@ -91,6 +117,18 @@ export default function ScherdelMesDashboard({
   const [activityNote, setActivityNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState(null);
+  const [oeeRangeKey, setOeeRangeKey] = useState("today");
+  const [oeeCustomStart, setOeeCustomStart] = useState(() => toDateInputValue(new Date()));
+  const [oeeCustomEnd, setOeeCustomEnd] = useState(() => toDateInputValue(new Date()));
+  const [oeeReport, setOeeReport] = useState({
+    rows: [],
+    cycleCount: 0,
+    runtimeMinutes: 0,
+    quality: { good: 0, scrap: 0 },
+    loading: true,
+    error: "",
+    rangeWindow: null
+  });
 
   const sortedRows = useMemo(() => [...overviewRows].sort((left, right) =>
     String(left.machine_name || left.workstation_name || "").localeCompare(
@@ -147,31 +185,76 @@ export default function ScherdelMesDashboard({
     return result;
   }, { total: 0, running: 0, fault: 0, downtime: 0, setup: 0, good: 0, scrap: 0 }), [resolveMachineStatus, sortedRows]);
 
+  const calculatedOeeRange = useMemo(
+    () => getMesAnalyticsRangeWindow(oeeRangeKey, oeeCustomStart, oeeCustomEnd),
+    [oeeRangeKey, oeeCustomStart, oeeCustomEnd]
+  );
+  const activeOeeRange = oeeReport.rangeWindow || calculatedOeeRange;
+  const handleOeeReportChange = useCallback((report) => setOeeReport(report), []);
+  const selectedProductionDate = useMemo(
+    () => toDateInputValue(new Date(calculatedOeeRange.startMs)),
+    [calculatedOeeRange.startMs]
+  );
+  const today = toDateInputValue(new Date());
+  const showProductionDaySwitcher = ["today", "yesterday", "selected_day"].includes(oeeRangeKey);
+
+  const changeProductionDay = useCallback((dayOffset) => {
+    const date = new Date(`${selectedProductionDate}T12:00:00`);
+    date.setDate(date.getDate() + dayOffset);
+    const nextDate = toDateInputValue(date);
+    if (nextDate > toDateInputValue(new Date())) return;
+    setOeeCustomStart(nextDate);
+    setOeeCustomEnd(nextDate);
+    setOeeRangeKey(nextDate === toDateInputValue(new Date()) ? "today" : "selected_day");
+  }, [selectedProductionDate]);
+
   const oee = useMemo(() => {
-    const startAt = new Date();
-    startAt.setHours(0, 0, 0, 0);
-    const endAt = new Date();
-    let runMs = 0;
-    let totalMs = 0;
-    let theoreticalPieces = 0;
-    sortedRows.forEach((row) => {
-      const rowEvents = mesEvents.filter((event) => matchesMachine(event, row));
-      const state = machineStatus(row).key === "running" ? "running" : "stopped";
-      const window = summarizeMesStateWindow(rowEvents, startAt, endAt, state);
-      runMs += window.runMs;
-      totalMs += window.totalMs;
-      const workstation = workstations.find((item) => String(item.id) === String(row.workstation_id));
-      const idealPerHour = Number(workstation?.ideal_units_per_hour || 0);
-      theoreticalPieces += idealPerHour * (window.runMs / 3_600_000);
+    const rows = oeeReport.rows || [];
+    const workstationById = new Map(workstations.map((row) => [String(row.id || ""), row]));
+    const runtimeMinutes = Math.max(0, Number(oeeReport.runtimeMinutes || rows.reduce(
+      (sum, row) => sum + Math.max(0, Number(row.runtime_minutes || 0)), 0
+    )));
+    const pieces = rows.reduce((sum, row) => sum + Math.max(0, Number(row.pieces || 0)), 0);
+    const availableMinutes = Math.max(0, (activeOeeRange.endMs - activeOeeRange.startMs) / 60_000) * Math.max(1, sortedRows.length);
+    const theoreticalPieces = rows.reduce((sum, row) => {
+      const workstation = workstationById.get(String(row.workstation_id || ""));
+      return sum + Math.max(0, Number(workstation?.ideal_units_per_hour || 0)) * (Math.max(0, Number(row.runtime_minutes || 0)) / 60);
+    }, 0);
+    const good = Math.max(0, Number(oeeReport.quality?.good || 0));
+    const scrap = Math.max(0, Number(oeeReport.quality?.scrap || 0));
+    const qualityPieces = good + scrap;
+    const availability = availableMinutes > 0 ? Math.min(100, runtimeMinutes / availableMinutes * 100) : 0;
+    const performance = theoreticalPieces > 0 ? Math.min(100, pieces / theoreticalPieces * 100) : 0;
+    const quality = qualityPieces > 0 ? good / qualityPieces * 100 : 0;
+    return {
+      availability,
+      performance,
+      quality,
+      value: availability * performance * quality / 10_000,
+      runtimeMinutes,
+      pieces
+    };
+  }, [activeOeeRange.endMs, activeOeeRange.startMs, oeeReport.quality, oeeReport.rows, oeeReport.runtimeMinutes, sortedRows.length, workstations]);
+
+  const shiftResults = useMemo(() => {
+    const workstationById = new Map(workstations.map((row) => [String(row.id || ""), row]));
+    const machineCount = Math.max(1, sortedRows.length);
+    return SCHERDEL_SHIFTS.map((shift) => {
+      const rows = (oeeReport.rows || []).filter((row) => Number(row.shift_order) === shift.order);
+      const runtimeMinutes = rows.reduce((sum, row) => sum + Math.max(0, Number(row.runtime_minutes || 0)), 0);
+      const pieces = rows.reduce((sum, row) => sum + Math.max(0, Number(row.pieces || 0)), 0);
+      const shiftMinutes = getShiftWindowMinutes(activeOeeRange, shift) * machineCount;
+      const availability = shiftMinutes > 0 ? Math.min(100, runtimeMinutes / shiftMinutes * 100) : 0;
+      const downtimeMinutes = Math.max(0, shiftMinutes - runtimeMinutes);
+      const unitsPerHour = runtimeMinutes > 0 ? pieces / (runtimeMinutes / 60) : 0;
+      const theoreticalPieces = rows.reduce((sum, row) => {
+        const workstation = workstationById.get(String(row.workstation_id || ""));
+        return sum + Math.max(0, Number(workstation?.ideal_units_per_hour || 0)) * (Math.max(0, Number(row.runtime_minutes || 0)) / 60);
+      }, 0);
+      const performance = theoreticalPieces > 0 ? Math.min(100, pieces / theoreticalPieces * 100) : null;
+      return { ...shift, rows, runtimeMinutes, pieces, availability, downtimeMinutes, unitsPerHour, performance };
     });
-    const good = sortedRows.reduce((sum, row) => sum + Number(row.good_quantity || 0), 0);
-    const scrap = sortedRows.reduce((sum, row) => sum + Number(row.scrap_quantity || 0), 0);
-    const totalPieces = good + scrap;
-    const availability = totalMs > 0 ? Math.min(100, (runMs / totalMs) * 100) : 0;
-    const performance = theoreticalPieces > 0 ? Math.min(100, (totalPieces / theoreticalPieces) * 100) : 0;
-    const quality = totalPieces > 0 ? (good / totalPieces) * 100 : 0;
-    return { availability, performance, quality, value: availability * performance * quality / 10_000 };
-  }, [mesEvents, sortedRows, workstations]);
+  }, [activeOeeRange, oeeReport.rows, sortedRows.length, workstations]);
 
   const showMessage = (tone, text) => setMessage({ tone, text });
 
@@ -451,10 +534,56 @@ export default function ScherdelMesDashboard({
       </section> : null}
 
       {activeSection === "oee" ? <section className="scherdel-oee">
-        <div className="scherdel-oee-head"><div><p>OEE · dnešná výroba</p><h2>Výkon výrobných zariadení</h2></div><strong>{formatNumber(oee.value)} %</strong></div>
-        <div className="scherdel-oee-formula"><article><Clock3 /><span>A · Dostupnosť</span><strong>{formatNumber(oee.availability)} %</strong></article><i>×</i><article><BarChart3 /><span>P · Výkonnosť</span><strong>{formatNumber(oee.performance)} %</strong></article><i>×</i><article><CheckCircle2 /><span>Q · Kvalita</span><strong>{formatNumber(oee.quality)} %</strong></article><i>=</i><article className="result"><Gauge /><span>OEE</span><strong>{formatNumber(oee.value)} %</strong></article></div>
-        <p className="scherdel-note">Výkonnosť používa normu <b>ideálne kusy/hod.</b> nastavenú na pracovisku. Bez normy zostáva P a OEE na 0 %.</p>
-        <MesAnalyticsExports companyId={accessContext.company.id} companyName={accessContext.company.name} overviewRows={overviewRows} jobRuns={jobRuns} mesEvents={mesEvents} workstations={workstations} />
+        <div className="scherdel-oee-head"><div><p>OEE · plán × realita</p><h2>Výkon výrobných zariadení</h2></div><strong>{formatNumber(oee.value)} %</strong></div>
+        <div className={`scherdel-oee-period ${oeeRangeKey === "selected_day" ? "single-day" : ""}`}>
+          <label><span>Obdobie</span><select value={oeeRangeKey} onChange={(event) => setOeeRangeKey(event.target.value)}><option value="current_shift">Aktuálna zmena</option><option value="today">Dnes</option><option value="yesterday">Včera</option><option value="selected_day">Vybraný deň</option><option value="last_7_days">Posledných 7 dní</option><option value="custom">Vlastné obdobie</option></select></label>
+          {oeeRangeKey === "selected_day" ? <label><span>Výrobný deň</span><input type="date" value={oeeCustomStart} max={today} onChange={(event) => { setOeeCustomStart(event.target.value); setOeeCustomEnd(event.target.value); }} /></label> : null}
+          {oeeRangeKey === "custom" ? <><label><span>Dátum od</span><input type="date" value={oeeCustomStart} onChange={(event) => setOeeCustomStart(event.target.value)} /></label><label><span>Dátum do</span><input type="date" value={oeeCustomEnd} onChange={(event) => setOeeCustomEnd(event.target.value)} /></label></> : null}
+          <div><span>Rozsah výpočtu</span><strong>{calculatedOeeRange.label}</strong></div>
+        </div>
+        {showProductionDaySwitcher ? <div className="scherdel-oee-day-switcher" aria-label="Prepnúť výrobný deň">
+          <button type="button" onClick={() => changeProductionDay(-1)} aria-label="Predchádzajúci výrobný deň"><ChevronLeft size={19} /></button>
+          <div><span>Výrobný deň</span><strong>{new Date(`${selectedProductionDate}T12:00:00`).toLocaleDateString("sk-SK", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" })}</strong></div>
+          <button type="button" onClick={() => changeProductionDay(1)} disabled={selectedProductionDate >= today} aria-label="Nasledujúci výrobný deň"><ChevronRight size={19} /></button>
+        </div> : null}
+        <div className={`scherdel-oee-formula ${oeeReport.loading ? "loading" : ""}`} aria-busy={oeeReport.loading}>
+          <article><Clock3 /><span>A · Dostupnosť</span><strong>{formatNumber(oee.availability)} %</strong></article><i>×</i>
+          <article><BarChart3 /><span>P · Výkonnosť</span><strong>{formatNumber(oee.performance)} %</strong></article><i>×</i>
+          <article><CheckCircle2 /><span>Q · Kvalita</span><strong>{formatNumber(oee.quality)} %</strong></article><i>=</i>
+          <article className="result"><Gauge /><span>OEE</span><strong>{formatNumber(oee.value)} %</strong></article>
+        </div>
+        <div className="scherdel-shifts">
+          <div className="scherdel-shifts-head"><div><span>Zvolené obdobie</span><h3>Produktivita podľa zmien</h3></div><small>{oeeReport.loading ? "Načítavam výrobné dáta…" : activeOeeRange.label}</small></div>
+          {oeeReport.error ? <div className="scherdel-shifts-error"><AlertTriangle size={16} />{oeeReport.error}</div> : null}
+          <div className="scherdel-shifts-grid">
+            {shiftResults.map((shift) => <article className={`scherdel-shift-card ${shift.key}`} key={shift.key}>
+              <header><div><span>{shift.name}</span><strong>{shift.time}</strong></div></header>
+              <p>Súhrn za vybrané obdobie</p>
+              <div className="scherdel-shift-primary"><span>Produktivita</span><strong>{formatNumber(shift.unitsPerHour)} <small>ks/h</small></strong><em>{formatNumber(shift.pieces)} vyrobených kusov</em></div>
+              <dl>
+                <div><dt>Výrobný čas</dt><dd>{formatNumber(shift.runtimeMinutes)} min</dd></div>
+                <div><dt>Prestoj</dt><dd>{formatNumber(shift.downtimeMinutes)} min</dd></div>
+                <div><dt>Dostupnosť</dt><dd>{formatNumber(shift.availability)} %</dd></div>
+                <div><dt>Výkon voči norme</dt><dd>{shift.performance == null ? "Bez normy" : `${formatNumber(shift.performance)} %`}</dd></div>
+              </dl>
+              <div className="scherdel-shift-progress" aria-label={`Dostupnosť ${formatNumber(shift.availability)} percent`}><span style={{ width: `${Math.max(0, Math.min(100, shift.availability))}%` }} /></div>
+              {!oeeReport.loading && !shift.rows.length ? <small className="scherdel-shift-empty">V tejto zmene nie sú výrobné udalosti.</small> : null}
+            </article>)}
+          </div>
+        </div>
+        <MesAnalyticsExports
+          companyId={accessContext.company.id}
+          companyName={accessContext.company.name}
+          overviewRows={overviewRows}
+          workstations={workstations}
+          rangeKey={oeeRangeKey}
+          onRangeKeyChange={setOeeRangeKey}
+          customStart={oeeCustomStart}
+          onCustomStartChange={setOeeCustomStart}
+          customEnd={oeeCustomEnd}
+          onCustomEndChange={setOeeCustomEnd}
+          onReportChange={handleOeeReportChange}
+        />
       </section> : null}
 
       {activeSection === "catalogs" ? <section className="scherdel-catalogs">

@@ -56,11 +56,36 @@ function eventQuantity(event) {
   return Math.max(1, quantity);
 }
 
-export function summarizeProductionCycles(events) {
+function getShiftStartMs(value, shift) {
+  const date = parseDate(value);
+  if (!date || !shift) return null;
+  const parts = Object.fromEntries(SHIFT_TIME_FORMATTER.formatToParts(date)
+    .filter((part) => part.type !== "literal")
+    .map((part) => [part.type, part.value]));
+  const minutesOfDay = Number(parts.hour) * 60 + Number(parts.minute);
+  const shiftStartMinutes = shift.order === 1 ? 6 * 60 + 30 : shift.order === 2 ? 14 * 60 + 30 : 22 * 60 + 30;
+  const elapsedMinutes = shift.order === 3 && minutesOfDay < 6 * 60 + 30
+    ? minutesOfDay + 24 * 60 - shiftStartMinutes
+    : minutesOfDay - shiftStartMinutes;
+  return date.getTime() - elapsedMinutes * 60_000 - date.getUTCSeconds() * 1000 - date.getUTCMilliseconds();
+}
+
+function getRuntimeSegment(event) {
+  const end = parseDate(event.payload?.time_to || event.created_at);
+  if (!end) return null;
+  const durationSeconds = Math.max(0, Number(event.duration_seconds || event.payload?.duration_seconds || 0));
+  if (durationSeconds <= 0) return null;
+  const payloadStart = parseDate(event.payload?.time_from);
+  const startMs = payloadStart?.getTime() ?? end.getTime() - durationSeconds * 1000;
+  return startMs < end.getTime() ? { startMs, endMs: end.getTime() } : null;
+}
+
+export function summarizeProductionCycles(events, rangeStart = null, rangeEnd = null) {
   const grouped = new Map();
-  events.forEach((event) => {
-    const shift = getShiftBucket(event.created_at);
-    if (!shift) return;
+  const rangeStartMs = parseDate(rangeStart)?.getTime() ?? Number.NEGATIVE_INFINITY;
+  const rangeEndMs = parseDate(rangeEnd)?.getTime() ?? Number.POSITIVE_INFINITY;
+
+  const getGroup = (event, shift) => {
     const operator = String(event.payload?.operator || event.payload?.operator_name || event.operator_id || "Neurčený operátor").trim() || "Neurčený operátor";
     const workstationId = String(event.workstation_id || event.payload?.workstation_id || "");
     const terminalId = String(event.terminal_id || "");
@@ -76,9 +101,35 @@ export function summarizeProductionCycles(events) {
       pieces: 0,
       runtime_minutes: 0
     });
-    const group = grouped.get(key);
-    group.pieces += eventQuantity(event);
-    group.runtime_minutes += Math.max(0, Number(event.duration_seconds || event.payload?.duration_seconds || 0)) / 60;
+    return grouped.get(key);
+  };
+
+  events.forEach((event) => {
+    const shift = getShiftBucket(event.created_at);
+    if (!shift) return;
+    getGroup(event, shift).pieces += eventQuantity(event);
+
+    const segment = getRuntimeSegment(event);
+    if (!segment) return;
+    const clippedStartMs = Math.max(segment.startMs, rangeStartMs);
+    const clippedEndMs = Math.min(segment.endMs, rangeEndMs);
+    if (clippedEndMs <= clippedStartMs) return;
+
+    let windowShift = getShiftBucket(new Date(clippedEndMs - 1));
+    let windowStartMs = getShiftStartMs(new Date(clippedEndMs - 1), windowShift);
+    let iterations = 0;
+    while (windowShift && Number.isFinite(windowStartMs) && windowStartMs + 8 * 60 * 60 * 1000 > clippedStartMs && iterations < 1200) {
+      const windowEndMs = windowStartMs + 8 * 60 * 60 * 1000;
+      const overlapStartMs = Math.max(clippedStartMs, windowStartMs);
+      const overlapEndMs = Math.min(clippedEndMs, windowEndMs);
+      if (overlapEndMs > overlapStartMs) {
+        getGroup(event, windowShift).runtime_minutes += (overlapEndMs - overlapStartMs) / 60_000;
+      }
+      const previousMoment = new Date(windowStartMs - 1);
+      windowShift = getShiftBucket(previousMoment);
+      windowStartMs = getShiftStartMs(previousMoment, windowShift);
+      iterations += 1;
+    }
   });
   return Array.from(grouped.values())
     .map((group) => ({ ...group, runtime_minutes: Number(group.runtime_minutes.toFixed(2)) }))
@@ -139,7 +190,7 @@ export default async function handler(req, res) {
     if (cached && Date.now() - cached.createdAt < CACHE_TTL_MS) return sendJson(res, 200, { ...cached.payload, cached: true });
 
     const { events, total } = await loadProductionCycles(auth.supabase, companyId, start, end);
-    const summaryRows = summarizeProductionCycles(events);
+    const summaryRows = summarizeProductionCycles(events, start, end);
     const runtimeMinutes = summaryRows.reduce((sum, row) => sum + Number(row.runtime_minutes || 0), 0);
     const payload = {
       ok: true,

@@ -89,3 +89,19 @@ export function getMesMachineFaultState(events) {
   });
   return latestTransition === true;
 }
+
+export function getMesMachineRunningState(events) {
+  let latestTransition = null;
+  let latestTimestamp = Number.NEGATIVE_INFINITY;
+  events.forEach((row, index) => {
+    const payload = row?.payload && typeof row.payload === "object" ? row.payload : {};
+    if (payload.running !== true && payload.running !== false) return;
+    const parsedTimestamp = new Date(row?.happened_at || row?.created_at || 0).getTime();
+    const timestamp = Number.isFinite(parsedTimestamp) ? parsedTimestamp : index;
+    if (timestamp >= latestTimestamp) {
+      latestTimestamp = timestamp;
+      latestTransition = payload.running;
+    }
+  });
+  return latestTransition;
+}

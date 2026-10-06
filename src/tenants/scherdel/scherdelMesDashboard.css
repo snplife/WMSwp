@@ -50,3 +50,21 @@
 .scherdel-map-legend i.fault{background:#ff2438;box-shadow:0 0 8px rgba(255,36,56,.58)}
 @media(max-width:1100px){.scherdel-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:760px){.scherdel-kpis{grid-template-columns:1fr}}
+
+/* Explicit machine signal states used by Live map and OEE/export overview */
+.scherdel-oee .scherdel-signal-kpis{margin:0 0 24px}
+.scherdel-kpis .production svg{color:#158456}
+.scherdel-kpis .stop svg{color:#d98212}
+.scherdel-machine-card.production{border-left-color:#158456}
+.scherdel-machine-card.stop{border-left-color:#d98212}
+.scherdel-machine-card .state.production{background:#e4f6ed;color:#117248}
+.scherdel-machine-card .state.stop{background:#fff0dc;color:#995500}
+.scherdel-selected-state strong.production{color:#158456}
+.scherdel-selected-state strong.stop{color:#bd6808}
+.scherdel-map-marker.production{--state:#27dfa1}
+.scherdel-map-marker.stop{--state:#ffad32}
+.scherdel-map-marker.production .scherdel-map-marker-label i{animation:scherdel-map-pulse 1.7s infinite}
+.scherdel-map-detail.production{--state:#27dfa1}
+.scherdel-map-detail.stop{--state:#ffad32}
+.scherdel-map-legend i.production{background:#158456;box-shadow:0 0 7px rgba(21,132,86,.42)}
+.scherdel-map-legend i.stop{background:#d98212;box-shadow:0 0 7px rgba(217,130,18,.38)}

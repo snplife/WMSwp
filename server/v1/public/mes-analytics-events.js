@@ -5,7 +5,7 @@ const PAGE_SIZE = 1000;
 const MAX_EVENTS = 500_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SHORT_RANGE_LIMIT_MS = 31 * DAY_MS;
-const EVENT_SELECT = "id,workstation_id,terminal_id,operator_id,duration_seconds,payload,created_at";
+const EVENT_SELECT = "workstation_id,terminal_id,operator_id,duration_seconds,payload,created_at";
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const reportCache = new Map();
 const SHIFT_TIME_FORMATTER = new Intl.DateTimeFormat("en-CA", {
@@ -152,7 +152,6 @@ export async function loadProductionCycles(supabase, companyId, start, end) {
         .gte("created_at", new Date(chunkStartMs).toISOString())
         .lt("created_at", new Date(chunkEndMs).toISOString())
         .order("created_at", { ascending: true })
-        .order("id", { ascending: true })
         .range(from, from + PAGE_SIZE - 1);
       if (result.error) throw new Error(`MES production query failed: ${result.error.message}`);
       const page = result.data || [];

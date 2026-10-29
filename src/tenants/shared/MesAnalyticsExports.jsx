@@ -12,6 +12,10 @@ const numberFormatter = new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 
 const clientReportCache = new Map();
 const CLIENT_CACHE_TTL_MS = 5 * 60 * 1000;
 
+function isStatementTimeoutError(error) {
+  return /statement timeout/i.test(String(error?.message || error || ""));
+}
+
 export function toDateInputValue(date) {
   const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
   return offsetDate.toISOString().slice(0, 10);
@@ -246,6 +250,12 @@ export default function MesAnalyticsExports({
         } catch (error) {
           if (requestId !== rangeRequestIdRef.current) return;
           setRangeShiftRows([]);
+          if (isStatementTimeoutError(error)) {
+            console.warn("MES analytics timed out; hiding the transient database error.", error);
+            setRangeError("");
+            onReportChange?.({ rows: [], cycleCount: 0, runtimeMinutes: 0, quality: { good: 0, scrap: 0 }, rangeWindow, loading: false, error: "" });
+            return;
+          }
           const errorMessage = error?.message || "Súhrn pre zvolené obdobie sa nepodarilo spracovať zo SQL.";
           setRangeError(errorMessage);
           onReportChange?.({ rows: [], cycleCount: 0, runtimeMinutes: 0, quality: { good: 0, scrap: 0 }, rangeWindow, loading: false, error: errorMessage });

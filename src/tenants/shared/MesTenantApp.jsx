@@ -65,6 +65,10 @@ function getMachineState(row) {
   return { key: "idle", label: "Pripravené" };
 }
 
+function isStatementTimeoutError(error) {
+  return /statement timeout/i.test(String(error?.message || error || ""));
+}
+
 export default function MesTenantApp({ tenant }) {
   const [authState, setAuthState] = useState("loading");
   const [accessContext, setAccessContext] = useState(null);
@@ -167,43 +171,28 @@ export default function MesTenantApp({ tenant }) {
   const loadMesData = useCallback(async () => {
     const companyId = accessContext?.company?.id;
     if (!companyId || dataLoadInFlightRef.current) return;
-    const isScherdel = tenant.id === "scherdel";
     dataLoadInFlightRef.current = true;
     setDataLoading(true);
     setDataError("");
     try {
       const historyStartAt = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
-      const [overviewResult, runsResult, eventsResult, workstationsResult, downtimeReasonsResult, productionOrdersResult, machinesResult, terminalsResult] = await Promise.all([
-        isScherdel
-          ? Promise.resolve({ data: [], error: null })
-          : supabase.rpc("mes_factory_overview", { p_company_id: companyId }),
+      const [overviewResult, runsResult, eventsResult, workstationsResult, downtimeReasonsResult, productionOrdersResult] = await Promise.all([
+        supabase.rpc("mes_factory_overview", { p_company_id: companyId }),
         supabase.from("mes_job_runs")
-          .select("id,production_order_id,workstation_id,machine_id,terminal_id,operator_user_id,job_number,item_code,item_name,operator_name,status,planned_quantity,good_quantity,scrap_quantity,setup_started_at,started_at,ended_at,note,created_at,updated_at")
+          .select("id,workstation_id,machine_id,terminal_id,operator_user_id,job_number,item_code,item_name,operator_name,status,planned_quantity,good_quantity,scrap_quantity,setup_started_at,started_at,ended_at,note,created_at,updated_at")
           .eq("company_id", companyId).order("created_at", { ascending: false }).limit(500),
-        isScherdel
-          ? Promise.resolve({ data: [], error: null })
-          : supabase.from("mes_event_log")
-            .select("id,terminal_id,workstation_id,job_run_id,event_code,job_number,duration_seconds,time_from,time_to,operator_id,downtime_reason_code,downtime_reason_name,payload,created_at")
-            .eq("company_id", companyId).gte("created_at", historyStartAt).order("created_at", { ascending: false }).limit(5000),
+        supabase.from("mes_event_log")
+          .select("id,terminal_id,workstation_id,job_run_id,event_code,job_number,duration_seconds,time_from,time_to,operator_id,downtime_reason_code,downtime_reason_name,payload,created_at")
+          .eq("company_id", companyId).gte("created_at", historyStartAt).order("created_at", { ascending: false }).limit(5000),
         supabase.from("mes_workstations")
-          .select("id,code,name,area,hmi_enabled,is_active,target_cycle_seconds,ideal_units_per_hour")
+          .select("id,code,name,area,target_cycle_seconds,ideal_units_per_hour")
           .eq("company_id", companyId).eq("is_active", true),
         supabase.from("mes_downtime_reasons")
           .select("id,code,name,category,is_planned,sort_order,is_active")
           .eq("company_id", companyId).eq("is_active", true).order("sort_order", { ascending: true }),
         supabase.from("production_orders")
           .select("id,production_number,title,status,note,created_at,production_order_outputs(id,material_code,output_quantity,position,line_note)")
-          .eq("company_id", companyId).order("created_at", { ascending: false }).limit(500),
-        isScherdel
-          ? supabase.from("mes_machines")
-            .select("id,workstation_id,code,name,machine_state,last_heartbeat_at,is_active")
-            .eq("is_active", true)
-          : Promise.resolve({ data: [], error: null }),
-        isScherdel
-          ? supabase.from("mes_hmi_terminals")
-            .select("id,workstation_id,terminal_code,name,last_seen_at,is_active")
-            .eq("company_id", companyId).eq("is_active", true)
-          : Promise.resolve({ data: [], error: null })
+          .eq("company_id", companyId).order("created_at", { ascending: false }).limit(500)
       ]);
       if (overviewResult.error) throw overviewResult.error;
       if (runsResult.error) throw runsResult.error;
@@ -211,25 +200,16 @@ export default function MesTenantApp({ tenant }) {
       if (workstationsResult.error) throw workstationsResult.error;
       if (downtimeReasonsResult.error) throw downtimeReasonsResult.error;
       if (productionOrdersResult.error) throw productionOrdersResult.error;
-      if (machinesResult.error) throw machinesResult.error;
-      if (terminalsResult.error) throw terminalsResult.error;
       const runs = runsResult.data || [];
-      const workstations = workstationsResult.data || [];
-      const machines = machinesResult.data || [];
-      const terminals = terminalsResult.data || [];
       const runEvents = [];
-      const eventRuns = isScherdel
-        ? runs.filter((run) => ["queued", "running", "paused"].includes(String(run.status || "").toLowerCase()))
-        : runs;
-      const runIds = eventRuns.map((run) => run.id).filter(Boolean);
+      const runIds = runs.map((run) => run.id).filter(Boolean);
       for (let index = 0; index < runIds.length; index += 100) {
-        let eventQuery = supabase.from("mes_job_run_events")
+        const { data, error } = await supabase.from("mes_job_run_events")
           .select("id,job_run_id,workstation_id,machine_id,downtime_reason_id,event_type,quantity,source,note,payload,happened_at,created_at")
           .in("job_run_id", runIds.slice(index, index + 100))
+          .gte("happened_at", historyStartAt)
           .order("happened_at", { ascending: false })
           .limit(5000);
-        if (!isScherdel) eventQuery = eventQuery.gte("happened_at", historyStartAt);
-        const { data, error } = await eventQuery;
         if (error) {
           if (isMissingMesObjectError(error, "mes_job_run_events")) break;
           throw error;
@@ -237,66 +217,11 @@ export default function MesTenantApp({ tenant }) {
         runEvents.push(...(data || []));
         if (runEvents.length >= 5000) break;
       }
-      const latestRunEventByRunId = new Map();
-      runEvents.forEach((event) => {
-        const runId = String(event.job_run_id || "");
-        const previous = latestRunEventByRunId.get(runId);
-        if (!previous || new Date(event.happened_at || event.created_at || 0) > new Date(previous.happened_at || previous.created_at || 0)) {
-          latestRunEventByRunId.set(runId, event);
-        }
-      });
-      const downtimeReasonById = new Map((downtimeReasonsResult.data || []).map((reason) => [String(reason.id || ""), reason]));
-      const fallbackOverviewRows = workstations.map((workstation) => {
-        const machine = machines.find((row) => row.workstation_id === workstation.id) || null;
-        const terminal = terminals
-          .filter((row) => row.workstation_id === workstation.id)
-          .sort((left, right) => new Date(right.last_seen_at || 0).getTime() - new Date(left.last_seen_at || 0).getTime())[0] || null;
-        const activeRun = runs.find((row) =>
-          row.workstation_id === workstation.id &&
-          ["queued", "running", "paused"].includes(String(row.status || "").toLowerCase()) &&
-          (!terminal || !row.terminal_id || row.terminal_id === terminal.id)
-        ) || null;
-        const latestEvent = latestRunEventByRunId.get(String(activeRun?.id || "")) || null;
-        const downtimeReason = latestEvent?.event_type === "downtime_start"
-          ? downtimeReasonById.get(String(latestEvent.downtime_reason_id || ""))
-          : null;
-        return {
-          workstation_id: workstation.id,
-          workstation_code: workstation.code,
-          workstation_name: workstation.name,
-          workstation_area: workstation.area,
-          workstation_active: workstation.is_active,
-          hmi_enabled: workstation.hmi_enabled,
-          machine_id: machine?.id || null,
-          machine_code: machine?.code || workstation.code,
-          machine_name: machine?.name || workstation.name,
-          machine_state: machine?.machine_state || "idle",
-          machine_last_heartbeat_at: machine?.last_heartbeat_at || null,
-          terminal_id: terminal?.id || null,
-          terminal_code: terminal?.terminal_code || null,
-          terminal_name: terminal?.name || null,
-          terminal_last_seen_at: terminal?.last_seen_at || null,
-          job_run_id: activeRun?.id || null,
-          production_order_id: activeRun?.production_order_id || null,
-          job_number: activeRun?.job_number || null,
-          item_code: activeRun?.item_code || null,
-          item_name: activeRun?.item_name || null,
-          job_status: activeRun?.status || null,
-          operator_name: activeRun?.operator_name || null,
-          planned_quantity: activeRun?.planned_quantity || 0,
-          good_quantity: activeRun?.good_quantity || 0,
-          scrap_quantity: activeRun?.scrap_quantity || 0,
-          started_at: activeRun?.started_at || null,
-          current_downtime_reason: downtimeReason?.name || null,
-          latest_event_at: latestEvent?.happened_at || latestEvent?.created_at || null
-        };
-      });
-      const overviewRows = isScherdel ? fallbackOverviewRows : (overviewResult.data || []);
-      setOverviewRows(overviewRows.map((row) =>
+      setOverviewRows((overviewResult.data || []).map((row) =>
         applyTenantMachineAliases(tenant, row, ["machine_name", "workstation_name", "terminal_name"])
       ));
       setJobRuns(runs);
-      setWorkstations(workstations.map((row) =>
+      setWorkstations((workstationsResult.data || []).map((row) =>
         applyTenantMachineAliases(tenant, row, ["name"])
       ));
       setDowntimeReasons(downtimeReasonsResult.data || []);
@@ -339,6 +264,10 @@ export default function MesTenantApp({ tenant }) {
       ));
       setLastLoadedAt(new Date());
     } catch (error) {
+      if (isStatementTimeoutError(error)) {
+        console.warn("MES refresh timed out; keeping the last successful data.", error);
+        return;
+      }
       setOverviewRows([]);
       setJobRuns([]);
       setMesEvents([]);

@@ -87,12 +87,17 @@ function buildOrderShiftSegments(order) {
 
   while (remainingHours > 0.001 && segments.length < 90) {
     const hours = Math.min(8, remainingHours);
+    const isContinuation = segments.length > 0;
+    const continuesToNext = remainingHours - hours > 0.001;
     segments.push({
       day,
       shift: SHIFTS[shiftIndex].value,
       hours: Number(hours.toFixed(1)),
       part: segments.length + 1,
-      isContinuation: segments.length > 0
+      isContinuation,
+      continuesFromPreviousDay: isContinuation && shiftIndex === 0,
+      continuesToNext,
+      continuesToNextDay: continuesToNext && shiftIndex === SHIFTS.length - 1
     });
     remainingHours -= hours;
     shiftIndex += 1;
@@ -111,6 +116,13 @@ function getLoadTone(value) {
   return "healthy";
 }
 
+function getShiftLoadTone(value) {
+  if (value > 100) return "overloaded";
+  if (value >= 90) return "full";
+  if (value >= 70) return "busy";
+  return "available";
+}
+
 function canMachineProduceOrder(machine, order) {
   return Boolean(order?.productId && machine?.productIds?.includes(order.productId));
 }
@@ -121,10 +133,12 @@ function PlanningOrderCard({ order, segment = null, compact = false, isDragging 
   return (
     <div
       draggable
-      className={`scherdel-plan-order ${order.status} priority-${order.priority} ${compact ? "compact" : ""} ${isDragging ? "is-dragging" : ""} ${justMoved ? "just-moved" : ""}`}
+      className={`scherdel-plan-order ${order.status} priority-${order.priority} ${compact ? "compact" : ""} ${isDragging ? "is-dragging" : ""} ${justMoved ? "just-moved" : ""} ${segment?.isContinuation ? "flows-from-previous" : ""} ${segment?.continuesToNext ? "flows-to-next" : ""}`}
       onDragStart={(event) => onDragStart(event, order.id)}
       onDragEnd={onDragEnd}
     >
+      {segment?.isContinuation ? <span className={`order-flow incoming ${segment.continuesFromPreviousDay ? "across-day" : ""}`} aria-hidden="true" /> : null}
+      {segment?.continuesToNext ? <span className={`order-flow outgoing ${segment.continuesToNextDay ? "across-day" : ""}`} aria-hidden="true" /> : null}
       <button type="button" draggable className="drag-handle" aria-pressed={isDragging} title={isDragging ? "Zrušiť presun" : "Vybrať na presun"} onClick={(event) => { event.stopPropagation(); onMoveSelect(order.id); }} onDragStart={(event) => { event.stopPropagation(); onDragStart(event, order.id); }} onDragEnd={onDragEnd}><GripVertical size={15} aria-hidden="true" /></button>
       <button type="button" className="order-open" onClick={(event) => { event.stopPropagation(); onOpen(order.id); }} aria-label={`${order.number}, ${order.itemName}`}>
         <span className="order-copy"><strong>{order.number}{segment?.isContinuation ? <em>Pokračovanie</em> : null}</strong><small>{order.itemCode} · {order.itemName}</small></span>
@@ -208,6 +222,18 @@ export default function ScherdelProductionPlanningDemo() {
     });
     return slots;
   }, [visibleOrders]);
+
+  const shiftLoadBySlot = useMemo(() => {
+    const loads = new Map();
+    calculatedOrders.forEach((order) => {
+      if (!order.machineId || !Number.isInteger(order.day)) return;
+      buildOrderShiftSegments(order).forEach((segment) => {
+        const key = `${order.machineId}:${segment.day}:${segment.shift}`;
+        loads.set(key, (loads.get(key) || 0) + segment.hours);
+      });
+    });
+    return loads;
+  }, [calculatedOrders]);
 
   useEffect(() => () => window.clearTimeout(moveAnimationTimerRef.current), []);
 
@@ -320,7 +346,11 @@ export default function ScherdelProductionPlanningDemo() {
                     key={`${machine.id}-${day}`}
                   >
                     {SHIFTS.map((shift) => {
-                      const slotSegments = scheduleBySlot.get(`${machine.id}:${day}:${shift.value}`) || [];
+                      const slotKey = `${machine.id}:${day}:${shift.value}`;
+                      const slotSegments = scheduleBySlot.get(slotKey) || [];
+                      const shiftHours = shiftLoadBySlot.get(slotKey) || 0;
+                      const shiftLoad = Math.round(shiftHours / 8 * 100);
+                      const shiftLoadTone = getShiftLoadTone(shiftLoad);
                       return <div
                         className={`board-shift-lane shift-${shift.value}`}
                         key={shift.value}
@@ -331,7 +361,10 @@ export default function ScherdelProductionPlanningDemo() {
                         onDrop={(event) => { if (isCompatibleDropTarget) handleDrop(event, machine.id, day, shift.value); }}
                         onClick={() => { if (draggedOrder && isCompatibleDropTarget) moveOrderToSlot(draggedOrder.id, machine.id, day, shift.value); }}
                       >
-                        <div className="shift-lane-head"><span>{shift.label}</span><small>{shift.time}</small></div>
+                        <div className="shift-lane-head">
+                          <span className="shift-name"><b>{shift.label}</b><small>{shift.time}</small></span>
+                          <span className={`shift-utilization ${shiftLoadTone}`} title={`${shiftHours.toFixed(1)} z 8 hodín`} aria-label={`Využitie zmeny ${shiftLoad} percent`}><i><em style={{ width: `${Math.min(shiftLoad, 100)}%` }} /></i><b>{shiftLoad} %</b></span>
+                        </div>
                         <button type="button" className="cell-add" onClick={(event) => { event.stopPropagation(); setMachineOrdersInitialMachineId(machine.id); setMachineOrdersInitialDay(day); setMachineOrdersInitialShift(shift.value); setActiveModule("machineOrders"); }} aria-label={`Pridať zákazku na ${machine.name}, ${dateFormatter.format(date)}, ${shift.label}`}><Plus size={13} /></button>
                         {slotSegments.map(({ order, segment }) => <PlanningOrderCard key={`${order.id}-${segment.part}`} order={order} segment={segment} isDragging={order.id === draggedOrderId} justMoved={order.id === recentlyMovedOrderId} onOpen={setSelectedOrderId} onMoveSelect={(orderId) => setDraggedOrderId((current) => current === orderId ? null : orderId)} onDragStart={handleDragStart} onDragEnd={() => setDraggedOrderId(null)} />)}
                       </div>;

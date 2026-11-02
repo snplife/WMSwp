@@ -1,6 +1,9 @@
 import { useMemo, useState } from "react";
 import { Activity, Boxes, Clock3, Factory, Gauge, PackagePlus, Plus, Search, Trash2, X } from "lucide-react";
-import { calculateOrderMetrics, formatHours } from "./productionPlanningCalculations";
+import {
+  calculateOrderMetrics, clockTimeToStartOffset, findFirstAvailableSchedule, findScheduleConflict, formatHours,
+  getDefaultStartOffset, getOrderStartOffset, getShiftFromStartOffset, startOffsetToClockTime
+} from "./productionPlanningCalculations";
 
 const numberFormatter = new Intl.NumberFormat("sk-SK");
 const STATUS_LABELS = { confirmed: "Potvrdené", draft: "Návrh", risk: "Riziko", running: "Vo výrobe" };
@@ -10,6 +13,7 @@ export default function ScherdelMachineOrders({ orders, setOrders, machines, wor
   const [selectedMachineId, setSelectedMachineId] = useState(() => initialMachineId || activeMachines[0]?.id || "");
   const [search, setSearch] = useState("");
   const [showProductPicker, setShowProductPicker] = useState(false);
+  const [scheduleNotice, setScheduleNotice] = useState("");
   const selectedMachine = activeMachines.find((machine) => machine.id === selectedMachineId) || activeMachines[0];
   const workplace = workplaces.find((item) => item.id === selectedMachine?.workplaceId);
   const eligibleProducts = useMemo(() => products.filter((product) => selectedMachine?.productIds?.includes(product.id)), [products, selectedMachine]);
@@ -18,7 +22,7 @@ export default function ScherdelMachineOrders({ orders, setOrders, machines, wor
     return orders
       .filter((order) => order.machineId === selectedMachine?.id)
       .filter((order) => !query || `${order.number} ${order.itemCode} ${order.itemName}`.toLocaleLowerCase("sk-SK").includes(query))
-      .sort((left, right) => (left.day ?? 99) - (right.day ?? 99) || left.shift - right.shift);
+      .sort((left, right) => (left.day ?? 99) - (right.day ?? 99) || getOrderStartOffset(left) - getOrderStartOffset(right));
   }, [orders, search, selectedMachine?.id]);
   const rows = useMemo(() => machineOrders.map((order) => ({
     order,
@@ -33,15 +37,31 @@ export default function ScherdelMachineOrders({ orders, setOrders, machines, wor
     setOrders((current) => current.map((order) => order.id === orderId ? { ...order, ...patch } : order));
   };
 
+  const tryUpdateOrder = (orderId, patch) => {
+    const order = orders.find((item) => item.id === orderId);
+    if (!order) return;
+    const candidate = { ...order, ...patch };
+    const conflict = findScheduleConflict(candidate, orders, machines);
+    if (conflict) {
+      setScheduleNotice(`${candidate.number} sa v zadanom čase prekrýva so zákazkou ${conflict.number}.`);
+      return;
+    }
+    updateOrder(orderId, patch);
+    setScheduleNotice("");
+  };
+
   const deleteOrder = (order) => {
     if (!window.confirm(`Naozaj chceš vymazať zákazku ${order.number}?`)) return;
     setOrders((current) => current.filter((item) => item.id !== order.id));
+    setScheduleNotice("");
   };
 
   const addOrder = (product) => {
     if (!selectedMachine || !selectedMachine.productIds?.includes(product.id)) return;
     const id = `po-machine-${Date.now()}`;
-    setOrders((current) => [...current, {
+    const shift = [1, 2, 3].includes(initialShift) ? initialShift : 1;
+    setOrders((current) => {
+      const candidate = {
       id,
       number: `VP-DEMO-${current.length + 1}`,
       productId: product.id,
@@ -53,12 +73,16 @@ export default function ScherdelMachineOrders({ orders, setOrders, machines, wor
       setupMinutes: product.setupMinutes,
       machineId: selectedMachine.id,
       day: Number.isInteger(initialDay) ? initialDay : 0,
-      shift: [1, 2, 3].includes(initialShift) ? initialShift : 1,
+      shift,
+      startOffsetMinutes: getDefaultStartOffset(shift),
       priority: "normal",
       status: "draft",
       dueDay: Number.isInteger(initialDay) ? initialDay : 4,
       progress: 0
-    }]);
+      };
+      return [...current, findFirstAvailableSchedule(candidate, current, machines)];
+    });
+    setScheduleNotice("");
     setShowProductPicker(false);
   };
 
@@ -95,15 +119,17 @@ export default function ScherdelMachineOrders({ orders, setOrders, machines, wor
             <label><Search size={15} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Hľadať zákazku alebo výrobok" /></label>
             <span><Activity size={14} /><b>Výpočet:</b> prestavba + (kusy × cyklus ÷ efektivita)</span>
           </div>
+          {scheduleNotice ? <div className="machine-orders-schedule-notice"><Clock3 size={15} /><span><b>Čas nie je voľný</b>{scheduleNotice}</span><button type="button" onClick={() => setScheduleNotice("")} aria-label="Zavrieť upozornenie"><X size={14} /></button></div> : null}
           <div className="machine-orders-table-wrap">
             <table>
-              <thead><tr><th>Zákazka / výrobok</th><th>Plán ks</th><th>Cyklus s/ks</th><th>Prestavba min</th><th>Celkový čas</th><th>Stav</th><th>Akcia</th></tr></thead>
+              <thead><tr><th>Zákazka / výrobok</th><th>Začiatok</th><th>Plán ks</th><th>Cyklus s/ks</th><th>Prestavba min</th><th>Celkový čas</th><th>Stav</th><th>Akcia</th></tr></thead>
               <tbody>
                 {rows.map(({ order, metrics }) => <tr key={order.id}>
                   <td><b>{order.number}</b><small>{order.itemCode} · {order.itemName}</small></td>
-                  <td><input aria-label={`Plánované kusy ${order.number}`} type="number" min="0" step="100" value={order.quantity} onChange={(event) => { const quantity = Math.max(0, Number(event.target.value) || 0); updateOrder(order.id, { quantity, completedQuantity: Math.min(metrics.completedQuantity, quantity) }); }} /></td>
-                  <td><input aria-label={`Cyklus ${order.number}`} type="number" min="0.01" step="0.01" value={order.cycleTimeSec} onChange={(event) => updateOrder(order.id, { cycleTimeSec: Math.max(0.01, Number(event.target.value) || 0.01) })} /></td>
-                  <td><input aria-label={`Prestavba ${order.number}`} type="number" min="0" step="5" value={order.setupMinutes} onChange={(event) => updateOrder(order.id, { setupMinutes: Math.max(0, Number(event.target.value) || 0) })} /></td>
+                  <td><input aria-label={`Začiatok výroby ${order.number}`} type="time" step="900" value={startOffsetToClockTime(getOrderStartOffset(order))} onChange={(event) => { const startOffsetMinutes = clockTimeToStartOffset(event.target.value); if (startOffsetMinutes !== null) tryUpdateOrder(order.id, { startOffsetMinutes, shift: getShiftFromStartOffset(startOffsetMinutes) }); }} /><small>deň {(order.day ?? 0) + 1}</small></td>
+                  <td><input aria-label={`Plánované kusy ${order.number}`} type="number" min="0" step="100" value={order.quantity} onChange={(event) => { const quantity = Math.max(0, Number(event.target.value) || 0); tryUpdateOrder(order.id, { quantity, completedQuantity: Math.min(metrics.completedQuantity, quantity) }); }} /></td>
+                  <td><input aria-label={`Cyklus ${order.number}`} type="number" min="0.01" step="0.01" value={order.cycleTimeSec} onChange={(event) => tryUpdateOrder(order.id, { cycleTimeSec: Math.max(0.01, Number(event.target.value) || 0.01) })} /></td>
+                  <td><input aria-label={`Prestavba ${order.number}`} type="number" min="0" step="5" value={order.setupMinutes} onChange={(event) => tryUpdateOrder(order.id, { setupMinutes: Math.max(0, Number(event.target.value) || 0) })} /></td>
                   <td><b className="time-total">{formatHours(metrics.totalHours)} h</b><small>{metrics.efficiencyPercent} % efektivita</small></td>
                   <td><select aria-label={`Stav ${order.number}`} value={order.status} onChange={(event) => updateOrder(order.id, { status: event.target.value })}><option value="draft">Návrh</option><option value="confirmed">Potvrdené</option><option value="running">Vo výrobe</option><option value="risk">Riziko</option></select><small className={`status-dot ${order.status}`}>{STATUS_LABELS[order.status]}</small></td>
                   <td><button type="button" className="machine-order-delete" onClick={() => deleteOrder(order)} aria-label={`Vymazať zákazku ${order.number}`} title="Vymazať zákazku"><Trash2 size={15} /></button></td>

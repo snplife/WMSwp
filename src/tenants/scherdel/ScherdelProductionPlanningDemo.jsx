@@ -6,6 +6,7 @@ import {
 import ScherdelMachineOrders from "./ScherdelMachineOrders";
 import ScherdelResourceConfiguration from "./ScherdelResourceConfiguration";
 import { calculateOrderMetrics, formatHours, hydrateOrderTiming } from "./productionPlanningCalculations";
+import { SCHERDEL_PRODUCT_CATALOG } from "./scherdelProductCatalog";
 import "./scherdelProductionPlanningDemo.css";
 
 const DAY_COUNT = 5;
@@ -21,11 +22,11 @@ const INITIAL_WORKPLACES = [
   { id: "shipping", name: "Expedícia", area: "Hala B", supervisor: "", active: true }
 ];
 const INITIAL_MACHINES = [
-  { id: "rt-01", code: "RT-01", name: "RoundTakt", workplaceId: "assembly", shiftCount: 3, hoursPerDay: 24, targetEfficiency: 88, active: true },
-  { id: "p-01", code: "P-01", name: "Pružinový automat 01", workplaceId: "forming", shiftCount: 3, hoursPerDay: 24, targetEfficiency: 85, active: true },
-  { id: "p-02", code: "P-02", name: "Pružinový automat 02", workplaceId: "forming", shiftCount: 3, hoursPerDay: 24, targetEfficiency: 82, active: true },
-  { id: "l-01", code: "L-01", name: "Laser / kontrola", workplaceId: "finishing", shiftCount: 2, hoursPerDay: 16, targetEfficiency: 90, active: true },
-  { id: "b-01", code: "B-01", name: "Balenie", workplaceId: "shipping", shiftCount: 2, hoursPerDay: 16, targetEfficiency: 92, active: true }
+  { id: "rt-01", code: "RT-01", name: "RoundTakt", workplaceId: "assembly", shiftCount: 3, hoursPerDay: 24, targetEfficiency: 88, productIds: ["product-881-042", "product-611-088", "product-230-119"], active: true },
+  { id: "p-01", code: "P-01", name: "Pružinový automat 01", workplaceId: "forming", shiftCount: 3, hoursPerDay: 24, targetEfficiency: 85, productIds: ["product-370-214", "product-105-776", "product-729-330", "product-504-442"], active: true },
+  { id: "p-02", code: "P-02", name: "Pružinový automat 02", workplaceId: "forming", shiftCount: 3, hoursPerDay: 24, targetEfficiency: 82, productIds: ["product-370-214", "product-442-901", "product-504-442"], active: true },
+  { id: "l-01", code: "L-01", name: "Laser / kontrola", workplaceId: "finishing", shiftCount: 2, hoursPerDay: 16, targetEfficiency: 90, productIds: ["product-881-042", "product-118-907"], active: true },
+  { id: "b-01", code: "B-01", name: "Balenie", workplaceId: "shipping", shiftCount: 2, hoursPerDay: 16, targetEfficiency: 92, productIds: ["product-105-776", "product-611-088", "product-230-119"], active: true }
 ];
 const PRIORITY_LABELS = { high: "Vysoká", normal: "Normálna", low: "Nízka" };
 const STATUS_LABELS = { confirmed: "Potvrdené", draft: "Návrh", risk: "Riziko", running: "Vo výrobe" };
@@ -114,14 +115,17 @@ export default function ScherdelProductionPlanningDemo() {
   });
   const [machines, setMachines] = useState(INITIAL_MACHINES);
   const [workplaces, setWorkplaces] = useState(INITIAL_WORKPLACES);
-  const [orders, setOrders] = useState(() => INITIAL_ORDERS.map((order) => hydrateOrderTiming(order, INITIAL_MACHINES)));
+  const [orders, setOrders] = useState(() => INITIAL_ORDERS.map((order) => hydrateOrderTiming({
+    ...order,
+    productId: SCHERDEL_PRODUCT_CATALOG.find((product) => product.itemCode === order.itemCode)?.id || null
+  }, INITIAL_MACHINES)));
   const [weekOffset, setWeekOffset] = useState(0);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
   const [selectedOrderId, setSelectedOrderId] = useState(null);
   const [draggedOrderId, setDraggedOrderId] = useState(null);
-  const [showNewOrder, setShowNewOrder] = useState(false);
-  const [newOrderName, setNewOrderName] = useState("");
+  const [machineOrdersInitialMachineId, setMachineOrdersInitialMachineId] = useState(null);
+  const [machineOrdersInitialDay, setMachineOrdersInitialDay] = useState(null);
   const week = useMemo(() => buildWeek(weekOffset), [weekOffset]);
   const activeMachines = useMemo(() => machines.filter((machine) => machine.active), [machines]);
   const workplaceById = useMemo(() => new Map(workplaces.map((workplace) => [workplace.id, workplace])), [workplaces]);
@@ -141,6 +145,9 @@ export default function ScherdelProductionPlanningDemo() {
   }, [calculatedOrders, filter, search]);
 
   const selectedOrder = calculatedOrders.find((order) => order.id === selectedOrderId) || null;
+  const selectedOrderMachines = selectedOrder?.productId
+    ? activeMachines.filter((machine) => machine.id === selectedOrder.machineId || machine.productIds?.includes(selectedOrder.productId))
+    : activeMachines;
   const backlog = visibleOrders.filter((order) => !order.machineId);
   const scheduled = visibleOrders.filter((order) => order.machineId && Number.isInteger(order.day));
   const scheduledAll = calculatedOrders.filter((order) => order.machineId && Number.isInteger(order.day));
@@ -168,34 +175,10 @@ export default function ScherdelProductionPlanningDemo() {
   const handleDrop = (event, machineId, day) => {
     event.preventDefault();
     const orderId = event.dataTransfer.getData("text/plain") || draggedOrderId;
-    if (orderId) updateOrder(orderId, { machineId, day, status: "draft" });
+    const order = orders.find((item) => item.id === orderId);
+    const machine = machines.find((item) => item.id === machineId);
+    if (order && machine && (!order.productId || machine.productIds?.includes(order.productId))) updateOrder(orderId, { machineId, day, status: "draft" });
     setDraggedOrderId(null);
-  };
-
-  const createDraftOrder = () => {
-    const name = newOrderName.trim() || "Nová testovacia zákazka";
-    const sequence = 1115 + orders.length - INITIAL_ORDERS.length;
-    const order = {
-      id: `po-demo-${Date.now()}`,
-      number: `VP-2026-${sequence}`,
-      itemCode: "ID DEMO",
-      itemName: name,
-      quantity: 5000,
-      completedQuantity: 0,
-      cycleTimeSec: 3.37,
-      setupMinutes: 30,
-      machineId: null,
-      day: null,
-      shift: 1,
-      priority: "normal",
-      status: "draft",
-      dueDay: 4,
-      progress: 0
-    };
-    setOrders((current) => [...current, order]);
-    setSelectedOrderId(order.id);
-    setNewOrderName("");
-    setShowNewOrder(false);
   };
 
   return (
@@ -211,7 +194,7 @@ export default function ScherdelProductionPlanningDemo() {
           <h2>{activeModule === "plan" ? "Plánovanie výroby" : activeModule === "resources" ? "Stroje a pracoviská" : "Výrobné zákazky"}</h2>
           <p>{activeModule === "plan" ? "Kapacitný plán zákaziek podľa strojov, dní a pracovných zmien." : activeModule === "resources" ? "Konfigurácia výrobných zdrojov a dostupnej kapacity plánu." : "Množstvá, výrobné cykly a automatický výpočet času pre každý stroj."}</p>
         </div>
-        {activeModule === "plan" ? <button type="button" className="scherdel-plan-primary" onClick={() => setShowNewOrder(true)}><Plus size={17} />Nová zákazka</button> : null}
+        {activeModule === "plan" ? <button type="button" className="scherdel-plan-primary" onClick={() => { setMachineOrdersInitialMachineId(null); setMachineOrdersInitialDay(null); setActiveModule("machineOrders"); }}><Plus size={17} />Nová zákazka</button> : null}
       </header>
 
       <nav className="scherdel-planning-tabs" aria-label="Sekcie plánovania výroby">
@@ -275,11 +258,7 @@ export default function ScherdelProductionPlanningDemo() {
                     onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
                     onDrop={(event) => handleDrop(event, machine.id, day)}
                   >
-                    <button type="button" className="cell-add" onClick={() => {
-                      const draftId = `po-demo-${Date.now()}`;
-                      setOrders((current) => [...current, { id: draftId, number: `VP-DEMO-${current.length + 1}`, itemCode: "ID DEMO", itemName: "Nová plánovaná zákazka", quantity: 5000, completedQuantity: 0, cycleTimeSec: 3.37, setupMinutes: 30, machineId: machine.id, day, shift: 1, priority: "normal", status: "draft", dueDay: day, progress: 0 }]);
-                      setSelectedOrderId(draftId);
-                    }} aria-label={`Pridať zákazku na ${machine.name}, ${dateFormatter.format(date)}`}><Plus size={13} /></button>
+                    <button type="button" className="cell-add" onClick={() => { setMachineOrdersInitialMachineId(machine.id); setMachineOrdersInitialDay(day); setActiveModule("machineOrders"); }} aria-label={`Pridať zákazku na ${machine.name}, ${dateFormatter.format(date)}`}><Plus size={13} /></button>
                     {cellOrders.map((order) => <PlanningOrderCard key={order.id} order={order} onOpen={setSelectedOrderId} onDragStart={handleDragStart} onDragEnd={() => setDraggedOrderId(null)} />)}
                   </div>;
                 })}
@@ -300,7 +279,7 @@ export default function ScherdelProductionPlanningDemo() {
           <div className="drawer-product"><small>{selectedOrder.itemCode}</small><strong>{selectedOrder.itemName}</strong><span>{numberFormatter.format(selectedOrder.quantity)} ks · plán {formatHours(selectedOrder.metrics.totalHours)} h · zostáva {formatHours(selectedOrder.metrics.remainingHours)} h</span></div>
           {selectedOrder.status === "risk" ? <div className="drawer-warning"><AlertTriangle size={17} /><span><strong>Riziko nesplnenia termínu</strong>Kapacita stroja alebo plánovaný termín vyžaduje kontrolu.</span></div> : null}
           <div className="drawer-form">
-            <label><span>Priradený stroj</span><select value={selectedOrder.machineId || ""} onChange={(event) => updateOrder(selectedOrder.id, { machineId: event.target.value || null, day: event.target.value ? (selectedOrder.day ?? 0) : null })}><option value="">Nenaplánované</option>{activeMachines.map((machine) => <option key={machine.id} value={machine.id}>{machine.code} · {machine.name}</option>)}</select></label>
+            <label><span>Priradený stroj</span><select value={selectedOrder.machineId || ""} onChange={(event) => updateOrder(selectedOrder.id, { machineId: event.target.value || null, day: event.target.value ? (selectedOrder.day ?? 0) : null })}><option value="">Nenaplánované</option>{selectedOrderMachines.map((machine) => <option key={machine.id} value={machine.id}>{machine.code} · {machine.name}</option>)}</select></label>
             <label><span>Plánovaný deň</span><select value={selectedOrder.day ?? ""} disabled={!selectedOrder.machineId} onChange={(event) => updateOrder(selectedOrder.id, { day: Number(event.target.value) })}><option value="">Vybrať deň</option>{week.map((date, day) => <option key={date.toISOString()} value={day}>{weekdayFormatter.format(date)} {dateFormatter.format(date)}</option>)}</select></label>
             <label><span>Pracovná zmena</span><select value={selectedOrder.shift} onChange={(event) => updateOrder(selectedOrder.id, { shift: Number(event.target.value) })}>{SHIFTS.map((shift) => <option key={shift.value} value={shift.value}>{shift.label} · {shift.time}</option>)}</select></label>
             <div className="drawer-form-row"><label><span>Plánované kusy</span><input type="number" min="0" step="100" value={selectedOrder.quantity} onChange={(event) => { const quantity = Math.max(0, Number(event.target.value) || 0); updateOrder(selectedOrder.id, { quantity, completedQuantity: Math.min(selectedOrder.metrics.completedQuantity, quantity) }); }} /></label><label><span>Vyrobené kusy</span><input type="number" min="0" max={selectedOrder.quantity} step="100" value={selectedOrder.metrics.completedQuantity} onChange={(event) => updateOrder(selectedOrder.id, { completedQuantity: Math.min(selectedOrder.quantity, Math.max(0, Number(event.target.value) || 0)) })} /></label></div>
@@ -312,15 +291,7 @@ export default function ScherdelProductionPlanningDemo() {
         </aside>
       </div> : null}
 
-      {showNewOrder ? <div className="scherdel-plan-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowNewOrder(false); }}>
-        <div className="scherdel-plan-modal" role="dialog" aria-modal="true" aria-labelledby="new-plan-order-title">
-          <header><span className="modal-icon"><PackagePlus /></span><div><small>DEMO ZÁKAZKA</small><h3 id="new-plan-order-title">Pridať do backlogu</h3></div><button type="button" onClick={() => setShowNewOrder(false)} aria-label="Zavrieť"><X size={18} /></button></header>
-          <label><span>Názov výrobku</span><input autoFocus value={newOrderName} onChange={(event) => setNewOrderName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") createDraftOrder(); }} placeholder="Napr. Tlačná pružina – séria B" /></label>
-          <div className="modal-preview"><span>Číslo a parametre zákazky sa pre prototyp doplnia automaticky.</span></div>
-          <footer><button type="button" className="secondary" onClick={() => setShowNewOrder(false)}>Zrušiť</button><button type="button" className="primary" onClick={createDraftOrder}><Plus size={16} />Vytvoriť návrh</button></footer>
-        </div>
-      </div> : null}
-      </> : activeModule === "resources" ? <ScherdelResourceConfiguration machines={machines} setMachines={setMachines} workplaces={workplaces} setWorkplaces={setWorkplaces} orders={orders} /> : <ScherdelMachineOrders machines={machines} workplaces={workplaces} orders={orders} setOrders={setOrders} />}
+      </> : activeModule === "resources" ? <ScherdelResourceConfiguration machines={machines} setMachines={setMachines} workplaces={workplaces} setWorkplaces={setWorkplaces} orders={orders} products={SCHERDEL_PRODUCT_CATALOG} /> : <ScherdelMachineOrders machines={machines} workplaces={workplaces} orders={orders} setOrders={setOrders} products={SCHERDEL_PRODUCT_CATALOG} initialMachineId={machineOrdersInitialMachineId} initialDay={machineOrdersInitialDay} />}
     </section>
   );
 }

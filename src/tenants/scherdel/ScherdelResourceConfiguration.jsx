@@ -7,7 +7,7 @@ import {
 const numberFormatter = new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 1 });
 
 function createMachineDraft(machine, workplaces) {
-  return machine ? { ...machine } : {
+  return machine ? { ...machine, productIds: [...(machine.productIds || [])] } : {
     id: "",
     code: "",
     name: "",
@@ -15,6 +15,7 @@ function createMachineDraft(machine, workplaces) {
     shiftCount: 3,
     hoursPerDay: 24,
     targetEfficiency: 85,
+    productIds: [],
     active: true
   };
 }
@@ -23,7 +24,7 @@ function createWorkplaceDraft(workplace) {
   return workplace ? { ...workplace } : { id: "", name: "", area: "Hala A", supervisor: "", active: true };
 }
 
-export default function ScherdelResourceConfiguration({ machines, setMachines, workplaces, setWorkplaces, orders }) {
+export default function ScherdelResourceConfiguration({ machines, setMachines, workplaces, setWorkplaces, orders, products }) {
   const [workplaceFilter, setWorkplaceFilter] = useState("all");
   const [editor, setEditor] = useState(null);
   const [message, setMessage] = useState("");
@@ -101,12 +102,13 @@ export default function ScherdelResourceConfiguration({ machines, setMachines, w
           <header><div><SlidersHorizontal size={17} /><span><strong>Konfigurácia strojov</strong><small>{filteredMachines.length} záznamov v aktuálnom filtri</small></span></div><span className="resource-demo-pill">LOKÁLNE DEMO</span></header>
           <div className="resource-table-wrap">
             <table>
-              <thead><tr><th>Stroj</th><th>Pracovisko</th><th>Zmeny</th><th>Kapacita / deň</th><th>Cieľ</th><th>Plán</th><th>Stav</th><th /></tr></thead>
+              <thead><tr><th>Stroj</th><th>Pracovisko</th><th>Sortiment</th><th>Zmeny</th><th>Kapacita / deň</th><th>Cieľ</th><th>Plán</th><th>Stav</th><th /></tr></thead>
               <tbody>{filteredMachines.map((machine) => {
                 const workplace = workplaces.find((row) => row.id === machine.workplaceId);
                 return <tr className={!machine.active ? "inactive" : ""} key={machine.id}>
                   <td><span className="resource-machine-name"><i>{machine.code}</i><span><b>{machine.name}</b><small>{machine.id}</small></span></span></td>
                   <td><b>{workplace?.name || "Nepriradené"}</b><small>{workplace?.area || "–"}</small></td>
+                  <td><b>{machine.productIds?.length || 0} výrobkov</b><small>{products.filter((product) => machine.productIds?.includes(product.id)).slice(0, 2).map((product) => product.itemCode).join(", ") || "Nenastavené"}</small></td>
                   <td><b>{machine.shiftCount}-zmenná</b><small>{machine.shiftCount * 8} h nominálne</small></td>
                   <td><b>{numberFormatter.format(machine.hoursPerDay)} h</b><small>{numberFormatter.format(machine.hoursPerDay * 5)} h / týždeň</small></td>
                   <td><b>{machine.targetEfficiency} %</b><span className="resource-target"><i style={{ width: `${machine.targetEfficiency}%` }} /></span></td>
@@ -129,6 +131,13 @@ export default function ScherdelResourceConfiguration({ machines, setMachines, w
             <label><span>Pracovisko</span><select value={editor.draft.workplaceId} onChange={(event) => updateDraft({ workplaceId: event.target.value })}>{workplaces.map((workplace) => <option key={workplace.id} value={workplace.id}>{workplace.name} · {workplace.area}</option>)}</select></label>
             <div className="two"><label><span>Počet zmien</span><select value={editor.draft.shiftCount} onChange={(event) => { const shiftCount = Number(event.target.value); updateDraft({ shiftCount, hoursPerDay: shiftCount * 8 }); }}><option value="1">1 zmena</option><option value="2">2 zmeny</option><option value="3">3 zmeny</option></select></label><label><span>Kapacita za deň (h)</span><input type="number" min="1" max="24" value={editor.draft.hoursPerDay} onChange={(event) => updateDraft({ hoursPerDay: Math.min(24, Math.max(1, Number(event.target.value) || 1)) })} /></label></div>
             <label><span>Cieľová efektivita (%)</span><input type="number" min="1" max="100" value={editor.draft.targetEfficiency} onChange={(event) => updateDraft({ targetEfficiency: Math.min(100, Math.max(1, Number(event.target.value) || 1)) })} /></label>
+            <fieldset className="resource-product-selector">
+              <legend><span>Povolený sortiment</span><small>Vyber výrobky, ktoré možno vyrábať na tomto stroji.</small></legend>
+              <div>{products.map((product) => {
+                const checked = editor.draft.productIds?.includes(product.id) || false;
+                return <label key={product.id} className={checked ? "selected" : ""}><input type="checkbox" checked={checked} onChange={(event) => updateDraft({ productIds: event.target.checked ? [...(editor.draft.productIds || []), product.id] : (editor.draft.productIds || []).filter((id) => id !== product.id) })} /><span><b>{product.itemCode}</b><small>{product.itemName}</small></span></label>;
+              })}</div>
+            </fieldset>
             <label className="resource-checkbox"><input type="checkbox" checked={editor.draft.active} onChange={(event) => updateDraft({ active: event.target.checked })} /><span><b>Aktívny v plánovaní</b><small>Stroj sa zobrazí v kapacitnom pláne a vo výbere zákazky.</small></span></label>
           </div> : <div className="resource-editor-form">
             <label><span>Názov pracoviska</span><input value={editor.draft.name} onChange={(event) => updateDraft({ name: event.target.value })} placeholder="Napr. Lisovňa" /></label>

@@ -5,7 +5,7 @@ import { calculateOrderMetrics, formatHours } from "./productionPlanningCalculat
 const numberFormatter = new Intl.NumberFormat("sk-SK");
 const STATUS_LABELS = { confirmed: "Potvrdené", draft: "Návrh", risk: "Riziko", running: "Vo výrobe" };
 
-export default function ScherdelMachineOrders({ orders, setOrders, machines, workplaces, products, initialMachineId, initialDay }) {
+export default function ScherdelMachineOrders({ orders, setOrders, machines, workplaces, products, initialMachineId, initialDay, initialShift }) {
   const activeMachines = useMemo(() => machines.filter((machine) => machine.active), [machines]);
   const [selectedMachineId, setSelectedMachineId] = useState(() => initialMachineId || activeMachines[0]?.id || "");
   const [search, setSearch] = useState("");
@@ -53,7 +53,7 @@ export default function ScherdelMachineOrders({ orders, setOrders, machines, wor
       setupMinutes: product.setupMinutes,
       machineId: selectedMachine.id,
       day: Number.isInteger(initialDay) ? initialDay : 0,
-      shift: 1,
+      shift: [1, 2, 3].includes(initialShift) ? initialShift : 1,
       priority: "normal",
       status: "draft",
       dueDay: Number.isInteger(initialDay) ? initialDay : 4,

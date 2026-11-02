@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  Activity, AlertTriangle, BarChart3, CheckCircle2, ClipboardList, Clock3,
+  Activity, AlertTriangle, BarChart3, CalendarDays, CheckCircle2, ClipboardList, Clock3,
   Factory, Gauge, LogOut, PackageCheck, PauseCircle, PlayCircle,
   RefreshCw, ScanLine, Settings2, ShieldCheck, Square, Tags, UserRound, Wrench
 } from "lucide-react";
@@ -8,6 +8,7 @@ import { supabase } from "../../supabaseClient";
 import { summarizeMesStateWindow } from "../../modules/mes/analytics";
 import MesAnalyticsExports from "../shared/MesAnalyticsExports";
 import ScherdelFactoryMap from "./ScherdelFactoryMap";
+import ScherdelProductionPlanningDemo from "./ScherdelProductionPlanningDemo";
 import {
   SCHERDEL_DEFECT_REASONS,
   SCHERDEL_DOWNTIME_REASONS,
@@ -330,7 +331,8 @@ export default function ScherdelMesDashboard({
   const role = getProfileRole(accessContext.profile);
   const navigation = [
     ["live", Activity, "Živá výroba"], ["terminal", ScanLine, "Operátorský terminál"],
-    ["oee", Gauge, "OEE a exporty"], ["catalogs", Tags, "Číselníky C.E.P."]
+    ["planning", CalendarDays, "Plánovanie výroby"], ["oee", Gauge, "OEE a exporty"],
+    ["catalogs", Tags, "Číselníky C.E.P."]
   ];
 
   return (
@@ -434,6 +436,8 @@ export default function ScherdelMesDashboard({
           </article>
         </div>
       </section> : null}
+
+      {activeSection === "planning" ? <ScherdelProductionPlanningDemo /> : null}
 
       {activeSection === "oee" ? <section className="scherdel-oee">
         <div className="scherdel-oee-head"><div><p>OEE · dnešná výroba</p><h2>Výkon výrobných zariadení</h2></div><strong>{formatNumber(oee.value)} %</strong></div>

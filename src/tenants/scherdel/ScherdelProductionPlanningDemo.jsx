@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import {
-  AlertTriangle, ArrowLeft, ArrowRight, CalendarDays, CheckCircle2, Clock3,
+  AlertTriangle, ArrowLeft, ArrowRight, Ban, CalendarDays, CheckCircle2, Clock3,
   ClipboardList, Factory, Gauge, GripVertical, Layers3, PackagePlus, Plus, Search, Settings2, Sparkles, Trash2, X
 } from "lucide-react";
 import ScherdelMachineOrders from "./ScherdelMachineOrders";
@@ -85,6 +85,10 @@ function getLoadTone(value) {
   return "healthy";
 }
 
+function canMachineProduceOrder(machine, order) {
+  return Boolean(order?.productId && machine?.productIds?.includes(order.productId));
+}
+
 function PlanningOrderCard({ order, compact = false, onOpen, onDragStart, onDragEnd }) {
   const shift = getShift(order.shift);
   return (
@@ -145,6 +149,7 @@ export default function ScherdelProductionPlanningDemo() {
   }, [calculatedOrders, filter, search]);
 
   const selectedOrder = calculatedOrders.find((order) => order.id === selectedOrderId) || null;
+  const draggedOrder = calculatedOrders.find((order) => order.id === draggedOrderId) || null;
   const selectedOrderMachines = selectedOrder?.productId
     ? activeMachines.filter((machine) => machine.id === selectedOrder.machineId || machine.productIds?.includes(selectedOrder.productId))
     : activeMachines;
@@ -183,7 +188,7 @@ export default function ScherdelProductionPlanningDemo() {
     const orderId = event.dataTransfer.getData("text/plain") || draggedOrderId;
     const order = orders.find((item) => item.id === orderId);
     const machine = machines.find((item) => item.id === machineId);
-    if (order && machine && (!order.productId || machine.productIds?.includes(order.productId))) updateOrder(orderId, { machineId, day, status: "draft" });
+    if (canMachineProduceOrder(machine, order)) updateOrder(orderId, { machineId, day, status: "draft" });
     setDraggedOrderId(null);
   };
 
@@ -249,8 +254,9 @@ export default function ScherdelProductionPlanningDemo() {
             {activeMachines.map((machine) => {
               const load = machineLoads.get(machine.id);
               const loadTone = getLoadTone(load.percent);
+              const isCompatibleDropTarget = draggedOrder ? canMachineProduceOrder(machine, draggedOrder) : false;
               return <div className="board-row" key={machine.id}>
-                <div className="board-machine">
+                <div className={`board-machine ${draggedOrder ? (isCompatibleDropTarget ? "drop-compatible" : "drop-incompatible") : ""}`}>
                   <span className="machine-code">{machine.code}</span>
                   <strong>{machine.name}</strong>
                   <small>{workplaceById.get(machine.workplaceId)?.name || "Nepriradené pracovisko"}</small>
@@ -259,11 +265,15 @@ export default function ScherdelProductionPlanningDemo() {
                 {week.map((date, day) => {
                   const cellOrders = scheduled.filter((order) => order.machineId === machine.id && order.day === day);
                   return <div
-                    className={`board-cell ${sameCalendarDay(date, new Date()) ? "today" : ""} ${draggedOrderId ? "drop-ready" : ""}`}
+                    className={`board-cell ${sameCalendarDay(date, new Date()) ? "today" : ""} ${draggedOrder ? (isCompatibleDropTarget ? "drop-compatible" : "drop-incompatible") : ""}`}
                     key={`${machine.id}-${day}`}
-                    onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
-                    onDrop={(event) => handleDrop(event, machine.id, day)}
+                    onDragOver={(event) => {
+                      event.dataTransfer.dropEffect = isCompatibleDropTarget ? "move" : "none";
+                      if (isCompatibleDropTarget) event.preventDefault();
+                    }}
+                    onDrop={(event) => { if (isCompatibleDropTarget) handleDrop(event, machine.id, day); }}
                   >
+                    {draggedOrder ? <span className={`drop-compatibility ${isCompatibleDropTarget ? "allowed" : "blocked"}`}>{isCompatibleDropTarget ? <CheckCircle2 size={12} /> : <Ban size={12} />}{isCompatibleDropTarget ? "Povolený stroj" : `Stroj nevyrába ${draggedOrder.itemCode}`}</span> : null}
                     <button type="button" className="cell-add" onClick={() => { setMachineOrdersInitialMachineId(machine.id); setMachineOrdersInitialDay(day); setActiveModule("machineOrders"); }} aria-label={`Pridať zákazku na ${machine.name}, ${dateFormatter.format(date)}`}><Plus size={13} /></button>
                     {cellOrders.map((order) => <PlanningOrderCard key={order.id} order={order} onOpen={setSelectedOrderId} onDragStart={handleDragStart} onDragEnd={() => setDraggedOrderId(null)} />)}
                   </div>;

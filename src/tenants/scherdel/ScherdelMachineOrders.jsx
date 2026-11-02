@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Activity, CheckCircle2, Clock3, Factory, Gauge, PackagePlus, Plus, Search } from "lucide-react";
+import { Activity, CheckCircle2, Clock3, Factory, Gauge, PackagePlus, Plus, Search, Trash2 } from "lucide-react";
 import { calculateOrderMetrics, formatHours } from "./productionPlanningCalculations";
 
 const numberFormatter = new Intl.NumberFormat("sk-SK");
@@ -31,6 +31,11 @@ export default function ScherdelMachineOrders({ orders, setOrders, machines, wor
 
   const updateOrder = (orderId, patch) => {
     setOrders((current) => current.map((order) => order.id === orderId ? { ...order, ...patch } : order));
+  };
+
+  const deleteOrder = (order) => {
+    if (!window.confirm(`Naozaj chceš vymazať zákazku ${order.number}?`)) return;
+    setOrders((current) => current.filter((item) => item.id !== order.id));
   };
 
   const addOrder = () => {
@@ -86,7 +91,7 @@ export default function ScherdelMachineOrders({ orders, setOrders, machines, wor
           </div>
           <div className="machine-orders-table-wrap">
             <table>
-              <thead><tr><th>Zákazka / výrobok</th><th>Plán ks</th><th>Vyrobené ks</th><th>Cyklus s/ks</th><th>Prestavba min</th><th>Celkový čas</th><th>Zostáva</th><th>Stav</th></tr></thead>
+              <thead><tr><th>Zákazka / výrobok</th><th>Plán ks</th><th>Vyrobené ks</th><th>Cyklus s/ks</th><th>Prestavba min</th><th>Celkový čas</th><th>Zostáva</th><th>Stav</th><th>Akcia</th></tr></thead>
               <tbody>
                 {rows.map(({ order, metrics }) => <tr key={order.id}>
                   <td><b>{order.number}</b><small>{order.itemCode} · {order.itemName}</small></td>
@@ -97,6 +102,7 @@ export default function ScherdelMachineOrders({ orders, setOrders, machines, wor
                   <td><b className="time-total">{formatHours(metrics.totalHours)} h</b><small>{metrics.efficiencyPercent} % efektivita</small></td>
                   <td><b className="time-remaining">{formatHours(metrics.remainingHours)} h</b><small>{numberFormatter.format(metrics.remainingQuantity)} ks</small></td>
                   <td><select aria-label={`Stav ${order.number}`} value={order.status} onChange={(event) => updateOrder(order.id, { status: event.target.value })}><option value="draft">Návrh</option><option value="confirmed">Potvrdené</option><option value="running">Vo výrobe</option><option value="risk">Riziko</option></select><small className={`status-dot ${order.status}`}>{STATUS_LABELS[order.status]}</small></td>
+                  <td><button type="button" className="machine-order-delete" onClick={() => deleteOrder(order)} aria-label={`Vymazať zákazku ${order.number}`} title="Vymazať zákazku"><Trash2 size={15} /></button></td>
                 </tr>)}
               </tbody>
             </table>

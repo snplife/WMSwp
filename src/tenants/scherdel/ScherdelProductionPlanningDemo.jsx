@@ -89,24 +89,23 @@ function canMachineProduceOrder(machine, order) {
   return Boolean(order?.productId && machine?.productIds?.includes(order.productId));
 }
 
-function PlanningOrderCard({ order, compact = false, isDragging = false, justMoved = false, onOpen, onDragStart, onDragEnd }) {
+function PlanningOrderCard({ order, compact = false, isDragging = false, justMoved = false, onOpen, onMoveSelect, onDragStart, onDragEnd }) {
   const shift = getShift(order.shift);
   return (
-    <button
-      type="button"
+    <div
       draggable
       className={`scherdel-plan-order ${order.status} priority-${order.priority} ${compact ? "compact" : ""} ${isDragging ? "is-dragging" : ""} ${justMoved ? "just-moved" : ""}`}
-      onClick={() => onOpen(order.id)}
       onDragStart={(event) => onDragStart(event, order.id)}
       onDragEnd={onDragEnd}
-      aria-label={`${order.number}, ${order.itemName}`}
     >
-      <GripVertical className="drag-handle" size={14} aria-hidden="true" />
-      <span className="order-copy"><strong>{order.number}</strong><small>{order.itemCode} · {order.itemName}</small></span>
-      {!compact ? <span className="order-meta"><b>{shift.label}</b><small>{order.duration} h · {numberFormatter.format(order.quantity)} ks</small></span> : null}
+      <button type="button" draggable className="drag-handle" aria-pressed={isDragging} title={isDragging ? "Zrušiť presun" : "Vybrať na presun"} onClick={(event) => { event.stopPropagation(); onMoveSelect(order.id); }} onDragStart={(event) => { event.stopPropagation(); onDragStart(event, order.id); }} onDragEnd={onDragEnd}><GripVertical size={15} aria-hidden="true" /></button>
+      <button type="button" className="order-open" onClick={(event) => { event.stopPropagation(); onOpen(order.id); }} aria-label={`${order.number}, ${order.itemName}`}>
+        <span className="order-copy"><strong>{order.number}</strong><small>{order.itemCode} · {order.itemName}</small></span>
+        {!compact ? <span className="order-meta"><b>{shift.label}</b><small>{order.duration} h · {numberFormatter.format(order.quantity)} ks</small></span> : null}
+      </button>
       {order.status === "risk" ? <AlertTriangle className="risk-icon" size={15} aria-label="Riziková zákazka" /> : null}
       {order.status === "running" ? <span className="running-progress" style={{ "--progress": `${order.progress}%` }}>{order.progress}%</span> : null}
-    </button>
+    </div>
   );
 }
 
@@ -187,18 +186,20 @@ export default function ScherdelProductionPlanningDemo() {
     event.dataTransfer.setData("text/plain", orderId);
   };
 
-  const handleDrop = (event, machineId, day) => {
-    event.preventDefault();
-    const orderId = event.dataTransfer.getData("text/plain") || draggedOrderId;
+  const moveOrderToCell = (orderId, machineId, day) => {
     const order = orders.find((item) => item.id === orderId);
     const machine = machines.find((item) => item.id === machineId);
-    if (canMachineProduceOrder(machine, order)) {
-      updateOrder(orderId, { machineId, day, status: "draft" });
-      window.clearTimeout(moveAnimationTimerRef.current);
-      setRecentlyMovedOrderId(orderId);
-      moveAnimationTimerRef.current = window.setTimeout(() => setRecentlyMovedOrderId(null), 700);
-    }
+    if (!canMachineProduceOrder(machine, order)) return;
+    updateOrder(orderId, { machineId, day, status: "draft" });
+    window.clearTimeout(moveAnimationTimerRef.current);
+    setRecentlyMovedOrderId(orderId);
+    moveAnimationTimerRef.current = window.setTimeout(() => setRecentlyMovedOrderId(null), 700);
     setDraggedOrderId(null);
+  };
+
+  const handleDrop = (event, machineId, day) => {
+    event.preventDefault();
+    moveOrderToCell(event.dataTransfer.getData("text/plain") || draggedOrderId, machineId, day);
   };
 
   return (
@@ -249,7 +250,7 @@ export default function ScherdelProductionPlanningDemo() {
           <div className="backlog-head"><div><PackagePlus size={18} /><span><strong>Backlog</strong><small>Nenaplánované zákazky</small></span></div><b>{backlog.length}</b></div>
           <p>Potiahni zákazku na konkrétny stroj a deň.</p>
           <div className="backlog-list">
-            {backlog.map((order) => <PlanningOrderCard key={order.id} order={order} compact isDragging={order.id === draggedOrderId} justMoved={order.id === recentlyMovedOrderId} onOpen={setSelectedOrderId} onDragStart={handleDragStart} onDragEnd={() => setDraggedOrderId(null)} />)}
+            {backlog.map((order) => <PlanningOrderCard key={order.id} order={order} compact isDragging={order.id === draggedOrderId} justMoved={order.id === recentlyMovedOrderId} onOpen={setSelectedOrderId} onMoveSelect={(orderId) => setDraggedOrderId((current) => current === orderId ? null : orderId)} onDragStart={handleDragStart} onDragEnd={() => setDraggedOrderId(null)} />)}
             {!backlog.length ? <div className="backlog-empty"><CheckCircle2 size={24} /><strong>Všetko naplánované</strong><span>Vo filtri nie sú voľné zákazky.</span></div> : null}
           </div>
           <div className="backlog-hint"><Sparkles size={15} /><span><b>Ďalší krok</b>Automatický návrh poradia podľa termínu, kapacity a prestavieb.</span></div>
@@ -282,9 +283,10 @@ export default function ScherdelProductionPlanningDemo() {
                       if (isCompatibleDropTarget) event.preventDefault();
                     }}
                     onDrop={(event) => { if (isCompatibleDropTarget) handleDrop(event, machine.id, day); }}
+                    onClick={() => { if (draggedOrder && isCompatibleDropTarget) moveOrderToCell(draggedOrder.id, machine.id, day); }}
                   >
-                    <button type="button" className="cell-add" onClick={() => { setMachineOrdersInitialMachineId(machine.id); setMachineOrdersInitialDay(day); setActiveModule("machineOrders"); }} aria-label={`Pridať zákazku na ${machine.name}, ${dateFormatter.format(date)}`}><Plus size={13} /></button>
-                    {cellOrders.map((order) => <PlanningOrderCard key={order.id} order={order} isDragging={order.id === draggedOrderId} justMoved={order.id === recentlyMovedOrderId} onOpen={setSelectedOrderId} onDragStart={handleDragStart} onDragEnd={() => setDraggedOrderId(null)} />)}
+                    <button type="button" className="cell-add" onClick={(event) => { event.stopPropagation(); setMachineOrdersInitialMachineId(machine.id); setMachineOrdersInitialDay(day); setActiveModule("machineOrders"); }} aria-label={`Pridať zákazku na ${machine.name}, ${dateFormatter.format(date)}`}><Plus size={13} /></button>
+                    {cellOrders.map((order) => <PlanningOrderCard key={order.id} order={order} isDragging={order.id === draggedOrderId} justMoved={order.id === recentlyMovedOrderId} onOpen={setSelectedOrderId} onMoveSelect={(orderId) => setDraggedOrderId((current) => current === orderId ? null : orderId)} onDragStart={handleDragStart} onDragEnd={() => setDraggedOrderId(null)} />)}
                   </div>;
                 })}
               </div>;

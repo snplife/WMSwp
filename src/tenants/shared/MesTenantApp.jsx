@@ -65,6 +65,10 @@ function getMachineState(row) {
   return { key: "idle", label: "Pripravené" };
 }
 
+function isStatementTimeoutError(error) {
+  return /statement timeout/i.test(String(error?.message || error || ""));
+}
+
 export default function MesTenantApp({ tenant }) {
   const [authState, setAuthState] = useState("loading");
   const [accessContext, setAccessContext] = useState(null);
@@ -260,6 +264,10 @@ export default function MesTenantApp({ tenant }) {
       ));
       setLastLoadedAt(new Date());
     } catch (error) {
+      if (isStatementTimeoutError(error)) {
+        console.warn("MES refresh timed out; keeping the last successful data.", error);
+        return;
+      }
       setOverviewRows([]);
       setJobRuns([]);
       setMesEvents([]);

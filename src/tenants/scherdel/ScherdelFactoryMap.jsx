@@ -21,7 +21,7 @@ const STATIC_MACHINE_SLOTS = [
 const SLOT_CODE_SET = new Set(STATIC_MACHINE_SLOTS.map((slot) => slot.code));
 
 const FILTERS = [
-  ["all", "Všetky"], ["running", "V prevádzke"], ["downtime", "Prestoj"],
+  ["all", "Všetky"], ["running", "V prevádzke"], ["fault", "Porucha"], ["downtime", "Prestoj"],
   ["setup", "Nastavenie"], ["unassigned", "Bez terminálu"], ["offline", "Offline"]
 ];
 
@@ -252,7 +252,7 @@ export default function ScherdelFactoryMap({
         ) : null}
       </div>
 
-      <footer className="scherdel-map-legend"><span><i className="running" />Automatický cyklus</span><span><i className="setup" />Nastavenie</span><span><i className="downtime" />Prestoj</span><span><i className="maintenance" />Servis</span><span><i className="unassigned" />Bez terminálu</span><span><i className="offline" />Offline</span></footer>
+      <footer className="scherdel-map-legend"><span><i className="running" />Automatický cyklus</span><span><i className="fault" />Porucha</span><span><i className="setup" />Nastavenie</span><span><i className="downtime" />Prestoj</span><span><i className="maintenance" />Servis</span><span><i className="unassigned" />Bez terminálu</span><span><i className="offline" />Offline</span></footer>
     </section>
   );
 }

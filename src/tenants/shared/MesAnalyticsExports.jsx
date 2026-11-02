@@ -4,7 +4,7 @@ import { supabase } from "../../supabaseClient";
 import "./mesAnalyticsExports.css";
 
 const DETAIL_COLUMNS = [
-  ["Dátum", 14], ["Zmena", 22], ["Operátor", 24], ["Stroj", 20],
+  ["Dátum", 14], ["Zmena", 22], ["Vyťaženie (%)", 16], ["Operátor", 24], ["Stroj", 20],
   ["Vyrobené kusy", 16], ["Výrobný čas (min)", 20]
 ];
 
@@ -12,40 +12,83 @@ const numberFormatter = new Intl.NumberFormat("sk-SK", { maximumFractionDigits: 
 const clientReportCache = new Map();
 const CLIENT_CACHE_TTL_MS = 5 * 60 * 1000;
 
-function toDateInputValue(date) {
+function isStatementTimeoutError(error) {
+  return /statement timeout/i.test(String(error?.message || error || ""));
+}
+
+export function toDateInputValue(date) {
   const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
   return offsetDate.toISOString().slice(0, 10);
 }
 
-function getRangeWindow(rangeKey, customStart, customEnd) {
-  const now = new Date();
+function formatRangeDateTime(date) {
+  return new Intl.DateTimeFormat("sk-SK", {
+    day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit"
+  }).format(date);
+}
+
+export function getMesAnalyticsRangeWindow(rangeKey, customStart, customEnd, currentDate = new Date()) {
+  const now = new Date(currentDate);
   let start = new Date(now);
   let end = new Date(now);
-  let label = "Aktuálna zmena";
+  let title = "Aktuálna zmena";
 
   if (rangeKey === "current_shift") {
-    start.setHours(6, 0, 0, 0);
-    if (now < start) start.setDate(start.getDate() - 1);
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const shiftStartMinutes = currentMinutes >= 22 * 60 + 30
+      ? 22 * 60 + 30
+      : currentMinutes >= 14 * 60 + 30
+        ? 14 * 60 + 30
+        : currentMinutes >= 6 * 60 + 30
+          ? 6 * 60 + 30
+          : 22 * 60 + 30;
+    if (currentMinutes < 6 * 60 + 30) start.setDate(start.getDate() - 1);
+    start.setHours(Math.floor(shiftStartMinutes / 60), shiftStartMinutes % 60, 0, 0);
   } else if (rangeKey === "today") {
-    start.setHours(0, 0, 0, 0);
-    label = "Dnes";
+    start.setHours(6, 30, 0, 0);
+    if (now < start) end = new Date(start);
+    title = "Dnešný výrobný deň";
   } else if (rangeKey === "yesterday") {
     start.setDate(start.getDate() - 1);
-    start.setHours(0, 0, 0, 0);
-    end = new Date(start);
-    end.setHours(23, 59, 59, 999);
-    label = "Včera";
+    start.setHours(6, 30, 0, 0);
+    end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+    title = "Včerajší výrobný deň";
   } else if (rangeKey === "last_7_days") {
     start.setDate(start.getDate() - 6);
-    start.setHours(0, 0, 0, 0);
-    label = "Posledných 7 dní";
+    start.setHours(6, 30, 0, 0);
+    title = "Posledných 7 výrobných dní";
+  } else if (rangeKey === "selected_day") {
+    start = customStart ? new Date(`${customStart}T06:30:00`) : new Date(now);
+    start.setHours(6, 30, 0, 0);
+    const selectedEnd = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+    end = selectedEnd > now ? now : selectedEnd;
+    if (start > now) end = new Date(start);
+    title = "Vybraný výrobný deň";
   } else if (rangeKey === "custom") {
-    start = customStart ? new Date(`${customStart}T00:00:00`) : new Date(0);
-    end = customEnd ? new Date(`${customEnd}T23:59:59.999`) : now;
-    label = `${customStart || "od začiatku"} – ${customEnd || "dnes"}`;
+    start = customStart ? new Date(`${customStart}T06:30:00`) : new Date(0);
+    const selectedEnd = customEnd ? new Date(`${customEnd}T06:30:00`) : new Date(now);
+    if (customEnd) selectedEnd.setDate(selectedEnd.getDate() + 1);
+    end = selectedEnd > now ? now : selectedEnd;
+    if (start > now) end = new Date(start);
+    title = "Vlastné výrobné obdobie";
   }
 
-  return { startMs: start.getTime(), endMs: end.getTime(), label };
+  return {
+    startMs: start.getTime(),
+    endMs: end.getTime(),
+    title,
+    label: `${title} · ${formatRangeDateTime(start)} – ${formatRangeDateTime(end)}`
+  };
+}
+
+function getRowShiftMinutes(row, rangeWindow) {
+  const startHours = { 1: 6, 2: 14, 3: 22 };
+  const shiftStart = new Date(`${row.date}T00:00:00`);
+  shiftStart.setHours(startHours[Number(row.shift_order)] ?? 6, 30, 0, 0);
+  const shiftEnd = new Date(shiftStart.getTime() + 8 * 60 * 60 * 1000);
+  const overlapStart = Math.max(shiftStart.getTime(), rangeWindow.startMs);
+  const overlapEnd = Math.min(shiftEnd.getTime(), rangeWindow.endMs);
+  return Math.max(0, (overlapEnd - overlapStart) / 60_000);
 }
 
 function machineKey(row) {
@@ -124,15 +167,35 @@ async function fetchMesShiftSummaryUncached(companyId, startIso, endIso) {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || !payload.ok) throw new Error(payload.error || `MES prepočet zlyhal (${response.status}).`);
-  return { rows: payload.summary_rows || [], cycleCount: Number(payload.cycle_count || 0) };
+  return {
+    rows: payload.summary_rows || [],
+    cycleCount: Number(payload.cycle_count || 0),
+    runtimeMinutes: Number(payload.runtime_minutes || 0),
+    quality: {
+      good: Number(payload.quality?.good || 0),
+      scrap: Number(payload.quality?.scrap || 0)
+    }
+  };
 }
 
-export default function MesAnalyticsExports({ companyId, companyName, overviewRows, workstations }) {
+export default function MesAnalyticsExports({
+  companyId, companyName, overviewRows, workstations,
+  rangeKey: controlledRangeKey, onRangeKeyChange,
+  customStart: controlledCustomStart, onCustomStartChange,
+  customEnd: controlledCustomEnd, onCustomEndChange,
+  onReportChange
+}) {
   const today = toDateInputValue(new Date());
   const [reportType, setReportType] = useState("overview");
-  const [rangeKey, setRangeKey] = useState("last_7_days");
-  const [customStart, setCustomStart] = useState(today);
-  const [customEnd, setCustomEnd] = useState(today);
+  const [internalRangeKey, setInternalRangeKey] = useState("last_7_days");
+  const [internalCustomStart, setInternalCustomStart] = useState(today);
+  const [internalCustomEnd, setInternalCustomEnd] = useState(today);
+  const rangeKey = controlledRangeKey ?? internalRangeKey;
+  const customStart = controlledCustomStart ?? internalCustomStart;
+  const customEnd = controlledCustomEnd ?? internalCustomEnd;
+  const setRangeKey = onRangeKeyChange || setInternalRangeKey;
+  const setCustomStart = onCustomStartChange || setInternalCustomStart;
+  const setCustomEnd = onCustomEndChange || setInternalCustomEnd;
   const [selectedMachineKey, setSelectedMachineKey] = useState("all");
   const [selectedOperator, setSelectedOperator] = useState("all");
   const [exporting, setExporting] = useState(false);
@@ -143,7 +206,7 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
   const [processedCycleCount, setProcessedCycleCount] = useState(0);
   const rangeRequestIdRef = useRef(0);
 
-  const rangeWindow = useMemo(() => getRangeWindow(rangeKey, customStart, customEnd), [rangeKey, customStart, customEnd]);
+  const rangeWindow = useMemo(() => getMesAnalyticsRangeWindow(rangeKey, customStart, customEnd), [rangeKey, customStart, customEnd]);
   const workstationById = useMemo(() => new Map(workstations.map((row) => [String(row.id || ""), row])), [workstations]);
   const machineOptions = useMemo(() => overviewRows.map((row) => ({
     key: machineKey(row),
@@ -155,11 +218,14 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
   useEffect(() => {
     if (!companyId) {
       setRangeShiftRows([]);
+      onReportChange?.({ rows: [], cycleCount: 0, runtimeMinutes: 0, quality: { good: 0, scrap: 0 }, rangeWindow, loading: false, error: "" });
       return undefined;
     }
     if (!Number.isFinite(rangeWindow.startMs) || !Number.isFinite(rangeWindow.endMs) || rangeWindow.startMs > rangeWindow.endMs) {
       setRangeShiftRows([]);
-      setRangeError("Dátum od musí byť skorší alebo rovnaký ako dátum do.");
+      const errorMessage = "Dátum od musí byť skorší alebo rovnaký ako dátum do.";
+      setRangeError(errorMessage);
+      onReportChange?.({ rows: [], cycleCount: 0, runtimeMinutes: 0, quality: { good: 0, scrap: 0 }, rangeWindow, loading: false, error: errorMessage });
       return undefined;
     }
 
@@ -169,6 +235,7 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
       setRangeError("");
       setRangeShiftRows([]);
       setProcessedCycleCount(0);
+      onReportChange?.({ rows: [], cycleCount: 0, runtimeMinutes: 0, quality: { good: 0, scrap: 0 }, rangeWindow, loading: true, error: "" });
       const timeoutId = window.setTimeout(async () => {
         try {
           const result = await fetchMesShiftSummary(
@@ -179,10 +246,19 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
           if (requestId !== rangeRequestIdRef.current) return;
           setRangeShiftRows(result.rows);
           setProcessedCycleCount(result.cycleCount);
+          onReportChange?.({ ...result, rangeWindow, loading: false, error: "" });
         } catch (error) {
           if (requestId !== rangeRequestIdRef.current) return;
           setRangeShiftRows([]);
-          setRangeError(error?.message || "Súhrn pre zvolené obdobie sa nepodarilo spracovať zo SQL.");
+          if (isStatementTimeoutError(error)) {
+            console.warn("MES analytics timed out; hiding the transient database error.", error);
+            setRangeError("");
+            onReportChange?.({ rows: [], cycleCount: 0, runtimeMinutes: 0, quality: { good: 0, scrap: 0 }, rangeWindow, loading: false, error: "" });
+            return;
+          }
+          const errorMessage = error?.message || "Súhrn pre zvolené obdobie sa nepodarilo spracovať zo SQL.";
+          setRangeError(errorMessage);
+          onReportChange?.({ rows: [], cycleCount: 0, runtimeMinutes: 0, quality: { good: 0, scrap: 0 }, rangeWindow, loading: false, error: errorMessage });
         } finally {
           if (requestId === rangeRequestIdRef.current) setRangeLoading(false);
         }
@@ -193,7 +269,7 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
       };
     }
 
-  }, [companyId, rangeWindow.startMs, rangeWindow.endMs]);
+  }, [companyId, onReportChange, rangeWindow]);
 
   const exportRows = useMemo(() => {
     const resolveMachine = (row) => overviewRows.find((machine) =>
@@ -210,19 +286,27 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
       .map((row) => {
         const machine = resolveMachine(row) || {};
         const workstation = workstationById.get(String(row.workstation_id || "")) || {};
+        const availableMinutes = getRowShiftMinutes(row, rangeWindow);
+        const utilization = availableMinutes > 0
+          ? Math.min(100, Number(row.runtime_minutes || 0) / availableMinutes * 100)
+          : 0;
         return {
           "Dátum": new Date(`${row.date}T12:00:00`),
           "Zmena": row.shift,
+          "Vyťaženie (%)": row.historical_import && row.utilization_percent != null
+            ? Number(row.utilization_percent)
+            : Number(utilization.toFixed(2)),
           "Operátor": row.operator,
           "Stroj": machine.machine_name || machine.machine_code || machine.workstation_name || machine.workstation_code || workstation.name || workstation.code || row.machine_id || row.workstation_id || "Neurčený stroj",
           "Vyrobené kusy": Number(row.pieces || 0),
           "Výrobný čas (min)": Number(row.runtime_minutes || 0),
+          __historicalImport: Boolean(row.historical_import),
           __shiftOrder: Number(row.shift_order || 0)
         };
       })
-      .filter((row) => row["Vyrobené kusy"] > 0)
+      .filter((row) => row.__historicalImport || row["Vyrobené kusy"] > 0)
       .sort((left, right) => left["Dátum"] - right["Dátum"] || left.__shiftOrder - right.__shiftOrder || left["Operátor"].localeCompare(right["Operátor"], "sk-SK"));
-  }, [rangeShiftRows, overviewRows, selectedMachineKey, selectedOperator, workstationById]);
+  }, [rangeShiftRows, overviewRows, selectedMachineKey, selectedOperator, workstationById, rangeWindow]);
 
   const summary = useMemo(() => ({
     quantity: exportRows.reduce((sum, row) => sum + Number(row["Vyrobené kusy"] || 0), 0),
@@ -324,7 +408,7 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
         cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
       });
       detailSheet.getColumn("Dátum").numFmt = "dd.mm.yyyy";
-      ["Vyrobené kusy", "Výrobný čas (min)"].forEach((name) => { detailSheet.getColumn(name).numFmt = "0.00"; });
+      ["Vyrobené kusy", "Výrobný čas (min)", "Vyťaženie (%)"].forEach((name) => { detailSheet.getColumn(name).numFmt = "0.00"; });
       detailSheet.eachRow((row, rowNumber) => {
         if (rowNumber > 1 && rowNumber % 2 === 1) row.eachCell((cell) => { cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF4F7F8" } }; });
       });
@@ -350,9 +434,10 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
       </div>
       <section className="factory-mes-export-filters">
         <label><span>Typ reportu</span><select value={reportType} onChange={(event) => setReportType(event.target.value)}><option value="overview">Súhrnný report</option><option value="machines">Podľa strojov</option><option value="operators">Podľa operátorov</option></select></label>
-        <label><span>Obdobie</span><select value={rangeKey} onChange={(event) => setRangeKey(event.target.value)}><option value="current_shift">Aktuálna zmena</option><option value="today">Dnes</option><option value="yesterday">Včera</option><option value="last_7_days">Posledných 7 dní</option><option value="custom">Vlastné obdobie</option></select></label>
+        <label><span>Obdobie</span><select value={rangeKey} onChange={(event) => setRangeKey(event.target.value)}><option value="current_shift">Aktuálna zmena</option><option value="today">Dnes</option><option value="yesterday">Včera</option><option value="selected_day">Vybraný deň</option><option value="last_7_days">Posledných 7 dní</option><option value="custom">Vlastné obdobie</option></select></label>
         <label><span>Stroj</span><select value={selectedMachineKey} onChange={(event) => setSelectedMachineKey(event.target.value)}><option value="all">Všetky stroje</option>{machineOptions.map((row) => <option key={row.key} value={row.key}>{row.label}</option>)}</select></label>
         <label><span>Operátor</span><select value={selectedOperator} onChange={(event) => setSelectedOperator(event.target.value)}><option value="all">Všetci operátori</option>{operatorOptions.map((operator) => <option key={operator} value={operator}>{operator}</option>)}</select></label>
+        {rangeKey === "selected_day" ? <label><span>Výrobný deň</span><input type="date" value={customStart} max={today} onChange={(event) => { setCustomStart(event.target.value); setCustomEnd(event.target.value); }} /></label> : null}
         {rangeKey === "custom" ? <><label><span>Dátum od</span><input type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} /></label><label><span>Dátum do</span><input type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} /></label></> : null}
       </section>
       <section className="factory-mes-export-summary">
@@ -365,7 +450,7 @@ export default function MesAnalyticsExports({ companyId, companyName, overviewRo
       {rangeError ? <p className="error">{rangeError}</p> : null}
       {exportError ? <p className="error">{exportError}</p> : null}
       <div className="factory-mes-export-preview-head"><div><FileSpreadsheet size={19} /><strong>Náhľad výroby po zmenách</strong></div><span>{rangeWindow.label} · {exportRows.length} súhrnných riadkov</span></div>
-      <div className="table-wrap factory-mes-export-table"><table><thead><tr>{DETAIL_COLUMNS.map(([column]) => <th key={column}>{column}</th>)}</tr></thead><tbody>{exportRows.slice(0, 100).map((row, index) => <tr key={`${row["Dátum"]}-${row["Zmena"]}-${row["Operátor"]}-${index}`}>{DETAIL_COLUMNS.map(([column]) => <td key={column}>{column === "Dátum" && row[column] instanceof Date ? row[column].toLocaleDateString("sk-SK") : row[column] ?? "-"}</td>)}</tr>)}</tbody></table></div>
+      <div className="table-wrap factory-mes-export-table"><table><thead><tr>{DETAIL_COLUMNS.map(([column]) => <th key={column}>{column}</th>)}</tr></thead><tbody>{exportRows.slice(0, 100).map((row, index) => <tr key={`${row["Dátum"]}-${row["Zmena"]}-${row["Operátor"]}-${index}`}>{DETAIL_COLUMNS.map(([column]) => <td key={column}>{column === "Dátum" && row[column] instanceof Date ? row[column].toLocaleDateString("sk-SK") : column === "Vyťaženie (%)" ? <strong className="factory-mes-utilization">{numberFormatter.format(Number(row[column] || 0))} %</strong> : row[column] ?? "-"}</td>)}</tr>)}</tbody></table></div>
       {!exportRows.length ? <p className="hint">Pre vybrané filtre nie sú dostupné dáta na export.</p> : null}
     </article>
   );

@@ -42,17 +42,19 @@ const tenantDefinitions = [
   }
 ];
 
-function getDevelopmentTenantId(location) {
-  if (!import.meta.env.DEV) return "";
+function getTenantPreviewId(location) {
+  const hostname = normalizeHostname(location?.hostname);
+  const isVercelPreview = hostname.endsWith(".vercel.app");
+  if (!import.meta.env.DEV && !isVercelPreview) return "";
   return new URLSearchParams(location.search).get("tenant")?.trim().toLowerCase() || "";
 }
 
 export function resolveTenant(location) {
   const hostname = normalizeHostname(location?.hostname);
-  const developmentTenantId = getDevelopmentTenantId(location);
+  const previewTenantId = getTenantPreviewId(location);
   return tenantDefinitions.find((tenant) =>
     tenant.hostnames.some((candidate) => normalizeHostname(candidate) === hostname) ||
-    tenant.id === developmentTenantId
+    tenant.id === previewTenantId
   ) || null;
 }
 

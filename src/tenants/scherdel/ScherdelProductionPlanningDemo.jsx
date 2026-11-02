@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import {
   AlertTriangle, ArrowLeft, ArrowRight, CalendarDays, CheckCircle2, Clock3,
-  ClipboardList, Factory, Gauge, GripVertical, Layers3, PackagePlus, Plus, Search, Settings2, Sparkles, X
+  ClipboardList, Factory, Gauge, GripVertical, Layers3, PackagePlus, Plus, Search, Settings2, Sparkles, Trash2, X
 } from "lucide-react";
 import ScherdelMachineOrders from "./ScherdelMachineOrders";
 import ScherdelResourceConfiguration from "./ScherdelResourceConfiguration";
@@ -166,6 +166,12 @@ export default function ScherdelProductionPlanningDemo() {
     setOrders((current) => current.map((order) => order.id === orderId ? { ...order, ...patch } : order));
   };
 
+  const deleteSelectedOrder = () => {
+    if (!selectedOrder || !window.confirm(`Naozaj chceš vymazať zákazku ${selectedOrder.number}?`)) return;
+    setOrders((current) => current.filter((order) => order.id !== selectedOrder.id));
+    setSelectedOrderId(null);
+  };
+
   const handleDragStart = (event, orderId) => {
     setDraggedOrderId(orderId);
     event.dataTransfer.effectAllowed = "move";
@@ -287,7 +293,7 @@ export default function ScherdelProductionPlanningDemo() {
             <div className="drawer-calculation"><span><Clock3 size={15} />Vypočítaný čas</span><strong>{formatHours(selectedOrder.metrics.totalHours)} h</strong><small>Prestavba + (kusy × cyklus ÷ efektivita stroja {selectedOrder.metrics.efficiencyPercent} %)</small></div>
             <div className="drawer-form-row"><label><span>Priorita</span><select value={selectedOrder.priority} onChange={(event) => updateOrder(selectedOrder.id, { priority: event.target.value })}><option value="high">Vysoká</option><option value="normal">Normálna</option><option value="low">Nízka</option></select></label><label><span>Stav plánu</span><select value={selectedOrder.status} onChange={(event) => updateOrder(selectedOrder.id, { status: event.target.value })}><option value="draft">Návrh</option><option value="confirmed">Potvrdené</option><option value="risk">Riziko</option><option value="running">Vo výrobe</option></select></label></div>
           </div>
-          <footer><span><Clock3 size={14} />Demo zmeny sa neukladajú</span><button type="button" onClick={() => setSelectedOrderId(null)}><CheckCircle2 size={16} />Hotovo</button></footer>
+          <footer><span><Clock3 size={14} />Demo zmeny sa neukladajú</span><div><button type="button" className="drawer-delete" onClick={deleteSelectedOrder}><Trash2 size={15} />Zmazať</button><button type="button" onClick={() => setSelectedOrderId(null)}><CheckCircle2 size={16} />Hotovo</button></div></footer>
         </aside>
       </div> : null}
 

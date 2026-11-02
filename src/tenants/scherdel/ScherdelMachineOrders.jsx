@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Activity, CheckCircle2, Clock3, Factory, Gauge, PackagePlus, Plus, Search, Trash2 } from "lucide-react";
+import { Activity, Clock3, Factory, Gauge, PackagePlus, Plus, Search, Trash2 } from "lucide-react";
 import { calculateOrderMetrics, formatHours } from "./productionPlanningCalculations";
 
 const numberFormatter = new Intl.NumberFormat("sk-SK");
@@ -24,10 +24,8 @@ export default function ScherdelMachineOrders({ orders, setOrders, machines, wor
   })), [machineOrders, selectedMachine]);
   const totals = useMemo(() => rows.reduce((sum, row) => ({
     quantity: sum.quantity + row.metrics.quantity,
-    completed: sum.completed + row.metrics.completedQuantity,
-    hours: sum.hours + row.metrics.totalHours,
-    remaining: sum.remaining + row.metrics.remainingHours
-  }), { quantity: 0, completed: 0, hours: 0, remaining: 0 }), [rows]);
+    hours: sum.hours + row.metrics.totalHours
+  }), { quantity: 0, hours: 0 }), [rows]);
 
   const updateOrder = (orderId, patch) => {
     setOrders((current) => current.map((order) => order.id === orderId ? { ...order, ...patch } : order));
@@ -65,10 +63,10 @@ export default function ScherdelMachineOrders({ orders, setOrders, machines, wor
   return (
     <div className="machine-orders">
       <div className="machine-orders-kpis">
-        <article><span className="blue"><PackagePlus /></span><div><small>Zákazky na stroji</small><strong>{rows.length}</strong><p>{numberFormatter.format(totals.quantity)} plánovaných ks</p></div></article>
-        <article><span className="green"><CheckCircle2 /></span><div><small>Vyrobené</small><strong>{numberFormatter.format(totals.completed)}</strong><p>kusov zo zvolených zákaziek</p></div></article>
+        <article><span className="blue"><PackagePlus /></span><div><small>Výrobné zákazky</small><strong>{rows.length}</strong><p>na zvolenom stroji</p></div></article>
+        <article><span className="green"><Factory /></span><div><small>Plánované množstvo</small><strong>{numberFormatter.format(totals.quantity)}</strong><p>kusov spolu</p></div></article>
         <article><span className="violet"><Clock3 /></span><div><small>Celkový plán</small><strong>{formatHours(totals.hours)} h</strong><p>vrátane prestavieb</p></div></article>
-        <article><span className="orange"><Gauge /></span><div><small>Zostávajúci čas</small><strong>{formatHours(totals.remaining)} h</strong><p>podľa vyrobených kusov</p></div></article>
+        <article><span className="orange"><Gauge /></span><div><small>Denná kapacita</small><strong>{selectedMachine.hoursPerDay} h</strong><p>{selectedMachine.shiftCount} pracovné zmeny</p></div></article>
       </div>
 
       <div className="machine-orders-layout">
@@ -91,16 +89,14 @@ export default function ScherdelMachineOrders({ orders, setOrders, machines, wor
           </div>
           <div className="machine-orders-table-wrap">
             <table>
-              <thead><tr><th>Zákazka / výrobok</th><th>Plán ks</th><th>Vyrobené ks</th><th>Cyklus s/ks</th><th>Prestavba min</th><th>Celkový čas</th><th>Zostáva</th><th>Stav</th><th>Akcia</th></tr></thead>
+              <thead><tr><th>Zákazka / výrobok</th><th>Plán ks</th><th>Cyklus s/ks</th><th>Prestavba min</th><th>Celkový čas</th><th>Stav</th><th>Akcia</th></tr></thead>
               <tbody>
                 {rows.map(({ order, metrics }) => <tr key={order.id}>
                   <td><b>{order.number}</b><small>{order.itemCode} · {order.itemName}</small></td>
                   <td><input aria-label={`Plánované kusy ${order.number}`} type="number" min="0" step="100" value={order.quantity} onChange={(event) => { const quantity = Math.max(0, Number(event.target.value) || 0); updateOrder(order.id, { quantity, completedQuantity: Math.min(metrics.completedQuantity, quantity) }); }} /></td>
-                  <td><input aria-label={`Vyrobené kusy ${order.number}`} type="number" min="0" max={order.quantity} step="100" value={metrics.completedQuantity} onChange={(event) => updateOrder(order.id, { completedQuantity: Math.min(order.quantity, Math.max(0, Number(event.target.value) || 0)) })} /></td>
                   <td><input aria-label={`Cyklus ${order.number}`} type="number" min="0.01" step="0.01" value={order.cycleTimeSec} onChange={(event) => updateOrder(order.id, { cycleTimeSec: Math.max(0.01, Number(event.target.value) || 0.01) })} /></td>
                   <td><input aria-label={`Prestavba ${order.number}`} type="number" min="0" step="5" value={order.setupMinutes} onChange={(event) => updateOrder(order.id, { setupMinutes: Math.max(0, Number(event.target.value) || 0) })} /></td>
                   <td><b className="time-total">{formatHours(metrics.totalHours)} h</b><small>{metrics.efficiencyPercent} % efektivita</small></td>
-                  <td><b className="time-remaining">{formatHours(metrics.remainingHours)} h</b><small>{numberFormatter.format(metrics.remainingQuantity)} ks</small></td>
                   <td><select aria-label={`Stav ${order.number}`} value={order.status} onChange={(event) => updateOrder(order.id, { status: event.target.value })}><option value="draft">Návrh</option><option value="confirmed">Potvrdené</option><option value="running">Vo výrobe</option><option value="risk">Riziko</option></select><small className={`status-dot ${order.status}`}>{STATUS_LABELS[order.status]}</small></td>
                   <td><button type="button" className="machine-order-delete" onClick={() => deleteOrder(order)} aria-label={`Vymazať zákazku ${order.number}`} title="Vymazať zákazku"><Trash2 size={15} /></button></td>
                 </tr>)}

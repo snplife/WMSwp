@@ -208,7 +208,7 @@ export default function ScherdelProductionPlanningDemo() {
       <header className="scherdel-planning-header">
         <div>
           <span className="planning-kicker">Production planning · prototyp</span>
-          <h2>{activeModule === "plan" ? "Plánovanie výroby" : activeModule === "resources" ? "Stroje a pracoviská" : "Zákazky na strojoch"}</h2>
+          <h2>{activeModule === "plan" ? "Plánovanie výroby" : activeModule === "resources" ? "Stroje a pracoviská" : "Výrobné zákazky"}</h2>
           <p>{activeModule === "plan" ? "Kapacitný plán zákaziek podľa strojov, dní a pracovných zmien." : activeModule === "resources" ? "Konfigurácia výrobných zdrojov a dostupnej kapacity plánu." : "Množstvá, výrobné cykly a automatický výpočet času pre každý stroj."}</p>
         </div>
         {activeModule === "plan" ? <button type="button" className="scherdel-plan-primary" onClick={() => setShowNewOrder(true)}><Plus size={17} />Nová zákazka</button> : null}
@@ -216,7 +216,7 @@ export default function ScherdelProductionPlanningDemo() {
 
       <nav className="scherdel-planning-tabs" aria-label="Sekcie plánovania výroby">
         <button type="button" className={activeModule === "plan" ? "active" : ""} onClick={() => setActiveModule("plan")}><CalendarDays size={16} /><span><b>Výrobný plán</b><small>Zákazky a kapacity</small></span></button>
-        <button type="button" className={activeModule === "machineOrders" ? "active" : ""} onClick={() => setActiveModule("machineOrders")}><ClipboardList size={16} /><span><b>Zákazky na strojoch</b><small>Kusy, cyklus a čas</small></span></button>
+        <button type="button" className={activeModule === "machineOrders" ? "active" : ""} onClick={() => setActiveModule("machineOrders")}><ClipboardList size={16} /><span><b>Výrobné zákazky</b><small>Kusy, cyklus a čas</small></span></button>
         <button type="button" className={activeModule === "resources" ? "active" : ""} onClick={() => setActiveModule("resources")}><Settings2 size={16} /><span><b>Stroje a pracoviská</b><small>Konfigurácia zdrojov</small></span></button>
       </nav>
 

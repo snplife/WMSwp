@@ -1,23 +1,29 @@
 import { useMemo, useState } from "react";
 import {
   AlertTriangle, ArrowLeft, ArrowRight, CalendarDays, CheckCircle2, Clock3,
-  Factory, Gauge, GripVertical, Layers3, PackagePlus, Plus, Search, Sparkles, X
+  Factory, Gauge, GripVertical, Layers3, PackagePlus, Plus, Search, Settings2, Sparkles, X
 } from "lucide-react";
+import ScherdelResourceConfiguration from "./ScherdelResourceConfiguration";
 import "./scherdelProductionPlanningDemo.css";
 
 const DAY_COUNT = 5;
-const MACHINE_CAPACITY_HOURS = 24 * DAY_COUNT;
 const SHIFTS = [
   { value: 1, label: "Ranná", time: "06:30 – 14:30" },
   { value: 2, label: "Poobedná", time: "14:30 – 22:30" },
   { value: 3, label: "Nočná", time: "22:30 – 06:30" }
 ];
-const MACHINES = [
-  { id: "rt-01", code: "RT-01", name: "RoundTakt", group: "Montážna linka" },
-  { id: "p-01", code: "P-01", name: "Pružinový automat 01", group: "Tvárnenie drôtu" },
-  { id: "p-02", code: "P-02", name: "Pružinový automat 02", group: "Tvárnenie drôtu" },
-  { id: "l-01", code: "L-01", name: "Laser / kontrola", group: "Dokončenie" },
-  { id: "b-01", code: "B-01", name: "Balenie", group: "Expedícia" }
+const INITIAL_WORKPLACES = [
+  { id: "assembly", name: "Montážna linka", area: "Hala A", supervisor: "", active: true },
+  { id: "forming", name: "Tvárnenie drôtu", area: "Hala A", supervisor: "", active: true },
+  { id: "finishing", name: "Dokončenie", area: "Hala B", supervisor: "", active: true },
+  { id: "shipping", name: "Expedícia", area: "Hala B", supervisor: "", active: true }
+];
+const INITIAL_MACHINES = [
+  { id: "rt-01", code: "RT-01", name: "RoundTakt", workplaceId: "assembly", shiftCount: 3, hoursPerDay: 24, targetEfficiency: 88, active: true },
+  { id: "p-01", code: "P-01", name: "Pružinový automat 01", workplaceId: "forming", shiftCount: 3, hoursPerDay: 24, targetEfficiency: 85, active: true },
+  { id: "p-02", code: "P-02", name: "Pružinový automat 02", workplaceId: "forming", shiftCount: 3, hoursPerDay: 24, targetEfficiency: 82, active: true },
+  { id: "l-01", code: "L-01", name: "Laser / kontrola", workplaceId: "finishing", shiftCount: 2, hoursPerDay: 16, targetEfficiency: 90, active: true },
+  { id: "b-01", code: "B-01", name: "Balenie", workplaceId: "shipping", shiftCount: 2, hoursPerDay: 16, targetEfficiency: 92, active: true }
 ];
 const PRIORITY_LABELS = { high: "Vysoká", normal: "Normálna", low: "Nízka" };
 const STATUS_LABELS = { confirmed: "Potvrdené", draft: "Návrh", risk: "Riziko", running: "Vo výrobe" };
@@ -98,6 +104,9 @@ function PlanningOrderCard({ order, compact = false, onOpen, onDragStart, onDrag
 }
 
 export default function ScherdelProductionPlanningDemo() {
+  const [activeModule, setActiveModule] = useState(() => new URLSearchParams(window.location.search).get("module") === "resources" ? "resources" : "plan");
+  const [machines, setMachines] = useState(INITIAL_MACHINES);
+  const [workplaces, setWorkplaces] = useState(INITIAL_WORKPLACES);
   const [orders, setOrders] = useState(INITIAL_ORDERS);
   const [weekOffset, setWeekOffset] = useState(0);
   const [search, setSearch] = useState("");
@@ -107,6 +116,8 @@ export default function ScherdelProductionPlanningDemo() {
   const [showNewOrder, setShowNewOrder] = useState(false);
   const [newOrderName, setNewOrderName] = useState("");
   const week = useMemo(() => buildWeek(weekOffset), [weekOffset]);
+  const activeMachines = useMemo(() => machines.filter((machine) => machine.active), [machines]);
+  const workplaceById = useMemo(() => new Map(workplaces.map((workplace) => [workplace.id, workplace])), [workplaces]);
 
   const visibleOrders = useMemo(() => {
     const query = search.trim().toLocaleLowerCase("sk-SK");
@@ -123,13 +134,14 @@ export default function ScherdelProductionPlanningDemo() {
   const scheduledAll = orders.filter((order) => order.machineId && Number.isInteger(order.day));
   const riskCount = orders.filter((order) => order.status === "risk").length;
   const plannedHours = scheduledAll.reduce((sum, order) => sum + Number(order.duration || 0), 0);
-  const totalCapacity = MACHINE_CAPACITY_HOURS * MACHINES.length;
-  const overallLoad = Math.round(plannedHours / totalCapacity * 100);
+  const totalCapacity = activeMachines.reduce((sum, machine) => sum + Number(machine.hoursPerDay || 0) * DAY_COUNT, 0);
+  const overallLoad = totalCapacity ? Math.round(plannedHours / totalCapacity * 100) : 0;
 
-  const machineLoads = useMemo(() => new Map(MACHINES.map((machine) => {
+  const machineLoads = useMemo(() => new Map(activeMachines.map((machine) => {
     const hours = scheduledAll.filter((order) => order.machineId === machine.id).reduce((sum, order) => sum + Number(order.duration || 0), 0);
-    return [machine.id, { hours, percent: Math.round(hours / MACHINE_CAPACITY_HOURS * 100) }];
-  })), [scheduledAll]);
+    const capacity = Number(machine.hoursPerDay || 0) * DAY_COUNT;
+    return [machine.id, { hours, percent: capacity ? Math.round(hours / capacity * 100) : 0 }];
+  })), [activeMachines, scheduledAll]);
 
   const updateOrder = (orderId, patch) => {
     setOrders((current) => current.map((order) => order.id === orderId ? { ...order, ...patch } : order));
@@ -182,12 +194,18 @@ export default function ScherdelProductionPlanningDemo() {
       <header className="scherdel-planning-header">
         <div>
           <span className="planning-kicker">Production planning · prototyp</span>
-          <h2>Plánovanie výroby</h2>
-          <p>Kapacitný plán zákaziek podľa strojov, dní a pracovných zmien.</p>
+          <h2>{activeModule === "plan" ? "Plánovanie výroby" : "Stroje a pracoviská"}</h2>
+          <p>{activeModule === "plan" ? "Kapacitný plán zákaziek podľa strojov, dní a pracovných zmien." : "Konfigurácia výrobných zdrojov a dostupnej kapacity plánu."}</p>
         </div>
-        <button type="button" className="scherdel-plan-primary" onClick={() => setShowNewOrder(true)}><Plus size={17} />Nová zákazka</button>
+        {activeModule === "plan" ? <button type="button" className="scherdel-plan-primary" onClick={() => setShowNewOrder(true)}><Plus size={17} />Nová zákazka</button> : null}
       </header>
 
+      <nav className="scherdel-planning-tabs" aria-label="Sekcie plánovania výroby">
+        <button type="button" className={activeModule === "plan" ? "active" : ""} onClick={() => setActiveModule("plan")}><CalendarDays size={16} /><span><b>Výrobný plán</b><small>Zákazky a kapacity</small></span></button>
+        <button type="button" className={activeModule === "resources" ? "active" : ""} onClick={() => setActiveModule("resources")}><Settings2 size={16} /><span><b>Stroje a pracoviská</b><small>Konfigurácia zdrojov</small></span></button>
+      </nav>
+
+      {activeModule === "plan" ? <>
       <div className="scherdel-plan-kpis">
         <article><span className="icon blue"><CalendarDays /></span><div><small>Naplánované zákazky</small><strong>{scheduledAll.length}</strong><p>v aktuálnom demo pláne</p></div></article>
         <article><span className="icon green"><Gauge /></span><div><small>Celkové vyťaženie</small><strong>{overallLoad} %</strong><p>{plannedHours} z {totalCapacity} dostupných hodín</p></div></article>
@@ -224,14 +242,14 @@ export default function ScherdelProductionPlanningDemo() {
             <div className="board-corner"><Factory size={16} /><span>Stroj / kapacita</span></div>
             {week.map((date, day) => <div className={`board-day ${sameCalendarDay(date, new Date()) ? "today" : ""}`} key={date.toISOString()}><span>{weekdayFormatter.format(date)}</span><strong>{dateFormatter.format(date)}</strong><small>{day === 4 ? "Piatok" : `${SHIFTS.length} zmeny`}</small></div>)}
 
-            {MACHINES.map((machine) => {
+            {activeMachines.map((machine) => {
               const load = machineLoads.get(machine.id);
               const loadTone = getLoadTone(load.percent);
               return <div className="board-row" key={machine.id}>
                 <div className="board-machine">
                   <span className="machine-code">{machine.code}</span>
                   <strong>{machine.name}</strong>
-                  <small>{machine.group}</small>
+                  <small>{workplaceById.get(machine.workplaceId)?.name || "Nepriradené pracovisko"}</small>
                   <div className={`machine-load ${loadTone}`}><span><i style={{ width: `${Math.min(load.percent, 100)}%` }} /></span><b>{load.percent} %</b></div>
                 </div>
                 {week.map((date, day) => {
@@ -267,7 +285,7 @@ export default function ScherdelProductionPlanningDemo() {
           <div className="drawer-product"><small>{selectedOrder.itemCode}</small><strong>{selectedOrder.itemName}</strong><span>{numberFormatter.format(selectedOrder.quantity)} ks · plán {selectedOrder.duration} h</span></div>
           {selectedOrder.status === "risk" ? <div className="drawer-warning"><AlertTriangle size={17} /><span><strong>Riziko nesplnenia termínu</strong>Kapacita stroja alebo plánovaný termín vyžaduje kontrolu.</span></div> : null}
           <div className="drawer-form">
-            <label><span>Priradený stroj</span><select value={selectedOrder.machineId || ""} onChange={(event) => updateOrder(selectedOrder.id, { machineId: event.target.value || null, day: event.target.value ? (selectedOrder.day ?? 0) : null })}><option value="">Nenaplánované</option>{MACHINES.map((machine) => <option key={machine.id} value={machine.id}>{machine.code} · {machine.name}</option>)}</select></label>
+            <label><span>Priradený stroj</span><select value={selectedOrder.machineId || ""} onChange={(event) => updateOrder(selectedOrder.id, { machineId: event.target.value || null, day: event.target.value ? (selectedOrder.day ?? 0) : null })}><option value="">Nenaplánované</option>{activeMachines.map((machine) => <option key={machine.id} value={machine.id}>{machine.code} · {machine.name}</option>)}</select></label>
             <label><span>Plánovaný deň</span><select value={selectedOrder.day ?? ""} disabled={!selectedOrder.machineId} onChange={(event) => updateOrder(selectedOrder.id, { day: Number(event.target.value) })}><option value="">Vybrať deň</option>{week.map((date, day) => <option key={date.toISOString()} value={day}>{weekdayFormatter.format(date)} {dateFormatter.format(date)}</option>)}</select></label>
             <label><span>Pracovná zmena</span><select value={selectedOrder.shift} onChange={(event) => updateOrder(selectedOrder.id, { shift: Number(event.target.value) })}>{SHIFTS.map((shift) => <option key={shift.value} value={shift.value}>{shift.label} · {shift.time}</option>)}</select></label>
             <div className="drawer-form-row"><label><span>Trvanie (h)</span><input type="number" min="0.5" step="0.5" value={selectedOrder.duration} onChange={(event) => updateOrder(selectedOrder.id, { duration: Math.max(0.5, Number(event.target.value) || 0.5) })} /></label><label><span>Priorita</span><select value={selectedOrder.priority} onChange={(event) => updateOrder(selectedOrder.id, { priority: event.target.value })}><option value="high">Vysoká</option><option value="normal">Normálna</option><option value="low">Nízka</option></select></label></div>
@@ -285,6 +303,7 @@ export default function ScherdelProductionPlanningDemo() {
           <footer><button type="button" className="secondary" onClick={() => setShowNewOrder(false)}>Zrušiť</button><button type="button" className="primary" onClick={createDraftOrder}><Plus size={16} />Vytvoriť návrh</button></footer>
         </div>
       </div> : null}
+      </> : <ScherdelResourceConfiguration machines={machines} setMachines={setMachines} workplaces={workplaces} setWorkplaces={setWorkplaces} orders={orders} />}
     </section>
   );
 }

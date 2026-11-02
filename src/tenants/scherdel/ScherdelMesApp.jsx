@@ -5,7 +5,7 @@ import "./scherdelMesDashboard.css";
 
 function isStandalonePlanningPreview(location) {
   const hostname = String(location?.hostname || "").trim().toLowerCase();
-  if (!hostname.endsWith(".vercel.app")) return false;
+  if (!import.meta.env.DEV && !hostname.endsWith(".vercel.app")) return false;
   return new URLSearchParams(location?.search || "").get("planningDemo") === "1";
 }
 

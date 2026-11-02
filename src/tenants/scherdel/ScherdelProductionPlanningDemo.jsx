@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
 import {
   AlertTriangle, ArrowLeft, ArrowRight, CalendarDays, CheckCircle2, Clock3,
-  Factory, Gauge, GripVertical, Layers3, PackagePlus, Plus, Search, Settings2, Sparkles, X
+  ClipboardList, Factory, Gauge, GripVertical, Layers3, PackagePlus, Plus, Search, Settings2, Sparkles, X
 } from "lucide-react";
+import ScherdelMachineOrders from "./ScherdelMachineOrders";
 import ScherdelResourceConfiguration from "./ScherdelResourceConfiguration";
+import { calculateOrderMetrics, formatHours, hydrateOrderTiming } from "./productionPlanningCalculations";
 import "./scherdelProductionPlanningDemo.css";
 
 const DAY_COUNT = 5;
@@ -104,10 +106,15 @@ function PlanningOrderCard({ order, compact = false, onOpen, onDragStart, onDrag
 }
 
 export default function ScherdelProductionPlanningDemo() {
-  const [activeModule, setActiveModule] = useState(() => new URLSearchParams(window.location.search).get("module") === "resources" ? "resources" : "plan");
+  const [activeModule, setActiveModule] = useState(() => {
+    const module = new URLSearchParams(window.location.search).get("module");
+    if (module === "resources") return "resources";
+    if (module === "machine-orders") return "machineOrders";
+    return "plan";
+  });
   const [machines, setMachines] = useState(INITIAL_MACHINES);
   const [workplaces, setWorkplaces] = useState(INITIAL_WORKPLACES);
-  const [orders, setOrders] = useState(INITIAL_ORDERS);
+  const [orders, setOrders] = useState(() => INITIAL_ORDERS.map((order) => hydrateOrderTiming(order, INITIAL_MACHINES)));
   const [weekOffset, setWeekOffset] = useState(0);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
@@ -118,21 +125,26 @@ export default function ScherdelProductionPlanningDemo() {
   const week = useMemo(() => buildWeek(weekOffset), [weekOffset]);
   const activeMachines = useMemo(() => machines.filter((machine) => machine.active), [machines]);
   const workplaceById = useMemo(() => new Map(workplaces.map((workplace) => [workplace.id, workplace])), [workplaces]);
+  const calculatedOrders = useMemo(() => orders.map((order) => {
+    const machine = machines.find((item) => item.id === order.machineId);
+    const metrics = calculateOrderMetrics(order, machine);
+    return { ...order, duration: Number(metrics.totalHours.toFixed(1)), metrics };
+  }), [machines, orders]);
 
   const visibleOrders = useMemo(() => {
     const query = search.trim().toLocaleLowerCase("sk-SK");
-    return orders.filter((order) => {
+    return calculatedOrders.filter((order) => {
       const matchesSearch = !query || `${order.number} ${order.itemCode} ${order.itemName}`.toLocaleLowerCase("sk-SK").includes(query);
       const matchesFilter = filter === "all" || (filter === "risk" ? order.status === "risk" : order.priority === filter);
       return matchesSearch && matchesFilter;
     });
-  }, [filter, orders, search]);
+  }, [calculatedOrders, filter, search]);
 
-  const selectedOrder = orders.find((order) => order.id === selectedOrderId) || null;
+  const selectedOrder = calculatedOrders.find((order) => order.id === selectedOrderId) || null;
   const backlog = visibleOrders.filter((order) => !order.machineId);
   const scheduled = visibleOrders.filter((order) => order.machineId && Number.isInteger(order.day));
-  const scheduledAll = orders.filter((order) => order.machineId && Number.isInteger(order.day));
-  const riskCount = orders.filter((order) => order.status === "risk").length;
+  const scheduledAll = calculatedOrders.filter((order) => order.machineId && Number.isInteger(order.day));
+  const riskCount = calculatedOrders.filter((order) => order.status === "risk").length;
   const plannedHours = scheduledAll.reduce((sum, order) => sum + Number(order.duration || 0), 0);
   const totalCapacity = activeMachines.reduce((sum, machine) => sum + Number(machine.hoursPerDay || 0) * DAY_COUNT, 0);
   const overallLoad = totalCapacity ? Math.round(plannedHours / totalCapacity * 100) : 0;
@@ -169,10 +181,12 @@ export default function ScherdelProductionPlanningDemo() {
       itemCode: "ID DEMO",
       itemName: name,
       quantity: 5000,
+      completedQuantity: 0,
+      cycleTimeSec: 3.37,
+      setupMinutes: 30,
       machineId: null,
       day: null,
       shift: 1,
-      duration: 6,
       priority: "normal",
       status: "draft",
       dueDay: 4,
@@ -194,14 +208,15 @@ export default function ScherdelProductionPlanningDemo() {
       <header className="scherdel-planning-header">
         <div>
           <span className="planning-kicker">Production planning · prototyp</span>
-          <h2>{activeModule === "plan" ? "Plánovanie výroby" : "Stroje a pracoviská"}</h2>
-          <p>{activeModule === "plan" ? "Kapacitný plán zákaziek podľa strojov, dní a pracovných zmien." : "Konfigurácia výrobných zdrojov a dostupnej kapacity plánu."}</p>
+          <h2>{activeModule === "plan" ? "Plánovanie výroby" : activeModule === "resources" ? "Stroje a pracoviská" : "Zákazky na strojoch"}</h2>
+          <p>{activeModule === "plan" ? "Kapacitný plán zákaziek podľa strojov, dní a pracovných zmien." : activeModule === "resources" ? "Konfigurácia výrobných zdrojov a dostupnej kapacity plánu." : "Množstvá, výrobné cykly a automatický výpočet času pre každý stroj."}</p>
         </div>
         {activeModule === "plan" ? <button type="button" className="scherdel-plan-primary" onClick={() => setShowNewOrder(true)}><Plus size={17} />Nová zákazka</button> : null}
       </header>
 
       <nav className="scherdel-planning-tabs" aria-label="Sekcie plánovania výroby">
         <button type="button" className={activeModule === "plan" ? "active" : ""} onClick={() => setActiveModule("plan")}><CalendarDays size={16} /><span><b>Výrobný plán</b><small>Zákazky a kapacity</small></span></button>
+        <button type="button" className={activeModule === "machineOrders" ? "active" : ""} onClick={() => setActiveModule("machineOrders")}><ClipboardList size={16} /><span><b>Zákazky na strojoch</b><small>Kusy, cyklus a čas</small></span></button>
         <button type="button" className={activeModule === "resources" ? "active" : ""} onClick={() => setActiveModule("resources")}><Settings2 size={16} /><span><b>Stroje a pracoviská</b><small>Konfigurácia zdrojov</small></span></button>
       </nav>
 
@@ -210,7 +225,7 @@ export default function ScherdelProductionPlanningDemo() {
         <article><span className="icon blue"><CalendarDays /></span><div><small>Naplánované zákazky</small><strong>{scheduledAll.length}</strong><p>v aktuálnom demo pláne</p></div></article>
         <article><span className="icon green"><Gauge /></span><div><small>Celkové vyťaženie</small><strong>{overallLoad} %</strong><p>{plannedHours} z {totalCapacity} dostupných hodín</p></div></article>
         <article className={riskCount ? "attention" : ""}><span className="icon orange"><AlertTriangle /></span><div><small>Rizikové zákazky</small><strong>{riskCount}</strong><p>vyžadujú zásah plánovača</p></div></article>
-        <article><span className="icon violet"><Layers3 /></span><div><small>Nenaplánované</small><strong>{orders.filter((order) => !order.machineId).length}</strong><p>čakajú na stroj a termín</p></div></article>
+        <article><span className="icon violet"><Layers3 /></span><div><small>Nenaplánované</small><strong>{calculatedOrders.filter((order) => !order.machineId).length}</strong><p>čakajú na stroj a termín</p></div></article>
       </div>
 
       <div className="scherdel-planning-toolbar">
@@ -262,7 +277,7 @@ export default function ScherdelProductionPlanningDemo() {
                   >
                     <button type="button" className="cell-add" onClick={() => {
                       const draftId = `po-demo-${Date.now()}`;
-                      setOrders((current) => [...current, { id: draftId, number: `VP-DEMO-${current.length + 1}`, itemCode: "ID DEMO", itemName: "Nová plánovaná zákazka", quantity: 5000, machineId: machine.id, day, shift: 1, duration: 6, priority: "normal", status: "draft", dueDay: day, progress: 0 }]);
+                      setOrders((current) => [...current, { id: draftId, number: `VP-DEMO-${current.length + 1}`, itemCode: "ID DEMO", itemName: "Nová plánovaná zákazka", quantity: 5000, completedQuantity: 0, cycleTimeSec: 3.37, setupMinutes: 30, machineId: machine.id, day, shift: 1, priority: "normal", status: "draft", dueDay: day, progress: 0 }]);
                       setSelectedOrderId(draftId);
                     }} aria-label={`Pridať zákazku na ${machine.name}, ${dateFormatter.format(date)}`}><Plus size={13} /></button>
                     {cellOrders.map((order) => <PlanningOrderCard key={order.id} order={order} onOpen={setSelectedOrderId} onDragStart={handleDragStart} onDragEnd={() => setDraggedOrderId(null)} />)}
@@ -282,14 +297,16 @@ export default function ScherdelProductionPlanningDemo() {
         <aside className="scherdel-plan-drawer" aria-label={`Detail zákazky ${selectedOrder.number}`}>
           <header><div><span>Detail výrobnej zákazky</span><h3>{selectedOrder.number}</h3></div><button type="button" onClick={() => setSelectedOrderId(null)} aria-label="Zavrieť detail"><X size={19} /></button></header>
           <div className={`drawer-status ${selectedOrder.status}`}><span>{STATUS_LABELS[selectedOrder.status]}</span><b>{PRIORITY_LABELS[selectedOrder.priority]} priorita</b></div>
-          <div className="drawer-product"><small>{selectedOrder.itemCode}</small><strong>{selectedOrder.itemName}</strong><span>{numberFormatter.format(selectedOrder.quantity)} ks · plán {selectedOrder.duration} h</span></div>
+          <div className="drawer-product"><small>{selectedOrder.itemCode}</small><strong>{selectedOrder.itemName}</strong><span>{numberFormatter.format(selectedOrder.quantity)} ks · plán {formatHours(selectedOrder.metrics.totalHours)} h · zostáva {formatHours(selectedOrder.metrics.remainingHours)} h</span></div>
           {selectedOrder.status === "risk" ? <div className="drawer-warning"><AlertTriangle size={17} /><span><strong>Riziko nesplnenia termínu</strong>Kapacita stroja alebo plánovaný termín vyžaduje kontrolu.</span></div> : null}
           <div className="drawer-form">
             <label><span>Priradený stroj</span><select value={selectedOrder.machineId || ""} onChange={(event) => updateOrder(selectedOrder.id, { machineId: event.target.value || null, day: event.target.value ? (selectedOrder.day ?? 0) : null })}><option value="">Nenaplánované</option>{activeMachines.map((machine) => <option key={machine.id} value={machine.id}>{machine.code} · {machine.name}</option>)}</select></label>
             <label><span>Plánovaný deň</span><select value={selectedOrder.day ?? ""} disabled={!selectedOrder.machineId} onChange={(event) => updateOrder(selectedOrder.id, { day: Number(event.target.value) })}><option value="">Vybrať deň</option>{week.map((date, day) => <option key={date.toISOString()} value={day}>{weekdayFormatter.format(date)} {dateFormatter.format(date)}</option>)}</select></label>
             <label><span>Pracovná zmena</span><select value={selectedOrder.shift} onChange={(event) => updateOrder(selectedOrder.id, { shift: Number(event.target.value) })}>{SHIFTS.map((shift) => <option key={shift.value} value={shift.value}>{shift.label} · {shift.time}</option>)}</select></label>
-            <div className="drawer-form-row"><label><span>Trvanie (h)</span><input type="number" min="0.5" step="0.5" value={selectedOrder.duration} onChange={(event) => updateOrder(selectedOrder.id, { duration: Math.max(0.5, Number(event.target.value) || 0.5) })} /></label><label><span>Priorita</span><select value={selectedOrder.priority} onChange={(event) => updateOrder(selectedOrder.id, { priority: event.target.value })}><option value="high">Vysoká</option><option value="normal">Normálna</option><option value="low">Nízka</option></select></label></div>
-            <label><span>Stav plánu</span><select value={selectedOrder.status} onChange={(event) => updateOrder(selectedOrder.id, { status: event.target.value })}><option value="draft">Návrh</option><option value="confirmed">Potvrdené</option><option value="risk">Riziko</option><option value="running">Vo výrobe</option></select></label>
+            <div className="drawer-form-row"><label><span>Plánované kusy</span><input type="number" min="0" step="100" value={selectedOrder.quantity} onChange={(event) => { const quantity = Math.max(0, Number(event.target.value) || 0); updateOrder(selectedOrder.id, { quantity, completedQuantity: Math.min(selectedOrder.metrics.completedQuantity, quantity) }); }} /></label><label><span>Vyrobené kusy</span><input type="number" min="0" max={selectedOrder.quantity} step="100" value={selectedOrder.metrics.completedQuantity} onChange={(event) => updateOrder(selectedOrder.id, { completedQuantity: Math.min(selectedOrder.quantity, Math.max(0, Number(event.target.value) || 0)) })} /></label></div>
+            <div className="drawer-form-row"><label><span>Cyklus (sekúnd / kus)</span><input type="number" min="0.01" step="0.01" value={selectedOrder.cycleTimeSec} onChange={(event) => updateOrder(selectedOrder.id, { cycleTimeSec: Math.max(0.01, Number(event.target.value) || 0.01) })} /></label><label><span>Prestavba (min)</span><input type="number" min="0" step="5" value={selectedOrder.setupMinutes} onChange={(event) => updateOrder(selectedOrder.id, { setupMinutes: Math.max(0, Number(event.target.value) || 0) })} /></label></div>
+            <div className="drawer-calculation"><span><Clock3 size={15} />Vypočítaný čas</span><strong>{formatHours(selectedOrder.metrics.totalHours)} h</strong><small>Prestavba + (kusy × cyklus ÷ efektivita stroja {selectedOrder.metrics.efficiencyPercent} %)</small></div>
+            <div className="drawer-form-row"><label><span>Priorita</span><select value={selectedOrder.priority} onChange={(event) => updateOrder(selectedOrder.id, { priority: event.target.value })}><option value="high">Vysoká</option><option value="normal">Normálna</option><option value="low">Nízka</option></select></label><label><span>Stav plánu</span><select value={selectedOrder.status} onChange={(event) => updateOrder(selectedOrder.id, { status: event.target.value })}><option value="draft">Návrh</option><option value="confirmed">Potvrdené</option><option value="risk">Riziko</option><option value="running">Vo výrobe</option></select></label></div>
           </div>
           <footer><span><Clock3 size={14} />Demo zmeny sa neukladajú</span><button type="button" onClick={() => setSelectedOrderId(null)}><CheckCircle2 size={16} />Hotovo</button></footer>
         </aside>
@@ -303,7 +320,7 @@ export default function ScherdelProductionPlanningDemo() {
           <footer><button type="button" className="secondary" onClick={() => setShowNewOrder(false)}>Zrušiť</button><button type="button" className="primary" onClick={createDraftOrder}><Plus size={16} />Vytvoriť návrh</button></footer>
         </div>
       </div> : null}
-      </> : <ScherdelResourceConfiguration machines={machines} setMachines={setMachines} workplaces={workplaces} setWorkplaces={setWorkplaces} orders={orders} />}
+      </> : activeModule === "resources" ? <ScherdelResourceConfiguration machines={machines} setMachines={setMachines} workplaces={workplaces} setWorkplaces={setWorkplaces} orders={orders} /> : <ScherdelMachineOrders machines={machines} workplaces={workplaces} orders={orders} setOrders={setOrders} />}
     </section>
   );
 }

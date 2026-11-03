@@ -105,9 +105,9 @@ export const SITE_NAME = "Factory OS";
 export const DEFAULT_SITE_URL = String(import.meta.env.VITE_SITE_URL || "")
   .trim()
   .replace(/\/+$/, "");
-export const LANDING_TITLE = `${SITE_NAME} | Skladový monitoring a online prehľad zásob`;
+export const LANDING_TITLE = `${SITE_NAME} | Digitálne riešenia pre výrobu a logistiku`;
 export const LANDING_DESCRIPTION =
-  "Skladový monitoring, online prehľad zásob a evidencia skladových pohybov v reálnom čase pre výrobu, logistiku a interné sklady.";
+  "Factory OS prepája výrobu, sklad, dochádzku a firemné doklady do jedného prevádzkového systému bez ručného prepisovania údajov.";
 export const LANDING_USE_CASES = [
   "Sklady a logistické tímy, ktoré potrebujú mať zásoby, pohyby a lokácie pod kontrolou v reálnom čase.",
   "Výrobné firmy, ktoré chcú prepojiť sklad, objednávky, materiál a interné workflow do jedného systému.",
@@ -127,19 +127,24 @@ export const LANDING_OUTCOMES = [
 ];
 export const LANDING_FAQ = [
   {
-    question: "Čo dokáže Factory OS sledovať?",
+    question: "Ako vyzerá prvý krok spolupráce?",
     answer:
-      "Aplikácia zobrazuje stav skladu, zásoby podľa lokácie, históriu pohybov, príjmy, výdaje, presuny, dokumenty aj firemné workflow v jednom rozhraní."
+      "Najskôr si prejdeme problém, ktorý dnes stojí najviac času alebo spôsobuje nepresné údaje. Ak to dáva zmysel, nasleduje návšteva prevádzky a návrh prvej etapy."
   },
   {
-    question: "Je systém vhodný pre výrobu aj logistiku?",
+    question: "Musíme nasadiť celý systém naraz?",
     answer:
-      "Áno. Systém je vhodný pre interné sklady, výrobu, logistiku aj obchodné tímy, ktoré potrebujú mať procesy v jednom firemnom nástroji."
+      "Nie. Bežne sa začína jedným procesom alebo pracoviskom. Ďalšie moduly sa pridávajú až po tom, ako je prvá etapa stabilná a ľudia ju prirodzene používajú."
   },
   {
-    question: "Dá sa Factory OS napojiť na existujúce procesy?",
+    question: "Prispôsobíte riešenie našej prevádzke?",
     answer:
-      "Áno. Riešenie sa dá prispôsobiť konkrétnej firme, rolám, dokumentom, QR štítkom, lokátorom aj budúcim e-shop integráciám."
+      "Áno. Základ systému je spoločný, ale pracovné postupy, roly, výstupy a napojenia nastavujeme podľa konkrétnej firmy. Zároveň upozorníme, ak je jednoduchšie upraviť proces než programovať zbytočnú výnimku."
+  },
+  {
+    question: "Dodávate aj terminály a hardware?",
+    answer:
+      "Áno. Podľa potreby dodáme a nastavíme výrobné alebo dochádzkové terminály, PDA zariadenia či tlač etikiet. Hardware vyberáme podľa prostredia a spôsobu práce, nie iba podľa katalógu."
   }
 ];
 export const LANDING_FLOW_SCENARIOS = [
@@ -147,11 +152,11 @@ export const LANDING_FLOW_SCENARIOS = [
     key: "stock",
     icon: Boxes,
     eyebrow: "Sklad",
-    title: "Príjem materiálu a lokácie",
-    detail: "Materiál sa naskladní na pozície, systém drží množstvá, expirácie a dostupnosť pre picking aj výrobu.",
+    title: "Materiál má miesto aj históriu",
+    detail: "Pri príjme sa priradí pozícia a množstvo. Každý ďalší presun zostáva dohľadateľný pre sklad aj výrobu.",
     metric: "128 ks dostupných",
-    panelTitle: "Skladová vrstva",
-    panelLabel: "Živý sample skladu",
+    panelTitle: "Prehľad skladu",
+    panelLabel: "Ukážkové prevádzkové údaje",
     kpis: [
       { label: "Presnosť", value: "94.6%", note: "lokácie vs realita" },
       { label: "Pohyby", value: "142", note: "dnes spracovaných" },
@@ -172,11 +177,11 @@ export const LANDING_FLOW_SCENARIOS = [
     key: "production",
     icon: Factory,
     eyebrow: "Výroba",
-    title: "Spotreba vstupov a výstupy",
-    detail: "Výrobný terminál odpíše vstupy, zaeviduje výstup a vedúci vidí prestoje aj rozpracovanosť.",
+    title: "Odvádzanie výroby bez prepisovania",
+    detail: "Operátor na termináli potvrdí spotrebu, hotové kusy aj prestoj. Informácia je okamžite dostupná majstrovi aj skladu.",
     metric: "24 ks hotových",
-    panelTitle: "Výrobná vrstva",
-    panelLabel: "Živý sample výroby",
+    panelTitle: "Prehľad výroby",
+    panelLabel: "Ukážkové prevádzkové údaje",
     kpis: [
       { label: "Linky", value: "3", note: "2 bežia, 1 prestavba" },
       { label: "Výstupy", value: "24 ks", note: "hotové dnes" },
@@ -197,11 +202,11 @@ export const LANDING_FLOW_SCENARIOS = [
     key: "attendance",
     icon: Clock3,
     eyebrow: "Dochádzka",
-    title: "Smeny, prítomnosť a kapacita tímu",
-    detail: "Terminály a HR modul ukážu, kto je na zmene, koľko ľudí je na linke a kde hrozí výpadok kapacity.",
+    title: "Ľudia a kapacita zmeny",
+    detail: "Dochádzka ukáže reálnu prítomnosť. Vedúci tak vie, či má plánovaná zmena dostatok ľudí ešte pred začiatkom výroby.",
     metric: "92% obsadenie smeny",
-    panelTitle: "Dochádzková vrstva",
-    panelLabel: "Živý sample smeny",
+    panelTitle: "Kapacita zmeny",
+    panelLabel: "Ukážkové prevádzkové údaje",
     kpis: [
       { label: "Prítomní", value: "25", note: "z 27 plánovaných" },
       { label: "Absencie", value: "2", note: "1 PN, 1 dovolenka" },
@@ -222,11 +227,11 @@ export const LANDING_FLOW_SCENARIOS = [
     key: "documents",
     icon: ClipboardList,
     eyebrow: "Dokumenty",
-    title: "Objednávky, ponuky a faktúry",
-    detail: "Z hotových alebo pripravených položiek vznikajú doklady bez prepisu dát medzi oddeleniami.",
+    title: "Z objednávky k expedícii",
+    detail: "Obchod, sklad a fakturácia pracujú s rovnakou zákazkou. Stav sa mení podľa skutočného priebehu, nie podľa posledného e-mailu.",
     metric: "18 expedovaných objednávok",
-    panelTitle: "Dokladová vrstva",
-    panelLabel: "Živý sample obchodného toku",
+    panelTitle: "Tok zákazky",
+    panelLabel: "Ukážkové prevádzkové údaje",
     kpis: [
       { label: "Ponuky", value: "12", note: "otvorené dnes" },
       { label: "Objednávky", value: "18", note: "pripravené na expedíciu" },
@@ -247,11 +252,11 @@ export const LANDING_FLOW_SCENARIOS = [
     key: "kpi",
     icon: MonitorSmartphone,
     eyebrow: "KPI",
-    title: "Výkon, OEE a manažérsky prehľad",
-    detail: "Vedúci vidí priepustnosť toku, čakania, efektivitu zmien a čo priamo tlačí maržu alebo mešká.",
+    title: "Výkon s potrebnými súvislosťami",
+    detail: "OEE, prestoje a plnenie plánu sú prepojené s konkrétnou zmenou, strojom a zákazkou. Číslo sa dá vysvetliť, nielen zobraziť.",
     metric: "OEE 78.4%",
-    panelTitle: "KPI vrstva",
-    panelLabel: "Živý sample výkonnosti",
+    panelTitle: "Výkon prevádzky",
+    panelLabel: "Ukážkové prevádzkové údaje",
     kpis: [
       { label: "OEE", value: "78.4%", note: "dnešný priemer" },
       { label: "Lead time", value: "2.8 h", note: "od príjmu po doklad" },
@@ -272,11 +277,11 @@ export const LANDING_FLOW_SCENARIOS = [
     key: "revenue",
     icon: ReceiptText,
     eyebrow: "Obraty",
-    title: "Denný prehľad obratu a marže",
-    detail: "Majiteľ alebo obchod vidí obrat, rozfakturované zákazky a čo ešte čaká na billing.",
+    title: "Čo je hotové a čo čaká na fakturáciu",
+    detail: "Vedenie vidí uzatvorené zákazky, pripravené doklady aj položky, ktoré ešte bránia fakturácii.",
     metric: "14 820 € dnes",
-    panelTitle: "Obratová vrstva",
-    panelLabel: "Živý sample obratu",
+    panelTitle: "Obchodný prehľad",
+    panelLabel: "Ukážkové prevádzkové údaje",
     kpis: [
       { label: "Denný obrat", value: "14 820 €", note: "aktuálny súčet" },
       { label: "Marža", value: "3 424 €", note: "dnešný hrubý príspevok" },

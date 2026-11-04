@@ -686,7 +686,7 @@ export default function ScherdelProductionPlanningDemo() {
   return (
     <motion.section className="scherdel-planning" aria-label="Testovací modul plánovania výroby" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.55, ease: "easeOut" }}>
       <motion.div className="scherdel-planning-demo-banner" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.18 }}>
-        <span><Sparkles size={15} />PLANNING LAB</span>
+        <span><Sparkles size={15} />DEMO SCENÁR</span>
         <p><b>Modelový výrobný týždeň</b><small>2 odberateľské objednávky · 8 dávok · 15 polotovarov na rám · zváranie · kontrola · expedícia</small></p>
         <em>Demo dáta</em>
       </motion.div>
@@ -694,8 +694,8 @@ export default function ScherdelProductionPlanningDemo() {
       <motion.header className="scherdel-planning-header" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08, duration: 0.45 }}>
         <div>
           <span className="planning-kicker"><i aria-hidden="true" /> Production planning</span>
-          <h2>{activeModule === "plan" ? "Týždeň výroby, bez slepých miest." : activeModule === "resources" ? "Kapacita, ktorú možno reálne naplánovať." : "Od polotovaru po expedíciu."}</h2>
-          <p>{activeModule === "plan" ? "Zákazky sú zoradené podľa kapacity, materiálovej nadväznosti a termínu odovzdania." : activeModule === "resources" ? "Pracoviská, stroje a ich dostupnosť tvoria pevný základ výrobného plánu." : "Materiálový register ukazuje, čo sa vyrába, kde sa to vyrába a na ktorú operáciu výstup pokračuje."}</p>
+          <h2>{activeModule === "plan" ? "Kapacitný plán výroby" : activeModule === "resources" ? "Stroje a dostupná kapacita" : "Materiálový tok výroby"}</h2>
+          <p>{activeModule === "plan" ? "Zákazky zoradené podľa dostupnosti strojov, nadväznosti operácií a termínu odovzdania." : activeModule === "resources" ? "Pracoviská, stroje a ich dostupnosť tvoria základ každého realizovateľného plánu." : "Prehľad polotovarov, výrobných operácií a nadväzností až po hotový diel."}</p>
         </div>
         {activeModule === "plan" ? <div className="planning-header-actions"><button type="button" className="scherdel-plan-danger" onClick={deleteAllOrders} disabled={!orders.length} title="Vymaže zákazky len do obnovenia stránky"><Trash2 size={15} />Vymazať všetky</button><button type="button" className="scherdel-plan-secondary" onClick={handleAutomaticAssignment}><Sparkles size={17} />Automatické priradenie</button><button type="button" className="scherdel-plan-primary" onClick={() => { setMachineOrdersInitialMachineId(null); setMachineOrdersInitialDay(null); setMachineOrdersInitialShift(null); setIsNewOrderOpen(true); }}><Plus size={17} />Nová zákazka</button></div> : null}
       </motion.header>

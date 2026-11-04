@@ -13,14 +13,14 @@ export default defineConfig({
           if (!id.includes("node_modules")) {
             return undefined;
           }
-          if (id.includes("react") || id.includes("react-dom")) {
+          if (id.includes("lucide-react")) {
+            return "icons-vendor";
+          }
+          if (/node_modules[\\/](react|react-dom|scheduler|motion|motion-dom|motion-utils|framer-motion)[\\/]/.test(id)) {
             return "react-vendor";
           }
           if (id.includes("@supabase")) {
             return "supabase-vendor";
-          }
-          if (id.includes("lucide-react")) {
-            return "icons-vendor";
           }
           if (id.includes("xlsx")) {
             return "xlsx";

@@ -18,6 +18,7 @@ export default function ScherdelNewProductionOrderModal({ products, orders, mach
     dueDate: toDateInputValue(week[Math.min(4, Number.isInteger(initialDay) ? initialDay + 2 : 4)] || week[4] || new Date()),
     priority: "normal",
     predecessorOrderIds: [],
+    processInputProductIds: [],
     machineId: initialMachineId || null,
     day: Number.isInteger(initialDay) ? initialDay : null,
     shift: [1, 2, 3].includes(initialShift) ? initialShift : 1
@@ -26,6 +27,7 @@ export default function ScherdelNewProductionOrderModal({ products, orders, mach
   const inputProducts = useMemo(() => products.filter((product) => product.feedsIntoProductIds?.includes(draft.productId)), [draft.productId, products]);
   const downstreamProducts = useMemo(() => (selectedProduct?.feedsIntoProductIds || []).map((id) => products.find((product) => product.id === id)).filter(Boolean), [products, selectedProduct]);
   const predecessorCandidates = useMemo(() => orders.filter((order) => inputProducts.some((product) => product.id === order.productId)), [inputProducts, orders]);
+  const inputProductsWithoutOrders = useMemo(() => inputProducts.filter((product) => !predecessorCandidates.some((order) => order.productId === product.id)), [inputProducts, predecessorCandidates]);
   const eligibleMachines = useMemo(() => machines.filter((machine) => machine.active && machine.productIds?.includes(draft.productId)), [draft.productId, machines]);
 
   const updateDraft = (patch) => setDraft((current) => ({ ...current, ...patch }));
@@ -37,6 +39,11 @@ export default function ScherdelNewProductionOrderModal({ products, orders, mach
     predecessorOrderIds: draft.predecessorOrderIds.includes(orderId)
       ? draft.predecessorOrderIds.filter((id) => id !== orderId)
       : [...draft.predecessorOrderIds, orderId]
+  });
+  const toggleInputMaterial = (productId) => updateDraft({
+    processInputProductIds: draft.processInputProductIds.includes(productId)
+      ? draft.processInputProductIds.filter((id) => id !== productId)
+      : [...draft.processInputProductIds, productId]
   });
   const submit = (autoAssign) => {
     if (!selectedProduct || !String(draft.number || "").trim() || !draft.dueDate) return;
@@ -60,7 +67,8 @@ export default function ScherdelNewProductionOrderModal({ products, orders, mach
         <section className="new-order-chain">
           <header><GitBranch size={16} /><div><b>Materiálové reťazenie</b><span>Vyber hotové alebo plánované zákazky, ktorých výstup vstupuje do tejto výroby.</span></div></header>
           {inputProducts.length ? <div className="new-order-material-flow"><span>Vstupy</span>{inputProducts.map((product) => <b key={product.id}>{product.itemCode}<small>{product.operation}</small></b>)}<i>→</i><strong>{selectedProduct?.itemCode}</strong></div> : <p>Tento materiál nemá v registri definovaný predchádzajúci výrobný materiál.</p>}
-          {predecessorCandidates.length ? <div className="new-order-predecessors">{predecessorCandidates.map((order) => <label key={order.id} className={draft.predecessorOrderIds.includes(order.id) ? "selected" : ""}><input type="checkbox" checked={draft.predecessorOrderIds.includes(order.id)} onChange={() => togglePredecessor(order.id)} /><span><b>{order.number}</b><small>{order.itemCode} · {order.itemName}</small></span></label>)}</div> : null}
+          {predecessorCandidates.length ? <div className="new-order-predecessors"><b className="new-order-subheading">Existujúce vstupné zákazky</b>{predecessorCandidates.map((order) => <label key={order.id} className={draft.predecessorOrderIds.includes(order.id) ? "selected" : ""}><input type="checkbox" checked={draft.predecessorOrderIds.includes(order.id)} onChange={() => togglePredecessor(order.id)} /><span><b>{order.number}</b><small>{order.itemCode} · {order.itemName}</small></span></label>)}</div> : null}
+          {inputProductsWithoutOrders.length ? <div className="new-order-predecessors"><b className="new-order-subheading">Potvrďte materiály na spracovanie</b>{inputProductsWithoutOrders.map((product) => <label key={product.id} className={draft.processInputProductIds.includes(product.id) ? "selected" : ""}><input type="checkbox" checked={draft.processInputProductIds.includes(product.id)} onChange={() => toggleInputMaterial(product.id)} /><span><b>{product.itemCode} · {product.operation}</b><small>{product.itemName} · po potvrdení sa vytvorí vstupná zákazka a zaradí pred túto výrobu</small></span></label>)}</div> : null}
           {downstreamProducts.length ? <div className="new-order-downstream"><span>Výstup tejto zákazky ďalej vstupuje do:</span>{downstreamProducts.map((product) => <b key={product.id}>{product.itemCode} · {product.itemName}</b>)}</div> : null}
         </section>
 

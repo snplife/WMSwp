@@ -1,4 +1,4 @@
-import { CalendarDays } from "lucide-react";
+import { useEffect } from "react";
 import MesTenantApp from "../shared/MesTenantApp";
 import ScherdelProductionPlanningDemo from "./ScherdelProductionPlanningDemo";
 import "./scherdelMesDashboard.css";
@@ -10,7 +10,13 @@ function isStandalonePlanningPreview(location) {
 }
 
 export default function ScherdelMesApp({ tenant }) {
-  if (isStandalonePlanningPreview(window.location)) {
+  const standalonePlanningPreview = isStandalonePlanningPreview(window.location);
+
+  useEffect(() => {
+    if (standalonePlanningPreview) document.title = "SCHERDEL | Plánovanie výroby";
+  }, [standalonePlanningPreview]);
+
+  if (standalonePlanningPreview) {
     return (
       <main className="scherdel-mes" style={{ "--scherdel-accent": tenant.branding?.accent || "#0067a8" }}>
         <header className="scherdel-topbar">
@@ -23,13 +29,18 @@ export default function ScherdelMesApp({ tenant }) {
           <div className="scherdel-user"><span>Testovacia verzia</span></div>
         </header>
 
-        <section className="scherdel-hero">
-          <div><p>Výrobný monitoring · C.E.P. Scherdel</p><h1>Riadenie a sledovanie výroby</h1><span>Samostatný náhľad plánovacieho modulu</span></div>
+        <section className="scherdel-hero planning-preview-hero">
+          <div>
+            <p><i aria-hidden="true" /> SCHERDEL · výrobný plán</p>
+            <h1>Plán, ktorý rešpektuje<br /><em>realitu výroby.</em></h1>
+            <span>Kapacita strojov, materiálové väzby a termíny zákaziek v jednom pracovnom pohľade.</span>
+          </div>
+          <aside className="planning-preview-status">
+            <span><i aria-hidden="true" /> Interaktívne demo</span>
+            <b>Lokálny plánovací scenár</b>
+            <small>Zmeny zostávajú iba v tomto prehliadači.</small>
+          </aside>
         </section>
-
-        <nav className="scherdel-nav" aria-label="Testovacia MES navigácia">
-          <button type="button" className="active"><CalendarDays size={17} />Plánovanie výroby</button>
-        </nav>
 
         <ScherdelProductionPlanningDemo />
       </main>

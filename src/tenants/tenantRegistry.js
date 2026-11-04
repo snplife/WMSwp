@@ -4,7 +4,7 @@ const normalizeHostname = (value) =>
 const tenantDefinitions = [
   {
     id: "scherdel",
-    hostnames: ["scherdel.meslula.sk"],
+    hostnames: ["scherdel.meslula.sk", "scherdel-planning-demo.vercel.app"],
     companyId: String(import.meta.env.VITE_TENANT_SCHERDEL_COMPANY_ID || "").trim(),
     companyNameFragments: ["scherdel"],
     branding: {

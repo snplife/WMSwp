@@ -27,7 +27,7 @@ export default function ScherdelMesApp({ tenant }) {
             <img className="scherdel-platform-logo" src={tenant.branding?.platformLogo} alt="MESLULA" />
             <small>Manufacturing Execution System</small>
           </div>
-          <div className="scherdel-user"><span>Planning demo</span></div>
+          <div className="scherdel-user"><span>Testovacia verzia</span></div>
         </header>
 
         <section className="scherdel-hero planning-preview-hero">
@@ -36,12 +36,10 @@ export default function ScherdelMesApp({ tenant }) {
             <h1>Plán, ktorý rešpektuje<br /><em>realitu výroby.</em></h1>
             <span>Kapacita strojov, materiálové väzby a termíny zákaziek v jednom pracovnom pohľade.</span>
           </div>
-          <aside className="planning-preview-status" aria-label="Ukážka kapacitného plánu">
-            <header><span>factory-os / planning</span><b><i aria-hidden="true" /> LIVE</b></header>
-            <div className="planning-console-head"><small>HALA A · TÝŽDEŇ 45</small><strong>Kapacitný plán výroby</strong></div>
-            <dl><div><dt>Kapacita</dt><dd>1 000 <small>h</small></dd></div><div><dt>Stroje</dt><dd>9 <small>aktívnych</small></dd></div><div><dt>Backlog</dt><dd>144 <small>dávok</small></dd></div></dl>
-            <div className="planning-console-chart" aria-hidden="true"><span style={{ "--bar": "38%" }} /><span style={{ "--bar": "61%" }} /><span style={{ "--bar": "48%" }} /><span style={{ "--bar": "72%" }} /><span style={{ "--bar": "57%" }} /><span style={{ "--bar": "83%" }} /><span style={{ "--bar": "69%" }} /></div>
-            <footer><span><i /> Ohýbanie</span><span><i /> Zváranie</span><span><i /> Kontrola</span></footer>
+          <aside className="planning-preview-status">
+            <span><i aria-hidden="true" /> Interaktívne demo</span>
+            <b>Lokálny plánovací scenár</b>
+            <small>Zmeny zostávajú iba v tomto prehliadači.</small>
           </aside>
         </section>
 
